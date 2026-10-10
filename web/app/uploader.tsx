@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { runUpload } from '@/lib/uploader.ts';
 
 type Job = { jobId: string; releaseId: number; parts: number; chunkSize: number };
-type Listed = { jobId: string; title: string; parts: number; bytes: number; uploaded: boolean; outputs: string[] };
+type Listed = { jobId: string; title: string; screen: string; phase: string | null; stuck: string | null };
 
 const mb = (n: number) => `${(n / 1024 / 1024).toFixed(1)} МБ`;
 
@@ -116,7 +116,7 @@ export default function Uploader() {
         {jobs.length === 0 ? <div className="muted">Пока пусто</div> : jobs.map((j) => (
           <div key={j.jobId} className="row">
             <span>{j.title}<br /><code>{j.jobId}</code></span>
-            <span className="muted">{mb(j.bytes)} · {j.uploaded ? 'загружено' : `${j.parts} кусков`}{j.outputs.length ? ' · готово' : ''}</span>
+            <span className="muted">{j.phase ?? j.screen}{j.stuck ? ' · завис' : ''}</span>
           </div>
         ))}
       </div>

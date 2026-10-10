@@ -78,10 +78,13 @@ async function concat(home) {
   for (const line of lines.slice(1)) {
     const file = line.match(/^file '(.+)'$/);
     const duration = line.match(/^duration ([\d.]+)$/);
-    if (file) items.push({ file: file[1], duration: null });
+    const option = line.match(/^option (\w+) (\S+)$/);
+    if (file) items.push({ file: file[1], duration: null, options: {} });
     else if (duration) items.at(-1).duration = Number(duration[1]);
+    else if (option) items.at(-1).options[option[1]] = option[2];
     else assert.fail(`unexpected line: ${line}`);
   }
+  for (const i of items) assert.equal(i.options.framerate, '30', `every file keeps the 30 fps grid: ${i.file}`);
   return items;
 }
 
@@ -97,8 +100,57 @@ test('render-frames writes ffconcat whose durations sum to total', async () => {
   const timed = items.filter((i) => i.duration !== null);
   assert.equal(timed.length, 3);
   assert.ok(Math.abs(timed.reduce((s, i) => s + i.duration, 0) - 2.0) <= 1 / 30);
+  assert.equal(items.length, timed.length + 1, 'the last file is repeated once more, without a duration');
+  assert.equal(items.at(-1).duration, null);
   assert.equal(items.at(-1).file, timed.at(-1).file, 'the last file is repeated for ffmpeg');
   for (const i of items) assert.ok((await stat(path.join(home, 'frames', i.file))).size > 0);
+  const empty = await decode(path.join(home, 'frames', timed[0].file), '54x96');
+  assert.ok(empty.every((v, k) => k % 4 !== 3 || v === 0), 'an empty state is a fully transparent PNG');
+});
+
+/** Кадры файла (или ffconcat) как RGBA `size`, через ffmpeg; ffconcat — с fps=30, как в финале. */
+async function decode(file, size, concat = false) {
+  const [w, h] = size.split('x').map(Number);
+  const input = concat ? ['-f', 'concat', '-safe', '0', '-i', file] : ['-i', file];
+  const vf = `${concat ? 'fps=30,' : ''}scale=${w}:${h}:flags=area`;
+  const { stdout } = await run('ffmpeg', ['-hide_banner', '-loglevel', 'error', ...input, '-vf', vf, '-f', 'rawvideo', '-pix_fmt', 'rgba', '-'], { encoding: 'buffer', maxBuffer: 1 << 28 });
+  return stdout;
+}
+
+test('ffmpeg shows every interval on its own frames (30 fps grid)', async () => {
+  // три однокадровых состояния подряд (как появление вставки) на разных сдвигах от начала, между ними — пусто
+  const F = 1 / 30;
+  const plan = [];
+  for (let k = 1; k <= 6; k++) plan.push(['Z', k], ['A', 1], ['B', 1], ['C', 1]);
+  plan.push(['Z', 3]);
+  const events = [];
+  let at = 0;
+  for (const [name, frames] of plan) {
+    const state = name === 'Z' ? {} : { sub: { words: [name.repeat(4)], active: 0, visible: 1 } };
+    events.push({ t0: at * F, t1: (at + frames) * F, state, name });
+    at += frames;
+  }
+  const home = await job('grid', events.map(({ t0, t1, state }) => ({ t0, t1, state })), { ...SPEC, subtitles: { ...SPEC.subtitles, size: 200 } });
+  await render(home);
+  const refs = {};
+  const timed = (await concat(home)).filter((i) => i.duration !== null);
+  for (const [i, e] of events.entries()) refs[e.name] ??= await decode(path.join(home, 'frames', timed[i].file), '54x96');
+  const video = await decode(path.join(home, 'frames', 'frames.ffconcat'), '54x96', true);
+  const size = 54 * 96 * 4;
+  const expected = plan.flatMap(([name, frames]) => Array(frames).fill(name));
+  const seen = [];
+  for (let f = 0; f < expected.length; f++) {
+    const frame = video.subarray(f * size, (f + 1) * size);
+    let best = null;
+    let bestDiff = Infinity;
+    for (const [name, ref] of Object.entries(refs)) {
+      let diff = 0;
+      for (let k = 0; k < size; k++) diff += Math.abs(frame[k] - ref[k]);
+      if (diff < bestDiff) [best, bestDiff] = [name, diff];
+    }
+    seen.push(best);
+  }
+  assert.equal(seen.join(''), expected.join(''));
 });
 
 test('identical states reuse one png', async () => {
@@ -131,10 +183,11 @@ test('custom fonts and insert pictures come from the given folders', async () =>
   const fonts = path.join(dir, 'my-fonts');
   await mkdir(fonts, { recursive: true });
   await copyFile(path.join(ROOT, 'fonts', 'caveat', 'caveat.ttf'), path.join(fonts, 'pavel-hand.ttf'));
+  await copyFile(path.join(ROOT, 'fonts', 'rubik', 'rubik.ttf'), path.join(fonts, 'Мой шрифт #1.ttf')); // имя с пробелом, # и кириллицей
   const home = await job(
     'custom',
     [{ t0: 0, t1: 1, state: { hook: { text: 'Свой шрифт' }, inserts: [{ kind: 'image', src: 'in/pic.png', x: 100, y: 600, w: 200, anim: 1, t: 0 }] } }],
-    { ...SPEC, hand: 'pavel-hand' },
+    { ...SPEC, hand: 'pavel-hand', font: 'Мой шрифт #1' },
   );
   await mkdir(path.join(home, 'in'));
   await writeFile(path.join(home, 'in', 'pic.png'), png(4, 4, [255, 0, 0, 255]));

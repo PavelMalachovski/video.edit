@@ -12,11 +12,12 @@ export function customFonts(names, dir) {
     .sort()
     .map((name) => {
       const id = path.parse(name).name;
-      return { id, family: id, file: `${dir}/${name}`, weight: 400, kind: id.toLowerCase().endsWith('-hand') ? 'hand' : 'main' };
-    });
+      return { id, family: id, file: `${dir}/${encodeURIComponent(name)}`, weight: 400, kind: id.toLowerCase().endsWith('-hand') ? 'hand' : 'main' };
+    })
+    .filter((f, i, all) => all.findIndex((g) => g.id === f.id) === i); // A.ttf и A.otf — один id, берём первый
 }
 
-/** Встроенные шрифты и свои — одним списком, без повторов id. */
+/** Встроенные шрифты и свои — одним списком, без повторов id (встроенный важнее). */
 export function mergeFonts(builtIn, custom) {
   const known = new Set(builtIn.map((f) => f.id));
   return [...builtIn, ...custom.filter((f) => !known.has(f.id))];

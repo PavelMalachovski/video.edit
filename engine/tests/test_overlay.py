@@ -217,6 +217,39 @@ def test_times_are_source_times_moved_by_the_timeline():
     assert (cta[0]["t0"], cta[-1]["t1"]) == pytest.approx((on_grid(2.3 / 1.1), on_grid(3.4 / 1.1)))
 
 
+def test_nothing_new_appears_on_the_freeze_frame():
+    # титр и вставка целиком в вырезанном хвосте: в ролике их не видно — не появляются и на стоп-кадре
+    edit = make_edit(
+        keep=[[0.0, 8.0]],
+        cta={"lines": ["Пиши"], "word": "слово", "t0": 8.5, "t1": 9.5},
+        inserts=[picture(8.6, 9.0)],
+        hold=1.0,
+    )
+    events = build_overlay_events(edit, timeline(edit))
+    assert all(e["state"] == {} for e in events), events
+
+
+def test_hook_and_cta_inside_cuts_move_to_the_next_kept_moment():
+    # keep [0,2] и [3,5]: конец хука в вырезке → начало второго отрезка; титр 2.2–4.0 → 2.0–3.0 финала
+    edit = make_edit(
+        keep=[[0.0, 2.0], [3.0, 5.0]],
+        hook={"text": "Хук", "until": 2.5},
+        cta={"lines": ["Пиши"], "word": "слово", "t0": 2.2, "t1": 4.0},
+    )
+    events = build_overlay_events(edit, timeline(edit))
+    hook = [e for e in events if "hook" in e["state"]]
+    cta = [e for e in events if "cta" in e["state"]]
+    assert (hook[0]["t0"], hook[-1]["t1"]) == pytest.approx((0.0, 2.0))
+    assert (cta[0]["t0"], cta[-1]["t1"]) == pytest.approx((2.0, 3.0))
+
+
+def test_insert_inside_a_cut_shows_at_the_next_kept_moment():
+    # вставку поставили на момент, который вырезали: она появляется там, где ролик продолжается, на 1,5 с
+    edit = make_edit(keep=[[0.0, 5.0], [8.0, 15.0]], inserts=[picture(6.0, 7.0)])
+    shown = [e for e in build_overlay_events(edit, timeline(edit)) if e["state"].get("inserts")]
+    assert (shown[0]["t0"], shown[-1]["t1"]) == pytest.approx((5.0, 6.5))
+
+
 def test_insert_needs_a_place():
     edit = make_edit(inserts=[picture(1.0, 2.0), {"kind": "badge", "text": "Чешский", "t0": 3.0, "t1": 5.0, "y": 100, "w": 300}])
     with pytest.raises(ValueError, match=r"inserts\[1\].*x"):

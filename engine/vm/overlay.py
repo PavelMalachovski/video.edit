@@ -44,11 +44,11 @@ def build_overlay_events(edit: dict, tl: Timeline) -> list[dict]:
     end = tl.duration + hold
     last = _frame(end)  # кадров во всём ролике со стоп-кадром
     video = _frame(tl.duration)  # последний кадр ролика без стоп-кадра
-    pieces = _subtitles(edit, tl) + _titles(edit, tl) + _inserts(edit, tl)
+    # что начинается не раньше конца ролика, в ролике не видно — на стоп-кадре тоже не появляется
+    pieces = [p for p in _subtitles(edit, tl) + _titles(edit, tl) + _inserts(edit, tl) if p.start < video]
     for piece in pieces:
         if piece.stop >= video:  # видно в последний кадр — остаётся на стоп-кадре
             piece.stop = last
-        piece.stop = min(piece.stop, last)
 
     borders = {0, last}
     for piece in pieces:
@@ -92,7 +92,7 @@ def _titles(edit: dict, tl: Timeline) -> list[_Piece]:
     pieces = []
     hook = edit.get("hook")
     if hook:
-        pieces.append(_Piece(0, _frame(tl.to_final_snap(hook["until"])), "hook", {"text": hook["text"]}))
+        pieces.append(_Piece(0, _hook_end(edit, tl), "hook", {"text": hook["text"]}))
     cta = edit.get("cta")
     if cta:
         span = (_frame(tl.to_final_snap(cta["t0"])), _frame(tl.to_final_snap(cta["t1"])))

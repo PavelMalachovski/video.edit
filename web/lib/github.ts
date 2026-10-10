@@ -3,10 +3,10 @@ export type GH = { token: string; repo: string; fetch?: typeof fetch; api?: stri
 export type Asset = { id: number; name: string; size: number };
 export type Release = { id: number; tag_name: string; name: string | null; draft: boolean; created_at?: string; assets: Asset[] };
 
-const apiBase = (gh: GH): string => gh.api ?? 'https://api.github.com';
+export const apiBase = (gh: GH): string => gh.api ?? 'https://api.github.com';
 const uploadsBase = (gh: GH): string => gh.uploads ?? 'https://uploads.github.com';
 
-function headers(gh: GH, extra: Record<string, string> = {}): Record<string, string> {
+export function headers(gh: GH, extra: Record<string, string> = {}): Record<string, string> {
   return { Authorization: `Bearer ${gh.token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', ...extra };
 }
 
@@ -28,7 +28,7 @@ export function isRateLimited(e: unknown): e is GitHubError {
 
 // Лимиты по документации GitHub: retry-after — ждать столько; x-ratelimit-remaining: 0 — до x-ratelimit-reset;
 // вторичный лимит без этих заголовков (403 или 429 с «rate limit» в тексте) — минуту.
-function retryAfter(status: number, h: Headers, data: unknown): number | null {
+export function retryAfter(status: number, h: Headers, data: unknown): number | null {
   if (status !== 403 && status !== 429) return null;
   const after = Number(h.get('retry-after'));
   if (h.get('retry-after') !== null && Number.isFinite(after)) return Math.max(1, Math.round(after));
@@ -48,7 +48,8 @@ export function clearGitHubCache(): void {
 
 type Answer<T> = { status: number; data: T; headers: Headers };
 
-async function call<T>(gh: GH, method: string, url: string, body?: BodyInit, extra?: Record<string, string>): Promise<Answer<T>> {
+/** Запрос к API GitHub с токеном; GET с JSON — условный (ETag). Ответ не проверяется — это делает `ok`. */
+export async function call<T>(gh: GH, method: string, url: string, body?: BodyInit, extra?: Record<string, string>): Promise<Answer<T>> {
   const cached = method === 'GET' ? ETAGS.get(url) : undefined;
   const r = await (gh.fetch ?? fetch)(url, { method, headers: headers(gh, cached ? { ...extra, 'If-None-Match': cached.etag } : extra), body });
   if (r.status === 304 && cached) {
@@ -72,7 +73,8 @@ async function call<T>(gh: GH, method: string, url: string, body?: BodyInit, ext
   return { status: r.status, data, headers: r.headers };
 }
 
-function ok<T>(r: Answer<T>, what: string): T {
+/** Данные ответа или GitHubError (с retryAfter, если это лимит). */
+export function ok<T>(r: Answer<T>, what: string): T {
   if (r.status >= 300) throw new GitHubError(`${what}: GitHub ${r.status} ${JSON.stringify(r.data)}`, r.status, retryAfter(r.status, r.headers, r.data));
   return r.data;
 }

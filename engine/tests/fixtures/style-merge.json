@@ -1,0 +1,171 @@
+{
+  "styles": {
+    "frame": "frame.png",
+    "frameTime": 21.0,
+    "sample": {
+      "hook": "Как я учу чешский",
+      "words": [
+        "я",
+        "учу",
+        "чешский",
+        "каждый",
+        "день"
+      ],
+      "spoken": 3,
+      "inserts": [
+        {
+          "kind": "image",
+          "x": 70,
+          "y": 500,
+          "w": 250,
+          "question": "insert-1"
+        },
+        {
+          "kind": "sticker",
+          "title": "Важно",
+          "text": "каждый день",
+          "x": 600,
+          "y": 900,
+          "w": 380
+        }
+      ]
+    },
+    "variants": [
+      {
+        "id": "A",
+        "label": "по правилам",
+        "spec": {
+          "font": "montserrat",
+          "hand": "caveat",
+          "colors": {
+            "text": "#FFFFFF",
+            "accent": "#FFD23F",
+            "bar": "#FFD23F",
+            "plate": "#111111",
+            "outline": "#000000"
+          },
+          "subtitles": {
+            "mode": "karaoke",
+            "words": 3,
+            "size": 64,
+            "y": 1300
+          },
+          "hook": {
+            "mode": "plate",
+            "size": 72,
+            "y": 400
+          },
+          "bar": {
+            "pos": "bottom",
+            "height": 14
+          }
+        }
+      },
+      {
+        "id": "B",
+        "label": "плашка, шкала сверху",
+        "spec": {
+          "font": "unbounded",
+          "hand": "caveat",
+          "colors": {
+            "text": "#FFFFFF",
+            "accent": "#FF5C8A",
+            "bar": "#FFFFFF",
+            "plate": "#1B1B1F",
+            "outline": "#000000"
+          },
+          "subtitles": {
+            "mode": "plate",
+            "words": 3,
+            "size": 60,
+            "y": 1280
+          },
+          "hook": {
+            "mode": "outline",
+            "size": 76,
+            "y": 420
+          },
+          "bar": {
+            "pos": "top",
+            "height": 10
+          }
+        }
+      },
+      {
+        "id": "C",
+        "label": "слово за словом",
+        "spec": {
+          "font": "oswald",
+          "hand": "bad-script",
+          "colors": {
+            "text": "#F1F1EF",
+            "accent": "#7CF2B0",
+            "bar": "#7CF2B0",
+            "plate": "#111111",
+            "outline": "#171717"
+          },
+          "subtitles": {
+            "mode": "accumulate",
+            "words": 3,
+            "size": 58,
+            "y": 1320
+          },
+          "hook": {
+            "mode": "shadow",
+            "size": 80,
+            "y": 380
+          },
+          "bar": {
+            "pos": "bottom",
+            "height": 20
+          }
+        }
+      }
+    ]
+  },
+  "answers": {
+    "answers": {
+      "cut": "all",
+      "hook": "own",
+      "hook.own": "Как я снимаю reels"
+    },
+    "style": {
+      "variant": "B",
+      "font": "rubik",
+      "hand": "marck-script",
+      "colors": {
+        "text": "#FFF1C2",
+        "accent": "#00AAFF",
+        "bar": "#7CF2B0"
+      }
+    },
+    "uploads": {},
+    "brief": ""
+  },
+  "expected": {
+    "font": "rubik",
+    "hand": "marck-script",
+    "colors": {
+      "text": "#FFF1C2",
+      "accent": "#00AAFF",
+      "bar": "#7CF2B0",
+      "plate": "#1B1B1F",
+      "outline": "#000000"
+    },
+    "subtitles": {
+      "mode": "plate",
+      "words": 3,
+      "size": 60,
+      "y": 1280
+    },
+    "hook": {
+      "mode": "outline",
+      "size": 76,
+      "y": 420
+    },
+    "bar": {
+      "pos": "top",
+      "height": 10
+    }
+  }
+}

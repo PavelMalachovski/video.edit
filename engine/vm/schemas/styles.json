@@ -22,7 +22,25 @@
       "properties": {
         "hook": { "type": "string" },
         "words": { "type": "array", "items": { "type": "string" } },
-        "spoken": { "type": "integer", "minimum": 0 }
+        "spoken": { "type": "integer", "minimum": 0 },
+        "inserts": {
+          "description": "Вставки на кадре превью — страница рисует их тем же шаблоном. src — путь от папки задачи; question — id вопроса insert, от ответа на который зависит картинка (место — как у вставки с этим question в черновике edit.json).",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["kind", "x", "y", "w"],
+            "properties": {
+              "kind": { "enum": ["image", "badge", "sticker", "anim"] },
+              "src": { "type": "string" },
+              "text": { "type": "string" },
+              "title": { "type": "string" },
+              "x": { "type": "number" },
+              "y": { "type": "number" },
+              "w": { "type": "number", "exclusiveMinimum": 0 },
+              "question": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
       }
     },
     "variants": {

@@ -150,6 +150,41 @@ def test_fetch_joins_uploads_too(tmp_path, github):
     assert (job / "in" / "source.mp4").read_bytes() == body
 
 
+def test_fetch_joins_upload_parts(tmp_path, github):
+    body = random.Random(6).randbytes(7000)
+    clip = random.Random(7).randbytes(4500)
+    uploads = [{"asset": "upload-i1.mov", "name": "демо.mov", "size": len(clip), "type": "video/quicktime", "parts": 3}]
+    pieces = {**parts("upload-i1.mov", clip, 2000), **parts("source", body, 3000)}
+    shuffled = dict(sorted(pieces.items(), key=lambda kv: random.Random(8).random()))  # куски вперемешку
+    github.draft("job-abc", {**shuffled, "manifest.json": manifest("a.mov", body, 3, uploads=uploads)})
+    job = tmp_path / "jobs" / "abc"
+    assert main(["fetch", str(job)]) == 0
+    assert (job / "in" / "uploads" / "upload-i1.mov").read_bytes() == clip
+    assert (job / "in" / "source.mov").read_bytes() == body
+
+
+def test_fetch_rejects_upload_size_mismatch(tmp_path, github, capsys):
+    body = random.Random(9).randbytes(5000)
+    pic = random.Random(10).randbytes(2500)
+    uploads = [{"asset": "upload-i1.png", "name": "a.png", "size": len(pic) + 1, "type": "image/png", "parts": 2}]
+    github.draft("job-abc", {**parts("source", body, 3000), **parts("upload-i1.png", pic, 2000),
+                             "manifest.json": manifest("a.mp4", body, 2, uploads=uploads)})
+    job = tmp_path / "jobs" / "abc"
+    assert main(["fetch", str(job)]) == 1
+    assert "upload-i1.png" in capsys.readouterr().err
+    assert not (job / "in" / "uploads" / "upload-i1.png").exists()
+
+
+def test_cli_style_prints_final_spec(tmp_path, capsys):
+    fixture = json.loads((Path(__file__).parent / "fixtures" / "style-merge.json").read_text(encoding="utf-8"))
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    job.write("styles.json", fixture["styles"])
+    job.write("answers.json", fixture["answers"])
+    assert main(["style", str(job.root)]) == 0
+    assert json.loads(capsys.readouterr().out) == fixture["expected"]
+
+
 def test_fetch_rejects_a_size_mismatch(tmp_path, github, capsys):
     body = random.Random(4).randbytes(6000)
     files = parts("source", body, 3000)

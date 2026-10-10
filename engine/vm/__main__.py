@@ -5,6 +5,7 @@
     frames   кадры исходника в моменты --at (с --grid — с сеткой) → look/
     preview  кадр исходника для превью → frame.png (или --out: картинка к вопросу, с --mark — с рамкой)
     validate файлы задачи по схемам и файлы, на которые они ссылаются
+    style    итоговый стиль по styles.json и answers.json (для edit.json.style)
     check    до рендера: слой по edit.json, проверка геометрии и 4 контрольных кадра → look/check.png
     render   финал по edit.json → out/final[-vN].mp4|.srt, qa/qa.png, result.json
     push     коммит и пуш папки задачи (с --outputs — большие файлы out/ режутся на части)
@@ -35,6 +36,7 @@ from .qa import (
     slot_times,
 )
 from .render import _resolve, draw_layer, render
+from .style import final_style
 
 PART_SIZE = 95 * 1024 * 1024  # как `split -b 95M`: столько же, сколько MAX_FILE_BYTES
 
@@ -164,6 +166,14 @@ def _validate(args: argparse.Namespace) -> None:
     print("в порядке: " + (", ".join(checked) or "файлов со схемой нет"))
     if unchecked:
         print("не проверял (in/ появится после vm fetch): " + ", ".join(sorted(unchecked)))
+
+
+def _style(args: argparse.Namespace) -> None:
+    job = _job(args)
+    styles, answers = job.read("styles.json"), job.read("answers.json")
+    validate("styles.json", styles)
+    validate("answers.json", answers)
+    print(json.dumps(final_style(styles, answers), ensure_ascii=False, indent=2))
 
 
 def _check(args: argparse.Namespace) -> None:
@@ -336,6 +346,8 @@ def _parser() -> argparse.ArgumentParser:
     preview.add_argument("--mark", type=_box, help="рамка x,y,w,h в px кадра — например, место вставки")
 
     command("validate", _validate, "файлы задачи по схемам и файлы, на которые они ссылаются")
+
+    command("style", _style, "итоговый стиль: вариант из answers.json с выбранными шрифтами и цветами (для edit.json.style)")
 
     command("check", _check, "до рендера: слой, проверка геометрии и контрольные кадры → look/check.png")
 

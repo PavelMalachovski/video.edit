@@ -371,6 +371,17 @@ def test_edit_keeps_a_planned_insert_waiting_for_its_answer(job):
         job.write("edit.json", edit)
 
 
+def test_styles_sample_inserts_optional(job):
+    styles = json.loads((Path(__file__).parent / "fixtures" / "style-merge.json").read_text(encoding="utf-8"))["styles"]
+    plain = {**styles, "sample": {k: v for k, v in styles["sample"].items() if k != "inserts"}}
+    job.write("styles.json", plain)
+    job.write("styles.json", styles)
+    bad = json.loads(json.dumps(styles))
+    bad["sample"]["inserts"][0]["x"] = "a"
+    with pytest.raises(ValueError, match=r"sample\.inserts\[0\]\.x"):
+        job.write("styles.json", bad)
+
+
 def test_edit_face_is_fractions_of_the_frame(job):
     edit = make_edit()
     edit["face"] = {"x": 1.5, "y": 0.3}

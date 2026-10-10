@@ -2,13 +2,17 @@
 
 Каталог — как у шаблона: встроенные шрифты из `template/fonts.json` и свои шрифты Павла из `assets/fonts/` (правило
 `template/fonts.mjs`: id — имя файла без расширения, «-hand» в конце — рукописный, встроенный с тем же id важнее).
-Буквы шрифта — его таблица символов (cmap, fontTools). Буквы текста — сам текст и он же капсом (хук — капсом).
+Буквы шрифта — его таблица символов (cmap, fontTools). Буквы текста — сам текст и он же капсом (хук — капсом); в
+счёт идут буквы, цифры, знаки препинания и валют. Невидимые символы (пробелы, U+200B/U+200D, мягкий перенос,
+селекторы вариантов) глифа не требуют, а эмодзи и прочие картинки-символы (♪, 🔥) шрифты Павла не рисуют вовсе —
+это отдельная проблема `check`: их надо убрать из текста.
 
 Основной шрифт рисует субтитры, хук, строки титра и тексты вставок; рукописный — последнее слово хука и кодовое
 слово титра. Буквы, которой нет в шрифте, браузер подставит из другого шрифта — превью и ролик разойдутся, — поэтому
 `vm check` и `vm render` такой стиль не пропускают (`check`), а `vm fonts` говорит, какие шрифты подходят тексту.
 """
 import json
+import unicodedata
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
@@ -17,6 +21,7 @@ REPO = Path(__file__).resolve().parents[2]
 TEMPLATE = REPO / "template"
 CUSTOM = REPO / "assets" / "fonts"
 FONT_FILE = {".ttf", ".otf"}
+INVISIBLE = {*range(0xFE00, 0xFE10), *range(0xE0100, 0xE01F0), *range(0x1F3FB, 0x1F400)}  # селекторы, оттенки кожи
 
 
 @dataclass(frozen=True)
@@ -50,10 +55,21 @@ def _cmap(path: Path) -> frozenset[int]:
         return frozenset(font.getBestCmap())
 
 
+def _drawn(c: str) -> bool:
+    """Нужен ли символу глиф шрифта: буквы, знаки, цифры, препинание, валюты — да; невидимые и эмодзи — нет."""
+    category = unicodedata.category(c)
+    return ord(c) not in INVISIBLE and (category[0] in "LMNP" or category in ("Sc", "Sm", "Sk"))
+
+
 def missing(font: Font, text: str) -> str:
-    """Буквы текста (и его капса), которых нет в шрифте, по порядку кодов; пробелы — не буквы."""
+    """Буквы текста (и его капса), которых нет в шрифте, по порядку кодов; пробелы, невидимые и эмодзи — не буквы."""
     have = _cmap(font.path)
-    return "".join(sorted(c for c in set(text) | set(text.upper()) if not c.isspace() and ord(c) not in have))
+    return "".join(sorted(c for c in set(text) | set(text.upper()) if _drawn(c) and ord(c) not in have))
+
+
+def symbols(text: str) -> str:
+    """Эмодзи и картинки-символы текста (♪, 🔥): их не рисует ни один шрифт ролика."""
+    return "".join(sorted({c for c in text if unicodedata.category(c) == "So"}))
 
 
 def texts(edit: dict) -> tuple[str, str]:
@@ -82,6 +98,8 @@ def check(edit: dict, custom: Path | None = None) -> list[str]:
     style = edit.get("style") or {}
     main_text, hand_text = texts(edit)
     problems = []
+    if odd := symbols(f"{main_text}{hand_text}"):
+        problems.append(f"символы {odd} (эмодзи) шрифты ролика не рисуют — убери их из текста и скажи об этом в unsure")
     for kind, text in (("main", main_text), ("hand", hand_text)):
         font = fonts.get(style.get("font" if kind == "main" else "hand") or "")
         if font is None or not (lack := missing(font, text)):

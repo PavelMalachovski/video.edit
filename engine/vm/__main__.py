@@ -180,18 +180,37 @@ def _style(args: argparse.Namespace) -> None:
 
 
 def _fonts(args: argparse.Namespace) -> None:
+    """Шрифты для текста ролика. Есть черновик edit.json — текст из него и из вариантов хука и написаний в
+    questions.json (рисуется только это; сырые words.json и reference.txt бывают с мусором — ♪, лишняя греческая
+    буква); черновика нет — из words.json и reference.txt. Список без единого шрифта — все шрифты и предупреждение:
+    без кнопок Павлу нечего выбрать."""
     job = _job(args)
-    parts = []
-    if job.path("words.json").is_file():
-        parts += [w["text"] for w in json.loads(job.path("words.json").read_text(encoding="utf-8"))]
-    if job.path("reference.txt").is_file():
-        parts.append(job.path("reference.txt").read_text(encoding="utf-8"))
-    main_text, hand_text = "\n".join(parts), "\n".join(parts)  # хук и кодовое слово — из этих же слов
     if job.path("edit.json").is_file():
-        edit_main, edit_hand = fonts.texts(job.read("edit.json"))
-        main_text, hand_text = f"{main_text}\n{edit_main}", f"{hand_text}\n{edit_main}\n{edit_hand}"
-    print(json.dumps(fonts.coverage(main_text, hand_text), ensure_ascii=False))
-    for font in fonts.catalog():
+        main_text, hand_text = fonts.texts(job.read("edit.json"))
+        if job.path("questions.json").is_file():
+            labels = [o["label"] for q in job.read("questions.json")["questions"] if q["id"] in ("hook", "word")
+                      for o in q.get("options") or []]  # fmt: skip
+            main_text, hand_text = "\n".join([main_text, *labels]), "\n".join([hand_text, *labels])
+        hand_text = f"{hand_text}\n{main_text}"  # рукописным может стать любое слово хука — с запасом
+    else:
+        parts = [w["text"] for w in json.loads(job.path("words.json").read_text(encoding="utf-8"))] if job.path("words.json").is_file() else []
+        if job.path("reference.txt").is_file():
+            parts.append(job.path("reference.txt").read_text(encoding="utf-8"))
+        main_text = hand_text = "\n".join(parts)
+    catalog = fonts.catalog()
+    covering = fonts.coverage(main_text, hand_text)
+    notes = []
+    for kind, text, role in (("main", main_text, "основном"), ("hand", hand_text, "рукописном")):
+        if not covering[kind]:
+            kinds = [f for f in catalog if f.kind == kind]
+            covering[kind] = [f.id for f in kinds]
+            nowhere = set.intersection(*(set(fonts.missing(f, text)) for f in kinds))
+            notes.append(f"ВНИМАНИЕ: ни в одном {role} шрифте нет букв {''.join(sorted(nowhere))} — в списке все; "
+                         "выбери тот, где не хватает меньше всего, и скажи об этом в unsure")
+    print(json.dumps(covering, ensure_ascii=False))
+    for note in notes:
+        print(note)
+    for font in catalog:
         if lack := fonts.missing(font, main_text if font.kind == "main" else hand_text):
             print(f"нет букв: {font.id} — {lack}")
 

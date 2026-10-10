@@ -51,6 +51,8 @@ MIN_PAUSE = 0.3  # пауза для VAD, с
 SPARSE = 1.5  # слов на секунду речи (по VAD): меньше — кусок перераспознаётся по фразам (живая речь — 2–2,5)
 BETTER = 1.1  # результат по фразам берётся, если слов в нём больше хотя бы во столько раз
 UTTERANCE_PAD = 0.2  # с — поля фразы по VAD при перераспознавании: VAD обрезает края слов
+MIN_PHRASE = 0.3  # с — фраза VAD короче — не речь для Whisper: на обрывке он выдумывает «Thank you.»
+OPENING = frozenset("¿¡«(„“‘\"'-—–[")  # знаки, которые без букв встают перед следующим словом
 QUIET_FRAME = RATE // 20  # 50 мс: шаг поиска самого тихого места
 THREADS = min(4, os.cpu_count() or 1)
 
@@ -69,21 +71,36 @@ def words_from_tokens(tokens, timestamps) -> list[Word]:
     """Токены с временем → слова. GigaAM отдаёт буквы и пробел между словами, Parakeet — кусочки слов, у первого
     кусочка слова пробел (или «▁») впереди. Граница слова — пробельный токен или пробел в начале токена; знаки
     препинания и дефис — токены без пробела, прилипают к слову. `t0` — время первого токена, `t1` — меньшее из:
-    `t0` следующего слова и время последнего токена + 0,12 с."""
+    `t0` следующего слова и время последнего токена + 0,12 с. Кусок без букв (у Parakeet бывают отдельные «▁¿»,
+    «▁-», «▁.») словом не становится: открывающий знак (`OPENING`) встаёт перед следующим словом, прочие — в конец
+    предыдущего; `t0` слова — время его первой буквы."""
     if len(tokens) != len(timestamps):
         raise ValueError(f"{len(tokens)} tokens but {len(timestamps)} timestamps")
     spans: list[tuple[str, float, float]] = []  # слово, время первого и последнего токена
-    text, first, last = "", 0.0, 0.0
+    text, first, last, prefix = "", 0.0, 0.0, ""
     for token, at in zip(tokens, timestamps):
         piece = token.replace("▁", " ")
-        if piece[:1].isspace() and text:
-            spans.append((text, first, last))
-            text = ""
+        starts = piece[:1].isspace()
         piece = piece.strip()
         if not piece:
+            if text:
+                spans.append((text, first, last))
+                text = ""
             continue
+        if not any(c.isalnum() for c in piece):
+            if text and not (starts and set(piece) <= OPENING):
+                text, last = text + piece, at
+            else:
+                if text:
+                    spans.append((text, first, last))
+                    text = ""
+                prefix += piece
+            continue
+        if starts and text:
+            spans.append((text, first, last))
+            text = ""
         if not text:
-            first = at
+            first, text, prefix = at, prefix, ""
         text, last = text + piece, at
     if text:
         spans.append((text, first, last))
@@ -438,14 +455,22 @@ def _whisper_words(audio: np.ndarray, language: str) -> list[Word]:
             "(set ASR_REF_MODEL or run setup/cloud-setup.sh)"
         )
     speech = _speech(audio)
-    phrases = speech if speech is not None else _chunks(audio, [], _ref_window)
-    pad = round(UTTERANCE_PAD * RATE) if speech is not None else 0
+    if speech is None:
+        phrases, pads = _chunks(audio, [], _ref_window), None
+    else:  # поле фразы — не больше половины паузы до соседней: иначе начало соседней попадёт в эту
+        phrases = [(a, b) for a, b in speech if b - a >= MIN_PHRASE * RATE]
+        edges = [-(10**9), *(x for span in phrases for x in span), 10**12]
+        pad = round(UTTERANCE_PAD * RATE)
+        pads = [
+            (min(pad, (a - edges[2 * i]) // 2), min(pad, (edges[2 * i + 3] - b) // 2)) for i, (a, b) in enumerate(phrases)
+        ]
     words: list[Word] = []
-    for a, b in phrases:
+    for k, (a, b) in enumerate(phrases):
+        before, after = pads[k] if pads else (0, 0)
         pieces = [(a + x, a + y) for x, y in _chunks(audio[a:b], [], _ref_window)]
         for i, (start, stop) in enumerate(pieces):
-            low = max(0, start - pad) if i == 0 else start
-            high = min(len(audio), stop + pad) if i == len(pieces) - 1 else stop
+            low = max(0, start - before) if i == 0 else start
+            high = min(len(audio), stop + after) if i == len(pieces) - 1 else stop
             if _blank(audio[low:high]):
                 continue
             text = _decode(recognizer, audio[low:high]).text.strip()

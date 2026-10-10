@@ -130,3 +130,47 @@ def test_cli_render_stops_before_rendering_when_a_font_lacks_letters(tmp_path, c
     job.write("edit.json", edit(["mulțumesc"], font="russo-one"))
     assert main([command[0], str(job.root), *command[1:]]) == 1
     assert "russo-one" in capsys.readouterr().err
+
+
+# ---------- после ревью ----------
+
+
+def test_invisible_characters_need_no_letters():
+    assert fonts.missing(by_id("rubik"), "ok\u200b\u200d\ufe0f\u00ad\u2060\U0001f3fb") == ""  # оттенок кожи у эмодзи — тоже
+
+
+def test_symbols_and_emoji_are_not_letters_of_a_font():
+    assert fonts.missing(by_id("montserrat"), "♪ ahoj 🔥") == ""
+
+
+def test_emoji_in_the_text_of_the_video_is_a_problem_with_the_way_out():
+    (problem,) = fonts.check(edit(["ahoj"], hook={"text": "Jak vydělávám 🔥", "until": 2.0}))
+    assert "🔥" in problem and "убери" in problem
+
+
+def test_cli_fonts_reads_the_draft_once_it_is_there(tmp_path, capsys):
+    # сырые слова бывают с мусором (лишняя греческая буква от Parakeet, ♪ от Whisper); рисуется только черновик
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    job.path("words.json").write_text(json.dumps([{"t0": 0.5, "t1": 0.9, "text": "τ"}]), encoding="utf-8")
+    job.path("reference.txt").write_text("♪ Ahoj.\n", encoding="utf-8")
+    assert main(["fonts", str(job.root)]) == 0
+    assert json.loads(capsys.readouterr().out.splitlines()[0])["main"] == ["comfortaa"]
+    job.write("edit.json", edit(["Ahoj."], hook={"text": "Jak stříhám", "until": 2.0}))
+    job.write("questions.json", {"questions": [{"id": "hook", "type": "choice", "title": "Хук",
+                                                "options": [{"id": "a", "label": "Kůň úpěl"}]}]})  # fmt: skip
+    assert main(["fonts", str(job.root)]) == 0
+    covering = json.loads(capsys.readouterr().out.splitlines()[0])
+    assert "montserrat" in covering["main"] and "caveat" in covering["hand"]
+
+
+def test_cli_fonts_never_leaves_a_list_empty(tmp_path, capsys):
+    # узбекской «ʻ» нет ни в одном рукописном: пустой список оставил бы Павла без кнопок — все шрифты и предупреждение
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    job.write("edit.json", edit(["oʻzbek"], hook={"text": "Salom oʻzbek", "until": 2.0}))
+    assert main(["fonts", str(job.root)]) == 0
+    out = capsys.readouterr().out
+    covering = json.loads(out.splitlines()[0])
+    assert set(covering["hand"]) == {f.id for f in fonts.catalog() if f.kind == "hand"}
+    assert "ВНИМАНИЕ" in out and "ʻ" in out

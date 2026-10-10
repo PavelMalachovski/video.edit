@@ -232,6 +232,18 @@ def test_a_hyphen_keeps_pieces_in_one_word():
     assert [w.text for w in words] == ["Demandez-vous", "pl"]
 
 
+def test_pieces_without_letters_stick_to_a_word():
+    # у Parakeet бывают отдельные «▁¿», «▁-», «▁.»: открывающие — к следующему слову, прочие — к предыдущему
+    tokens = ["▁¿", "▁Qué", "▁tal", "▁-", "▁bien", "▁."]
+    words = words_from_tokens(tokens, [0.1, 0.2, 0.5, 0.8, 0.9, 1.2])
+    assert [w.text for w in words] == ["¿Qué", "tal", "-bien."]
+    assert [w.t0 for w in words] == [0.2, 0.5, 0.9]  # начало слова — его первая буква
+
+
+def test_a_piece_without_letters_alone_is_no_word():
+    assert words_from_tokens(["▁-"], [0.1]) == []
+
+
 # ---------- save_words / load_words ----------
 
 
@@ -516,6 +528,22 @@ def test_without_a_timing_model_whisper_text_is_spread_over_each_phrase(monkeypa
     assert loaded == ["sr"]
     assert words == distribute_words("Zdravo svete.", 1.0, 2.0) + distribute_words("Kako si?", 4.0, 6.0)
     assert heard == [sec(1.4), sec(2.4)]  # фраза с полями по 0,2 с: VAD обрезает края слов
+
+
+def test_whisper_phrases_close_together_do_not_hear_each_other(monkeypatch, tmp_path):
+    # пауза 0,3 с: поля фраз не больше половины паузы — иначе начало второй фразы попало бы в первую
+    heard = []
+    monkeypatch.setattr(asr, "_whisper", lambda model, language: object())
+    monkeypatch.setattr(asr, "_speech", lambda audio: spans((1, 2), (2.3, 3), (5, 5.2)))
+
+    def decode(recognizer, samples):
+        heard.append(len(samples))
+        return SimpleNamespace(text="Zdravo.", lang="")
+
+    monkeypatch.setattr(asr, "_decode", decode)
+    words = transcribe(write_wav(tmp_path / "a.wav", tone(8)), "sr")
+    assert heard == [sec(1.35), sec(1.05)]  # обрывок 0,2 с не слушаем: Whisper на нём выдумывает «Thank you.»
+    assert [w.t0 for w in words] == [1.0, 2.3]
 
 
 def test_without_a_timing_model_whisper_is_required(tmp_path, monkeypatch):

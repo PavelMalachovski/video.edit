@@ -69,6 +69,10 @@ def _language_lines(info: dict, unknown: str | None) -> list[str]:
             f"ВНИМАНИЕ: язык не ясен ({why}): прочитай reference.txt и words.json; язык другой — "
             "vm prepare --lang <код> (распознает заново); сам не понял — вопрос `language`"
         )
+    if info["source"] == "detected" and (near := lang.siblings(info["code"])):
+        names = ", ".join(lang.name(code) for code in near)
+        lines.append(f"Язык по речи — проверь по тексту, не {names} ли это: Whisper их путает (все окна могут ошибиться "
+                     "одинаково, а reference.txt — выйти переводом); другой — vm prepare --lang <код>")
     if lang.engine(info["code"]) == "whisper":
         lines.append(
             f"ВНИМАНИЕ: для языка {info['name']} нет модели с временем слов: время слов разложено по фразам примерно — "
@@ -142,8 +146,13 @@ def prepare(
     answer = lang.parse(language) if language is not None else None
     if language is not None and answer is None:
         raise ValueError(f"не понял язык «{language}»: напиши код (cs) или название (чешский)")
-    known = job.read("language.json") if language_path.is_file() else None
+    if language_path.is_file():
+        known = job.read("language.json")
+    else:  # задача до мультиязычности — русская
+        known = {"code": "ru", "name": "русский", "source": "default", "sure": True, "votes": []} if words_path.is_file() else None
     recognise = redo or not words_path.is_file() or (answer is not None and (known or {}).get("code") != answer)
+    if answer is None and known and known["source"] == "answer":
+        answer = known["code"]  # ответ Павла переживает --redo
     told, unknown = (answer, None) if answer else lang.from_brief(brief)
     have = models() if recognise else {}
     if recognise:  # до тяжёлой работы: распознавать нечем, язык не поддержан или нет его модели
@@ -171,7 +180,7 @@ def prepare(
         wav = extract_wav(source, job.path("work/source.wav"))
         step("Расшифровываю", f"Язык — {lang.name(told)}: слушаю речь" if told else "Слушаю речь и определяю язык")
         reference, votes = asr.reference(wav, told or "") if have["Whisper"] else ("", [])
-        spoken = lang.decide(brief, votes, answer=language if answer else None)
+        spoken = lang.decide(brief, [] if told else votes, answer=answer)
         how = _engine(spoken["code"], have, "" if told else ". Если язык другой — напиши его в ТЗ строкой «ЯЗЫК: …»")
         model = MODEL[how]
         step("Расшифровываю", f"Язык — {spoken['name']}: расставляю слова по времени")
@@ -190,7 +199,10 @@ def prepare(
                          "сверь с reference.txt и добавь слова (asr.distribute_words)")
     else:
         words = asr.load_words(words_path)
-        spoken = known or lang.decide("", [], answer="ru")  # задача до мультиязычности — русская
+        spoken = known
+        if answer and spoken["source"] != "answer":  # Павел (или Claude) подтвердил язык: заново не распознаём
+            spoken = {**spoken, "source": "answer", "sure": True}
+            job.write("language.json", spoken)
         notes.append(f"Язык: {spoken['name']} ({spoken['code']}, {SOURCE[spoken['source']]})")
         notes.append("Речь уже расшифрована (words.json) — распознавание не повторял; заново — --redo")
 

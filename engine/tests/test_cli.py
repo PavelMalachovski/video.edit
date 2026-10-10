@@ -859,3 +859,48 @@ def test_prepare_in_a_later_session_shows_the_language(heard, capsys):
     capsys.readouterr()
     assert main(["prepare", str(job.root)]) == 0
     assert calls["transcribe"] == ["cs"] and "Язык: чешский" in capsys.readouterr().out
+
+
+@needs_ffmpeg
+def test_prepare_asks_to_check_languages_whisper_confuses(heard, capsys):
+    job, _, votes, _ = heard
+    votes[:] = ["ru", "ru"]
+    assert main(["prepare", str(job.root)]) == 0
+    out = capsys.readouterr().out
+    assert "проверь" in out and "украинский" in out and "белорусский" in out
+
+
+@needs_ffmpeg
+def test_prepare_does_not_count_a_told_language_as_votes(heard):
+    job, _, _, _ = heard
+    brief(job, "ЯЗЫК: чешский")
+    assert main(["prepare", str(job.root)]) == 0
+    assert job.read("language.json")["votes"] == []
+
+
+@needs_ffmpeg
+def test_prepare_records_an_answer_that_confirms_the_language(heard):
+    job, calls, votes, _ = heard
+    votes[:] = ["uk", "ru", "uk"]
+    assert main(["prepare", str(job.root)]) == 0
+    assert main(["prepare", str(job.root), "--lang", "uk"]) == 0
+    info = job.read("language.json")
+    assert (info["code"], info["source"], info["sure"]) == ("uk", "answer", True)
+    assert calls["transcribe"] == ["uk"]  # заново не распознавал
+
+
+@needs_ffmpeg
+def test_prepare_redo_keeps_the_language_pavel_gave(heard):
+    job, calls, votes, _ = heard
+    votes[:] = ["ru"]
+    assert main(["prepare", str(job.root), "--lang", "uk"]) == 0
+    assert main(["prepare", str(job.root), "--redo"]) == 0
+    assert calls["reference"] == ["uk", "uk"] and job.read("language.json")["source"] == "answer"
+
+
+@needs_ffmpeg
+def test_prepare_takes_a_job_from_before_languages_as_russian(heard):
+    job, calls, _, _ = heard
+    job.path("words.json").write_text('[\n  {"t0": 0.5, "t1": 0.9, "text": "раз"}\n]\n', encoding="utf-8")
+    assert main(["prepare", str(job.root), "--lang", "ru"]) == 0
+    assert calls["transcribe"] == []  # старая задача и так русская — распознавать заново незачем

@@ -104,3 +104,39 @@ def test_every_first_stage_language_has_a_russian_name_and_an_engine():
 
 def test_parakeet_languages_are_first_stage_except_greek():
     assert lang.PARAKEET - set(lang.NAMES) == {"el"}
+
+
+# ---------- после ревью ----------
+
+
+def test_every_language_without_parakeet_is_one_whisper_knows():
+    # ирландского у Whisper нет: sherpa-onnx на нём завершает процесс (exit 255) — такого языка в этапе 1 нет
+    assert "ga" not in lang.NAMES
+    assert all(code in lang.WHISPER for code in lang.NAMES if lang.engine(code) != "parakeet")
+
+
+@pytest.mark.parametrize("code, siblings", [("ru", ["uk", "be"]), ("uk", ["ru", "be"]), ("cs", ["sk"]), ("sr", ["hr", "bs"]), ("en", [])])
+def test_languages_whisper_confuses_are_named(code, siblings):
+    assert lang.siblings(code) == siblings
+
+
+def test_whisper_norwegian_codes_are_norwegian():
+    assert lang.decide("", ["nn", "nb", "nn"])["code"] == "no"
+
+
+def test_an_unknown_detected_language_gives_way_to_a_known_one_and_is_not_sure():
+    info = lang.decide("", ["haw", "en", "haw"])
+    assert (info["code"], info["sure"]) == ("en", False)
+
+
+@pytest.mark.parametrize(
+    "brief, result",
+    [
+        ("ЯЗЫК:\nХУК: привет", (None, None)),  # пустое значение не берёт следующую строку
+        ("ЯЗЫК: pt-BR", ("pt", None)),
+        ("ЯЗЫК: uk_UA", ("uk", None)),
+        ("Язык: простой, без английских слов", (None, "простой, без английских слов")),  # это не язык ролика
+    ],
+)
+def test_brief_language_line_edge_cases(brief, result):
+    assert lang.from_brief(brief) == result

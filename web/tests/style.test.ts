@@ -90,6 +90,7 @@ test('only fonts with every letter of the video are offered', () => {
   assert.deepEqual(allowedFonts(list, STYLES), list, 'no fonts in styles.json — every font');
   const romanian = { ...STYLES, fonts: { main: ['montserrat'], hand: ['caveat', 'bad-script'] } };
   assert.deepEqual(allowedFonts(list, romanian).map((f) => f.id), ['montserrat', 'caveat', 'bad-script']);
+  assert.deepEqual(allowedFonts(list, { ...STYLES, fonts: { main: ['montserrat'], hand: [] } }).map((f) => f.id), ['montserrat', 'caveat', 'bad-script'], 'an empty list hides nothing: Pavel keeps buttons');
 });
 
 test('a saved font without the letters of the video is not taken back', () => {

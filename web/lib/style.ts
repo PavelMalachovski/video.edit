@@ -30,10 +30,12 @@ export function choiceFor(styles: Styles, variant: Variant): StyleChoice {
   return { variant, font: spec.font, hand: spec.hand, colors: { text: spec.colors.text, accent: spec.colors.accent, bar: spec.colors.bar } };
 }
 
-/** Шрифты, которые можно предложить Павлу: те, где есть все буквы ролика (`styles.fonts`); поля нет — все. */
+/** Шрифты, которые можно предложить Павлу: те, где есть все буквы ролика (`styles.fonts`); поля нет или список
+ *  пуст — все этого вида (без кнопок Павлу нечего выбрать). */
 export function allowedFonts<T extends { id: string; kind: 'main' | 'hand' }>(list: T[], styles: Styles): T[] {
   const ok = styles.fonts;
-  return ok ? list.filter((f) => (f.kind === 'hand' ? ok.hand : ok.main).includes(f.id)) : list;
+  const ids = (kind: 'main' | 'hand') => (ok && ok[kind].length ? ok[kind] : null);
+  return list.filter((f) => ids(f.kind)?.includes(f.id) ?? true);
 }
 
 /** Цвета из макета «3 · Три превью»; плюс «Свой» — выбор любого цвета. */
@@ -126,7 +128,10 @@ function isChoice(x: unknown, styles: Styles): x is StyleChoice {
   return typeof c === 'object' && c !== null && styles.variants.some((v) => v.id === c.variant) && typeof c.font === 'string' && c.font !== ''
     && typeof c.hand === 'string' && c.hand !== '' && typeof c.colors === 'object' && c.colors !== null
     && ['text', 'accent', 'bar'].every((k) => COLOR.test(String((c.colors as Record<string, unknown>)[k])))
-    && (!styles.fonts || (styles.fonts.main.includes(c.font) && styles.fonts.hand.includes(c.hand)));
+    && [['main', c.font], ['hand', c.hand]].every(([kind, id]) => {
+      const ids = styles.fonts?.[kind as 'main' | 'hand'];
+      return !ids?.length || ids.includes(id);
+    });
 }
 
 export function saveChoice(storage: Storage | null, jobId: string, styles: Styles, c: StyleChoice): void {

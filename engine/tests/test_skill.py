@@ -62,3 +62,11 @@ def test_the_service_part_knows_the_language_and_the_fonts():
     assert "`language`" in section("Вопросы (questions.json)")
     assert "vm fonts" in section("Стили (styles.json)")
     assert "пока не поддерживается" in section("Ошибки")
+
+
+def test_the_steps_say_what_to_do_when_language_or_fonts_go_wrong():
+    analyze = section("Шаг analyze")
+    assert "проверь" in analyze  # язык по речи проверяется всегда, не только при «ВНИМАНИЕ»
+    render = section("Шаг render")
+    assert "vm fonts" in render and "unsure" in render  # другой язык — заново хук, звёздочки, шрифты
+    assert "эмодзи" in section("6. Тексты").lower()

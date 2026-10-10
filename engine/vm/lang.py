@@ -55,7 +55,6 @@ _STAGE1 = {
     "gl": ("галисийский", "галисийск", "galician", "galego"),
     "eu": ("баскский", "баскск", "basque", "euskara"),
     "cy": ("валлийский", "валлийск", "welsh", "cymraeg"),
-    "ga": ("ирландский", "ирландск", "irish", "gaeilge"),
     "is": ("исландский", "исландск", "icelandic", "íslensk"),
     "mt": ("мальтийский", "мальтийск", "maltese", "malti"),
     "af": ("африкаанс", "африкаанс", "afrikaans"),
@@ -101,9 +100,21 @@ PARAKEET = frozenset([
     "bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de", "el", "hu", "it",
     "lv", "lt", "mt", "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru", "uk",
 ])  # fmt: skip
+# языки Whisper (токены <|код|>): язык не из этого списка sherpa-onnx не принимает и завершает процесс — поэтому
+# ирландского в этапе 1 нет
+WHISPER = frozenset("""
+en zh de es ru ko fr ja pt tr pl ca nl ar sv it id hi fi vi he uk el ms cs ro da hu ta no th ur hr bg lt la mi ml cy sk
+te fa lv bn sr az sl kn et mk br eu is hy ne mn bs kk sq sw gl mr pa si km sn yo so af oc ka be tg sd gu am yi lo uz fo
+ht ps tk nn mt sa lb my bo tl mg as tt haw ln ha ba jw su yue
+""".split())  # noqa: SIM905
+ALIASES = {"nn": "no", "nb": "no"}  # Whisper различает нюнорск и букмол; для нас это норвежский
+# языки, которые Whisper путает между собой: все окна могут согласно ошибиться — Claude проверяет по тексту
+CONFUSED = (("ru", "uk", "be"), ("bg", "mk"), ("sr", "hr", "bs"), ("cs", "sk"), ("no", "da", "sv"), ("id", "ms"))
 _STEMS = [(code, stem) for table in (_STAGE1, _STAGE2) for code, row in table.items() for stem in row[1:]]
 _FILLER = {"на", "язык", "языке", "language", "the"}
-_BRIEF = re.compile(r"^\s*язык\s*[:—–-]\s*(.*?)\s*$", re.IGNORECASE | re.MULTILINE)
+_BRIEF = re.compile(r"^[ \t]*язык[ \t]*[:—–-][ \t]*(.*?)[ \t]*$", re.IGNORECASE | re.MULTILINE)
+_REGION = re.compile(r"^([a-z]{2,3})[-_][a-z0-9]{2,4}$")  # pt-BR, uk_UA
+MAX_WORDS = 3  # «ЯЗЫК: на чешском» — язык; «Язык: простой, без английских слов» — уже не он
 
 
 class Unsupported(ValueError):
@@ -114,9 +125,16 @@ def name(code: str) -> str:
     return NAMES.get(code) or STAGE2.get(code) or code
 
 
+def siblings(code: str) -> list[str]:
+    """Языки, с которыми Whisper путает `code`."""
+    return next(([c for c in group if c != code] for group in CONFUSED if code in group), [])
+
+
 def parse(value: str) -> str | None:
     """Код языка по тому, как его написал человек: «cs», «Чешский», «на чешском», «čeština», «English». Не понял — None."""
     text = value.strip().lower().replace("ё", "е")
+    if region := _REGION.match(text):
+        text = region.group(1)
     if text in NAMES or text in STAGE2:
         return text
     for word in re.findall(r"[\w']+", text):
@@ -133,6 +151,8 @@ def from_brief(brief: str) -> tuple[str | None, str | None]:
     match = _BRIEF.search(brief or "")
     if not match or not match.group(1):
         return None, None
+    if len(re.findall(r"[\w']+", match.group(1))) > MAX_WORDS:
+        return None, match.group(1)
     code = parse(match.group(1))
     return (code, None) if code else (None, match.group(1))
 
@@ -157,7 +177,12 @@ def decide(brief: str, votes: list[str], answer: str | None = None) -> dict:
     elif code := from_brief(brief)[0]:
         source, sure = "brief", True
     elif votes:
-        (code, sure), source = vote(votes), "detected"
+        heard = [ALIASES.get(v, v) for v in votes]
+        code, sure = vote(heard)
+        known = [v for v in heard if v in NAMES or v in STAGE2]
+        if code not in NAMES and code not in STAGE2 and known:  # редкий код Whisper (haw, jw…) уступает известному
+            code, sure = vote(known)[0], False
+        source = "detected"
     else:
         code, source, sure = "ru", "default", False
     return {"code": code, "name": name(code), "source": source, "sure": sure, "votes": list(votes)}

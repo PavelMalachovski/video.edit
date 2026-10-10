@@ -4,12 +4,14 @@
 //
 //   await window.renderState(spec, state, {bar: {progress}, background})
 //     state = {sub?: {words, active, visible}, hook?: {text}, cta?: {lines, word}, inserts?}
-//   window.layoutBoxes() → {sub?, hook?, cta?, inserts: []} — рамки {x, y, w, h} в px кадра 1080×1920,
-//     вместе с обводкой, тенью и плашкой.
+//   window.layoutBoxes() → {sub?, hook?, cta?, inserts: [...]} — рамки {x, y, w, h} в px кадра 1080×1920,
+//     вместе с обводкой, тенью и плашкой. Вставки рисует inserts.js.
 //
 // Шрифты — из fonts.json рядом с этим файлом. Свои шрифты Павла (assets/fonts) дописывает в fonts.json
 // тот, кто отдаёт шаблон. Шрифта нет в списке — ошибка: подменять его другим нельзя, иначе превью
 // разойдётся с финалом.
+
+import { drawInserts } from './inserts.js';
 
 const FRAME = { w: 1080, h: 1920 };
 const SAFE = { x0: 60, x1: 890, y0: 120, y1: 1530 }; // безопасная зона: всё, кроме шкалы, — внутри
@@ -382,7 +384,7 @@ window.renderState = async function renderState(spec, state = {}, opts = {}) {
   const look = { spec, main, hand };
   const s = state ?? {};
   document.getElementById('frame').style.background = opts?.background ?? 'transparent';
-  const boxes = { inserts: [] };
+  const boxes = { inserts: await drawInserts(document.getElementById('inserts'), s.inserts ?? [], look) };
   const sub = drawSub(look, s.sub);
   if (sub) boxes.sub = sub;
   const hook = drawTitle('hook', look, hookTitle(s.hook));

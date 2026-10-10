@@ -105,18 +105,29 @@ def _hook_end(edit: dict, tl: Timeline) -> int:
     return _frame(tl.to_final_snap(hook["until"])) if hook else 0
 
 
-def _inserts(edit: dict, tl: Timeline) -> list[_Piece]:
+def insert_spans(edit: dict, tl: Timeline) -> list[tuple[int, int, int]]:
+    """Кадры показа вставок `(номер в edit.inserts, первый кадр, кадр после последнего)` по правилам: не раньше
+    конца хука, не короче 1,5 с. Все виды, в том числе fullscreen (её монтирует ffmpeg, а звук — в нужный кадр)."""
     after_hook = _hook_end(edit, tl)
     min_show = math.ceil(MIN_SHOW * FPS - 1e-9)
-    pieces = []
+    spans = []
     for i, ins in enumerate(edit.get("inserts") or []):
+        start = max(_frame(tl.to_final_snap(ins["t0"])), after_hook)
+        stop = max(_frame(tl.to_final_snap(ins["t1"])), start + min_show)
+        spans.append((i, start, stop))
+    return spans
+
+
+def _inserts(edit: dict, tl: Timeline) -> list[_Piece]:
+    inserts = edit.get("inserts") or []
+    pieces = []
+    for i, start, stop in insert_spans(edit, tl):
+        ins = inserts[i]
         if ins["kind"] not in DRAWN:
             continue
         missing = [k for k in ("x", "y", "w") if ins.get(k) is None]
         if missing:
             raise ValueError(f"inserts[{i}]: вставке «{ins['kind']}» нужно место на кадре — нет {', '.join(missing)}")
-        start = max(_frame(tl.to_final_snap(ins["t0"])), after_hook)
-        stop = max(_frame(tl.to_final_snap(ins["t1"])), start + min_show)
         value = {k: ins[k] for k in INSERT_FIELDS if k in ins}
         pieces.append(_Piece(start, stop, f"insert{i}", value, insert=True, every_frame=ins["kind"] == "anim"))
     return pieces

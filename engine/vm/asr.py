@@ -31,10 +31,13 @@ WHISPER_FILES = ("turbo-encoder.int8.onnx", "turbo-decoder.int8.onnx", "turbo-to
 SILERO = "silero_vad.onnx"
 
 WORD_TAIL = 0.12  # конец слова не дальше времени его последней буквы + столько, с
-# Куски записи, с. GigaAM: до ASR_MAX целиком, длиннее — куски ASR_MIN–ASR_MAX (мельче в Плане 1 вышло хуже и по
-# тексту, и по времени). Whisper в sherpa-onnx видит только первые ~29,5 с и молча отбрасывает остальное —
-# его окна REF_MIN–REF_MAX. Всюду max ≥ 2·min: тогда при любой длине выходит разбиение без короткого хвоста.
-ASR_MIN, ASR_MAX = 30.0, 60.0
+# Куски записи, с. GigaAM: запись (или остаток) до ASR_MAX — один кусок. Длиннее режем около середины остатка, но не
+# дальше ASR_TARGET от начала куска: разрез ищем в пределах ±ASR_REACH от этой цели, чтобы кусок вышел ASR_MIN–ASR_MAX.
+# Так и кусок, и хвост не короче ~15 с и не длиннее минуты (хуже всего в Плане 1 были мелкие куски, 1,5-2,5 с).
+# Whisper в sherpa-onnx видит только первые ~29,5 с и молча отбрасывает остальное — его окна REF_MIN–REF_MAX,
+# и окно, и остаток не короче REF_MIN.
+ASR_MIN, ASR_MAX = 15.0, 60.0
+ASR_TARGET, ASR_REACH = 45.0, 15.0
 REF_MIN, REF_MAX = 10.0, 28.0
 SILENCE_PEAK = 1e-3  # громкость пика, ниже которой записи нечего слушать (−60 дБ); у шума комнаты пик выше
 MIN_AUDIO = 0.1  # звук короче, с, слова не вместит; модели на таком входе ещё и падают (Whisper — segfault)
@@ -276,24 +279,44 @@ def _quietest(audio: np.ndarray, start: int, stop: int) -> int:
     return start + int(quiet[len(quiet) // 2]) * QUIET_FRAME + QUIET_FRAME // 2
 
 
-def _chunks(audio: np.ndarray, pauses: list[tuple[int, int]], low: float, high: float) -> list[tuple[int, int]]:
-    """Куски записи (отсчёты от–до) для распознавателя: до `high` секунд — один, длиннее — все по `low`–`high` с.
+def _cut(audio: np.ndarray, pauses: list[tuple[int, int]], low: int, high: int) -> int:
+    """Где резать в окне [low, high): в самой длинной из пауз, что в него попадают (при равенстве — в более поздней),
+    а где именно в паузе — выбирает тишина: VAD мог принять за паузу слово, которого не услышал. Паузы в окне нет —
+    в самом тихом месте окна."""
+    best = None  # (длина паузы, её часть в окне)
+    for a, b in pauses:
+        inside = (max(a, low), min(b, high))
+        if inside[0] < inside[1] and (best is None or b - a >= best[0]):
+            best = (b - a, inside)
+    return _quietest(audio, *(best[1] if best else (low, high)))
 
-    Режем в самой длинной паузе окна, куда может попасть разрез, чтобы и этот кусок, и остаток вышли в пределах;
-    где именно в паузе — выбирает тишина (VAD мог принять за паузу слово, которого не услышал). Нет паузы в окне —
-    режем в самом тихом месте окна."""
-    size, low_n, high_n = len(audio), round(low * RATE), round(high * RATE)
-    bounds, start = [0], 0
-    while size - start > high_n:
-        window = (start + low_n, min(start + high_n, size - low_n))
-        best = None  # (длина паузы, часть паузы в окне); при равенстве — более поздняя
-        for a, b in pauses:
-            inside = (max(a, window[0]), min(b, window[1]))
-            if inside[0] < inside[1] and (best is None or b - a >= best[0]):
-                best = (b - a, inside)
-        start = _quietest(audio, *(best[1] if best else window))
-        bounds.append(start)
-    bounds.append(size)
+
+def _asr_window(start: int, size: int) -> tuple[int, int] | None:
+    """Где может быть разрез куска GigaAM, начинающегося в `start`. None — остаток до `size` умещается в один кусок
+    (до ASR_MAX). Иначе цель — середина остатка, но не дальше ASR_TARGET от начала куска; окно — цель ± ASR_REACH,
+    не короче ASR_MIN и не длиннее ASR_MAX от начала. Кусок выходит 15–60 с, а хвост после него — не короче 15 с."""
+    rest = size - start
+    if rest <= ASR_MAX * RATE:
+        return None
+    target = start + min(round(ASR_TARGET * RATE), rest // 2)
+    reach = round(ASR_REACH * RATE)
+    return max(target - reach, start + round(ASR_MIN * RATE)), min(target + reach, start + round(ASR_MAX * RATE))
+
+
+def _ref_window(start: int, size: int) -> tuple[int, int] | None:
+    """Окна Whisper: каждое и остаток — REF_MIN–REF_MAX с."""
+    if size - start <= REF_MAX * RATE:
+        return None
+    return start + round(REF_MIN * RATE), min(start + round(REF_MAX * RATE), size - round(REF_MIN * RATE))
+
+
+def _chunks(audio: np.ndarray, pauses: list[tuple[int, int]], window) -> list[tuple[int, int]]:
+    """Куски записи (отсчёты от–до) для распознавателя. `window(start, size)` говорит, где может быть разрез куска,
+    начинающегося в `start`: пара отсчётов или None, если остаток уместился в один кусок."""
+    bounds = [0]
+    while span := window(bounds[-1], len(audio)):
+        bounds.append(_cut(audio, pauses, *span))
+    bounds.append(len(audio))
     return list(pairwise(bounds))
 
 
@@ -312,14 +335,14 @@ def _words(recognizer, chunk: np.ndarray, offset: float, end: float) -> list[Wor
 
 
 def transcribe(wav: PathLike) -> list[Word]:
-    """Слова записи со временем: GigaAM v2 transducer. Запись до минуты распознаётся целиком, длиннее — кусками
-    по 30–60 с, разрезанными в паузах (мельче не режем: Plan 1). Тишина — пустой список."""
+    """Слова записи со временем: GigaAM v2 transducer. Запись до минуты распознаётся целиком, длиннее — кусками до
+    минуты: режем около середины остатка в самой длинной паузе (куски и хвост не короче 15 с). Тишина — пустой список."""
     audio = _read(wav)
     if _blank(audio):
         return []
     recognizer = _gigaam(str(_model("ASR_MODEL", GIGAAM)))
     if len(audio) > ASR_MAX * RATE:
-        chunks = _chunks(audio, _pauses(_speech(audio), len(audio)), ASR_MIN, ASR_MAX)
+        chunks = _chunks(audio, _pauses(_speech(audio), len(audio)), _asr_window)
     else:
         chunks = [(0, len(audio))]
     words: list[Word] = []
@@ -346,7 +369,7 @@ def reference_text(wav: PathLike) -> str:
         return ""
     spans = _speech(audio)
     parts = []
-    for start, stop in _chunks(audio, _pauses(spans, len(audio)), REF_MIN, REF_MAX):
+    for start, stop in _chunks(audio, _pauses(spans, len(audio)), _ref_window):
         if _blank(audio[start:stop]) or (spans is not None and not _overlaps(spans, start, stop)):
             continue
         if text := _decode(recognizer, audio[start:stop]).text.strip():

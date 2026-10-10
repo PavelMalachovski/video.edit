@@ -83,9 +83,23 @@ def silent_wav(path: Path, seconds: float = 3) -> Path:
     return path
 
 
+def sec(seconds: float) -> int:
+    """Секунды → отсчёты."""
+    return round(seconds * RATE)
+
+
 def spans(*pairs):
     """Секунды → отсчёты: [(10, 12.5)] → [(160000, 200000)]."""
-    return [(round(a * RATE), round(b * RATE)) for a, b in pairs]
+    return [(sec(a), sec(b)) for a, b in pairs]
+
+
+def plan_asr(audio, pauses):
+    """Куски для GigaAM, как их режет transcribe."""
+    return asr._chunks(audio, pauses, asr._asr_window)
+
+
+def lengths(chunks) -> list[float]:
+    return [(b - a) / RATE for a, b in chunks]
 
 
 def cut_times(chunks) -> list[float]:
@@ -313,31 +327,32 @@ def test_reference_text_without_the_model_is_empty(speech, tmp_path, monkeypatch
 def whisper_windows(monkeypatch, tmp_path):
     """reference_text на подставном Whisper: 10 с звука в 4 окнах по 2,5 с.
 
-    Возвращает (wav, replies, decoded): `replies` — что Whisper ответит на очередное окно, `decoded` — окна, до
-    которых дело дошло (в отсчётах)."""
+    Возвращает wav и три списка: `replies` — что Whisper ответит на очередное окно, `decoded` — окна, до которых
+    дело дошло (в отсчётах), `planned` — по какому правилу окна нарезаны."""
     windows = [(0, 40_000), (40_000, 80_000), (80_000, 120_000), (120_000, 160_000)]
-    replies, decoded = [], []
+    replies, decoded, planned = [], [], []
 
     def decode(recognizer, samples):
         decoded.append(len(samples))
         return SimpleNamespace(text=replies.pop(0))
 
     monkeypatch.setattr(asr, "_whisper", lambda model: object())
-    monkeypatch.setattr(asr, "_chunks", lambda audio, pauses, low, high: windows)
+    monkeypatch.setattr(asr, "_chunks", lambda audio, pauses, window: planned.append(window) or windows)
     monkeypatch.setattr(asr, "_decode", decode)
-    return write_wav(tmp_path / "tone.wav", tone(10)), replies, decoded
+    return write_wav(tmp_path / "tone.wav", tone(10)), replies, decoded, planned
 
 
 def test_reference_text_joins_the_windows_with_one_space(whisper_windows, monkeypatch):
-    wav, replies, decoded = whisper_windows
+    wav, replies, decoded, planned = whisper_windows
     monkeypatch.setattr(asr, "_speech", lambda audio: [(0, len(audio))])
     replies += ["  Привет. ", "", "Как дела?", " Хорошо."]  # пробелы по краям отрезаются, пустой ответ в текст не идёт
     assert reference_text(wav) == "Привет. Как дела? Хорошо."
     assert len(decoded) == 4
+    assert planned == [asr._ref_window]  # окна Whisper, а не куски GigaAM: он видит не больше ~30 с
 
 
 def test_reference_text_skips_windows_without_speech(whisper_windows, monkeypatch):
-    wav, replies, decoded = whisper_windows
+    wav, replies, decoded, _ = whisper_windows
     monkeypatch.setattr(asr, "_speech", lambda audio: [(5_000, 10_000), (90_000, 100_000)])  # речь в 1-м и 3-м окнах
     replies += ["Привет.", "Как дела?"]
     assert reference_text(wav) == "Привет. Как дела?"
@@ -345,7 +360,7 @@ def test_reference_text_skips_windows_without_speech(whisper_windows, monkeypatc
 
 
 def test_reference_text_without_vad_gives_every_window_to_whisper(whisper_windows, monkeypatch):
-    wav, replies, decoded = whisper_windows
+    wav, replies, decoded, _ = whisper_windows
     monkeypatch.setattr(asr, "_speech", lambda audio: None)  # модели VAD нет: где речь, неизвестно
     replies += ["Раз.", "Два.", "Три.", "Четыре."]
     assert reference_text(wav) == "Раз. Два. Три. Четыре."
@@ -414,6 +429,19 @@ def test_words_of_a_chunk_stay_inside_it(monkeypatch):
     assert all(a.t1 <= b.t0 for a, b in pairwise(words))
 
 
+def test_transcribe_cuts_long_audio_by_the_asr_rule_and_shifts_each_piece(monkeypatch, tmp_path):
+    planned = []
+    monkeypatch.setattr(asr, "_gigaam", lambda model: object())
+    monkeypatch.setattr(asr, "_speech", lambda audio: None)
+    monkeypatch.setattr(
+        asr, "_chunks", lambda audio, pauses, window: planned.append(window) or [(0, sec(30)), (sec(30), len(audio))]
+    )
+    fake_result(monkeypatch, "да", [0.5, 0.58])  # в каждом куске одно слово на 0,5 с от его начала
+    words = transcribe(write_wav(tmp_path / "long.wav", tone(70)))
+    assert planned == [asr._asr_window]
+    assert words == [Word(0.5, 0.7, "да"), Word(30.5, 30.7, "да")]
+
+
 # ---------- куски: где резать длинную запись ----------
 
 
@@ -435,90 +463,175 @@ def test_without_the_vad_model_no_pauses_are_known(tmp_path, monkeypatch):
     assert asr._pauses(None, 10_000) == []
 
 
+def test_asr_window_is_centred_on_the_middle_of_what_remains():
+    # остаток 61 с: его середина — 30,5 с, окно поиска разреза ±15 с вокруг неё
+    assert asr._asr_window(0, sec(61)) == (sec(15.5), sec(45.5))
+    assert asr._asr_window(0, sec(75)) == (sec(22.5), sec(52.5))
+
+
+def test_asr_window_aims_at_most_45_seconds_from_the_start():
+    for size in (90, 100, 400):  # середина остатка дальше 45 с: цель всё равно 45 с, окно 30–60 с
+        assert asr._asr_window(0, sec(size)) == (sec(30), sec(60))
+
+
+def test_asr_window_counts_from_where_the_piece_starts():
+    assert asr._asr_window(sec(100), sec(161)) == (sec(115.5), sec(145.5))  # остаток те же 61 с
+
+
+def test_asr_window_is_none_when_what_remains_fits_in_one_piece():
+    assert asr._asr_window(0, sec(60)) is None
+    assert asr._asr_window(sec(40), sec(100)) is None  # остаток 60 с
+    assert asr._asr_window(0, sec(60) + 1) is not None
+
+
+def test_asr_window_keeps_the_piece_and_the_rest_from_15_seconds_to_a_minute():
+    for size in range(sec(60.1), sec(300), 7777):  # любой остаток дольше минуты
+        low, high = asr._asr_window(0, size)
+        assert sec(15) <= low < high <= sec(60)  # кусок при любом разрезе в окне: 15–60 с
+        assert size - high >= sec(15)  # а остаток после него — не короче 15 с
+
+
+def test_asr_window_never_leaves_the_piece_limits(monkeypatch):
+    monkeypatch.setattr(asr, "ASR_REACH", 40.0)  # даже при очень широком поиске кусок остаётся 15–60 с
+    assert asr._asr_window(0, sec(61)) == (sec(15), sec(60))
+
+
+def test_ref_window_is_10_to_28_seconds_and_leaves_a_tail_of_at_least_10():
+    assert asr._ref_window(0, sec(28)) is None
+    assert asr._ref_window(0, sec(30)) == (sec(10), sec(20))  # остаток 30 с: ни окно, ни хвост не короче 10 с
+    assert asr._ref_window(0, sec(100)) == (sec(10), sec(28))
+    assert asr._ref_window(sec(50), sec(130)) == (sec(60), sec(78))
+
+
 def test_audio_up_to_the_limit_is_not_split():
-    assert asr._chunks(np.zeros(60 * RATE, "float32"), [], 30, 60) == [(0, 60 * RATE)]
-    assert len(asr._chunks(np.zeros(60 * RATE + 1, "float32"), [], 30, 60)) == 2
+    assert plan_asr(np.zeros(sec(60), "float32"), []) == [(0, sec(60))]
+    assert len(plan_asr(np.zeros(sec(60) + 1, "float32"), [])) == 2
+
+
+def test_a_minute_and_a_bit_with_a_pause_in_the_middle_is_cut_in_that_pause():
+    chunks = plan_asr(np.zeros(sec(61), "float32"), spans((29.7, 30.3)))
+    assert len(chunks) == 2
+    assert 29.7 <= cut_times(chunks)[0] <= 30.3
+    assert min(lengths(chunks)) >= 15
+
+
+def test_a_minute_and_a_bit_with_its_only_pause_at_20_seconds_is_cut_there():
+    # остаток 61 с: середина 30,5 с, окно 15,5–45,5 с — пауза на 20 с в него попадает
+    chunks = plan_asr(np.zeros(sec(61), "float32"), spans((19.8, 20.2)))
+    assert len(chunks) == 2
+    assert 19.8 <= cut_times(chunks)[0] <= 20.2
+    assert min(lengths(chunks)) >= 15
+
+
+def test_a_pause_before_the_window_is_not_used():
+    # пауза на 10 с раньше окна 15,5–45,5 с (кусок вышел бы короче 15 с): режем в самом тихом месте окна — на 40,0–40,2 с
+    rng = np.random.default_rng(5)
+    audio = (0.1 * rng.standard_normal(sec(61))).astype("float32")
+    audio[sec(10.0) : sec(10.2)] *= 0.01  # самое тихое место записи — в этой паузе
+    audio[sec(40.0) : sec(40.2)] *= 0.05  # самое тихое место окна
+    (cut,) = cut_times(plan_asr(audio, spans((9.8, 10.3))))
+    assert 40.0 <= cut <= 40.2
 
 
 def test_cut_goes_into_the_longest_pause_of_the_window():
-    audio = np.zeros(100 * RATE, "float32")
-    pauses = spans((35, 35.5), (45, 46), (58, 58.4), (75, 76))  # в окне 30–60 с самая длинная — вторая
-    chunks = asr._chunks(audio, pauses, 30, 60)
+    audio = np.zeros(sec(100), "float32")
+    pauses = spans((35, 35.5), (45, 46), (58, 58.4), (75, 76))  # остаток 100 с, окно 30–60 с: самая длинная — вторая
+    chunks = plan_asr(audio, pauses)
     assert len(chunks) == 2
     assert cut_times(chunks) == pytest.approx([45.5], abs=0.05)  # посередине паузы
-    assert chunks[0][0] == 0 and chunks[0][1] == chunks[1][0] and chunks[1][1] == 100 * RATE
+    assert chunks[0][0] == 0 and chunks[0][1] == chunks[1][0] and chunks[1][1] == sec(100)
 
 
 def test_equal_pauses_cut_in_the_later_one():
-    audio = np.zeros(100 * RATE, "float32")
-    chunks = asr._chunks(audio, spans((40, 40.5), (50, 50.5)), 30, 60)
+    chunks = plan_asr(np.zeros(sec(100), "float32"), spans((40, 40.5), (50, 50.5)))
     assert cut_times(chunks) == pytest.approx([50.25], abs=0.05)  # кусок длиннее — кусков меньше
 
 
-def test_last_piece_is_not_shorter_than_the_minimum():
-    audio = np.zeros(70 * RATE, "float32")
-    # длинная пауза на 55 с оставила бы 15 с хвоста — она не годится; годится только пауза на 38 с
-    chunks = asr._chunks(audio, spans((38, 38.5), (55, 56)), 30, 60)
+def test_the_cut_stays_near_the_middle_of_what_remains():
+    # остаток 70 с: середина 35 с, окно 20–50 с. Пауза на 55 с длиннее, но за окном: она оставила бы хвост в 14 с
+    chunks = plan_asr(np.zeros(sec(70), "float32"), spans((38, 38.5), (55, 56)))
     assert cut_times(chunks) == pytest.approx([38.25], abs=0.05)
 
 
-def test_a_pause_that_straddles_the_window_edge_is_cut_inside_the_window():
-    audio = np.zeros(80 * RATE, "float32")
-    (cut,) = cut_times(asr._chunks(audio, spans((25, 33)), 30, 60))  # окно 30–60 с, пауза 25–33 с
-    assert 30 <= cut <= 33
+@pytest.mark.parametrize("pause, inside", [((20, 28), (25, 28)), ((52, 60), (52, 55))], ids=["left edge", "right edge"])
+def test_a_pause_that_straddles_the_window_edge_is_cut_inside_the_window(pause, inside):
+    # остаток 80 с: середина 40 с, окно 25–55 с
+    (cut,) = cut_times(plan_asr(np.zeros(sec(80), "float32"), spans(pause)))
+    assert inside[0] <= cut <= inside[1]
 
 
 def test_without_a_pause_the_cut_goes_to_the_quietest_moment():
     rng = np.random.default_rng(7)
-    audio = (0.1 * rng.standard_normal(100 * RATE)).astype("float32")
-    audio[round(47 * RATE) : round(47.3 * RATE)] *= 0.01  # единственное тихое место в окне
-    (cut,) = cut_times(asr._chunks(audio, [], 30, 60))
+    audio = (0.1 * rng.standard_normal(sec(100))).astype("float32")
+    audio[sec(47) : sec(47.3)] *= 0.01  # единственное тихое место в окне
+    (cut,) = cut_times(plan_asr(audio, []))
     assert 47.0 <= cut <= 47.3
 
 
 def test_energy_picks_the_exact_spot_inside_the_pause():
     rng = np.random.default_rng(8)
-    audio = (0.1 * rng.standard_normal(100 * RATE)).astype("float32")
-    audio[round(45 * RATE) : round(45.3 * RATE)] *= 0.01  # VAD назвал паузой 44–48 с, но тихо только 45,0–45,3
-    (cut,) = cut_times(asr._chunks(audio, spans((44, 48)), 30, 60))
+    audio = (0.1 * rng.standard_normal(sec(100))).astype("float32")
+    audio[sec(45) : sec(45.3)] *= 0.01  # VAD назвал паузой 44–48 с, но тихо только 45,0–45,3
+    (cut,) = cut_times(plan_asr(audio, spans((44, 48))))
     assert 45.0 <= cut <= 45.3  # не середина паузы (46 с), где может оказаться слово, пропущенное VAD
 
 
 def test_cut_goes_to_the_quietest_moment_when_the_window_has_no_pause():
     rng = np.random.default_rng(9)
-    audio = (0.1 * rng.standard_normal(100 * RATE)).astype("float32")
-    audio[round(52 * RATE) : round(52.2 * RATE)] *= 0.01
-    (cut,) = cut_times(asr._chunks(audio, spans((10, 11), (80, 81)), 30, 60))  # пауз в окне 30–60 с нет
+    audio = (0.1 * rng.standard_normal(sec(100))).astype("float32")
+    audio[sec(52) : sec(52.2)] *= 0.01
+    (cut,) = cut_times(plan_asr(audio, spans((10, 11), (80, 81))))  # пауз в окне 30–60 с нет
     assert 52.0 <= cut <= 52.2
 
 
-@pytest.mark.parametrize("seed", range(12))
-def test_every_piece_stays_within_the_limits_and_every_cut_is_in_a_pause(seed):
+def random_layout(seed: int, shortest: float, longest: float):
+    """Запись случайной длины и её паузы: речь 0,5–7 с, потом пауза 0,3–1,5 с."""
     rng = np.random.default_rng(seed)
-    total = float(rng.uniform(61, 400))
+    total = float(rng.uniform(shortest, longest))
     pauses, t = [], 0.0
     while t < total:
-        t += rng.uniform(0.5, 7)  # речь
+        t += rng.uniform(0.5, 7)
         length = rng.uniform(0.3, 1.5)
         pauses.append((t, min(t + length, total)))
         t += length
-    chunks = asr._chunks(np.zeros(round(total * RATE), "float32"), spans(*pauses), 30, 60)
-    lengths = [(b - a) / RATE for a, b in chunks]
-    assert chunks[0][0] == 0 and chunks[-1][1] == round(total * RATE)
+    return sec(total), spans(*pauses)
+
+
+@pytest.mark.parametrize("seed", range(12))
+def test_every_piece_is_15_to_60_seconds_and_every_cut_is_in_a_pause(seed):
+    size, pauses = random_layout(seed, 61, 400)
+    chunks = plan_asr(np.zeros(size, "float32"), pauses)
+    assert chunks[0][0] == 0 and chunks[-1][1] == size
     assert all(a[1] == b[0] for a, b in pairwise(chunks))  # без щелей и наложений
-    assert all(30 - 0.001 <= n <= 60 + 0.001 for n in lengths), lengths  # все куски, и последний, — 30–60 с
-    start = 0.0
-    for cut in cut_times(chunks):
-        low, high = start + 30, min(start + 60, total - 30)  # куда можно резать, чтобы и этот кусок, и остаток вышли 30–60 с
+    assert all(sec(15) <= b - a <= sec(60) for a, b in chunks), lengths(chunks)  # и хвост тоже
+    start = 0
+    for _, cut in chunks[:-1]:
+        low, high = asr._asr_window(start, size)
+        assert low <= cut <= high
         if any(a < high and b > low for a, b in pauses):  # в окне есть пауза — режем в паузе
-            assert any(a - 0.001 <= cut <= b + 0.001 for a, b in pauses), (start, cut)
+            assert any(a <= cut <= b for a, b in pauses), (start, cut)
+        start = cut
+
+
+@pytest.mark.parametrize("seed", range(6))
+def test_whisper_windows_are_10_to_28_seconds_and_every_cut_is_in_a_pause(seed):
+    size, pauses = random_layout(seed, 29, 250)
+    chunks = asr._chunks(np.zeros(size, "float32"), pauses, asr._ref_window)
+    assert chunks[0][0] == 0 and chunks[-1][1] == size
+    assert all(a[1] == b[0] for a, b in pairwise(chunks))
+    assert all(sec(10) <= b - a <= sec(28) for a, b in chunks), lengths(chunks)
+    start = 0
+    for _, cut in chunks[:-1]:
+        low, high = asr._ref_window(start, size)
+        if any(a < high and b > low for a, b in pauses):
+            assert any(a <= cut <= b for a, b in pauses), (start, cut)
         start = cut
 
 
 def test_whisper_windows_are_shorter_than_the_30_seconds_it_can_see():
     # sherpa-onnx молча отбрасывает у Whisper всё после ~29,5 с
-    chunks = asr._chunks(np.zeros(100 * RATE, "float32"), [], asr.REF_MIN, asr.REF_MAX)
-    assert all((b - a) / RATE <= 28 for a, b in chunks)
+    chunks = asr._chunks(np.zeros(sec(100), "float32"), [], asr._ref_window)
+    assert all(n <= 28 for n in lengths(chunks))
 
 
 # ---------- распознавание (нужны модели) ----------
@@ -556,7 +669,7 @@ def test_transcribe_long_audio_is_chunked(speech, long_speech, decoded):
     pieces = [n / RATE for n in decoded]  # секунд звука на каждый вызов распознавателя
 
     assert long_speech.duration > 75
-    assert len(pieces) >= 2 and all(30 <= n <= 60 for n in pieces), pieces  # куски 30–60 с
+    assert len(pieces) == 2 and all(27 <= n <= 57 for n in pieces), pieces  # 84 с: режем около середины, 42 с ± 15 с
     assert sum(pieces) == pytest.approx(long_speech.duration, abs=0.001)  # весь звук, ничего дважды
     starts = [w.t0 for w in words]
     assert starts == sorted(starts)  # времена не убывают — на стыках кусков тоже
@@ -575,22 +688,35 @@ def test_short_audio_is_recognized_in_one_piece(speech, decoded):
 
 
 @pytest.mark.slow
-def test_cuts_of_a_long_recording_fall_between_words(long_speech):
-    audio = asr._read(long_speech.wav)
-    chunks = asr._chunks(audio, asr._pauses(asr._speech(audio), len(audio)), 30, 60)
-    assert len(chunks) >= 2
+@pytest.mark.parametrize("seconds", [61, 70, 84])
+def test_cuts_of_a_long_recording_fall_between_words(long_speech, seconds):
+    audio = asr._read(long_speech.wav)[: sec(seconds)]
+    chunks = plan_asr(audio, asr._pauses(asr._speech(audio), len(audio)))
+    assert len(chunks) == 2 and all(sec(15) <= b - a <= sec(60) for a, b in chunks), lengths(chunks)
     for cut in cut_times(chunks):
         assert not any(w.t0 <= cut <= w.t1 for w in long_speech.words), f"cut at {cut:.2f} s is inside a word"
 
 
-def test_without_the_vad_model_cuts_still_fall_between_words(long_speech, tmp_path, monkeypatch):
+@pytest.mark.parametrize("seconds", [61, 70, 84])
+def test_without_the_vad_model_cuts_still_fall_between_words(long_speech, tmp_path, monkeypatch, seconds):
     # без Silero режем по тишине: на речи с цифровым нулём между словами это тоже всегда щель, не слово
     monkeypatch.setenv("VAD_MODEL", str(tmp_path / "no-model.onnx"))
-    audio = asr._read(long_speech.wav)
-    chunks = asr._chunks(audio, asr._pauses(asr._speech(audio), len(audio)), 30, 60)
-    assert len(chunks) >= 2 and all(30 <= (b - a) / RATE <= 60 for a, b in chunks)
+    audio = asr._read(long_speech.wav)[: sec(seconds)]
+    chunks = plan_asr(audio, asr._pauses(asr._speech(audio), len(audio)))
+    assert len(chunks) == 2 and all(sec(15) <= b - a <= sec(60) for a, b in chunks), lengths(chunks)
     for cut in cut_times(chunks):
         assert not any(w.t0 <= cut <= w.t1 for w in long_speech.words), f"cut at {cut:.2f} s is inside a word"
+
+
+@pytest.mark.slow
+def test_a_minute_and_a_bit_is_cut_in_two_and_timed_across_the_cut(speech, long_speech, tmp_path, decoded):
+    wav = write_wav(tmp_path / "minute.wav", asr._read(long_speech.wav)[: sec(61)])  # 7 повторов и четверть восьмого
+    words = transcribe(wav)
+    pieces = [n / RATE for n in decoded]
+    assert len(pieces) == 2 and min(pieces) >= 15, pieces
+    assert all(a.t1 <= b.t0 for a, b in pairwise(words))
+    errors = start_errors_per_repeat(words, speech, 7)  # время сдвинуто на начало куска и через разрез не расходится
+    assert len(errors) >= 7 * 7 and np.mean(errors) <= LIMIT, f"matched {len(errors)}, mean {1000 * np.mean(errors):.0f} ms"
 
 
 @pytest.mark.slow

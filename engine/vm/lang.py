@@ -97,7 +97,10 @@ _STAGE2 = {
 NAMES = {code: row[0] for code, row in _STAGE1.items()}  # этап 1: код → название по-русски
 STAGE2 = {code: row[0] for code, row in _STAGE2.items()}  # второй этап: своя письменность
 # языки NeMo Parakeet TDT 0.6B v3 (греческий у модели есть, но его письменность — второй этап)
-PARAKEET = frozenset("bg hr cs da nl en et fi fr de el hu it lv lt mt pl pt ro sk sl es sv ru uk".split())
+PARAKEET = frozenset([
+    "bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de", "el", "hu", "it",
+    "lv", "lt", "mt", "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru", "uk",
+])  # fmt: skip
 _STEMS = [(code, stem) for table in (_STAGE1, _STAGE2) for code, row in table.items() for stem in row[1:]]
 _FILLER = {"на", "язык", "языке", "language", "the"}
 _BRIEF = re.compile(r"^\s*язык\s*[:—–-]\s*(.*?)\s*$", re.IGNORECASE | re.MULTILINE)

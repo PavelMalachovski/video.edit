@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 import soundfile
 
-from vm import asr
+from vm import asr, lang
 from vm.asr import (
     Word,
     distribute_words,
@@ -33,6 +33,10 @@ RATE = 16000
 needs_whisper = pytest.mark.skipif(
     bool(asr._missing(asr._model("ASR_REF_MODEL", asr.WHISPER), asr.WHISPER_FILES)),
     reason="the Whisper model is not installed",
+)
+needs_parakeet = pytest.mark.skipif(
+    bool(asr._missing(asr._model("PARAKEET_MODEL", asr.PARAKEET), asr.PARAKEET_FILES)),
+    reason="the Parakeet model is not installed",
 )
 LIMIT = 0.080  # предел средней ошибки начала слова, с (из плана; на этой речи в Плане 1 вышло 47 мс)
 
@@ -211,6 +215,23 @@ def test_words_from_tokens_rejects_tokens_without_matching_times():
         words_from_tokens(["а", "б"], [0.1])  # молча потерять слова хуже, чем остановиться
 
 
+def test_words_from_piece_tokens_start_a_word_at_a_leading_space():
+    # так отдаёт Parakeet: кусочки слов, начало слова — пробел впереди, знак препинания прилипает к слову
+    words = words_from_tokens([" Ne", " vous", " dem", "ande", "z", "."], [0.0, 0.16, 0.32, 0.4, 0.56, 0.64])
+    assert [w.text for w in words] == ["Ne", "vous", "demandez."]
+    assert [w.t0 for w in words] == [0.0, 0.16, 0.32]
+    assert words[2].t1 == pytest.approx(0.64 + 0.12)
+
+
+def test_words_from_sentencepiece_tokens():
+    assert [w.text for w in words_from_tokens(["▁Ahoj", "▁svě", "te"], [0.1, 0.5, 0.6])] == ["Ahoj", "světe"]
+
+
+def test_a_hyphen_keeps_pieces_in_one_word():
+    words = words_from_tokens([" D", "em", "ande", "z", "-", "vous", " pl"], [2.56, 2.64, 2.8, 2.96, 3.04, 3.12, 3.28])
+    assert [w.text for w in words] == ["Demandez-vous", "pl"]
+
+
 # ---------- save_words / load_words ----------
 
 
@@ -289,7 +310,7 @@ def test_silence_does_not_need_the_model(tmp_path, monkeypatch):
 
 def test_reference_text_of_silence_is_empty_and_does_not_load_whisper(tmp_path, monkeypatch):
     # Whisper на тишине выдумывает текст («Продолжение следует...»): до него тишина не доходит
-    def never(model):
+    def never(model, language):
         raise AssertionError("Whisper was loaded for silence")
 
     monkeypatch.setattr(asr, "_whisper", never)
@@ -333,11 +354,13 @@ def whisper_windows(monkeypatch, tmp_path):
     windows = [(0, 40_000), (40_000, 80_000), (80_000, 120_000), (120_000, 160_000)]
     replies, decoded, planned = [], [], []
 
-    def decode(recognizer, samples):
+    def decode(recognizer, samples):  # ответ — текст или (текст, язык, который Whisper определил)
         decoded.append(len(samples))
-        return SimpleNamespace(text=replies.pop(0))
+        reply = replies.pop(0)
+        text, language = reply if isinstance(reply, tuple) else (reply, recognizer)
+        return SimpleNamespace(text=text, lang=language)
 
-    monkeypatch.setattr(asr, "_whisper", lambda model: object())
+    monkeypatch.setattr(asr, "_whisper", lambda model, language: language)  # «распознаватель» — его язык
     monkeypatch.setattr(asr, "_chunks", lambda audio, pauses, window: planned.append(window) or windows)
     monkeypatch.setattr(asr, "_decode", decode)
     return write_wav(tmp_path / "tone.wav", tone(10)), replies, decoded, planned
@@ -441,6 +464,101 @@ def test_transcribe_cuts_long_audio_by_the_asr_rule_and_shifts_each_piece(monkey
     words = transcribe(write_wav(tmp_path / "long.wav", tone(70)))
     assert planned == [asr._asr_window]
     assert words == [Word(0.5, 0.7, "да"), Word(30.5, 30.7, "да")]
+
+
+@pytest.fixture
+def recognizers(monkeypatch):
+    """Подставные GigaAM и Parakeet: в списке — какие загрузились; в каждом куске одно слово «да» на 0,5 с."""
+    used = []
+    monkeypatch.setattr(asr, "_gigaam", lambda model: used.append("gigaam") or object())
+    monkeypatch.setattr(asr, "_parakeet", lambda model: used.append("parakeet") or object())
+    monkeypatch.setattr(asr, "_speech", lambda audio: None)
+    fake_result(monkeypatch, "да", [0.5, 0.58])
+    return used
+
+
+def test_russian_is_heard_by_gigaam(recognizers, tmp_path):
+    assert transcribe(write_wav(tmp_path / "a.wav", tone(3))) == [Word(0.5, 0.7, "да")]
+    assert recognizers == ["gigaam"]
+
+
+@pytest.mark.parametrize("language", ["en", "cs", "uk", "de", "pl"])
+def test_european_languages_are_heard_by_parakeet(recognizers, tmp_path, language):
+    assert transcribe(write_wav(tmp_path / "a.wav", tone(3)), language) == [Word(0.5, 0.7, "да")]
+    assert recognizers == ["parakeet"]
+
+
+def test_a_second_stage_language_is_refused_before_any_model_loads(recognizers, tmp_path):
+    with pytest.raises(lang.Unsupported, match="японский"):
+        transcribe(write_wav(tmp_path / "a.wav", tone(3)), "ja")
+    assert recognizers == []
+
+
+def test_transcribe_without_parakeet_says_what_to_do(tmp_path, monkeypatch):
+    monkeypatch.setenv("PARAKEET_MODEL", str(tmp_path / "no-model"))
+    with pytest.raises(FileNotFoundError, match=r"PARAKEET_MODEL.*cloud-setup"):
+        transcribe(write_wav(tmp_path / "a.wav", tone(3)), "cs")
+
+
+def test_without_a_timing_model_whisper_text_is_spread_over_each_phrase(monkeypatch, tmp_path):
+    # сербского у Parakeet нет: текст Whisper по фразам VAD, время слов делится по буквам
+    loaded, heard = [], []
+    replies = ["Zdravo svete.", "Kako si?"]
+    monkeypatch.setattr(asr, "_whisper", lambda model, language: loaded.append(language) or object())
+    monkeypatch.setattr(asr, "_speech", lambda audio: spans((1, 2), (4, 6)))
+
+    def decode(recognizer, samples):
+        heard.append(len(samples))
+        return SimpleNamespace(text=replies.pop(0), lang="")
+
+    monkeypatch.setattr(asr, "_decode", decode)
+    words = transcribe(write_wav(tmp_path / "a.wav", tone(8)), "sr")
+    assert loaded == ["sr"]
+    assert words == distribute_words("Zdravo svete.", 1.0, 2.0) + distribute_words("Kako si?", 4.0, 6.0)
+    assert heard == [sec(1.4), sec(2.4)]  # фраза с полями по 0,2 с: VAD обрезает края слов
+
+
+def test_without_a_timing_model_whisper_is_required(tmp_path, monkeypatch):
+    monkeypatch.setenv("ASR_REF_MODEL", str(tmp_path / "no-model"))
+    with pytest.raises(FileNotFoundError, match="Whisper"):
+        transcribe(write_wav(tmp_path / "a.wav", tone(3)), "sr")
+
+
+def test_reference_text_is_in_the_language_it_is_told(whisper_windows, monkeypatch):
+    wav, replies, _, _ = whisper_windows
+    monkeypatch.setattr(asr, "_speech", lambda audio: [(0, len(audio))])
+    replies += ["Ahoj.", "Jak se máš?", "Dobře.", "Díky."]
+    text, votes = asr.reference(wav, "cs")
+    assert text == "Ahoj. Jak se máš? Dobře. Díky."
+    assert votes == ["cs"] * 4
+
+
+def test_reference_text_is_russian_by_default(whisper_windows, monkeypatch):
+    wav, replies, _, _ = whisper_windows
+    monkeypatch.setattr(asr, "_speech", lambda audio: [(0, len(audio))])
+    replies += [("Раз.", "ru")] * 4
+    assert reference_text(wav) == "Раз. Раз. Раз. Раз."
+
+
+def test_without_a_language_every_window_votes(whisper_windows, monkeypatch):
+    wav, replies, decoded, _ = whisper_windows
+    monkeypatch.setattr(asr, "_speech", lambda audio: [(0, len(audio))])
+    replies += [("Hello.", "en"), ("How are you?", "en"), ("Fine.", "en"), ("Thanks.", "en")]
+    assert asr.reference(wav, "") == ("Hello. How are you? Fine. Thanks.", ["en"] * 4)
+    assert len(decoded) == 4  # определение языка — даром: те же окна, что для текста
+
+
+def test_windows_that_heard_another_language_are_heard_again_in_the_majority_one(whisper_windows, monkeypatch):
+    wav, replies, decoded, _ = whisper_windows
+    monkeypatch.setattr(asr, "_speech", lambda audio: [(0, len(audio))])
+    replies += [("Привіт.", "uk"), ("Як справи?", "ru"), ("Добре.", "uk"), ("Дякую.", "uk"), ("Як справи?", "uk")]
+    assert asr.reference(wav, "") == ("Привіт. Як справи? Добре. Дякую.", ["uk", "ru", "uk", "uk"])
+    assert len(decoded) == 5  # второе окно — ещё раз, по-украински
+
+
+def test_without_whisper_there_are_no_votes(speech, tmp_path, monkeypatch):
+    monkeypatch.setenv("ASR_REF_MODEL", str(tmp_path / "no-model"))
+    assert asr.reference(speech.wav, "") == ("", [])
 
 
 # ---------- куски: где резать длинную запись ----------
@@ -792,7 +910,7 @@ def test_whisper_never_sees_audio_too_short_for_a_word(tmp_path, samples):
 def test_models_are_loaded_once_per_process():
     giga, whisper = (str(asr._model(*args)) for args in (("ASR_MODEL", asr.GIGAAM), ("ASR_REF_MODEL", asr.WHISPER)))
     assert asr._gigaam(giga) is asr._gigaam(giga)
-    assert asr._whisper(whisper) is asr._whisper(whisper)
+    assert asr._whisper(whisper, "ru") is asr._whisper(whisper, "ru")
 
 
 # ---------- найдено сквозным прогоном (План 2, задача 14) ----------
@@ -832,3 +950,49 @@ def test_speech_spans_are_seconds_of_speech(speech):
     assert spans[0][0] == pytest.approx(speech.words[0].t0, abs=0.3)
     assert spans[-1][1] == pytest.approx(speech.words[-1].t1, abs=0.3)
 
+
+
+# ---------- другие языки (живая речь — примеры, что лежат в папках моделей) ----------
+
+
+def model_sample(env: str, name: str, sample: str, tmp_path: Path) -> Path:
+    """Пример живой речи из папки модели → WAV 16 кГц моно; нет примера — тест пропускается."""
+    source = asr._model(env, name) / "test_wavs" / sample
+    if not source.is_file():
+        pytest.skip(f"{source} is not there")
+    return extract_wav(source, tmp_path / sample)
+
+
+@pytest.mark.slow
+@needs_parakeet
+def test_parakeet_hears_live_english_word_by_word(tmp_path):
+    words = transcribe(model_sample("PARAKEET_MODEL", asr.PARAKEET, "en.wav", tmp_path), "en")
+    text = " ".join(w.text for w in words)
+    assert "country" in text.lower() and text[0].isupper(), text  # с регистром и пунктуацией
+    assert len(words) >= 15 and all(a.t1 <= b.t0 for a, b in pairwise(words))
+
+
+@pytest.mark.slow
+@needs_parakeet
+def test_parakeet_times_live_speech_like_gigaam(tmp_path, monkeypatch):
+    # эталона времени на живой речи нет; GigaAM проверен (47 мс на разметке) — Parakeet должен с ним совпадать
+    wav = model_sample("ASR_MODEL", asr.GIGAAM, "example.wav", tmp_path)
+    gigaam = transcribe(wav)
+    monkeypatch.setattr(lang, "engine", lambda code: "parakeet")  # та же русская речь, но слушает Parakeet
+    errors = start_errors(transcribe(wav), gigaam)
+    assert len(errors) >= 20 and np.mean(np.array(errors) <= 0.1) >= 0.85, f"{len(errors)} matched, {errors}"
+
+
+@pytest.mark.slow
+@needs_whisper
+def test_whisper_tells_the_language_of_live_speech(tmp_path):
+    for sample, code in (("en.wav", "en"), ("de.wav", "de")):
+        path = model_sample("PARAKEET_MODEL", asr.PARAKEET, sample, tmp_path)
+        text, votes = asr.reference(path, "")
+        assert votes == [code] and text, (sample, votes, text)
+
+
+@pytest.mark.slow
+@needs_whisper
+def test_whisper_tells_russian(speech):
+    assert set(asr.reference(speech.wav, "")[1]) == {"ru"}

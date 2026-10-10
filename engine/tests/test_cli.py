@@ -300,7 +300,7 @@ def test_cli_prepare_then_render_on_fixture(tmp_path, speech, capsys):
     assert job.path("out/final.srt").is_file()
     assert job.path("qa/qa.png").is_file()
     result = job.read("result.json")  # проходит схему
-    assert result["durations"]["final"] > 0 and "music: none chosen" in result["missing"]
+    assert result["durations"]["final"] > 0 and not any("music" in m for m in result["missing"])
     assert set(result["qa"]) == {"ok", "problems"}
 
 
@@ -522,7 +522,7 @@ def pixels(path) -> np.ndarray:
 
 @pytest.mark.slow
 @needs_ffmpeg
-def test_check_shows_the_layout_before_the_render(tmp_path, capsys):
+def test_check_shows_the_layout_before_the_render(tmp_path, capsys, monkeypatch):
     job = Job(tmp_path / "jobs" / "abc")
     make_source(job.path("source.mp4"), 4)
     job.write("edit.json", {
@@ -551,9 +551,12 @@ def test_check_shows_the_layout_before_the_render(tmp_path, capsys):
     assert abs(hook[1000:1100, 100:300] - source[1000:1100, 100:300]).mean() < 6, "the rest is the source frame"
     boxes = job.path("work/render/frames/boxes.json")
     drawn = boxes.stat().st_mtime_ns
+    monkeypatch.setattr("vm.render.loudness", lambda path: -36.4)  # тихая запись
     assert main(["render", str(job.root), "--preset", "ultrafast"]) == 0
     assert boxes.stat().st_mtime_ns == drawn, "render reuses the layer the check drew"
     assert job.path("out/final.mp4").is_file()
+    out = capsys.readouterr().out
+    assert "тихая запись (−36.4 LUFS) — убрал шум" in out, out
 
 
 # ---------- для SKILL.md ----------
@@ -592,9 +595,25 @@ def test_validate_finds_insert_files_of_edit_json(tmp_path, capsys):
             "music": {"file": "assets/music/nope.mp3", "gainDb": -18}, "hold": 0.0, "style": STYLE,
             "inserts": [{"kind": "image", "src": "in/uploads/nope.png", "t0": 1.0, "t1": 2.5, "x": 100, "y": 600, "w": 300}]}
     job.write("edit.json", edit)
+    job.path("in").mkdir()  # после vm fetch
     assert main(["validate", str(job.root)]) == 1
     err = capsys.readouterr().err
     assert "in/uploads/nope.png" in err and "assets/music/nope.mp3" in err
+
+
+def test_validate_leaves_uploads_alone_until_fetch(tmp_path, capsys):
+    # шаг restyle идёт без vm fetch: in/ нет, и вставка Павла из ТЗ — не потерянный файл
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    edit = {"speed": 1.1, "keep": [[0.0, 3.0]], "words": [], "hook": None, "cta": None, "zooms": [], "face": {"x": 0.5, "y": 0.3},
+            "music": None, "hold": 0.0, "style": STYLE,
+            "inserts": [{"kind": "image", "src": "in/uploads/upload-i1.png", "t0": 1.0, "t1": 2.5, "x": 100, "y": 600, "w": 300}]}
+    job.write("edit.json", edit)
+    assert main(["validate", str(job.root)]) == 0
+    assert "in/" in capsys.readouterr().out  # сказано, что их не проверял
+    job.path("in").mkdir()  # после vm fetch — проверяются
+    assert main(["validate", str(job.root)]) == 1
+    assert "in/uploads/upload-i1.png" in capsys.readouterr().err
 
 
 @needs_ffmpeg

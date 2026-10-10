@@ -19,6 +19,10 @@ LOUDNORM = "apad=whole_dur=3,loudnorm=I=-14:TP=-1.5:LRA=11"
 # loudnorm ставит последнему неполному куску метку времени как полному: перенумеровываем отсчёты по порядку,
 # иначе обрезка по времени отрезала бы конец (звук выходил короче ролика на 0–100 мс)
 RETIME = "asetpts=N/SR/TB"
+# Тихая запись (дизайн, §5.9): loudnorm поднимает её шум вместе с голосом, поэтому до него — шумоподавление.
+# Порог — интегральная громкость исходника; afftdn сам следит за уровнем шума (tn=1) и убирает до 12 дБ.
+QUIET_LUFS = -30.0
+DENOISE = "afftdn=nr=12:nf=-50:tn=1"
 SFX_GAIN_DB = -13
 FADE_IN = 0.1
 FADE_OUT = 1.0
@@ -73,11 +77,13 @@ def audio_graph(
     music: dict | None,
     sfx: list[tuple[float, Path]],
     inputs_offset: int,
+    denoise: bool = False,
 ) -> tuple[list[str], str, list[str]]:
     """→ (аргументы `-i` для музыки и звуков, граф для `-filter_complex` с выходом `[aout]`, предупреждения).
 
     `voice` — метка голоса в графе (`[0:a]` или выход склейки); `final_dur` — длина ролика со стоп-кадром;
-    `sfx` — `(время финала, файл)`; `inputs_offset` — номер первого добавленного входа."""
+    `sfx` — `(время финала, файл)`; `inputs_offset` — номер первого добавленного входа; `denoise` — тихая
+    запись: шумоподавление до выравнивания громкости."""
     if not 0.5 <= speed <= 100:
         raise ValueError(f"speed must be between 0.5 and 100 (atempo), got {speed!r}")
     if not final_dur > 0:
@@ -99,7 +105,8 @@ def audio_graph(
             warnings.append(text)
 
     tempo = f"atempo={speed:g}," if abs(speed - 1) > 1e-9 else ""
-    chains.append(f"{_label(voice)}{tempo}{FORMAT},{LOUDNORM},{FORMAT},{RETIME},apad=whole_dur={end},atrim=end={end}[a_vo]")
+    clean = f"{DENOISE}," if denoise else ""
+    chains.append(f"{_label(voice)}{tempo}{FORMAT},{clean}{LOUDNORM},{FORMAT},{RETIME},apad=whole_dur={end},atrim=end={end}[a_vo]")
     parts = ["[a_vo]"]
 
     if music:
@@ -118,13 +125,13 @@ def audio_graph(
             parts = ["[a_vmix]", "[a_md]"]
             index += 1
         else:
-            warn(f"музыка не найдена или не читается, ролик без неё: {path}")
+            warn(f"музыка {path.name} не найдена или не читается — ролик без неё")
 
     for k, (t, file) in enumerate(sfx):
         path = Path(file)
         channels, _ = probe(path)
         if not channels:
-            warn(f"звук вставки не найден или не читается, вставка без звука: {path}")
+            warn(f"звук {path.name} не найден или не читается — вставка без звука появления")
             continue
         inputs += ["-i", str(path)]
         delay = max(0, round(t * 1000))

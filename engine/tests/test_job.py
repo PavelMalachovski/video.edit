@@ -360,6 +360,17 @@ def test_edit_accepts_insert_title_and_face_box(job):
         job.write("edit.json", edit)
 
 
+def test_edit_keeps_a_planned_insert_waiting_for_its_answer(job):
+    # шаг analyze решает место и время вставки «добавь сюда», картинку даст ответ Павла на шаге render
+    edit = make_edit()
+    edit["inserts"] = [{"kind": "image", "question": "insert-1", "t0": 12.0, "t1": 15.5, "x": 70, "y": 500, "w": 250}]
+    job.write("edit.json", edit)
+    assert job.read("edit.json")["inserts"][0]["question"] == "insert-1"
+    edit["inserts"][0]["question"] = ""
+    with pytest.raises(ValueError, match=r"inserts\[0\]\.question"):
+        job.write("edit.json", edit)
+
+
 def test_edit_face_is_fractions_of_the_frame(job):
     edit = make_edit()
     edit["face"] = {"x": 1.5, "y": 0.3}

@@ -7,6 +7,7 @@
 import json
 import math
 import os
+import re
 import subprocess
 import tempfile
 from collections.abc import Iterable, Sequence
@@ -260,6 +261,19 @@ def normalize(parts: Sequence[PathLike], out: PathLike) -> Probe:
 
 
 # ---------- звук и кадры ----------
+
+
+def loudness(src: PathLike) -> float | None:
+    """Интегральная громкость первой звуковой дорожки, LUFS (EBU R128, как у loudnorm); звука нет — None."""
+    try:
+        err = _run(["ffmpeg", "-hide_banner", "-nostats", "-nostdin", "-i", str(src), "-map", "0:a:0",
+                    "-af", "ebur128=framelog=quiet", "-f", "null", "-"]).stderr
+    except MediaError:
+        return None
+    found = re.findall(r"I:\s+(-?[\d.]+|-inf) LUFS", err)
+    if not found:
+        return None
+    return float(found[-1]) if found[-1] != "-inf" else -math.inf
 
 
 def extract_wav(src: PathLike, out: PathLike, rate: int = 16000) -> Path:

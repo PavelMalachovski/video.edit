@@ -109,12 +109,19 @@ def _preview(args: argparse.Namespace) -> None:
 CHECKED = ("status.json", "questions.json", "answers.json", "styles.json", "edit.json", "result.json")
 
 
-def _files(job: Job, name: str, data: dict) -> list[str]:
+def _files(job: Job, name: str, data: dict, unchecked: set[str] | None = None) -> list[str]:
     """Файлы, на которые ссылаются данные и которых нет: картинки вопросов и кадр превью — от папки задачи (так их
-    берёт страница); вставки, звуки и музыка edit.json — от папки задачи или корня репозитория (так их берёт рендер)."""
+    берёт страница); вставки, звуки и музыка edit.json — от папки задачи или корня репозитория (так их берёт рендер).
+    Файлы `in/…` появляются только после `vm fetch` (шаг restyle идёт без него): нет папки `in/` — их не проверить,
+    они попадают в `unchecked`, а не в потерянные."""
     lost = []
+    fetched = job.path("in").is_dir()
 
     def need(field: str, rel: str, render: bool = False) -> None:
+        if render and not fetched and rel.startswith("in/"):
+            if unchecked is not None:
+                unchecked.add(rel)
+            return
         found = _resolve(job, rel) is not None if render else (job.root / rel).resolve().is_file()
         if not found:
             lost.append(f"{name}: {field}: нет файла {rel}")
@@ -140,7 +147,7 @@ def _files(job: Job, name: str, data: dict) -> list[str]:
 
 def _validate(args: argparse.Namespace) -> None:
     job = _job(args)
-    problems, checked = [], []
+    problems, checked, unchecked = [], [], set()
     for name in CHECKED:
         if not job.path(name).is_file():
             continue
@@ -151,10 +158,12 @@ def _validate(args: argparse.Namespace) -> None:
         except ValueError as err:
             problems.append(str(err))
             continue
-        problems += _files(job, name, data)
+        problems += _files(job, name, data, unchecked)
     if problems:
         raise ValueError("\n".join(problems))
     print("в порядке: " + (", ".join(checked) or "файлов со схемой нет"))
+    if unchecked:
+        print("не проверял (in/ появится после vm fetch): " + ", ".join(sorted(unchecked)))
 
 
 def _check(args: argparse.Namespace) -> None:
@@ -201,8 +210,11 @@ def _render(args: argparse.Namespace) -> None:
     )
     print(f"{final.relative_to(job.root)}: {result['durations']['final']:.1f} с (исходник {result['durations']['source']:.1f} с)")
     print(f"контрольный лист: {frames['sheet'].relative_to(job.root)}")
+    voice = result.get("voice") or {}
+    if voice.get("denoise"):
+        print(f"звук: тихая запись ({voice['lufs']:.1f} LUFS) — убрал шум перед выравниванием громкости".replace("-", "−", 1))
     for line in result["missing"]:
-        print(f"нет: {line}")
+        print(f"не хватило: {line}")
     for line in result["warnings"]:
         print(f"внимание: {line}")
     print("проверка: " + ("всё в порядке" if not problems else "проблемы:"))

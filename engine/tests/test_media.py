@@ -616,3 +616,17 @@ def test_grid_frames_at_the_very_end_still_get_grid_and_label(tmp_path, colors):
     assert region_rgb(path, x=340, y=600, w=60, h=100) == pytest.approx(BLUE, abs=COLOR_TOLERANCE)
     assert region_rgb(path, x=108 - 3, y=300, w=6, h=10)[0] > 40  # линия сетки: на синем у неё красная составляющая
     assert np.abs(region_pixels(path, x=0, y=0, w=300, h=100).astype(int) - BLUE).max() > 100  # подпись
+
+
+# ---------- громкость исходника (тихая запись → шумоподавление) ----------
+
+
+def test_loudness_reads_integrated_lufs_and_none_without_sound(tmp_path):
+    loud, quiet, mute = tmp_path / "loud.wav", tmp_path / "quiet.wav", tmp_path / "mute.mp4"
+    ff("-f", "lavfi", "-i", "sine=f=1000:r=48000", "-t", "4", "-ac", "1", loud)
+    ff("-f", "lavfi", "-i", "sine=f=1000:r=48000,volume=-20dB", "-t", "4", "-ac", "1", quiet)
+    ff("-f", "lavfi", "-i", "color=c=gray:s=64x64:d=1", "-c:v", "libx264", "-pix_fmt", "yuv420p", mute)
+    a, b = media.loudness(loud), media.loudness(quiet)
+    assert a == pytest.approx(-21.0, abs=1.5), a  # синус lavfi — амплитуда 1/8
+    assert a - b == pytest.approx(20.0, abs=0.5)
+    assert media.loudness(mute) is None

@@ -135,7 +135,7 @@ def test_render_end_to_end(tmp_path, sources):
     mid = frame(final, tl.duration / 2)
     filled = int(np.sum(np.all(np.abs(mid[1912].astype(int) - (0xFF, 0xD2, 0x3F)) <= 12, axis=1)))
     assert 400 <= filled <= 680, f"bar about half way: {filled} px"
-    assert "music: none chosen" in result["missing"]
+    assert not any("music" in m or "музык" in m for m in result["missing"]), "без музыки — выбор Павла, а не нехватка"
     srt = (out / "final.srt").read_text(encoding="utf-8")
     assert "раз" in srt and "три" in srt
     assert not any(p.suffix == ".png" for p in out.iterdir()), "work files stay out of out/"
@@ -143,14 +143,17 @@ def test_render_end_to_end(tmp_path, sources):
 
 def test_render_without_words_has_no_subs(tmp_path, sources):
     job = make_job(tmp_path, sources["short"], keep=[[0.0, 5.0]])
+    job.path("out").mkdir()
+    job.path("out/final.srt").write_text("1\n00:00:00,000 --> 00:00:01,000\nстарое\n\n", encoding="utf-8")  # от прошлого рендера
     result = render(job, job.path("out"), preset="ultrafast")
     assert (job.path("out") / "final.mp4").stat().st_size > 0
-    assert (job.path("out") / "final.srt").read_text(encoding="utf-8") == ""
+    assert not (job.path("out") / "final.srt").exists(), "GitHub не принимает пустой ассет: без речи .srt нет совсем"
     assert any("нет речи" in m for m in result["missing"])
+    assert not any(m.startswith("speech:") for m in result["missing"])
 
 
 def test_render_version_name(tmp_path, sources):
-    job = make_job(tmp_path, sources["short"], keep=[[0.0, 2.0]])
+    job = make_job(tmp_path, sources["short"], keep=[[0.0, 2.0]], words=[{"t0": 0.2, "t1": 0.8, "text": "раз"}])
     render(job, job.path("out"), name="final-v2", preset="ultrafast")
     assert (job.path("out") / "final-v2.mp4").is_file() and (job.path("out") / "final-v2.srt").is_file()
 
@@ -190,6 +193,7 @@ def test_render_reports_a_missing_fullscreen_file(tmp_path, sources):
     )
     result = render(job, job.path("out"), preset="ultrafast")
     assert any("nope.mp4" in m for m in result["missing"])
+    assert not any("not found" in m or m.startswith("fullscreen:") for m in result["missing"]), result["missing"]
 
 
 @pytest.mark.slow
@@ -343,6 +347,7 @@ def test_sounds_skip_absent_cutaways_and_report_missing_files(tmp_path):
     assert sfx == [(3.0, job.path("in/uploads/swoosh.wav").resolve())]
     assert music is None
     assert any("assets/sfx/nope.mp3" in n for n in notes) and any("assets/music/nope.mp3" in n for n in notes)
+    assert not any("not found" in n or n.startswith(("sfx:", "music:")) for n in notes), notes  # Павел читает это по-русски
 
 
 def test_sounds_say_when_assets_have_no_sfx(tmp_path, monkeypatch):
@@ -356,6 +361,11 @@ def test_sounds_say_when_assets_have_no_sfx(tmp_path, monkeypatch):
             "inserts": [{"kind": "image", "src": "in/uploads/a.png", "t0": 1.0, "t1": 2.5, "sfx": None}]}
     _, _, notes = rendering._sounds(job, edit, timeline(edit), skip=set())
     assert any("assets/sfx" in n for n in notes), notes
+    job.path("in/uploads").mkdir(parents=True)
+    ffmpeg("-f", "lavfi", "-i", "sine=f=900:d=0.3", job.path("in/uploads/pop.wav"))
+    own = {**edit, "inserts": [{**edit["inserts"][0], "sfx": "in/uploads/pop.wav"}]}
+    sounds, _, notes = rendering._sounds(job, own, timeline(own), skip=set())
+    assert len(sounds) == 1 and notes == [], "у вставки свой звук — о пустой assets/sfx не говорим"
     sfx.mkdir()
     (sfx / "pop.mp3").write_bytes(b"mp3")
     _, _, notes = rendering._sounds(job, edit, timeline(edit), skip=set())
@@ -363,3 +373,28 @@ def test_sounds_say_when_assets_have_no_sfx(tmp_path, monkeypatch):
     _, _, notes = rendering._sounds(job, {**edit, "inserts": []}, timeline(edit), skip=set())
     assert notes == []
 
+
+
+def test_an_insert_still_waiting_for_its_answer_stops_the_layer(tmp_path, sources):
+    from vm.render import draw_layer
+
+    job = make_job(tmp_path, sources["short"], keep=[[0.0, 3.0]],
+                   inserts=[{"kind": "image", "question": "insert-1", "t0": 1.0, "t1": 2.0, "x": 70, "y": 500, "w": 250}])
+    with pytest.raises(RenderError, match="insert-1"):
+        draw_layer(job)
+    answered = job.read("edit.json")
+    answered["inserts"][0]["src"] = "in/uploads/upload-i1.png"  # ответ пришёл: место и время те же
+    job.write("edit.json", answered)
+    assert draw_layer(job).boxes
+
+
+def test_quiet_recording_is_denoised_and_reported(tmp_path, sources, monkeypatch):
+    import vm.render as rendering
+
+    job = make_job(tmp_path, sources["short"], keep=[[0.0, 2.0]])
+    monkeypatch.setattr(rendering, "loudness", lambda path: -36.4)
+    result = render(job, job.path("out"), preset="ultrafast")
+    assert result["voice"] == {"lufs": -36.4, "denoise": True}
+    monkeypatch.setattr(rendering, "loudness", lambda path: -21.0)
+    result = render(job, job.path("out"), preset="ultrafast")
+    assert result["voice"] == {"lufs": -21.0, "denoise": False}

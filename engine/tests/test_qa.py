@@ -173,7 +173,7 @@ def test_check_render_takes_the_duration_render_built(tmp_path):
 def test_check_render_flags_music_that_did_not_make_it(tmp_path):
     final = make_clip(tmp_path / "final.mp4", 3)  # голос есть
     edit = edit_for(3.0, music={"file": "assets/music/track.mp3", "gainDb": -18})
-    note = "music: assets/music/track.mp3 not found — ролик без музыки"
+    note = "нет музыки assets/music/track.mp3 — ролик без неё"
     problems = check_render(final, edit, [event(0, 3)], report(3.0, missing=[note]))
     assert any("музык" in p and "track.mp3" in p for p in problems), problems
 

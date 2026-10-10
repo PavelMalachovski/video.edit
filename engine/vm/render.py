@@ -30,9 +30,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .asr import Word
-from .audio import audio_graph
+from .audio import QUIET_LUFS, audio_graph
 from .job import Job, validate
-from .media import HDR_TO_SDR, MediaError, Probe, probe
+from .media import HDR_TO_SDR, MediaError, Probe, loudness, probe
 from .overlay import FPS, build_overlay_events, insert_spans
 from .subs import to_srt
 from .timeline import Timeline
@@ -89,6 +89,12 @@ def draw_layer(job: Job) -> Layer:
     """edit.json (по схеме) → шкала по исходнику → кадры слоя в work/render/frames."""
     edit = job.read("edit.json")
     validate("edit.json", edit)  # файл пишет Claude: ошибка называет поле, а не падает KeyError где-то в графе
+    waiting = [ins["question"] for ins in edit["inserts"] if ins.get("question") and not ins.get("src") and ins["kind"] != "sticker"]
+    if waiting:
+        raise RenderError(
+            "edit.json: вставки ждут ответа на вопросы " + ", ".join(f"«{q}»" for q in waiting)
+            + ": по answers.json поставь src (или kind sticker и text), «не надо» — убери вставку; место и время не меняй"
+        )
     info = probe(job.path("source.mp4"))
     tl = timeline(edit, info.duration)
     if tl.duration <= 0:
@@ -103,7 +109,9 @@ def draw_layer(job: Job) -> Layer:
 
 
 def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium") -> dict:
-    """Пишет `out_dir/<name>.mp4` и `out_dir/<name>.srt`. → `{durations, missing, warnings, music}`."""
+    """Пишет `out_dir/<name>.mp4` и `out_dir/<name>.srt` (без речи `.srt` нет: пустой ассет GitHub не примет и не
+    отдаст ролик). → `{durations, missing, warnings, music, voice}`; `missing` Павел читает на странице — по-русски;
+    `voice` — громкость исходника и было ли шумоподавление (тихая запись)."""
     drawn = draw_layer(job)
     edit, info, tl, layer = drawn.edit, drawn.info, drawn.tl, drawn.frames
     source = job.path("source.mp4")
@@ -116,12 +124,10 @@ def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium")
     for stale in out_dir.glob(f".{name}.part.*"):  # от прерванной сборки
         stale.unlink()
 
-    if not edit.get("music"):
-        missing.append("music: none chosen")
     words = [Word(w["t0"], w["t1"], w["text"]) for w in edit.get("words") or []]
     srt = to_srt(words, tl)
     if not srt:
-        missing.append("speech: нет речи — ролик без субтитров")
+        missing.append("нет речи — ролик без субтитров")
 
     inputs = ["-i", str(source), "-f", "concat", "-safe", "0", "-i", str(layer)]
     chains = _cut(tl, info.has_audio)
@@ -131,18 +137,24 @@ def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium")
     chains += _layers(edit["style"], tl)
     sfx, music, notes = _sounds(job, edit, tl, skip=skipped)
     missing += notes
-    extra, sound, notes = audio_graph("[ac]", edit["speed"], total, music, sfx, inputs_offset=_count(inputs))
+    lufs = loudness(source) if info.has_audio else None
+    quiet = lufs is not None and lufs < QUIET_LUFS
+    extra, sound, notes = audio_graph("[ac]", edit["speed"], total, music, sfx, inputs_offset=_count(inputs), denoise=quiet)
     inputs += extra
     chains.append(sound)
     missing += notes
 
     video, subs = out_dir / f".{name}.part.mp4", out_dir / f".{name}.part.srt"
     try:  # ролик и субтитры появляются в out/ только целиком; от упавшей сборки не остаётся ничего
-        subs.write_text(srt, encoding="utf-8")
+        if srt:
+            subs.write_text(srt, encoding="utf-8")
         _ffmpeg([*inputs, "-filter_complex", ";".join(chains), "-map", "[vout]", "-map", "[aout]", *_encode(preset),
                  "-t", f"{total:.6f}", str(video)], timeout=max(900, 30 * total))
         os.replace(video, out_dir / f"{name}.mp4")
-        os.replace(subs, out_dir / f"{name}.srt")
+        if srt:
+            os.replace(subs, out_dir / f"{name}.srt")
+        else:  # субтитры прошлого рендера этой версии — от другого текста
+            (out_dir / f"{name}.srt").unlink(missing_ok=True)
     finally:
         video.unlink(missing_ok=True)
         subs.unlink(missing_ok=True)
@@ -151,6 +163,7 @@ def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium")
         "missing": missing,
         "warnings": warnings,
         "music": music["file"] if music else None,  # файл, отданный в микс (для проверки качества)
+        "voice": {"lufs": None if lufs is None or math.isinf(lufs) else round(lufs, 1), "denoise": quiet},
     }
 
 
@@ -251,7 +264,7 @@ def _picture(job, edit, tl, info, index, hold, missing, warnings) -> tuple[list[
             continue
         path = _resolve(job, ins.get("src"))
         if path is None:
-            missing.append(f"fullscreen: {ins.get('src')} not found — перебивки нет")
+            missing.append(f"нет файла перебивки {ins.get('src')} — ролик без неё")
             skipped.add(i)
             continue
         try:
@@ -259,7 +272,7 @@ def _picture(job, edit, tl, info, index, hold, missing, warnings) -> tuple[list[
         except MediaError:
             hdr = None
         if hdr is None or not _decodes(path):
-            missing.append(f"fullscreen: {ins.get('src')} не читается — перебивки нет")
+            missing.append(f"файл перебивки {ins.get('src')} не читается — ролик без неё")
             skipped.add(i)
             continue
         suffix = path.suffix.lower()
@@ -322,22 +335,26 @@ def _sounds(job: Job, edit: dict, tl: Timeline, skip: set[int]) -> tuple[list, d
     Файлы — только из папки задачи или репозитория; ненайденные — в заметках (третий элемент)."""
     inserts = edit.get("inserts") or []
     sfx, notes = [], []
-    if inserts and not (SFX.is_dir() and any(p.suffix.lower() in SOUNDS for p in SFX.iterdir())):
-        notes.append("sfx: в assets/sfx нет звуков — вставки без звука появления")
+    silent = False  # есть вставка без своего звука
     for i, first, _ in insert_spans(edit, tl):
         name = inserts[i].get("sfx")
-        if not name or i in skip:
+        if i in skip:
+            continue
+        if not name:
+            silent = True
             continue
         path = _resolve(job, name)
         if path is None:
-            notes.append(f"sfx: {name} not found — вставка {i + 1} без звука")
+            notes.append(f"нет звука {name} — вставка {i + 1} без звука появления")
         else:
             sfx.append((first / FPS, path))
+    if silent and not (SFX.is_dir() and any(p.suffix.lower() in SOUNDS for p in SFX.iterdir())):
+        notes.append("в assets/sfx нет звуков — вставки без звука появления")
     music = edit.get("music")
     if music:
         path = _resolve(job, music["file"])
         if path is None:
-            notes.append(f"music: {music['file']} not found — ролик без музыки")
+            notes.append(f"нет музыки {music['file']} — ролик без неё")
             music = None
         else:
             music = {"file": str(path), "gainDb": music["gainDb"]}

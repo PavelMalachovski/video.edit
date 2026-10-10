@@ -223,4 +223,34 @@ def test_missing_music_file_warns_not_fails(tmp_path):
     )
     assert any("nope.mp3" in w for w in warnings)
     assert any("no-pop.wav" in w for w in warnings)
+    assert not any(str(tmp_path) in w for w in warnings), "пути контейнера Павлу ни к чему: только имя файла"
     assert samples.shape[1] / rate == pytest.approx(4.0, abs=0.05)
+
+
+# ---------- тихая запись: шумоподавление до loudnorm ----------
+
+
+def test_quiet_voice_is_denoised_before_loudnorm():
+    _, graph, _ = audio_graph("[0:a]", 1.0, 3.0, None, [], inputs_offset=1, denoise=True)
+    voice = graph.split(";")[0]
+    assert "afftdn" in voice and voice.index("afftdn") < voice.index("loudnorm"), voice
+    _, plain, _ = audio_graph("[0:a]", 1.0, 3.0, None, [], inputs_offset=1)
+    assert "afftdn" not in plain
+
+
+def test_denoise_lowers_the_hiss_between_phrases(tmp_path):
+    # тихий «голос» (полсекунды звука через полсекунды) и ровное шипение под ним всё время
+    voice = tmp_path / "quiet.wav"
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+         f"sine=f=440:r={RATE},volume='if(lt(mod(t,1),0.5),0.02,0)':eval=frame", "-f", "lavfi", "-i",
+         f"anoisesrc=color=white:amplitude=0.002:r={RATE}:seed=7", "-filter_complex", "[0:a][1:a]amix=inputs=2:normalize=0",
+         "-t", "8", "-ac", "1", "-ar", str(RATE), str(voice)],
+        check=True,
+    )
+    gaps = lambda x, rate: np.concatenate([x[int((k + 0.65) * rate) : int((k + 0.9) * rate)] for k in range(2, 7)])
+    _, plain, rate, _ = mix(tmp_path, voice, speed=1.0, final_dur=8.0, music=None, sfx=[])
+    plain_gap = rms_db(gaps(plain[0], rate))
+    clean_out, clean, rate, _ = mix(tmp_path, voice, speed=1.0, final_dur=8.0, music=None, sfx=[], denoise=True)
+    assert rms_db(gaps(clean[0], rate)) <= plain_gap - 6, (rms_db(gaps(clean[0], rate)), plain_gap)
+    assert loudness(clean_out) == pytest.approx(-14, abs=2)

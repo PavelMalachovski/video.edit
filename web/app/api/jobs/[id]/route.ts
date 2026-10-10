@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { errorResponse } from '@/lib/http.ts';
 import { isJobId } from '@/lib/jobs.ts';
-import { canRun, loadJob } from '@/lib/jobview.ts';
+import { canRun, loadJob, type JobData } from '@/lib/jobview.ts';
 import { deleteJob } from '@/lib/steps.ts';
 import { gh } from '@/lib/env.ts';
 
@@ -14,7 +14,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     const loaded = await loadJob(g, id, 'all');
     if (!loaded) return NextResponse.json({ error: 'Задача не найдена' }, { status: 404 });
     const f = loaded.files;
-    return NextResponse.json({
+    const data: JobData = {
       view: loaded.view,
       questions: f?.questions ?? null,
       styles: f?.styles ?? null,
@@ -25,7 +25,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       uploads: f?.job?.uploads ?? [],
       repo: g.repo,
       head: f?.head ?? null,
-    });
+    };
+    return NextResponse.json(data);
   } catch (e) {
     return errorResponse(e);
   }

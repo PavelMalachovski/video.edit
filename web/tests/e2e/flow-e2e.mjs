@@ -141,6 +141,29 @@ const segments = [
     check(!s.drafts.some((d) => d.tag === `job-${abandoned}`), 'черновик брошенной задачи не удалён');
     check(s.drafts.some((d) => d.tag === `job-${ctx.jobId}`), 'удалился не тот черновик');
   }],
+
+  ['phases', async (ctx) => {
+    const { page } = ctx;
+    const iso = (ago = 0) => new Date(Date.now() - ago).toISOString();
+    await page.goto(`${APP}/jobs/${ctx.jobId}`);
+    await session(ctx, { 'status.json': { state: 'analyzing', phase: 'Расшифровываю', message: 'Слушаю речь', at: iso() } });
+    await page.getByText('Расшифровываю').waitFor({ timeout: 7000 });
+    await shot(page, 'phases-working');
+
+    await session(ctx, { 'status.json': { state: 'analyzing', phase: 'Смотрю кадры', message: 'Ищу лицо', at: iso(30 * 60_000) } });
+    await page.getByText('Похоже, Claude застрял').waitFor({ timeout: 7000 });
+    await shot(page, 'phases-stuck');
+    await page.getByRole('button', { name: 'Перезапустить шаг' }).click();
+    await until(async () => (await fires()).some((f) => f.step === 'analyze' && f.attempt === 2), 10_000, 'перезапуск шага');
+    const queued = JSON.parse((await branchFile(ctx, 'status.json')) ?? '{}');
+    check(queued.state === 'queued', `статус после перезапуска: ${queued.state}`);
+
+    await session(ctx, { 'status.json': { state: 'error', phase: 'Ошибка', message: 'Не удалось расшифровать', at: iso(), error: 'GigaAM: нет памяти' } });
+    await page.getByText('Не удалось расшифровать').waitFor({ timeout: 7000 });
+    await shot(page, 'phases-error');
+    await page.getByRole('button', { name: 'Повторить', exact: true }).click();
+    await until(async () => (await fires()).some((f) => f.step === 'analyze' && f.attempt === 3), 10_000, 'повтор шага');
+  }],
 ];
 
 // ---------- прогон ----------

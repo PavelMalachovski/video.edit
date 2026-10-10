@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { canRun, deriveView, readJobFiles, STUCK_MS, type Action, type JobFiles, type Screen } from '../lib/jobview.ts';
+import { canRun, deriveView, readJobFiles, stepIndex, STUCK_MS, type Action, type JobFiles, type Screen } from '../lib/jobview.ts';
 import type { Release } from '../lib/github.ts';
 import type { JobFile, Status } from '../lib/jobfiles.ts';
 import { withFake } from './helpers.ts';
@@ -133,3 +133,16 @@ test('broken status.json does not crash the view', () => withFake(async ({ fake,
   assert.equal(v.screen, 'error');
   assert.match(v.status?.message ?? '', /Сессия не оставила статус/);
 }));
+
+test('stepIndex follows the screen and the running step', () => {
+  const at = (step: 'analyze' | 'restyle' | 'render' | 'fix', state: Status['state']) =>
+    stepIndex(deriveView(release(), files({ job: job([{ step, attempt: 1, at: new Date(T0).toISOString() }]), status: status(state) }), T0));
+  assert.equal(stepIndex(deriveView(release(['source.part-00000']), null, T0)), 0); // загрузка
+  assert.equal(stepIndex(deriveView(release(), null, T0)), 1); // анализ не запущен — дальше текст
+  assert.equal(at('analyze', 'analyzing'), 1);
+  assert.equal(at('analyze', 'waiting_answers'), 2);
+  assert.equal(at('restyle', 'analyzing'), 3);
+  assert.equal(at('render', 'rendering'), 4);
+  assert.equal(at('fix', 'error'), 4);
+  assert.equal(stepIndex(deriveView(release(), files({ released: delivered('final.mp4') }), T0)), 5); // всё готово
+});

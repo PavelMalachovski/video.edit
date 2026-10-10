@@ -73,3 +73,15 @@ textarea { padding: 12px 14px; line-height: 1.5; resize: vertical; }
 .badge.yellow { background: var(--accent); color: var(--ink); }
 .badge.green { background: var(--ok); color: var(--ok-ink); }
 .badge.red { background: var(--bad); color: var(--bad-ink); }
+
+/* страница задачи */
+.back { font-size: 14px; font-weight: 600; text-decoration: none; min-height: 44px; display: flex; align-items: center; margin-bottom: -10px; }
+.job-head { display: flex; flex-direction: column; gap: 6px; }
+.job-head h1 { font-size: 26px; font-weight: 800; letter-spacing: -0.01em; margin: 0; overflow-wrap: anywhere; }
+.phase { font-size: 20px; font-weight: 800; }
+.card.alert { border: 1px solid var(--accent); }
+.card.alert > b { color: var(--accent); }
+.card.bad { border: 1px solid var(--bad); }
+.action { display: flex; flex-direction: column; gap: 6px; }
+a.btn { text-decoration: none; }
+a.btn.ghost:hover { color: var(--text); }

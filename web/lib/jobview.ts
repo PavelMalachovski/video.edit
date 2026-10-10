@@ -5,6 +5,7 @@ import { findReleaseByTag, getRelease, listAllAssets, type GH, type Release } fr
 import {
   finalNames, parseStatus, wantedVersion,
   type AnswersFile, type FixFile, type JobFile, type Question, type Released, type RestyleFile, type ResultFile, type Status, type Styles,
+  type UploadRef,
 } from './jobfiles.ts';
 import { jobBranch, jobDir, jobTag } from './jobs.ts';
 import type { Step } from './routine.ts';
@@ -40,6 +41,20 @@ export type JobView = {
   previous: string | null;
 };
 export type Action = 'start' | 'answers' | 'restyle' | 'fix' | 'retry' | 'delete';
+
+/** Ответ `GET /api/jobs/<id>`: экран и файлы ветки, которые нужны странице задачи. */
+export type JobData = {
+  view: JobView;
+  questions: Question[] | null;
+  styles: Styles | null;
+  answers: AnswersFile | null;
+  result: ResultFile | null;
+  fixes: FixFile['fixes'];
+  restyles: RestyleFile['requests'];
+  uploads: UploadRef[];
+  repo: string;
+  head: string | null;
+};
 
 /** Сколько состояние может не меняться, пока страница не скажет «завис». */
 export const STUCK_MS = { queued: 600_000, analyzing: 1_500_000, rendering: 1_500_000, delivery: 600_000 } as const;
@@ -162,6 +177,17 @@ export function deriveView(release: Release, files: JobFiles | null, now: number
   const limit = state === 'queued' || state === 'analyzing' || state === 'rendering' ? STUCK_MS[state] : null;
   const stuck = limit !== null && age > limit ? 'session' : state === 'rendered' && age > STUCK_MS.delivery ? 'delivery' : null;
   return { ...view, screen: 'working', stuck };
+}
+
+/** Шаг полосы «Загрузка · Текст · Вопросы · Превью · Монтаж», на котором ролик; 5 — всё пройдено. */
+export function stepIndex(v: JobView): number {
+  switch (v.screen) {
+    case 'uploading': return 0;
+    case 'not_started': return 1;
+    case 'questions': return 2;
+    case 'result': return 5;
+    default: return v.step === 'restyle' ? 3 : v.step === 'render' || v.step === 'fix' ? 4 : 1;
+  }
 }
 
 /** null — действие можно; иначе — почему нельзя, по-русски. */

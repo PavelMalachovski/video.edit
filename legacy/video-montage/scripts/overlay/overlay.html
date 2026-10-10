@@ -1,0 +1,264 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<!-- Анимированные вставки поверх ролика. Не править вручную под каждое видео:
+     элементы и их тайминги задаются в JSON-конфиге (см. example.json), render.js рисует кадры.
+     Типы элементов: bachata (карточка с танцующей парой), badge (плашка-логотип: иконка + текст),
+     sticker (карточка с заголовком и текстом), image (готовая картинка PNG/JPG/SVG).
+     Общие поля: t0 — когда появиться (с, по времени ГОТОВОГО ролика), t1 — когда исчезнуть (необязательно),
+     rot — наклон в градусах. Координаты — в кадре 1080x1920. -->
+<style>
+html, body { margin: 0; background: transparent; }
+</style></head>
+<body><canvas id="c" width="1080" height="1920"></canvas>
+<script>
+const W = 1080, H = 1920;
+const c = document.getElementById('c'), ctx = c.getContext('2d');
+let CONFIG = { elements: [] }, IMAGES = {};
+const BEAT = 60 / 128;                     // темп танца (бачата ~120–135 bpm)
+
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const easeInOut = x => x < .5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2;
+const easeOutBack = x => { const c1 = 1.9, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); };
+function life(t, e, d = 0.5) {             // масштаб появления/исчезновения: 0..~1.1
+  if (t < e.t0) return 0;
+  let s = easeOutBack(clamp((t - e.t0) / d, 0, 1));
+  if (e.t1 != null && t > e.t1) s *= 1 - easeInOut(clamp((t - e.t1) / 0.3, 0, 1));
+  return s;
+}
+// ---- танцующая пара (базовый шаг бачаты) ----
+const FA = [-1, -1, -2, -2, -2, -1, -1, 0];
+const FB = [0, -1, -1, -2, -1, -1, 0, 0];
+function foot(cnt, S) {
+  const n = ((Math.floor(cnt) % 8) + 8) % 8, f = cnt - Math.floor(cnt);
+  const prev = S[(n + 7) % 8], cur = S[n], k = clamp(f / 0.7, 0, 1);
+  return [prev + (cur - prev) * easeInOut(k), cur !== prev ? Math.sin(Math.PI * k) : 0];
+}
+
+function leg(hx, hy, fx, fy, L, dir) {            // 2-bone IK, knee bends towards dir
+  const dx = fx - hx, dy = fy - hy, d = Math.hypot(dx, dy);
+  const h = d < 2 * L ? Math.sqrt(L * L - (d / 2) ** 2) : 0;
+  const mx = (hx + fx) / 2, my = (hy + fy) / 2;
+  return [mx + dir * (-dy / d) * h * -1, my + dir * (dx / d) * h * -1];
+}
+
+function stroke(pts, w, col) {
+  ctx.lineWidth = w; ctx.strokeStyle = col; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.stroke();
+}
+function disc(x, y, r, col) { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); }
+
+const SKIN = '#F1BE94', SKIN2 = '#E3A97E';
+
+function person(cx, gy, o) {
+  const s = o.s, dir = o.facing;
+  const hip = [cx + o.hipDX, gy - 148 * s + o.dy];
+  const neck = [cx + o.hipDX * 0.25 + dir * 5 * s, hip[1] - 108 * s];
+  const head = [neck[0] + dir * 5 * s, neck[1] - 30 * s];
+  const fa = [cx + o.fa - 13 * s, gy - o.la], fb = [cx + o.fb + 13 * s, gy - o.lb];
+  const L = 78 * s;
+  const ka = leg(hip[0] - 7 * s, hip[1], fa[0], fa[1], L, dir), kb = leg(hip[0] + 7 * s, hip[1], fb[0], fb[1], L, dir);
+  const legCol = o.woman ? SKIN : '#2C2C40', legW = o.woman ? 11 * s : 19 * s;
+  for (const [k, f, hx] of [[ka, fa, -7], [kb, fb, 7]]) {
+    stroke([[hip[0] + hx * s, hip[1]], k, f], legW, legCol);
+    ctx.fillStyle = o.woman ? '#B0102E' : '#111';
+    ctx.beginPath(); ctx.ellipse(f[0] + dir * 7 * s, f[1] + 2, 13 * s, 6 * s, 0, 0, 7); ctx.fill();
+  }
+  if (o.woman) {                                    // skirt, swinging with a lag
+    const sw = o.swing, wy = hip[1] - 14 * s, hy = hip[1] + 62 * s;
+    ctx.fillStyle = '#E11D48';
+    ctx.beginPath(); ctx.moveTo(hip[0] - 17 * s, wy);
+    ctx.quadraticCurveTo(hip[0] - 30 * s + sw * .4, hip[1] + 20 * s, hip[0] - 46 * s + sw, hy);
+    for (let i = 1; i <= 4; i++) {
+      const x = hip[0] - 46 * s + sw + i * 23 * s, y = hy + (i % 2 ? 9 : -2) * s;
+      ctx.quadraticCurveTo(x - 11 * s, y + 8 * s, x, hy);
+    }
+    ctx.quadraticCurveTo(hip[0] + 30 * s + sw * .4, hip[1] + 20 * s, hip[0] + 17 * s, wy);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.18)';
+    ctx.beginPath(); ctx.moveTo(hip[0] - 4 * s, wy + 6 * s);
+    ctx.quadraticCurveTo(hip[0] - 10 * s + sw * .5, hip[1] + 30 * s, hip[0] - 20 * s + sw, hy - 2 * s);
+    ctx.lineTo(hip[0] - 8 * s + sw, hy); ctx.closePath(); ctx.fill();
+    stroke([hip, neck], 30 * s, '#E11D48');
+  } else {
+    stroke([hip, neck], 44 * s, '#17172A');
+  }
+  stroke([neck, [neck[0] + dir * 2, neck[1] - 14 * s]], 12 * s, SKIN2);
+  disc(head[0], head[1], (o.woman ? 17 : 19) * s, SKIN);
+  ctx.fillStyle = o.woman ? '#3B2416' : '#1E1A18';
+  ctx.beginPath(); ctx.arc(head[0] - dir * 2 * s, head[1] - 2 * s, (o.woman ? 18 : 20) * s, Math.PI * 1.02, Math.PI * 1.98); ctx.fill();
+  if (o.woman) {                                    // bun + ponytail
+    const bx = head[0] - dir * 17 * s, by = head[1] - 6 * s;
+    disc(bx, by, 9 * s, '#3B2416');
+    ctx.strokeStyle = '#3B2416'; ctx.lineWidth = 9 * s; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(bx, by);
+    ctx.quadraticCurveTo(bx - dir * 14 * s, by + 18 * s, bx - dir * 10 * s + o.swing * .5, by + 40 * s); ctx.stroke();
+  } else {
+    ctx.beginPath(); ctx.ellipse(head[0] - dir * 8 * s, head[1] - 4 * s, 14 * s, 12 * s, 0, 0, 7); ctx.fill();
+  }
+  return { hip, neck, head, s, dir };
+}
+
+function arm(from, ctrl, to, col, w) {
+  ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(from[0], from[1]); ctx.quadraticCurveTo(ctrl[0], ctrl[1], to[0], to[1]); ctx.stroke();
+}
+
+function couple(t, cx, gy, s) {
+  const cnt = t / BEAT, f = cnt - Math.floor(cnt), n = ((Math.floor(cnt) % 8) + 8) % 8;
+  const U = 13 * s;
+  const [a, la] = foot(cnt, FA), [b, lb] = foot(cnt, FB);
+  const [a2] = foot(cnt - 0.25, FA), [b2] = foot(cnt - 0.25, FB);
+  const body = (a + b) / 2 * U, lag = (a2 + b2) / 2 * U;
+  const tap = (n === 3 || n === 7) ? Math.sin(Math.PI * f) : 0;
+  const dy = 4 * s * Math.sin(Math.PI * f) ** 2 - 6 * s * tap;
+  const hipDX = 7 * s * Math.sin(Math.PI * cnt);
+  const swing = (lag - body) * 1.4 + 4 * s * Math.sin(Math.PI * cnt + 1);
+  const base = { s, dy, hipDX, fa: a * U, fb: b * U, la: la * 11 * s, lb: lb * 11 * s };
+  ctx.fillStyle = 'rgba(0,0,0,.16)';
+  ctx.beginPath(); ctx.ellipse(cx + body, gy + 6, 105 * s, 13 * s, 0, 0, 7); ctx.fill();
+  const m = person(cx - 31 * s + body, gy, { ...base, facing: 1, woman: false });
+  const w = person(cx + 31 * s + body, gy, { ...base, facing: -1, woman: true, s: s * 0.94, swing });
+  const top = [cx + body + hipDX * .3, Math.min(m.head[1], w.head[1]) - 46 * s];       // joined hands
+  arm([m.neck[0] + 4 * s, m.neck[1] + 6 * s], [m.neck[0] - 4 * s, top[1] + 20 * s], top, '#17172A', 11 * s);
+  arm([w.neck[0] - 3 * s, w.neck[1] + 6 * s], [w.neck[0] + 8 * s, top[1] + 22 * s], top, SKIN, 9 * s);
+  disc(top[0], top[1], 7 * s, SKIN);
+  arm([m.neck[0] + 6 * s, m.neck[1] + 14 * s], [w.neck[0] - 6 * s, m.neck[1] + 60 * s], [w.neck[0] + 14 * s, w.neck[1] + 48 * s], '#17172A', 11 * s);
+  disc(w.neck[0] + 14 * s, w.neck[1] + 48 * s, 6 * s, SKIN);
+  arm([w.neck[0] - 6 * s, w.neck[1] + 10 * s], [m.neck[0] + 14 * s, w.neck[1] - 6 * s], [m.neck[0] - 8 * s, m.neck[1] + 6 * s], SKIN, 9 * s);
+}
+
+function notes(t, x, y, w, h) {
+  ctx.font = '600 38px "DejaVu Sans"'; ctx.textAlign = 'center';
+  const glyphs = ['♪', '♫', '♪', '♬'];
+  for (let i = 0; i < 4; i++) {
+    const p = ((t * 0.45 + i * 0.25) % 1);
+    const nx = x + w * (0.12 + 0.76 * ((i * 0.37) % 1)) + 10 * Math.sin(t * 2 + i);
+    ctx.fillStyle = `rgba(255,255,255,${(Math.sin(Math.PI * p) * 0.85).toFixed(3)})`;
+    ctx.fillText(glyphs[i], nx, y + h * (0.62 - 0.42 * p));
+  }
+}
+
+
+function card(e, sc, t, w, h, inner) {     // карточка-стикер: градиент, белая рамка, тень, лёгкое покачивание
+  const beat = Math.pow(Math.max(0, Math.cos(Math.PI * (t / BEAT))), 8);
+  const [c1, c2] = e.colors || ['#FF3D71', '#FF9F43'];
+  ctx.save();
+  ctx.translate(e.x + w / 2, e.y + h / 2);
+  ctx.rotate(((e.rot ?? -4) + 1.2 * Math.sin(t * 1.7)) * Math.PI / 180);
+  ctx.scale(sc * (1 + 0.012 * beat), sc * (1 + 0.012 * beat));
+  ctx.translate(-w / 2, -h / 2);
+  ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 34; ctx.shadowOffsetY = 12;
+  const g = ctx.createLinearGradient(0, 0, w, h); g.addColorStop(0, c1); g.addColorStop(1, c2);
+  ctx.fillStyle = g; ctx.beginPath(); ctx.roundRect(0, 0, w, h, 42); ctx.fill();
+  ctx.shadowColor = 'transparent'; ctx.lineWidth = 8; ctx.strokeStyle = '#fff'; ctx.stroke();
+  ctx.save(); ctx.beginPath(); ctx.roundRect(4, 4, w - 8, h - 8, 38); ctx.clip();
+  const sp = ctx.createRadialGradient(w / 2, h * 0.62, 10, w / 2, h * 0.62, w * 0.62);
+  sp.addColorStop(0, 'rgba(255,255,255,.35)'); sp.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = sp; ctx.fillRect(0, 0, w, h);
+  inner();
+  ctx.restore();
+  if (e.title) {
+    ctx.font = `${e.titleSize || 58}px MX, "DejaVu Sans"`; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.lineWidth = 10; ctx.strokeStyle = 'rgba(0,0,0,.18)'; ctx.strokeText(e.title, w / 2, 82);
+    ctx.fillStyle = '#fff'; ctx.fillText(e.title, w / 2, 82);
+  }
+  ctx.restore();
+}
+
+function wrap(text, maxW) {
+  const out = []; let line = '';
+  for (const word of text.split(/\s+/)) {
+    const tryL = line ? line + ' ' + word : word;
+    if (ctx.measureText(tryL).width > maxW && line) { out.push(line); line = word; } else line = tryL;
+  }
+  if (line) out.push(line);
+  return out;
+}
+
+const DRAW = {
+  bachata(e, t) {
+    const sc = life(t, e, 0.55); if (sc <= 0) return;
+    const w = e.w || 384, h = e.h || 500, lt = t - e.t0;
+    card(e, sc, t, w, h, () => { notes(lt, 0, 90, w, h - 90); couple(lt, w / 2, h - 34, (e.scale || 1.1) * w / 384); });
+  },
+  sticker(e, t) {
+    const sc = life(t, e, 0.5); if (sc <= 0) return;
+    const w = e.w || 420;
+    ctx.font = `${e.textSize || 44}px MX, "DejaVu Sans"`;
+    const lines = wrap(e.text || '', w - 60), lh = (e.textSize || 44) * 1.2;
+    const h = e.h || (e.title ? 110 : 40) + lines.length * lh + 30;
+    card(e, sc, t, w, h, () => {
+      ctx.font = `${e.textSize || 44}px MX, "DejaVu Sans"`; ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      lines.forEach((l, i) => ctx.fillText(l, w / 2, (e.title ? 110 : 30) + i * lh));
+    });
+  },
+  image(e, t) {
+    const sc = life(t, e, 0.5), img = IMAGES[e.src]; if (sc <= 0 || !img) return;
+    const w = e.w || 400, h = e.h || w * img.height / img.width;
+    ctx.save(); ctx.translate(e.x + w / 2, e.y + h / 2);
+    ctx.rotate(((e.rot ?? 0) + 0.8 * Math.sin(t * 1.3)) * Math.PI / 180); ctx.scale(sc, sc);
+    ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 30; ctx.shadowOffsetY = 10;
+    if (e.radius) { ctx.beginPath(); ctx.roundRect(-w / 2, -h / 2, w, h, e.radius); ctx.clip(); }
+    ctx.drawImage(img, -w / 2, -h / 2, w, h); ctx.restore();
+  },
+  badge(e, t) {                            // плашка-логотип: [иконка] Текст; блик на shineAt, пульс на pulseAt
+    let sc = life(t, e, 0.55); if (sc <= 0) return;
+    if (e.pulseAt != null && t > e.pulseAt && t < e.pulseAt + 0.4) sc *= 1 + 0.09 * Math.sin(Math.PI * (t - e.pulseAt) / 0.4);
+    const hgt = e.height || 132, tile = hgt - 32, pad = 16, gap = 22;
+    ctx.font = `${Math.round(hgt * 0.53)}px MX, "DejaVu Sans"`;
+    const hasIcon = !!(e.iconPaths || e.iconImage);
+    const tw = ctx.measureText(e.text).width;
+    const w = (hasIcon ? pad + tile + gap : 40) + tw + 38;
+    const x = e.xR != null ? e.xR - w : e.x, y = e.y;
+    const cols = e.colors || ['#7C4DFF', '#4F46E5', '#3B5BDB'];
+    ctx.save(); ctx.translate(x + w / 2, y + hgt / 2);
+    ctx.rotate(((e.rot ?? 3) + 0.8 * Math.sin(t * 1.3)) * Math.PI / 180); ctx.scale(sc, sc); ctx.translate(-w / 2, -hgt / 2);
+    ctx.shadowColor = 'rgba(20,10,80,.45)'; ctx.shadowBlur = 34; ctx.shadowOffsetY = 12;
+    const g = ctx.createLinearGradient(0, 0, w, hgt);
+    cols.forEach((col, i) => g.addColorStop(i / Math.max(1, cols.length - 1), col));
+    ctx.fillStyle = g; ctx.beginPath(); ctx.roundRect(0, 0, w, hgt, hgt / 2); ctx.fill();
+    ctx.shadowColor = 'transparent'; ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(255,255,255,.95)'; ctx.stroke();
+    if (hasIcon) {
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.roundRect(pad, (hgt - tile) / 2, tile, tile, tile * 0.28); ctx.fill();
+      if (e.iconImage && IMAGES[e.iconImage]) {
+        const m = tile * 0.14; ctx.drawImage(IMAGES[e.iconImage], pad + m, (hgt - tile) / 2 + m, tile - 2 * m, tile - 2 * m);
+      } else if (e.iconPaths) {          // пути SVG; iconBox = [cx, cy, size] в координатах путей
+        const [icx, icy, isz] = e.iconBox || [54, 56, 56], k = tile * 0.66 / isz;
+        ctx.save(); ctx.translate(pad + tile / 2, hgt / 2); ctx.scale(k, k); ctx.translate(-icx, -icy);
+        ctx.fillStyle = e.iconColor || cols[Math.floor(cols.length / 2)];
+        for (const [rule, d] of e.iconPaths) ctx.fill(new Path2D(d), rule);
+        ctx.restore();
+      }
+    }
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(e.text, hasIcon ? pad + tile + gap : 40, hgt / 2 + 3);
+    if (e.shineAt != null && t > e.shineAt && t < e.shineAt + 0.7) {
+      const p = (t - e.shineAt) / 0.7, sx = -120 + (w + 240) * easeInOut(p);
+      ctx.save(); ctx.beginPath(); ctx.roundRect(0, 0, w, hgt, hgt / 2); ctx.clip();
+      const sh = ctx.createLinearGradient(sx - 70, 0, sx + 70, hgt);
+      sh.addColorStop(0, 'rgba(255,255,255,0)'); sh.addColorStop(.5, 'rgba(255,255,255,.55)'); sh.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = sh; ctx.fillRect(0, 0, w, hgt); ctx.restore();
+    }
+    ctx.restore();
+  },
+};
+
+async function setup(config) {
+  CONFIG = config;
+  const srcs = new Set();
+  for (const e of CONFIG.elements) { if (e.src) srcs.add(e.src); if (e.iconImage) srcs.add(e.iconImage); }
+  await Promise.all([...srcs].map(s => new Promise(ok => {
+    const im = new Image(); im.onload = () => { IMAGES[s] = im; ok(); }; im.onerror = () => { console.error('нет картинки ' + s); ok(); };
+    im.src = s.includes('://') ? s : 'file://' + s;
+  })));
+  if (config.font) { try { const f = new FontFace('MX', `url('file://${config.font}')`); await f.load(); document.fonts.add(f); } catch (err) { console.error('шрифт не загрузился'); } }
+  await document.fonts.ready;
+}
+function draw(t) {
+  ctx.clearRect(0, 0, W, H);
+  for (const e of CONFIG.elements) (DRAW[e.type] || (() => console.error('неизвестный тип ' + e.type)))(e, t);
+}
+window.setup = setup; window.draw = draw;
+</script></body></html>

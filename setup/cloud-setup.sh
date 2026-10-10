@@ -62,7 +62,10 @@ NODE_PATH="$(npm root -g 2>/dev/null)" node -e "require('playwright').chromium.e
   || { say "Chromium для Playwright не найден в $PLAYWRIGHT_BROWSERS_PATH"; fail=1; }
 
 # 5. Итог.
-bash "$(dirname "$0")/probe-tools.sh" >/dev/null || { say "ffmpeg без нужных фильтров: bash setup/probe-tools.sh"; fail=1; }
+# Скрипт можно вставить в настройки окружения целиком: проверка фильтров встроена.
+for f in zscale tonemap subtitles loudnorm sidechaincompress drawbox ebur128; do
+  ffmpeg -hide_banner -filters 2>/dev/null | grep -qE "^ [.TSC|]{3} +$f " || { say "в ffmpeg нет фильтра $f"; fail=1; }
+done
 say "готово (ошибки: $fail)"
 echo "ASR=gigaam-rnnt"
 echo "ASR_MODEL=$CACHE/$GIGAAM"

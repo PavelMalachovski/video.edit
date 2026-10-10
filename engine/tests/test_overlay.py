@@ -141,6 +141,7 @@ def test_insert_state_carries_what_the_template_needs():
             "y": 300,
             "w": 400,
             "params": {"cutout": True},
+            "n": 0,
             "anim": 1,
             "t": 0,
         }

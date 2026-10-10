@@ -143,6 +143,13 @@ test('insert box is reported in layoutBoxes', async () => {
   assert.ok(b.x <= 560 && b.y <= 900 && b.x + b.w >= 860 && b.y + b.h >= 1200, JSON.stringify(b));
 });
 
+test('insert box carries the edit index the state gives it', async () => {
+  await render([{ ...photo(), n: 3 }, { kind: 'image', src: 'cutout.png', x: 560, y: 900, w: 300, anim: 1, t: 0, params: {} }]);
+  const [given, plain] = (await boxes()).inserts;
+  assert.equal(given.n, 3);
+  assert.equal('n' in plain, false);
+});
+
 test('anim kind draws non-empty canvas that moves with t', async () => {
   const dance = (t) => [{ kind: 'anim', x: 100, y: 300, w: 384, anim: 1, t, params: { name: 'bachata' } }];
   await render(dance(0.2));

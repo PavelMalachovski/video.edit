@@ -468,12 +468,20 @@ legacy/video-montage/          прошлый скилл как есть (спр
 **Interfaces:**
 - Produces:
   - `control_frames(final: Path, times: dict[str, float], out_dir) -> dict[str, Path]` —
-    кадры `hook`, `subs`, `insert`, `cta` (что есть) + один лист 2×2 `qa.png`.
-  - `check_layout(boxes_by_event: list[dict], face_box: dict | None) -> list[str]` —
-    проблемы: элемент вне X 60–890 / Y 120–1530 (кроме шкалы и fullscreen),
-    вставка ближе 40 px к лицу или 20 px к субтитрам, пересечение текстов.
-  - `check_render(probe, edit, report) -> list[str]` — «не отдавать»: длительность,
-    музыка не с 0 (если выбрана), хук/CTA есть в `edit`, но нет в событиях.
+    кадры `hook`, `subs`, `insert`, `cta` (что есть) + один лист 2×2 `qa.png`
+    (ключ `sheet`); кадры прошлой проверки удаляются.
+  - `face_box(edit_face: dict | None) -> dict | None` — рамка лица в px (без w/h —
+    0,30 × 0,22 кадра).
+  - `check_layout(boxes_by_event: list[dict], face: dict | None, inserts: list[dict] | None = None)
+    -> list[str]` — проблемы: элемент вне X 60–890 / Y 120–1530 (кроме шкалы и
+    fullscreen), вставка или титр ближе 40 px к лицу, вставка ближе 20 px к субтитрам
+    или на хуке/титре, пересечение текстов. Вставка — по номеру `n` в рамке (её место
+    в `edit.inserts`, с 1) и подписи; время — первое место в ролике (промежутки подряд
+    склеены) и число мест.
+  - `check_render(final: Path, edit, boxes_by_event, report) -> list[str]` — «не
+    отдавать»: формат, звук, длительность (по `report` от `render`), хук/CTA есть в
+    `edit`, но нет в событиях, выбранная музыка не попала в микс или начинается с
+    тишины (громкость начала самого файла `report["music"]`).
 
 - [ ] **Step 1: Тесты.** `test_box_outside_safe_zone_reported`;
   `test_insert_over_face_reported`; `test_clean_layout_has_no_problems`;

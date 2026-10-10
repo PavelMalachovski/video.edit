@@ -2,16 +2,16 @@
 
 `check_layout` — геометрия слоя по boxes.json (рамки элементов по промежуткам, их пишет render-frames.mjs):
 всё внутри безопасной зоны X 60–890 / Y 120–1530 (шкала и полноэкранные перебивки в boxes не попадают), вставки
-и титры не ближе 40 px к лицу, вставки не ближе 20 px к субтитрам, тексты не пересекаются. Субтитры с лицом не
-сверяются: их высоту задаёт выбранный стиль. `check_render` — «не отдавать»: формат, длительность, хук и титр из
-edit.json есть в ролике, музыка (если выбрана) звучит с первого кадра. `control_frames` — контрольные кадры и лист 2×2.
+и титры не ближе 40 px к лицу, вставки не ближе 20 px к субтитрам и не на хуке или титре, тексты не пересекаются.
+Субтитры с лицом не сверяются: их высоту задаёт выбранный стиль. Вставку называют её номером в edit.inserts (с 1)
+и подписью. `check_render` — «не отдавать»: формат, длительность, хук и титр из edit.json есть в ролике, выбранная
+музыка попала в микс и не начинается с тишины. `control_frames` — контрольные кадры и лист 2×2.
 """
 import re
 import subprocess
 from pathlib import Path
 
-from .media import extract_frame, probe
-from .render import timeline
+from .media import MediaError, extract_frame, probe
 
 SAFE = {"x0": 60, "x1": 890, "y0": 120, "y1": 1530}
 FACE_GAP = 40
@@ -19,6 +19,8 @@ SUB_GAP = 20
 FACE_W, FACE_H = 0.30, 0.22  # рамка лица по умолчанию, доли кадра: Claude надёжно даёт только точку
 W, H = 1080, 1920
 SLOTS = ("hook", "subs", "insert", "cta")  # порядок клеток листа: слева направо, сверху вниз
+HEAD = 0.5  # с — начало музыки, которое должно звучать
+SILENT_DB = -50.0  # пик тише этого — тишина
 NAMES = {"sub": "субтитры", "hook": "хук", "cta": "титр"}
 
 
@@ -50,8 +52,30 @@ def _sec(t: float) -> str:
     return f"{t:.1f}".replace(".", ",")
 
 
-def check_layout(boxes_by_event: list[dict], face: dict | None) -> list[str]:
-    """Проблемы геометрии: каждая — одной строкой с первым промежутком, где она есть, и числом промежутков."""
+def _insert_name(box: dict, inserts: list[dict] | None) -> str:
+    """«вставка 3 «Лайфхак»» — по номеру `n` из рамки (место в edit.inserts) и подписи, тексту или имени файла."""
+    n = box.get("n")
+    if not isinstance(n, int):
+        return "вставка"
+    ins = inserts[n] if inserts and 0 <= n < len(inserts) else {}
+    label = ins.get("title") or ins.get("text") or (Path(ins["src"]).name if ins.get("src") else "")
+    return f"вставка {n + 1}" + (f" «{label}»" if label else "")
+
+
+def _runs(spans: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Промежутки подряд (слой режется на каждом слове субтитров) — одно место в ролике."""
+    runs: list[tuple[float, float]] = []
+    for t0, t1 in spans:
+        if runs and abs(t0 - runs[-1][1]) < 1e-6:
+            runs[-1] = (runs[-1][0], t1)
+        else:
+            runs.append((t0, t1))
+    return runs
+
+
+def check_layout(boxes_by_event: list[dict], face: dict | None, inserts: list[dict] | None = None) -> list[str]:
+    """Проблемы геометрии: каждая — одной строкой с первым местом в ролике, где она есть (время финала), и числом
+    таких мест. `face` — рамка лица в px (`face_box`); `inserts` — edit.inserts, для подписей вставок."""
     found: dict[str, list[tuple[float, float]]] = {}
 
     def problem(text: str, e: dict) -> None:
@@ -60,7 +84,7 @@ def check_layout(boxes_by_event: list[dict], face: dict | None) -> list[str]:
     for e in boxes_by_event:
         boxes = e.get("boxes") or {}
         texts = [(key, boxes[key]) for key in ("sub", "hook", "cta") if boxes.get(key)]
-        inserts = [(f"вставка {i + 1}", b) for i, b in enumerate(boxes.get("inserts") or [])]
+        shown = [(_insert_name(b, inserts), b) for b in boxes.get("inserts") or []]
         for key, b in texts:
             if _outside(b):
                 problem(f"{NAMES[key]} вне безопасной зоны", e)
@@ -70,42 +94,50 @@ def check_layout(boxes_by_event: list[dict], face: dict | None) -> list[str]:
             if _overlap(a, b):
                 problem(f"{NAMES[ka]} и {NAMES[kb]} пересекаются", e)
         sub = boxes.get("sub")
-        for name, b in inserts:
+        for name, b in shown:
             if _outside(b):
                 problem(f"{name} вне безопасной зоны", e)
             if face and _gap(b, face) < FACE_GAP:
                 problem(f"{name} на лице или ближе {FACE_GAP} px к нему", e)
             if sub and _gap(b, sub) < SUB_GAP:
                 problem(f"{name} на субтитрах или ближе {SUB_GAP} px к ним", e)
+            for key, t in texts:
+                if key != "sub" and _overlap(b, t):
+                    problem(f"{name} закрывает {NAMES[key]}", e)
 
     out = []
     for text, spans in found.items():
-        t0, t1 = spans[0]
-        more = f", всего в {len(spans)} промежутках" if len(spans) > 1 else ""
-        out.append(f"{text} ({_sec(t0)}–{_sec(t1)} с{more})")
+        runs = _runs(spans)
+        t0, t1 = runs[0]
+        more = f"; таких мест: {len(runs)}" if len(runs) > 1 else ""
+        out.append(f"{text} ({_sec(t0)}–{_sec(t1)} с ролика{more})")
     return out
 
 
-def _head_volume(final: Path, seconds: float = 0.5) -> float:
-    """Пиковая громкость первых `seconds` ролика, дБ (−inf — тишина)."""
-    err = subprocess.run(
-        ["ffmpeg", "-hide_banner", "-nostats", "-t", str(seconds), "-i", str(final), "-vn", "-af", "volumedetect",
-         "-f", "null", "-"],
+def _head_volume(path: Path, seconds: float = HEAD) -> float:
+    """Пиковая громкость первых `seconds` файла, дБ (цифровая тишина — около −91)."""
+    done = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-nostdin", "-nostats", "-t", str(seconds), "-i", str(path), "-vn",
+         "-af", "volumedetect", "-f", "null", "-"],
         capture_output=True, text=True, check=False, timeout=120,
-    ).stderr
-    m = re.search(r"max_volume: (-?[\d.]+|-inf) dB", err)
-    return float(m.group(1)) if m else float("-inf")
+    )
+    m = re.search(r"max_volume: (-?[\d.]+|-inf) dB", done.stderr)
+    if done.returncode != 0 or not m:
+        raise MediaError(f"{path}: не удалось измерить громкость начала (ffmpeg, код {done.returncode})")
+    return float(m.group(1))
 
 
-def check_render(final: Path, edit: dict, boxes_by_event: list[dict]) -> list[str]:
-    """Что не даёт отдать ролик: формат, длительность, пропавшие хук и титр, музыка не с первого кадра."""
+def check_render(final: Path, edit: dict, boxes_by_event: list[dict], report: dict) -> list[str]:
+    """Что не даёт отдать ролик: формат, длительность, пропавшие хук и титр, музыка не в миксе или с тишиной
+    в начале. `report` — что вернул `render`: длительность, которую он собрал (keep за концом исходника он
+    обрезает), заметки о ненайденном (`missing`) и файл музыки, ушедший в микс (`music`)."""
     info = probe(final)
     problems = []
     if (info.width, info.height) != (W, H) or round(info.fps) != 30:
         problems.append(f"формат {info.width}×{info.height}, {info.fps:g} к/с вместо 1080×1920, 30 к/с")
     if not info.has_audio:
         problems.append("в ролике нет звука")
-    expected = timeline(edit).duration + float(edit.get("hold") or 0.0)
+    expected = report["durations"]["final"]
     if abs(info.duration - expected) > 0.1:
         problems.append(f"длительность {_sec(info.duration)} с вместо {_sec(expected)} с")
     shown = {key for e in boxes_by_event for key in ("hook", "cta") if (e.get("boxes") or {}).get(key)}
@@ -113,8 +145,13 @@ def check_render(final: Path, edit: dict, boxes_by_event: list[dict]) -> list[st
         problems.append("хук есть в edit.json, но в ролике его нет")
     if edit.get("cta") and "cta" not in shown:
         problems.append("титр с кодовым словом есть в edit.json, но в ролике его нет")
-    if edit.get("music") and info.has_audio and _head_volume(final) < -50:
-        problems.append("музыка выбрана, но в начале ролика тишина — она не с первого кадра")
+    music = edit.get("music")
+    if music:  # по миксу не проверить: голос с первого кадра заглушает отсутствие музыки
+        lost = [m for m in report.get("missing", []) if Path(music["file"]).name in m]
+        if lost or not report.get("music"):
+            problems.append("музыка выбрана, но в ролик не попала" + (f": {lost[0]}" if lost else ""))
+        elif _head_volume(Path(report["music"])) < SILENT_DB:
+            problems.append(f"музыка выбрана, но начинается с тишины — первые {_sec(HEAD)} с её не слышно")
     return problems
 
 
@@ -123,6 +160,8 @@ def control_frames(final: Path, times: dict[str, float], out_dir: Path) -> dict[
     в порядке хук, субтитры / вставка, титр (пустая клетка — чёрная)."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    for old in out_dir.glob("qa-*.png"):  # кадры прошлой проверки — не от этого ролика
+        old.unlink()
     frames = {name: extract_frame(final, times[name], out_dir / f"qa-{name}.png") for name in SLOTS if name in times}
     args, chains = [], []
     for i, name in enumerate(SLOTS):

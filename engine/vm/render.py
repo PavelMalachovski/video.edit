@@ -68,7 +68,7 @@ def timeline(edit: dict, limit: float | None = None) -> Timeline:
 
 
 def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium") -> dict:
-    """Пишет `out_dir/<name>.mp4` и `out_dir/<name>.srt`. → `{durations, missing, warnings}`."""
+    """Пишет `out_dir/<name>.mp4` и `out_dir/<name>.srt`. → `{durations, missing, warnings, music}`."""
     edit = job.read("edit.json")
     source = job.path("source.mp4")
     info = probe(source)
@@ -121,7 +121,12 @@ def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium")
     finally:
         video.unlink(missing_ok=True)
         subs.unlink(missing_ok=True)
-    return {"durations": {"source": round(info.duration, 3), "final": round(total, 3)}, "missing": missing, "warnings": warnings}
+    return {
+        "durations": {"source": round(info.duration, 3), "final": round(total, 3)},
+        "missing": missing,
+        "warnings": warnings,
+        "music": music["file"] if music else None,  # файл, отданный в микс (для проверки качества)
+    }
 
 
 def _count(inputs: list[str]) -> int:

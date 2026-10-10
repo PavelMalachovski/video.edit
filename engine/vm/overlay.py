@@ -128,7 +128,7 @@ def _inserts(edit: dict, tl: Timeline) -> list[_Piece]:
         missing = [k for k in ("x", "y", "w") if ins.get(k) is None]
         if missing:
             raise ValueError(f"inserts[{i}]: вставке «{ins['kind']}» нужно место на кадре — нет {', '.join(missing)}")
-        value = {k: ins[k] for k in INSERT_FIELDS if k in ins}
+        value = {**{k: ins[k] for k in INSERT_FIELDS if k in ins}, "n": i}  # номер — для рамок в boxes.json и QA
         pieces.append(_Piece(start, stop, f"insert{i}", value, insert=True, every_frame=ins["kind"] == "anim"))
     return pieces
 

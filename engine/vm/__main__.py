@@ -116,7 +116,7 @@ def _render(args: argparse.Namespace) -> None:
     edit = job.read("edit.json")
     final = job.path(f"out/{name}.mp4")
     boxes = json.loads(job.path("work/render/frames/boxes.json").read_text(encoding="utf-8"))
-    problems = check_layout(boxes, face_box(edit.get("face"))) + check_render(final, edit, boxes)
+    problems = check_layout(boxes, face_box(edit.get("face")), edit.get("inserts")) + check_render(final, edit, boxes, result)
     frames = control_frames(final, _qa_times(boxes), job.path("qa"))
     previous = job.read("result.json") if job.path("result.json").is_file() else {}
     job.write(

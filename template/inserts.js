@@ -438,7 +438,9 @@ async function content(ins, main) {
 
 /**
  * Рисует вставки в слой `root` поверх кадра (под субтитрами и хуком).
- * → рамки вставок {x, y, w, h} в px кадра — как у показанной целиком вставки, вместе с тенью и контуром.
+ * → рамки вставок {x, y, w, h} в px кадра — как у показанной целиком вставки, вместе с тенью и контуром;
+ * если у вставки в состоянии есть номер `n` (её место в edit.inserts), рамка несёт его же — по нему проверка
+ * качества называет вставку.
  */
 export async function drawInserts(root, inserts, { main }) {
   const made = await Promise.all((inserts ?? []).map((ins) => content(ins, main)));
@@ -463,6 +465,8 @@ export async function drawInserts(root, inserts, { main }) {
     root.append(wrap);
     const x = Math.floor(ins.x - m.ext.x);
     const y = Math.floor(ins.y - m.ext.top);
-    return { x, y, w: Math.ceil(ins.x + m.w + m.ext.x) - x, h: Math.ceil(ins.y + m.h + m.ext.bottom) - y };
+    const box = { x, y, w: Math.ceil(ins.x + m.w + m.ext.x) - x, h: Math.ceil(ins.y + m.h + m.ext.bottom) - y };
+    if (Number.isInteger(ins.n)) box.n = ins.n;
+    return box;
   });
 }

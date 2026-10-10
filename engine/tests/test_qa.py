@@ -1,6 +1,7 @@
 """Проверка качества: геометрия слоя по boxes.json, контрольные кадры и проверки «не отдавать»."""
 import shutil
 import subprocess
+from itertools import pairwise
 
 import pytest
 
@@ -33,7 +34,7 @@ def test_hook_over_face_reported():
 
 def test_box_outside_safe_zone_reported():
     low = {"x": 200, "y": 1500, "w": 500, "h": 60}  # низ на 1560 > 1530
-    wide = {"x": 40, "y": 600, "w": 300, "h": 200}  # левее 60
+    wide = {"x": 40, "y": 600, "w": 300, "h": 200, "n": 0}  # левее 60
     problems = check_layout([event(0, 1.5, sub=low), event(1.5, 3, inserts=[wide])], None)
     assert len(problems) == 2
     assert "субтитры" in problems[0] and "безопасн" in problems[0] and "0,0" in problems[0]
@@ -64,8 +65,7 @@ def test_texts_overlapping_reported():
 def test_a_problem_is_reported_once_with_the_first_time():
     low = {"x": 200, "y": 1500, "w": 500, "h": 60}
     events = [event(i, i + 1, sub=low) for i in range(10)]
-    problems = check_layout(events, None)
-    assert len(problems) == 1 and "0,0" in problems[0] and "10 промежутк" in problems[0]
+    assert check_layout(events, None) == ["субтитры вне безопасной зоны (0,0–10,0 с ролика)"]
 
 
 def test_face_box_defaults_to_a_face_sized_box():
@@ -107,23 +107,96 @@ def test_control_sheet_is_2x2(tmp_path):
 def test_check_render_passes_a_good_final(tmp_path):
     final = make_clip(tmp_path / "final.mp4", 3)
     edit = edit_for(3.0, hook={"text": "Хук", "until": 1.0})
-    assert check_render(final, edit, [event(0, 1, hook=HOOK), event(1, 3)]) == []
+    assert check_render(final, edit, [event(0, 1, hook=HOOK), event(1, 3)], report(3.0)) == []
 
 
 @needs_ffmpeg
 def test_check_render_flags_wrong_duration_and_lost_titles(tmp_path):
     final = make_clip(tmp_path / "final.mp4", 3)
     edit = edit_for(5.0, hook={"text": "Хук", "until": 1.0}, cta={"lines": ["Пиши"], "word": "слово", "t0": 2.0, "t1": 3.0})
-    problems = check_render(final, edit, [event(0, 3)])
+    problems = check_render(final, edit, [event(0, 3)], report(5.0))
     assert any("длительност" in p for p in problems)
     assert any("хук" in p.lower() for p in problems)
     assert any("титр" in p.lower() for p in problems)
 
 
+# ---------- исправления после ревью ----------
+
+INSERTS = [
+    {"kind": "badge", "text": "Лайфхак", "t0": 2.0, "t1": 4.0, "x": 60, "y": 600, "w": 300},
+    {"kind": "image", "src": "in/uploads/upload-i1.png", "t0": 4.0, "t1": 6.0, "x": 60, "y": 600, "w": 300},
+    {"kind": "sticker", "title": "Второй", "t0": 2.0, "t1": 4.0, "x": 60, "y": 900, "w": 300},
+    {"kind": "badge", "text": "Третий", "t0": 2.0, "t1": 4.0, "x": 60, "y": 1200, "w": 300},
+]
+
+
+def test_insert_problems_name_the_insert_from_edit():
+    wide = {"x": 40, "y": 600, "w": 300, "h": 200}  # левее 60
+    events = [event(2, 3, inserts=[{**wide, "n": 3}, {**wide, "y": 900, "n": 2}])]
+    problems = check_layout(events, None, INSERTS)
+    assert len(problems) == 2
+    assert any(p.startswith("вставка 4 «Третий» вне безопасной зоны") for p in problems), problems
+    assert any(p.startswith("вставка 3 «Второй» вне безопасной зоны") for p in problems), problems
+    image = check_layout([event(4, 5, inserts=[{**wide, "n": 1}])], None, INSERTS)
+    assert image[0].startswith("вставка 2 «upload-i1.png»"), image
+
+
+def test_problem_time_is_the_whole_run_and_runs_are_counted():
+    low = {"x": 200, "y": 1500, "w": 500, "h": 60}
+    cuts = [0.0, 0.3, 0.8, 1.2, 1.7, 2.3]  # хук один, промежутки режут слова субтитров
+    events = [event(a, b, hook=low) for a, b in pairwise(cuts)]
+    assert check_layout(events, None) == ["хук вне безопасной зоны (0,0–2,3 с ролика)"]
+    twice = [*events, event(2.3, 4.0), event(4.0, 5.1, hook=low)]
+    assert check_layout(twice, None) == ["хук вне безопасной зоны (0,0–2,3 с ролика; таких мест: 2)"]
+
+
+def test_insert_over_the_code_word_reported():
+    cta = {"x": 150, "y": 1000, "w": 600, "h": 200}
+    over = {"x": 300, "y": 1050, "w": 200, "h": 200, "n": 0}
+    problems = check_layout([event(5, 6, cta=cta, inserts=[over])], None, INSERTS)
+    assert problems == ["вставка 1 «Лайфхак» закрывает титр (5,0–6,0 с ролика)"]
+
+
+def report(final_seconds, missing=(), music=None):
+    return {"durations": {"source": 10.0, "final": final_seconds}, "missing": list(missing), "warnings": [], "music": music}
+
+
 @needs_ffmpeg
-def test_check_render_music_must_start_at_the_first_frame(tmp_path):
-    silent_start = make_clip(tmp_path / "late.mp4", 3, "volume='if(lt(t,1),0,1)':eval=frame")
+def test_check_render_takes_the_duration_render_built(tmp_path):
+    final = make_clip(tmp_path / "final.mp4", 3)
+    edit = edit_for(5.0)  # keep за концом исходника: render обрезал до 3 с и предупредил
+    assert check_render(final, edit, [event(0, 3)], report(3.0)) == []
+    assert any("длительност" in p for p in check_render(final, edit, [event(0, 3)], report(5.0)))
+
+
+@needs_ffmpeg
+def test_check_render_flags_music_that_did_not_make_it(tmp_path):
+    final = make_clip(tmp_path / "final.mp4", 3)  # голос есть
     edit = edit_for(3.0, music={"file": "assets/music/track.mp3", "gainDb": -18})
-    assert any("музык" in p for p in check_render(silent_start, edit, [event(0, 3)]))
-    from_start = make_clip(tmp_path / "ok.mp4", 3)
-    assert check_render(from_start, edit, [event(0, 3)]) == []
+    note = "music: assets/music/track.mp3 not found — ролик без музыки"
+    problems = check_render(final, edit, [event(0, 3)], report(3.0, missing=[note]))
+    assert any("музык" in p and "track.mp3" in p for p in problems), problems
+
+
+@needs_ffmpeg
+def test_check_render_flags_music_that_starts_with_silence(tmp_path):
+    final = make_clip(tmp_path / "final.mp4", 3)  # голос с первого кадра заглушил бы проверку по миксу
+    late = tmp_path / "late.wav"
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                    "sine=f=220:d=3,volume='if(lt(t,1),0,1)':eval=frame", str(late)], check=True)
+    edit = edit_for(3.0, music={"file": "assets/music/late.wav", "gainDb": -18})
+    problems = check_render(final, edit, [event(0, 3)], report(3.0, music=str(late)))
+    assert any("музык" in p and "тишин" in p for p in problems), problems
+    good = tmp_path / "good.wav"
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=f=220:d=3", str(good)],
+                   check=True)
+    assert check_render(final, edit, [event(0, 3)], report(3.0, music=str(good))) == []
+
+
+@needs_ffmpeg
+def test_control_frames_do_not_keep_frames_from_an_earlier_call(tmp_path):
+    final = make_clip(tmp_path / "final.mp4", 4)
+    control_frames(final, {"hook": 0.5, "insert": 2.5}, tmp_path / "qa")
+    frames = control_frames(final, {"hook": 0.5}, tmp_path / "qa")
+    assert sorted(p.name for p in (tmp_path / "qa").iterdir()) == ["qa-hook.png", "qa.png"]
+    assert set(frames) == {"hook", "sheet"}

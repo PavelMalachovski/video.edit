@@ -427,7 +427,7 @@ def test_srt_without_kept_words_is_empty():
     assert to_srt(speech((5.0, 5.5, "вырезано")), tl) == ""
 
 
-@pytest.mark.parametrize("max_words", [0, -3, math.nan], ids=["zero", "negative", "nan"])
+@pytest.mark.parametrize("max_words", [0, -3, math.nan, math.inf], ids=["zero", "negative", "nan", "infinity"])
 def test_srt_max_words_must_be_at_least_one(max_words):
     with pytest.raises(ValueError, match="max_words"):
         to_srt(row(2), whole(10), max_words=max_words)
@@ -466,6 +466,16 @@ def srt_cues(srt: str) -> list[tuple[int, int, int, str]]:
         end = ((int(h1) * 60 + int(m1)) * 60 + int(s1)) * 1000 + int(ms1)
         cues.append((int(number), start, end, text))
     return cues
+
+
+def test_events_do_not_overlap_and_are_sorted():
+    words = speech((2.0, 2.5, "потом"), (0.0, 0.6, "сначала"), (0.5, 1.0, "налезает."), (1.0, 1.2, "да"))
+    tl = Timeline([(0, 1.1), (1.9, 3.0)], 1.1)
+    for mode in MODES:
+        events = build_sub_events(words, tl, mode, 2)
+        assert [e["words"][e["active"]] for e in events] == ["сначала", "налезает.", "да", "потом"], mode
+        for before, after in pairwise(events):
+            assert before["t0"] < before["t1"] <= after["t0"] < after["t1"], mode
 
 
 def test_random_input_gives_ordered_events_inside_the_final():

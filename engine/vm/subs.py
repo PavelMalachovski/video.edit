@@ -67,9 +67,10 @@ def build_sub_events(words: list[Word], tl: Timeline, mode: str, n_words: int) -
 def to_srt(words: list[Word], tl: Timeline, max_words: int = 7) -> str:
     """SRT-файл для финала: реплика — кусок фразы не длиннее `max_words` слов (куски ровные), текст — слова через
     пробел. Начало реплики — начало её первого слова, конец — по тому же правилу, что у события. Реплики с нулевым
-    показом отбрасываются, остальные нумеруются с 1. Нет слов — пустая строка. `max_words` меньше 1 — `ValueError`."""
-    if not max_words >= 1:  # так отсеивается и NaN
-        raise ValueError(f"max_words must be 1 or more, got {max_words!r}")
+    показом отбрасываются, остальные нумеруются с 1. Нет слов — пустая строка. `max_words` меньше 1 или бесконечный —
+    `ValueError`."""
+    if not 1 <= max_words < math.inf:  # так отсеиваются и NaN, и бесконечность
+        raise ValueError(f"max_words must be a finite number, 1 or more, got {max_words!r}")
     cues = [cue for phrase in _phrases(_spoken(words, tl)) for cue in _balanced(phrase, max_words)]
     shown = _shown([(cue[0].t0, cue[-1].t1) for cue in cues], tl.duration)
     blocks: list[str] = []

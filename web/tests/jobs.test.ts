@@ -79,6 +79,11 @@ test('size and type limits', () => {
   assert.equal(checkInsert({ name: 'ok.mp4', size: 5 * 1024 ** 2, type: 'video/mp4' }), null);
 });
 
+test('empty files are refused before upload', () => {
+  assert.match(checkSource(0) ?? '', /пустой/);
+  assert.match(checkInsert({ name: 'a.png', size: 0, type: 'image/png' }) ?? '', /a\.png: пустой файл/);
+});
+
 test('source and inserts together stay under 1000 release assets', () => {
   assert.match(checkTotal(3 * 1024 ** 3, Array(10).fill(200 * 1024 ** 2)) ?? '', /3,5 ГБ/);
   assert.equal(checkTotal(3 * 1024 ** 3, [200 * 1024 ** 2, 200 * 1024 ** 2]), null);

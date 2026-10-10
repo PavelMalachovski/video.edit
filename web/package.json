@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "node --test --experimental-strip-types 'tests/*.test.ts'"
+    "test": "node --test --experimental-strip-types 'tests/*.test.ts'",
+    "e2e": "bash tests/e2e/run.sh"
   },
   "dependencies": {
     "next": "16.4.0",

@@ -79,11 +79,13 @@ export function checkTotal(sourceSize: number, insertSizes: number[]): string | 
 }
 
 export function checkSource(size: number): string | null {
+  if (size <= 0) return 'Файл пустой — выберите другое видео.';
   return size > MAX_SOURCE_BYTES ? 'Файл больше 3 ГБ — столько GitHub не примет. Обрежьте видео.' : null;
 }
 
 export function checkInsert(f: { name: string; size: number; type: string }): string | null {
   if (/\.(heic|heif)$/i.test(f.name) || /^image\/hei[cf]/.test(f.type)) return `${f.name}: HEIC не подходит — сохраните как JPEG или PNG.`;
+  if (f.size <= 0) return `${f.name}: пустой файл`;
   if (f.size > MAX_INSERT_BYTES) return `${f.name}: больше 200 МБ`;
   if (!(INSERT_TYPES as readonly string[]).includes(f.type)) return `${f.name}: такой тип не подходит (нужны PNG, JPEG, WebP, GIF, MP4 или MOV)`;
   return null;

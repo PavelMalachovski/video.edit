@@ -9,7 +9,7 @@
 //   node tests/e2e/fake-github.mjs <port>   — то же отдельным процессом (e2e).
 //
 // Первый PUT куска source.part-00003 отвечает 502 (проверка повтора в загрузчике). Служебные адреса для e2e:
-// POST /__commit {branch, files}, GET /__file?ref=&path=, GET /__fires, POST /__fail-fire {status},
+// POST /__commit {branch, files: {путь: текст | {base64} | null}}, GET /__file?ref=&path=, GET /__fires, POST /__fail-fire {status},
 // POST /__asset {tag, name, base64}, GET /__state, а также /__dump и /__joined (проверка загрузки).
 import crypto from 'node:crypto';
 import http from 'node:http';
@@ -307,7 +307,8 @@ export async function startFake({ port = 0 } = {}) {
     // ---------- служебное (e2e) ----------
     if (req.method === 'POST' && p === '/__commit') {
       const b = json();
-      return send(res, 200, { sha: fake.commit(b.branch, b.files, b.message) });
+      const files = Object.fromEntries(Object.entries(b.files ?? {}).map(([k, v]) => [k, v && typeof v === 'object' ? Buffer.from(v.base64 ?? '', 'base64') : v]));
+      return send(res, 200, { sha: fake.commit(b.branch, files, b.message) });
     }
     if (req.method === 'GET' && p === '/__file') {
       const text = fake.read(u.searchParams.get('ref') ?? 'master', u.searchParams.get('path') ?? '');

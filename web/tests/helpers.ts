@@ -33,3 +33,23 @@ export async function withFake(fn: (x: { fake: Fake; gh: GH; routine: Routine })
   }
 }
 
+
+/** localStorage в памяти (для черновиков и незаконченных загрузок). */
+export function memoryStorage(): Storage {
+  const items = new Map<string, string>();
+  return {
+    get length() { return items.size; },
+    key: (i: number) => [...items.keys()][i] ?? null,
+    getItem: (k: string) => items.get(k) ?? null,
+    setItem: (k: string, v: string) => { items.set(k, String(v)); },
+    removeItem: (k: string) => { items.delete(k); },
+    clear: () => items.clear(),
+  };
+}
+
+/** Хранилище, которое бросает на любой вызов (Safari в приватном режиме, запрет cookies). */
+export const blockedStorage = new Proxy({} as Storage, {
+  get() {
+    return () => { throw new Error('storage denied'); };
+  },
+});

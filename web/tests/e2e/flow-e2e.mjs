@@ -1,0 +1,164 @@
+// Сквозная проверка страницы по сегментам: вход → загрузка (с продолжением после перезагрузки) → список → ….
+// Нужны запущенные next start (порт 3000) и fake-github.mjs (порт 4010) — их поднимает run.sh.
+// Каждый сегмент печатает `ok <имя>`; первый сбой — `FAIL <имя>` и код 1.
+import { createRequire } from 'node:module';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+const require = createRequire(import.meta.url);
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+
+const APP = 'http://127.0.0.1:3000';
+const FAKE = 'http://127.0.0.1:4010';
+// 1×1 PNG — вставка к ролику
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+
+// ---------- помощники ----------
+
+function check(ok, message) {
+  if (!ok) throw new Error(message);
+}
+
+async function fakeJson(p, init) {
+  const r = await fetch(`${FAKE}${p}`, init);
+  check(r.ok, `fake ${p}: ${r.status} ${await r.clone().text()}`);
+  return r.json();
+}
+
+/** Запуски рутины, как их увидел поддельный API. */
+const fires = () => fakeJson('/__fires');
+/** Ветки и черновики поддельного GitHub. */
+const state = () => fakeJson('/__state');
+
+/** Файл задачи в её ветке (путь от папки задачи); нет — null. */
+async function branchFile(ctx, rel) {
+  const r = await fetch(`${FAKE}/__file?ref=${encodeURIComponent(`claude/job-${ctx.jobId}`)}&path=${encodeURIComponent(`jobs/${ctx.jobId}/${rel}`)}`);
+  return r.status === 404 ? null : r.text();
+}
+
+/** Коммит от имени сессии в claude/job-<id>: пути от папки задачи, объект → JSON, Buffer → байты. */
+async function session(ctx, files) {
+  const out = {};
+  for (const [rel, value] of Object.entries(files)) {
+    out[`jobs/${ctx.jobId}/${rel}`] = Buffer.isBuffer(value) ? { base64: value.toString('base64') }
+      : typeof value === 'string' || value === null ? value : `${JSON.stringify(value, null, 2)}\n`;
+  }
+  return fakeJson('/__commit', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ branch: `claude/job-${ctx.jobId}`, files: out, message: 'session' }) });
+}
+
+/** Ждать, пока `fn` не вернёт истину (или не истечёт `ms`). */
+async function until(fn, ms, what) {
+  const end = Date.now() + ms;
+  for (;;) {
+    const v = await fn();
+    if (v) return v;
+    if (Date.now() > end) throw new Error(`не дождался: ${what}`);
+    await new Promise((r) => setTimeout(r, 200));
+  }
+}
+
+const sha256 = (b) => crypto.createHash('sha256').update(b).digest('hex');
+
+/** Снимок экрана в папку E2E_SHOTS (если задана) — посмотреть вёрстку глазами. */
+async function shot(page, name) {
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: path.join(process.env.E2E_SHOTS, `${name}.png`), fullPage: true });
+}
+
+// ---------- сегменты ----------
+
+const segments = [
+  ['login', async ({ page }) => {
+    await page.goto(`${APP}/`);
+    check(page.url().endsWith('/login'), `нет перехода на вход: ${page.url()}`);
+    await page.fill('#password', 'wrong');
+    await page.click('button[type=submit]');
+    check((await page.textContent('body')).includes('Неверный пароль'), 'неверный пароль принят');
+    await page.fill('#password', 'pw');
+    await page.click('button[type=submit]');
+    await page.waitForURL(`${APP}/`);
+  }],
+
+  ['upload', async (ctx) => {
+    const { page, tmp } = ctx;
+    const source = path.join(tmp, 'clip.mov');
+    fs.writeFileSync(source, crypto.randomBytes(30 * 1024 * 1024));
+    const insert = path.join(tmp, 'logo.png');
+    fs.writeFileSync(insert, PNG);
+
+    await page.setInputFiles('#source', source);
+    await page.fill('#brief', 'ХУК: Как я учу чешский');
+    await page.setInputFiles('#inserts', insert);
+    await page.getByText('logo.png').waitFor();
+    await shot(page, 'upload-form');
+    await page.getByRole('button', { name: 'Загрузить', exact: true }).click();
+    await page.getByText('Загружаю в GitHub…').waitFor();
+    await shot(page, 'upload-progress');
+
+    // ≥ 2 кусков в черновике — перезагрузить посреди загрузки
+    await until(async () => ((await state()).drafts[0]?.assets.length ?? 0) >= 2, 60_000, 'два куска в черновике');
+    await page.reload();
+    await page.getByText('Загрузка clip.mov не закончена').waitFor();
+    check(await page.inputValue('#brief') === 'ХУК: Как я учу чешский', 'ТЗ не восстановилось после перезагрузки');
+    await page.setInputFiles('#source', source);
+    await page.setInputFiles('#inserts', insert);
+    await page.getByRole('button', { name: 'Продолжить загрузку' }).waitFor();
+    await shot(page, 'upload-resume');
+    await page.getByRole('button', { name: 'Продолжить загрузку' }).click();
+
+    await page.waitForURL(/\/jobs\/\d{6}-\d{6}-[0-9a-z]{4}$/, { timeout: 120_000 });
+    ctx.jobId = page.url().split('/').pop();
+    const joined = Buffer.from(await (await fetch(`${FAKE}/__joined`)).arrayBuffer());
+    check(sha256(joined) === sha256(fs.readFileSync(source)), 'склеенный исходник не совпал байт в байт');
+    const [draft] = await fakeJson('/__dump');
+    const manifest = draft.sha;
+    check(manifest?.brief === 'ХУК: Как я учу чешский', `ТЗ в manifest.json: ${manifest?.brief}`);
+    check(manifest?.uploads?.[0]?.asset === 'upload-i1.png', `вставка в manifest.json: ${JSON.stringify(manifest?.uploads)}`);
+    const f = await fires();
+    check(f.length === 1 && f[0].step === 'analyze' && f[0].attempt === 1 && f[0].job === ctx.jobId, `запуски: ${JSON.stringify(f)}`);
+    const left = await page.evaluate(() => localStorage.getItem('vm:pending'));
+    check(left === null, 'vm:pending не удалён');
+  }],
+
+  ['list', async (ctx) => {
+    const { page } = ctx;
+    await page.goto(`${APP}/`);
+    const row = page.locator(`[data-job="${ctx.jobId}"]`);
+    await row.getByText('Запускаю сессию…').waitFor();
+
+    const created = await page.request.post(`${APP}/api/jobs`, { data: { name: 'brosheno.mov', size: 1000, type: 'video/quicktime' } });
+    check(created.ok(), `брошенная задача: ${created.status()}`);
+    const { jobId: abandoned } = await created.json();
+    await page.reload();
+    const gone = page.locator(`[data-job="${abandoned}"]`);
+    await gone.getByText('Загрузка не закончена').waitFor();
+    await shot(page, 'list');
+    page.once('dialog', (d) => void d.accept());
+    await gone.getByRole('button', { name: /Удалить/ }).click();
+    await gone.waitFor({ state: 'detached' });
+    const s = await state();
+    check(!s.drafts.some((d) => d.tag === `job-${abandoned}`), 'черновик брошенной задачи не удалён');
+    check(s.drafts.some((d) => d.tag === `job-${ctx.jobId}`), 'удалился не тот черновик');
+  }],
+];
+
+// ---------- прогон ----------
+
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+const ctx = { page, browser, tmp: fs.mkdtempSync(path.join(os.tmpdir(), 'vm-e2e-')), jobId: null, fires, state, branchFile, session, until, check };
+let code = 0;
+for (const [name, run] of segments) {
+  try {
+    await run(ctx);
+    console.log(`ok ${name}`);
+  } catch (e) {
+    console.log(`FAIL ${name}: ${e instanceof Error ? e.stack : e}`);
+    code = 1;
+    break;
+  }
+}
+await browser.close();
+fs.rmSync(ctx.tmp, { recursive: true, force: true });
+process.exit(code);

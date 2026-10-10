@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { runUpload, type PutResult } from '../lib/uploader.ts';
+import {
+  clearPending, loadPending, matchPending, planChunks, resumeDone, runUpload, savePending, type Pending, type PutResult,
+} from '../lib/uploader.ts';
+import { blockedStorage, memoryStorage } from './helpers.ts';
 
 // Поддельные часы: таймеры срабатывают строго по времени, между срабатываниями
 // успевают выполниться все микрозадачи (setImmediate) — как с настоящими таймерами.
@@ -63,4 +66,66 @@ test('gives up after maxRetries and names the failed parts', async () => {
   await assert.rejects(
     runUpload({ parts: 2, put: async (i) => (i === 1 ? { ok: false, status: 502 } : { ok: true }), concurrency: 1, minGapMs: 0, maxRetries: 3, ...c }),
     /part 1/);
+});
+
+// ---------- куски, продолжение после перезагрузки ----------
+
+const MB = 1024 * 1024;
+const file = (name: string, size: number, lastModified: number, type = '') => new File([new Uint8Array(size)], name, { lastModified, type });
+const pending: Pending = {
+  jobId: '261010-120000-ab12', releaseId: 7, source: { name: 'clip.mov', size: 10, lastModified: 111 }, brief: 'ХУК: Как я учу чешский', duration: 61,
+  inserts: [
+    { asset: 'upload-i1.png', name: 'a.png', size: 3, type: 'image/png', lastModified: 5 },
+    { asset: 'upload-i2.mov', name: 'b.mov', size: 4, type: 'video/quicktime', lastModified: 6 },
+  ],
+};
+
+test('planChunks puts the source first, then inserts, with byte ranges', () => {
+  const chunks = planChunks([{ asset: 'source', size: 10 * MB }, { asset: 'upload-i1.png', size: 5 * MB }], 4 * MB);
+  assert.deepEqual(chunks.map((c) => [c.file, c.index, c.start, c.end, c.src]), [
+    ['source', 0, 0, 4 * MB, 0],
+    ['source', 1, 4 * MB, 8 * MB, 0],
+    ['source', 2, 8 * MB, 10 * MB, 0],
+    ['upload-i1.png', 0, 0, 4 * MB, 1],
+    ['upload-i1.png', 1, 4 * MB, 5 * MB, 1],
+  ]);
+});
+
+test('resumeDone counts only parts with the exact size', () => {
+  const chunks = planChunks([{ asset: 'source', size: 10 * MB }, { asset: 'upload-i1.png', size: 1 * MB }], 4 * MB);
+  const done = resumeDone(chunks, [
+    { name: 'source.part-00000', size: 4 * MB },
+    { name: 'source.part-00001', size: 3 * MB }, // обрезан — не готов
+    { name: 'source.part-00002', size: 2 * MB }, // короткий последний кусок верного размера — готов
+    { name: 'upload-i1.png.part-00000', size: 4 * MB }, // размер не тот
+    { name: 'upload-i9.png.part-00000', size: 1 * MB }, // чужой файл
+  ]);
+  assert.deepEqual([...done].sort(), [0, 2]);
+});
+
+test('matchPending resumes re-picked files and drops the rest', () => {
+  const a = file('a.png', 3, 5);
+  const m = matchPending(pending, file('clip.mov', 10, 111), [file('c.png', 2, 9), a]);
+  assert.equal(m.ok, true);
+  assert.deepEqual([...m.inserts.entries()], [['upload-i1.png', a]]);
+  assert.deepEqual(m.dropped, ['b.mov']);
+  assert.equal(matchPending(pending, file('clip.mov', 10, 112), [a]).ok, false); // другое время изменения
+  assert.equal(matchPending(pending, file('clip.mov', 11, 111), [a]).ok, false);
+  assert.equal(matchPending(pending, file('other.mov', 10, 111), [a]).ok, false);
+});
+
+test('pending upload survives in storage; corrupt or blocked storage gives null', () => {
+  const store = memoryStorage();
+  savePending(store, pending);
+  assert.deepEqual(loadPending(store), pending);
+  clearPending(store);
+  assert.equal(loadPending(store), null);
+  store.setItem('vm:pending', '{bad');
+  assert.equal(loadPending(store), null);
+  store.setItem('vm:pending', JSON.stringify({ ...pending, jobId: '../x' }));
+  assert.equal(loadPending(store), null);
+  assert.equal(loadPending(blockedStorage), null);
+  savePending(blockedStorage, pending);
+  clearPending(blockedStorage);
+  assert.equal(loadPending(null), null);
 });

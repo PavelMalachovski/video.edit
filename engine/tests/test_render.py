@@ -343,3 +343,23 @@ def test_sounds_skip_absent_cutaways_and_report_missing_files(tmp_path):
     assert sfx == [(3.0, job.path("in/uploads/swoosh.wav").resolve())]
     assert music is None
     assert any("assets/sfx/nope.mp3" in n for n in notes) and any("assets/music/nope.mp3" in n for n in notes)
+
+
+def test_sounds_say_when_assets_have_no_sfx(tmp_path, monkeypatch):
+    import vm.render as rendering
+
+    sfx = tmp_path / "sfx"
+    monkeypatch.setattr(rendering, "SFX", sfx)
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    edit = {"speed": 1.0, "keep": [[0.0, 6.0]], "hook": None, "music": None,
+            "inserts": [{"kind": "image", "src": "in/uploads/a.png", "t0": 1.0, "t1": 2.5, "sfx": None}]}
+    _, _, notes = rendering._sounds(job, edit, timeline(edit), skip=set())
+    assert any("assets/sfx" in n for n in notes), notes
+    sfx.mkdir()
+    (sfx / "pop.mp3").write_bytes(b"mp3")
+    _, _, notes = rendering._sounds(job, edit, timeline(edit), skip=set())
+    assert notes == []
+    _, _, notes = rendering._sounds(job, {**edit, "inserts": []}, timeline(edit), skip=set())
+    assert notes == []
+

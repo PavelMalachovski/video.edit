@@ -200,3 +200,17 @@ def test_control_frames_do_not_keep_frames_from_an_earlier_call(tmp_path):
     frames = control_frames(final, {"hook": 0.5}, tmp_path / "qa")
     assert sorted(p.name for p in (tmp_path / "qa").iterdir()) == ["qa-hook.png", "qa.png"]
     assert set(frames) == {"hook", "sheet"}
+
+
+def test_slot_times_skip_intervals_shorter_than_a_tenth():
+    from vm.qa import slot_times
+
+    events = [
+        event(0.0, 2.0, hook=HOOK, sub=SUB),
+        event(2.0, 2.033, sub=SUB, cta={"x": 150, "y": 900, "w": 600, "h": 200}),  # старый субтитр ещё на кадр
+        event(2.033, 3.0, sub={**SUB, "y": 1260}, cta={"x": 150, "y": 900, "w": 600, "h": 200}),
+    ]
+    times = slot_times(events)
+    assert times["cta"] == pytest.approx((2.033 + 3.0) / 2)
+    assert times["hook"] == pytest.approx(1.0) and times["subs"] == pytest.approx(1.0)
+

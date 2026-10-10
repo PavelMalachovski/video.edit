@@ -41,6 +41,8 @@ from .zoom import zoom_filter
 REPO = Path(__file__).resolve().parents[2]
 TEMPLATE = REPO / "template"
 FONTS = REPO / "assets" / "fonts"
+SFX = REPO / "assets" / "sfx"
+SOUNDS = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac"}
 W, H = 1080, 1920
 RATE = 48000
 FADE = 0.01  # с — микро-фейд звука на стыке отрезков
@@ -320,6 +322,8 @@ def _sounds(job: Job, edit: dict, tl: Timeline, skip: set[int]) -> tuple[list, d
     Файлы — только из папки задачи или репозитория; ненайденные — в заметках (третий элемент)."""
     inserts = edit.get("inserts") or []
     sfx, notes = [], []
+    if inserts and not (SFX.is_dir() and any(p.suffix.lower() in SOUNDS for p in SFX.iterdir())):
+        notes.append("sfx: в assets/sfx нет звуков — вставки без звука появления")
     for i, first, _ in insert_spans(edit, tl):
         name = inserts[i].get("sfx")
         if not name or i in skip:

@@ -165,8 +165,8 @@ def _check(args: argparse.Namespace) -> None:
     frames = compose_frames(job.path("source.mp4"), layer.boxes, layer.frames.parent, layer.tl, slot_times(layer.boxes),
                             job.path("look"))
     print(f"слой нарисован: {len(layer.boxes)} промежутков, {layer.tl.duration:.1f} с (без стоп-кадра)")
-    print(f"контрольные кадры: {frames['sheet'].relative_to(job.root)} — кадр исходника и слой; зум, цвет и перебивки"
-          " видны только после render")
+    print(f"контрольные кадры: {frames['sheet'].relative_to(job.root)} — кадр исходника и слой; зум, цвет, шкала"
+          " и перебивки видны только после render")
     for line in layer.warnings:
         print(f"внимание: {line}")
     print("геометрия: " + ("всё в порядке" if not problems else "проблемы:"))

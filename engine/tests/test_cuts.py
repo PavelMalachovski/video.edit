@@ -281,3 +281,10 @@ def test_an_extra_cut_still_cuts_inside_speech():
 def test_speech_without_any_words_changes_nothing():
     assert plan_keep([], 5.0, speech=[(1.0, 2.0)]) == [(0.0, 5.0)]
 
+
+def test_a_sliver_of_speech_left_by_an_extra_cut_is_not_kept():
+    # фальстарт «я снимаю» вырезан; от фразы по VAD перед ним осталось 0,04 с — щепка в ролике была бы скачком
+    words = [Word(3.9, 4.25, "минут"), Word(5.518, 5.638, "я"), Word(5.718, 6.198, "снимаю"), Word(6.438, 6.558, "я")]
+    keep = plan_keep(words, 9.0, extra_cuts=[(5.518, 6.198)], speech=[(0.6, 4.3), (5.478, 8.82)])
+    assert all(b - a > 0.3 for a, b in keep), keep
+

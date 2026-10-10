@@ -158,17 +158,17 @@ def check_render(final: Path, edit: dict, boxes_by_event: list[dict], report: di
 
 
 def slot_times(boxes_by_event: list[dict]) -> dict[str, float]:
-    """Моменты контрольных кадров (время финала): середина первого промежутка, где виден хук, субтитры, вставка
-    (уже появившаяся) и титр."""
+    """Моменты контрольных кадров (время финала): середина первого промежутка не короче 0,1 с, где виден хук,
+    субтитры, вставка (уже появившаяся) и титр; короче — кадр появления или последний кадр прошлого субтитра."""
     times: dict[str, float] = {}
     for e in boxes_by_event:
+        if e["t1"] - e["t0"] < 0.1:
+            continue
         b = e.get("boxes") or {}
         middle = (e["t0"] + e["t1"]) / 2
-        for key, name in (("hook", "hook"), ("sub", "subs"), ("cta", "cta")):
+        for key, name in (("hook", "hook"), ("sub", "subs"), ("inserts", "insert"), ("cta", "cta")):
             if b.get(key) and name not in times:
                 times[name] = middle
-        if b.get("inserts") and "insert" not in times and e["t1"] - e["t0"] >= 0.1:
-            times["insert"] = middle
     return times
 
 

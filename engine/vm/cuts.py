@@ -24,6 +24,7 @@ from collections.abc import Iterable
 from .asr import Word
 
 EPS = 1e-9  # с: разницу меньше этой считаем нулевой — это ошибка округления float, а не настоящее время
+MIN_VOICED = 0.15  # с — кусок речи по VAD короче этого (после вырезок) не защищается от резки
 
 
 def plan_keep(
@@ -56,7 +57,8 @@ def plan_keep(
     if not words:
         return _without(0.0, duration, cuts)
 
-    voiced = [Word(a, b, "") for s0, s1 in speech for a, b in _without(s0, s1, cuts)]  # речь по VAD без вырезок
+    # речь по VAD без вырезок; остаток короче слова (кусок фразы рядом с вырезкой) не речь — щепка в ролике
+    voiced = [Word(a, b, "") for s0, s1 in speech for a, b in _without(s0, s1, cuts) if b - a >= MIN_VOICED]
     kept_words = [w for w in words if not any(_overlap(w, c0, c1) > EPS for c0, c1 in cuts)]
     heard = sorted(kept_words + (voiced if kept_words else []), key=_by_start)
     if not heard:

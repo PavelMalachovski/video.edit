@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://video.edit/schemas/language.json",
+  "title": "language.json — язык ролика (пишет vm prepare)",
+  "type": "object",
+  "required": ["code", "name", "source", "sure", "votes"],
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "description": "Код языка ISO 639-1 (cs, en, uk…).",
+      "type": "string",
+      "pattern": "^[a-z]{2,3}$"
+    },
+    "name": {
+      "description": "Название по-русски («чешский»).",
+      "type": "string"
+    },
+    "source": {
+      "description": "Откуда язык: brief — строка «ЯЗЫК:» в ТЗ, answer — ответ Павла (vm prepare --lang), detected — Whisper по речи, default — Whisper нет, русский по умолчанию.",
+      "enum": ["brief", "answer", "detected", "default"]
+    },
+    "sure": {
+      "description": "false — окна записи разошлись во мнении или языка некому было определить: Claude проверяет по тексту.",
+      "type": "boolean"
+    },
+    "votes": {
+      "description": "Язык каждого окна записи по Whisper, по порядку.",
+      "type": "array",
+      "items": {"type": "string"}
+    }
+  }
+}

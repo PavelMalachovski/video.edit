@@ -86,7 +86,7 @@ def _fetch(args: argparse.Namespace) -> None:
 
 def _prepare(args: argparse.Namespace) -> None:
     job = _job(args)
-    print(prepare(job, _stepper(job, args.state, args.status), redo=args.redo))
+    print(prepare(job, _stepper(job, args.state, args.status), redo=args.redo, language=args.lang))
 
 
 def _frames(args: argparse.Namespace) -> None:
@@ -335,6 +335,9 @@ def _parser() -> argparse.ArgumentParser:
         sub.add_argument("--state", choices=["analyzing", "rendering"], default="analyzing",
                          help="состояние задачи в status.json: analyzing (analyze, restyle) или rendering (render, fix)")
     commands.choices["prepare"].add_argument("--redo", action="store_true", help="всё заново, в том числе распознавание")
+    commands.choices["prepare"].add_argument(
+        "--lang", help="язык ролика по ответу Павла (код или название): другой, чем в language.json, — распознать заново"
+    )
 
     frames = command("frames", _frames, "кадры исходника в моменты --at → look/")
     frames.add_argument("--at", type=float, nargs="+", required=True, help="секунды исходника")

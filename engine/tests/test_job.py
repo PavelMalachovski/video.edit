@@ -277,6 +277,18 @@ def test_styles_accepts_empty_sample_words_for_a_silent_clip(job):
     assert job.read("styles.json") == styles
 
 
+def test_style_hook_y_is_optional_and_stays_in_the_frame(job):
+    # высота хука (центр строки капсом) — часть стиля: хук не должен лечь на лицо
+    styles = make_styles()
+    styles["variants"][0]["spec"]["hook"]["y"] = 420
+    job.write("styles.json", styles)
+    assert job.read("styles.json")["variants"][0]["spec"]["hook"]["y"] == 420
+
+    styles["variants"][0]["spec"]["hook"]["y"] = 2000
+    with pytest.raises(ValueError, match=r"variants\[0\]\.spec\.hook\.y"):
+        job.write("styles.json", styles)
+
+
 def test_styles_variant_ids_are_a_b_c(job):
     styles = make_styles()
     styles["variants"][1]["id"] = "D"

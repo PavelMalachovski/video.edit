@@ -85,7 +85,13 @@
           "required": ["mode", "size"],
           "properties": {
             "mode": { "enum": ["plate", "outline", "shadow"] },
-            "size": { "type": "number", "exclusiveMinimum": 0 }
+            "size": { "type": "number", "exclusiveMinimum": 0 },
+            "y": {
+              "description": "Центр хука (строки капсом) по вертикали, px кадра; нет — 400. Титр с кодовым словом — на той же высоте.",
+              "type": "number",
+              "minimum": 120,
+              "maximum": 1530
+            }
           }
         },
         "bar": {

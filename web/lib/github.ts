@@ -10,14 +10,70 @@ function headers(gh: GH, extra: Record<string, string> = {}): Record<string, str
   return { Authorization: `Bearer ${gh.token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', ...extra };
 }
 
-async function call<T>(gh: GH, method: string, url: string, body?: BodyInit, extra?: Record<string, string>): Promise<{ status: number; data: T }> {
-  const r = await (gh.fetch ?? fetch)(url, { method, headers: headers(gh, extra), body });
-  const text = r.status === 204 ? '' : await r.text();
-  return { status: r.status, data: (text ? JSON.parse(text) : null) as T };
+/** Ответ GitHub не 2xx. `retryAfter` — сколько секунд ждать, если это лимит запросов (иначе null). */
+export class GitHubError extends Error {
+  status: number;
+  retryAfter: number | null;
+  constructor(message: string, status: number, retryAfter: number | null = null) {
+    super(message);
+    this.name = 'GitHubError';
+    this.status = status;
+    this.retryAfter = retryAfter;
+  }
 }
 
-function ok<T>(r: { status: number; data: T }, what: string): T {
-  if (r.status >= 300) throw new Error(`${what}: GitHub ${r.status} ${JSON.stringify(r.data)}`);
+export function isRateLimited(e: unknown): e is GitHubError {
+  return e instanceof GitHubError && e.retryAfter !== null;
+}
+
+// Лимиты по документации GitHub: retry-after — ждать столько; x-ratelimit-remaining: 0 — до x-ratelimit-reset;
+// вторичный лимит без этих заголовков (403 или 429 с «rate limit» в тексте) — минуту.
+function retryAfter(status: number, h: Headers, data: unknown): number | null {
+  if (status !== 403 && status !== 429) return null;
+  const after = Number(h.get('retry-after'));
+  if (h.get('retry-after') !== null && Number.isFinite(after)) return Math.max(1, Math.round(after));
+  const reset = Number(h.get('x-ratelimit-reset'));
+  if (h.get('x-ratelimit-remaining') === '0' && Number.isFinite(reset)) return Math.max(1, Math.round(reset - Date.now() / 1000));
+  if (status === 429 || /rate limit/i.test(JSON.stringify(data ?? ''))) return 60;
+  return null;
+}
+
+// Условные GET: ETag по адресу; 304 не тратит лимит GitHub, данные берутся из памяти. Старые записи вытесняются.
+const ETAGS = new Map<string, { etag: string; data: unknown }>();
+const ETAG_LIMIT = 300;
+
+export function clearGitHubCache(): void {
+  ETAGS.clear();
+}
+
+type Answer<T> = { status: number; data: T; headers: Headers };
+
+async function call<T>(gh: GH, method: string, url: string, body?: BodyInit, extra?: Record<string, string>): Promise<Answer<T>> {
+  const cached = method === 'GET' ? ETAGS.get(url) : undefined;
+  const r = await (gh.fetch ?? fetch)(url, { method, headers: headers(gh, cached ? { ...extra, 'If-None-Match': cached.etag } : extra), body });
+  if (r.status === 304 && cached) {
+    ETAGS.delete(url);  // в конец очереди: недавно нужный
+    ETAGS.set(url, cached);
+    return { status: 200, data: cached.data as T, headers: r.headers };
+  }
+  const text = r.status === 204 || r.status === 304 ? '' : await r.text();
+  let data: T;
+  try {
+    data = (text ? JSON.parse(text) : null) as T;
+  } catch {
+    data = text as T;
+  }
+  const etag = r.headers.get('etag');
+  if (method === 'GET' && r.status === 200 && etag) {
+    ETAGS.delete(url);
+    ETAGS.set(url, { etag, data });
+    if (ETAGS.size > ETAG_LIMIT) ETAGS.delete(ETAGS.keys().next().value as string);
+  }
+  return { status: r.status, data, headers: r.headers };
+}
+
+function ok<T>(r: Answer<T>, what: string): T {
+  if (r.status >= 300) throw new GitHubError(`${what}: GitHub ${r.status} ${JSON.stringify(r.data)}`, r.status, retryAfter(r.status, r.headers, r.data));
   return r.data;
 }
 
@@ -73,3 +129,39 @@ export async function listAllAssets(gh: GH, releaseId: number): Promise<Asset[]>
   }
   return all;
 }
+
+/** Релиз по id; нет (удалён) — null. */
+export async function getRelease(gh: GH, releaseId: number): Promise<Release | null> {
+  const r = await call<Release>(gh, 'GET', `${apiBase(gh)}/repos/${gh.repo}/releases/${releaseId}`);
+  return r.status === 404 ? null : ok(r, 'get release');
+}
+
+/** Удалить релиз (черновик задачи); его уже нет — не ошибка. */
+export async function deleteRelease(gh: GH, releaseId: number): Promise<void> {
+  const r = await call<unknown>(gh, 'DELETE', `${apiBase(gh)}/repos/${gh.repo}/releases/${releaseId}`);
+  if (r.status !== 204 && r.status !== 404) ok(r, 'delete release');
+}
+
+/** Скачивание ассета без перехода: 302 → короткоживущая подписанная ссылка (её отдаём браузеру), 200 → сам ответ. */
+export async function assetDownload(gh: GH, assetId: number): Promise<{ location: string } | { response: Response }> {
+  const r = await (gh.fetch ?? fetch)(`${apiBase(gh)}/repos/${gh.repo}/releases/assets/${assetId}`, {
+    headers: headers(gh, { Accept: 'application/octet-stream' }),
+    redirect: 'manual',
+  });
+  const location = r.headers.get('location');
+  if (r.status >= 300 && r.status < 400 && location) return { location };
+  if (r.ok) return { response: r };
+  const text = await r.text();
+  throw new GitHubError(`download asset ${assetId}: GitHub ${r.status} ${text.slice(0, 300)}`, r.status, retryAfter(r.status, r.headers, text));
+}
+
+/** Текст ассета (manifest.json) — с переходом по подписанной ссылке. */
+export async function readAssetText(gh: GH, assetId: number): Promise<string> {
+  const r = await (gh.fetch ?? fetch)(`${apiBase(gh)}/repos/${gh.repo}/releases/assets/${assetId}`, {
+    headers: headers(gh, { Accept: 'application/octet-stream' }),
+  });
+  const text = await r.text();
+  if (!r.ok) throw new GitHubError(`read asset ${assetId}: GitHub ${r.status} ${text.slice(0, 300)}`, r.status, retryAfter(r.status, r.headers, text));
+  return text;
+}
+

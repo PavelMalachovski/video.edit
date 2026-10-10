@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { uploadAsset } from '@/lib/github.ts';
+import { errorResponse } from '@/lib/http.ts';
 import { CHUNK_SIZE, isJobId, partName } from '@/lib/jobs.ts';
 import { gh } from '@/lib/env.ts';
 
@@ -22,8 +23,6 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     const a = await uploadAsset(gh(), releaseId, partName(n), body);
     return NextResponse.json({ name: a.name, size: a.size, ms: Date.now() - t });
   } catch (e) {
-    const msg = String(e);
-    const limited = /secondary rate limit|rate limit|abuse/i.test(msg) || / 403 /.test(msg) || / 429 /.test(msg);
-    return NextResponse.json({ error: msg.slice(0, 500) }, { status: limited ? 429 : 502 });
+    return errorResponse(e);  // лимит GitHub → 429 с retryAfter: загрузчик подождёт и повторит
   }
 }

@@ -1,18 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createDraftRelease, findReleaseByTag, uploadAsset, type GH } from '../lib/github.ts';
+import {
+  assetDownload, clearGitHubCache, createDraftRelease, deleteRelease, findReleaseByTag, getRelease, GitHubError, isRateLimited,
+  listAssets, readAssetText, uploadAsset, type GH,
+} from '../lib/github.ts';
+import { fakeFetch, type Call, type Reply } from './helpers.ts';
 
-type Call = { method: string; url: string; body?: unknown };
-
-function fakeGH(handler: (c: Call) => { status: number; json?: unknown }): { gh: GH; calls: Call[] } {
-  const calls: Call[] = [];
-  const f = (async (url: string | URL, init?: RequestInit) => {
-    const c = { method: init?.method ?? 'GET', url: String(url), body: init?.body };
-    calls.push(c);
-    const r = handler(c);
-    return new Response(r.json === undefined ? null : JSON.stringify(r.json), { status: r.status });
-  }) as typeof fetch;
-  return { gh: { token: 't', repo: 'o/r', fetch: f }, calls };
+function fakeGH(handler: (c: Call) => Reply): { gh: GH; calls: Call[] } {
+  const { fetch, calls } = fakeFetch(handler);
+  return { gh: { token: 't', repo: 'o/r', fetch }, calls };
 }
 
 test('createDraftRelease posts a draft release', async () => {
@@ -55,3 +51,74 @@ test('custom API and uploads base URLs are used when given', async () => {
   await uploadAsset(gh, 1, 'a', new Uint8Array([1]));
   assert.deepEqual(calls, ['http://127.0.0.1:9/api/repos/o/r/releases', 'http://127.0.0.1:9/up/repos/o/r/releases/1/assets?name=a']);
 });
+
+async function failure(p: Promise<unknown>): Promise<GitHubError> {
+  const e = await p.then(() => null, (err: unknown) => err);
+  assert.ok(e instanceof GitHubError, String(e));
+  return e;
+}
+
+test('rate limit answers become GitHubError with retryAfter', async () => {
+  clearGitHubCache();
+  let e = await failure(findReleaseByTag(fakeGH(() => ({ status: 429, json: {}, headers: { 'retry-after': '30' } })).gh, 'job-x'));
+  assert.equal(e.status, 429);
+  assert.equal(e.retryAfter, 30);
+  assert.ok(isRateLimited(e));
+  const reset = String(Math.floor(Date.now() / 1000) + 120);
+  e = await failure(findReleaseByTag(fakeGH(() => ({ status: 403, json: {}, headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': reset } })).gh, 'job-x'));
+  assert.ok(e.retryAfter !== null && e.retryAfter >= 119 && e.retryAfter <= 121, String(e.retryAfter));
+  e = await failure(findReleaseByTag(fakeGH(() => ({ status: 403, json: { message: 'You have exceeded a secondary rate limit' } })).gh, 'job-x'));
+  assert.equal(e.retryAfter, 60);  // вторичный лимит без заголовков — ждать минуту (так советует GitHub)
+  e = await failure(findReleaseByTag(fakeGH(() => ({ status: 403, json: { message: 'Resource not accessible by personal access token' } })).gh, 'job-x'));
+  assert.equal(e.retryAfter, null);
+  assert.equal(isRateLimited(e), false);
+  assert.match(e.message, /GitHub 403/);
+});
+
+test('second GET sends If-None-Match and 304 returns cached data', async () => {
+  clearGitHubCache();
+  const { gh, calls } = fakeGH((c) => c.headers.get('if-none-match') === '"v1"'
+    ? { status: 304, headers: { etag: '"v1"' } }
+    : { status: 200, json: [{ id: 5, name: 'a', size: 1 }], headers: { etag: '"v1"' } });
+  const first = await listAssets(gh, 7);
+  const second = await listAssets(gh, 7);
+  assert.deepEqual(second, first);
+  assert.equal(calls[0].headers.get('if-none-match'), null);
+  assert.equal(calls[1].headers.get('if-none-match'), '"v1"');
+});
+
+test('getRelease returns null on 404', async () => {
+  clearGitHubCache();
+  const { gh, calls } = fakeGH(() => ({ status: 404, json: { message: 'Not Found' } }));
+  assert.equal(await getRelease(gh, 9), null);
+  assert.equal(calls[0].url, 'https://api.github.com/repos/o/r/releases/9');
+  const found = fakeGH(() => ({ status: 200, json: { id: 9, tag_name: 'job-a', name: null, draft: true, assets: [] } }));
+  assert.equal((await getRelease(found.gh, 9))?.tag_name, 'job-a');
+});
+
+test('assetDownload returns the redirect location without following it', async () => {
+  const { gh, calls } = fakeGH(() => ({ status: 302, headers: { location: 'https://objects.example/signed?x=1' } }));
+  assert.deepEqual(await assetDownload(gh, 11), { location: 'https://objects.example/signed?x=1' });
+  assert.equal(calls[0].redirect, 'manual');
+  assert.equal(calls[0].headers.get('accept'), 'application/octet-stream');
+  assert.equal(calls[0].url, 'https://api.github.com/repos/o/r/releases/assets/11');
+  const direct = fakeGH(() => ({ status: 200, text: 'bytes' }));
+  const r = await assetDownload(direct.gh, 11);
+  assert.ok('response' in r && (await r.response.text()) === 'bytes');
+});
+
+test('readAssetText follows the redirect and returns the text', async () => {
+  const { gh, calls } = fakeGH(() => ({ status: 200, text: '{"name":"a.mov"}' }));
+  assert.equal(await readAssetText(gh, 12), '{"name":"a.mov"}');
+  assert.equal(calls[0].headers.get('accept'), 'application/octet-stream');
+  assert.notEqual(calls[0].redirect, 'manual');
+});
+
+test('deleteRelease tolerates 404', async () => {
+  const { gh, calls } = fakeGH(() => ({ status: 404, json: { message: 'Not Found' } }));
+  await deleteRelease(gh, 9);
+  assert.equal(calls[0].method, 'DELETE');
+  assert.equal(calls[0].url, 'https://api.github.com/repos/o/r/releases/9');
+  await failure(deleteRelease(fakeGH(() => ({ status: 500, json: {} })).gh, 9));
+});
+

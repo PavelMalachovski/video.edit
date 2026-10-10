@@ -1,0 +1,11 @@
+[
+  { "id": "montserrat", "family": "Montserrat", "file": "fonts/montserrat/montserrat.ttf", "weight": 800, "kind": "main" },
+  { "id": "unbounded", "family": "Unbounded", "file": "fonts/unbounded/unbounded.ttf", "weight": 700, "kind": "main" },
+  { "id": "rubik", "family": "Rubik", "file": "fonts/rubik/rubik.ttf", "weight": 700, "kind": "main" },
+  { "id": "oswald", "family": "Oswald", "file": "fonts/oswald/oswald.ttf", "weight": 600, "kind": "main" },
+  { "id": "russo-one", "family": "Russo One", "file": "fonts/russo-one/russo-one.ttf", "weight": 400, "kind": "main" },
+  { "id": "comfortaa", "family": "Comfortaa", "file": "fonts/comfortaa/comfortaa.ttf", "weight": 700, "kind": "main" },
+  { "id": "caveat", "family": "Caveat", "file": "fonts/caveat/caveat.ttf", "weight": 700, "kind": "hand" },
+  { "id": "marck-script", "family": "Marck Script", "file": "fonts/marck-script/marck-script.ttf", "weight": 400, "kind": "hand" },
+  { "id": "bad-script", "family": "Bad Script", "file": "fonts/bad-script/bad-script.ttf", "weight": 400, "kind": "hand" }
+]

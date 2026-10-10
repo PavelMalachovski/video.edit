@@ -1,0 +1,12 @@
+{
+  "name": "vm-template",
+  "private": true,
+  "type": "module",
+  "description": "Слой текста и вставок ролика: один HTML-шаблон для превью на странице и кадров финала.",
+  "scripts": {
+    "test": "node --test \"tests/*.test.mjs\""
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
+}

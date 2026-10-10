@@ -1,0 +1,78 @@
+/* Слой ролика 1080×1920 на прозрачном фоне. Размеры и цвета задаёт overlay.js по спецификации стиля. */
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  overflow: hidden;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+#frame {
+  position: relative;
+  width: 1080px;
+  height: 1920px;
+  overflow: hidden;
+}
+
+/* Слои — в начале кадра, их детали стоят в координатах кадра. */
+#frame > div {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+
+.lines,
+.caps,
+.hand {
+  position: absolute;
+  text-align: center;
+  white-space: normal;
+  word-break: keep-all;
+  overflow-wrap: normal;
+  hyphens: none;
+  font-kerning: normal;
+  font-synthesis: none;
+}
+
+/* Слово никогда не рвётся внутри (даже на дефисе). */
+.lines .w {
+  white-space: nowrap;
+}
+
+.lines .on {
+  color: var(--on-fg);
+}
+
+/* Режим «плашка»: говоримое слово — на фоне цвета подсветки. Поля компенсированы отрицательными
+   отступами, поэтому подсветка не сдвигает слова. */
+.lines.plate .on {
+  background: var(--on-bg);
+  padding: 0.04em 0.12em;
+  margin: 0 -0.12em;
+  border-radius: 0.16em;
+}
+
+.caps .line {
+  display: block;
+}
+
+.hand {
+  white-space: nowrap;
+}
+
+/* Маркер базовой линии: пустой inline-block стоит низом на базовой линии строки. */
+.bl {
+  display: inline-block;
+  width: 0;
+  height: 0;
+}
+
+.plate,
+.uline,
+#bar {
+  position: absolute;
+}

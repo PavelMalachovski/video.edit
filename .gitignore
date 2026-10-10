@@ -4,6 +4,8 @@ work/
 __pycache__/
 *.pyc
 .pytest_cache/
+# клипы-фикстуры, которые ffmpeg рисует в тестах движка (кэш)
+engine/tests/.cache/
 node_modules/
 .next/
 .env*

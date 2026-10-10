@@ -1,42 +1,61 @@
 """Звук финала одним графом `filter_complex` для ffmpeg: голос, музыка, звуки появления вставок.
 
 Голос ускоряется так же, как картинка (`atempo`), выравнивается к −14 LUFS (`loudnorm`) и добивается тишиной до
-конца ролика вместе со стоп-кадром. Музыка — с первого кадра до последнего: громкость `gainDb`, под речью тише
-примерно на 3 дБ, вход 0,1 с, выход 1 с в самом конце; короткий трек зацикливается, длинный обрезается. Звук
-вставки — −13 дБ точно в момент её появления (время финала). Файла нет — его пропускаем и пишем в предупреждения:
-ролик без звука вставки лучше, чем никакого.
+конца ролика вместе со стоп-кадром — длина ровно `final_dur`. Музыка — с первого кадра до последнего: громкость
+`gainDb`, под речью тише примерно на 3 дБ, вход 0,1 с, выход 1 с в самом конце; короткий трек повторяется, длинный
+обрезается. Звук вставки — −13 дБ точно в момент её появления (время финала). Сумма не выходит за −1,5 дБ.
+Файла нет или он не читается — его пропускаем и пишем в предупреждения: ролик без звука вставки лучше, чем никакого.
+Метки графа начинаются с `a_` (кроме выхода `[aout]`), чтобы не столкнуться с метками картинки в той же команде.
 """
+import math
 import subprocess
 from pathlib import Path
 
 RATE = 48000
 FORMAT = f"aresample={RATE},aformat=sample_fmts=fltp:sample_rates={RATE}:channel_layouts=stereo"
-LOUDNORM = "loudnorm=I=-14:TP=-1.5:LRA=11"
+# loudnorm меряет громкость окнами по 3 с: на беззвучном голосе короче 3 с он выдаёт NaN (и портит музыку через
+# приглушение), поэтому короткий голос сначала добивается тишиной до 3 с — лишнее потом отрезается
+LOUDNORM = "apad=whole_dur=3,loudnorm=I=-14:TP=-1.5:LRA=11"
+# loudnorm ставит последнему неполному куску метку времени как полному: перенумеровываем отсчёты по порядку,
+# иначе обрезка по времени отрезала бы конец (звук выходил короче ролика на 0–100 мс)
+RETIME = "asetpts=N/SR/TB"
 SFX_GAIN_DB = -13
 FADE_IN = 0.1
 FADE_OUT = 1.0
 # Приглушение музыки под речью: сжатие от голоса почти до тишины, смешанное с исходной музыкой (mix). Под речью
-# остаётся 1 − mix·(1 − g) ≈ 0,7 от громкости (g — остаток после сжатия, 0,05…0,2), то есть около −3 дБ,
-# и эта глубина почти не зависит от того, громко или тихо говорят.
+# остаётся 1 − mix·(1 − g) ≈ 0,7 от громкости (g — остаток после сжатия, 0,05…0,2), то есть около −3 дБ. Голос для
+# управления берётся уже после loudnorm — поэтому глубина почти не зависит от того, громко или тихо записана речь.
 DUCK = "sidechaincompress=threshold=0.01:ratio=20:attack=10:release=250:knee=1:makeup=1:mix=0.33"
+LIMIT = "alimiter=limit=0.84:level=false:latency=1"  # −1,5 дБ, без задержки звука
+MIN_MUSIC = 0.5  # с — короче (или без длины) музыкальный файл считаем нечитаемым: повтор такого вешает ffmpeg
 
 
-def _channels(path: Path) -> int | None:
-    """Сколько каналов у первой звуковой дорожки файла; не читается — None."""
+def _probe(path: Path) -> tuple[int | None, float | None]:
+    """(каналов у первой звуковой дорожки, длина файла в с); не читается — (None, None)."""
     try:
         out = subprocess.run(
-            ["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=channels", "-of", "csv=p=0", str(path)],
+            ["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=channels:format=duration",
+             "-of", "default=nw=1", str(path)],
             check=True, capture_output=True, text=True, timeout=30,
-        ).stdout.strip()
-        return int(out.split(",")[0]) if out else None
-    except (OSError, subprocess.SubprocessError, ValueError):
-        return None
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None, None
+    fields = dict(line.split("=", 1) for line in out.split() if "=" in line)
+    try:
+        channels = int(fields["channels"]) if fields.get("channels") else None
+    except ValueError:
+        channels = None
+    try:
+        duration = float(fields["duration"])
+    except (KeyError, ValueError):
+        duration = None
+    return channels, duration
 
 
-def _source(path: Path) -> str:
+def _source(channels: int) -> str:
     """Начало цепочки для файла: моно раскладывается в оба канала без потери громкости (ffmpeg по умолчанию
     ставит моно в стерео на −3 дБ), дальше — общий формат."""
-    return ("pan=stereo|c0=c0|c1=c0," if _channels(path) == 1 else "") + FORMAT
+    return ("pan=stereo|c0=c0|c1=c0," if channels == 1 else "") + FORMAT
 
 
 def _num(v: float) -> str:
@@ -59,47 +78,64 @@ def audio_graph(
 
     `voice` — метка голоса в графе (`[0:a]` или выход склейки); `final_dur` — длина ролика со стоп-кадром;
     `sfx` — `(время финала, файл)`; `inputs_offset` — номер первого добавленного входа."""
-    if not speed > 0:
-        raise ValueError(f"speed must be positive, got {speed!r}")
+    if not 0.5 <= speed <= 100:
+        raise ValueError(f"speed must be between 0.5 and 100 (atempo), got {speed!r}")
+    if not final_dur > 0:
+        raise ValueError(f"final_dur must be positive, got {final_dur!r}")
     end = _num(final_dur)
     inputs: list[str] = []
     warnings: list[str] = []
     chains: list[str] = []
     index = inputs_offset
+    probed: dict[Path, tuple[int | None, float | None]] = {}
+
+    def probe(path: Path) -> tuple[int | None, float | None]:
+        if path not in probed:
+            probed[path] = _probe(path) if path.is_file() else (None, None)
+        return probed[path]
+
+    def warn(text: str) -> None:
+        if text not in warnings:
+            warnings.append(text)
 
     tempo = f"atempo={speed:g}," if abs(speed - 1) > 1e-9 else ""
-    chains.append(f"{_label(voice)}{tempo}{FORMAT},{LOUDNORM},{FORMAT},apad=whole_dur={end},atrim=end={end}[vo]")
-    parts = ["[vo]"]
+    chains.append(f"{_label(voice)}{tempo}{FORMAT},{LOUDNORM},{FORMAT},{RETIME},apad=whole_dur={end},atrim=end={end}[a_vo]")
+    parts = ["[a_vo]"]
 
     if music:
         path = Path(music["file"])
-        if path.is_file() and _channels(path):
-            inputs += ["-stream_loop", "-1", "-i", str(path)]
-            fade_out = _num(max(0.0, final_dur - FADE_OUT))
-            chains.append("[vo]asplit=2[vmix][vsc]")
+        channels, length = probe(path)
+        if channels and length and length >= MIN_MUSIC:
+            loops = max(0, math.ceil(final_dur / length) - 1)
+            inputs += ["-stream_loop", str(loops), "-i", str(path)]
+            fade = min(FADE_OUT, final_dur)
+            chains.append("[a_vo]asplit=2[a_vmix][a_vsc]")
             chains.append(
-                f"[{index}:a]{_source(path)},volume={float(music.get('gainDb', -18)):g}dB,atrim=end={end},"
-                f"afade=t=in:st=0:d={FADE_IN},afade=t=out:st={fade_out}:d={FADE_OUT}[mu]"
+                f"[{index}:a]{_source(channels)},{RETIME},volume={float(music.get('gainDb', -18)):g}dB,atrim=end={end},"
+                f"afade=t=in:st=0:d={min(FADE_IN, final_dur):g},afade=t=out:st={_num(final_dur - fade)}:d={_num(fade)}[a_mu]"
             )
-            chains.append(f"[mu][vsc]{DUCK}[md]")
-            parts = ["[vmix]", "[md]"]
+            chains.append(f"[a_mu][a_vsc]{DUCK}[a_md]")
+            parts = ["[a_vmix]", "[a_md]"]
             index += 1
         else:
-            warnings.append(f"музыка не найдена или не читается, ролик без неё: {path}")
+            warn(f"музыка не найдена или не читается, ролик без неё: {path}")
 
     for k, (t, file) in enumerate(sfx):
         path = Path(file)
-        if not (path.is_file() and _channels(path)):
-            warnings.append(f"звук вставки не найден или не читается, вставка без звука: {path}")
+        channels, _ = probe(path)
+        if not channels:
+            warn(f"звук вставки не найден или не читается, вставка без звука: {path}")
             continue
         inputs += ["-i", str(path)]
         delay = max(0, round(t * 1000))
-        chains.append(f"[{index}:a]{_source(path)},volume={SFX_GAIN_DB}dB,adelay=delays={delay}:all=1[s{k}]")
-        parts.append(f"[s{k}]")
+        chains.append(f"[{index}:a]{_source(channels)},volume={SFX_GAIN_DB}dB,adelay=delays={delay}:all=1[a_s{k}]")
+        parts.append(f"[a_s{k}]")
         index += 1
 
     if len(parts) == 1:
-        chains.append("[vo]anull[aout]")
+        chains.append("[a_vo]anull[aout]")
     else:
-        chains.append(f"{''.join(parts)}amix=inputs={len(parts)}:normalize=0:duration=first,atrim=end={end}[aout]")
+        chains.append(
+            f"{''.join(parts)}amix=inputs={len(parts)}:normalize=0:duration=first,{LIMIT},{RETIME},atrim=end={end}[aout]"
+        )
     return inputs, ";".join(chains), warnings

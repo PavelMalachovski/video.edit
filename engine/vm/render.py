@@ -95,7 +95,7 @@ def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium")
 
     part = out_dir / f".{name}.part.mp4"
     _ffmpeg([*inputs, "-filter_complex", ";".join(chains), "-map", "[vout]", "-map", "[aout]", *_encode(preset),
-             "-t", f"{total:.6f}", str(part)])
+             "-t", f"{total:.6f}", str(part)], timeout=max(900, 30 * total))
     os.replace(part, out_dir / f"{name}.mp4")
     (out_dir / f"{name}.srt").write_text(srt, encoding="utf-8")
     return {"durations": {"source": round(info.duration, 3), "final": round(total, 3)}, "missing": missing, "warnings": warnings}
@@ -114,7 +114,11 @@ def _layer(job: Job, edit: dict, tl: Timeline, work: Path) -> Path:
            "--root", str(job.root), "--root", str(REPO)]
     if FONTS.is_dir():
         cmd += ["--fonts", str(FONTS)]
-    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    events = len(json.loads((work / "events.json").read_text(encoding="utf-8")))
+    try:  # ~0,15 с на состояние; потолок — чтобы зависший браузер не держал рутину вечно
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=max(600, 2 * events))
+    except subprocess.TimeoutExpired as err:
+        raise RenderError(f"слой не уложился в {err.timeout:.0f} с — браузер завис?") from None
     if proc.returncode != 0:
         raise RenderError(f"слой не нарисован: {proc.stderr.strip()[-2000:]}")
     return frames / "frames.ffconcat"
@@ -237,9 +241,13 @@ def _encode(preset: str) -> list[str]:
     ]
 
 
-def _ffmpeg(args: list[str]) -> None:
-    proc = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y", *args],
-                          capture_output=True, text=True, check=False)
+def _ffmpeg(args: list[str], timeout: float) -> None:
+    """ffmpeg с потолком времени: зависший (например, на битом файле) не держит рутину вечно."""
+    try:
+        proc = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y", *args],
+                              capture_output=True, text=True, check=False, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise RenderError(f"ffmpeg не уложился в {timeout:.0f} с — остановлен") from None
     if proc.returncode != 0:
         tail = "\n".join(proc.stderr.strip().splitlines()[-15:])
         raise RenderError(f"ffmpeg не собрал ролик:\n{tail}")

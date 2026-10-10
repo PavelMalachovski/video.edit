@@ -38,7 +38,7 @@ def mix(tmp_path, voice, **kw):
     subprocess.run(
         ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(voice), *extra, "-filter_complex", graph,
          "-map", "[aout]", "-c:a", "pcm_f32le", str(out)],
-        check=True,
+        check=True, timeout=60,
     )
     raw = subprocess.run(
         ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(out), "-f", "f32le", "-acodec", "pcm_f32le", "-"],
@@ -78,7 +78,7 @@ def test_voice_loudness_minus_14(tmp_path):
     assert warnings == []
     assert loudness(out) == pytest.approx(-14, abs=1)
     assert samples.shape[1] / rate == pytest.approx(10.0, abs=0.05)
-    assert np.max(np.abs(samples)) < 0.9, "true peak stays under -1.5 dBTP"
+    assert np.max(np.abs(samples)) < 0.841, "true peak stays under -1.5 dBTP"
 
 
 def test_voice_is_sped_up_and_padded_to_the_final(tmp_path):
@@ -135,6 +135,84 @@ def test_unreadable_sfx_file_warns_not_fails(tmp_path):
     _, samples, rate, warnings = mix(tmp_path, voice, speed=1.0, final_dur=3.0, music=None, sfx=[(1.0, broken)])
     assert any("broken.wav" in w for w in warnings)
     assert samples.shape[1] / rate == pytest.approx(3.0, abs=0.05)
+
+
+def band(x: np.ndarray, rate: int, low: float, high: float) -> np.ndarray:
+    spectrum = np.fft.rfft(x)
+    freqs = np.fft.rfftfreq(len(x), 1 / rate)
+    spectrum[(freqs < low) | (freqs > high)] = 0
+    return np.fft.irfft(spectrum, len(x))
+
+
+@pytest.mark.parametrize("speed, voice_len, final", [(1.0, 10.03, 10.03), (1.0, 10.07, 10.57), (1.1, 11.033, 10.03)])
+@pytest.mark.parametrize("with_music", [False, True])
+def test_output_is_exactly_final_dur_long(tmp_path, speed, voice_len, final, with_music):
+    # длина, не кратная 0,1 с: loudnorm на последнем куске сдвигает метку времени, а длина должна быть точной
+    voice = bursts(tmp_path / "voice.wav", 440, voice_len, "lt(mod(t,1),0.5)")
+    music = {"file": str(synth(tmp_path / "music.wav", f"sine=f=100:r={RATE},volume=8", 30)), "gainDb": -18} if with_music else None
+    _, samples, rate, _ = mix(tmp_path, voice, speed=speed, final_dur=final, music=music, sfx=[])
+    assert samples.shape[1] / rate == pytest.approx(final, abs=0.002)
+
+
+def test_empty_music_file_is_skipped_not_hung(tmp_path):
+    voice = bursts(tmp_path / "voice.wav", 440, 3, "lt(mod(t,1),0.5)")
+    empty = tmp_path / "empty.wav"
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
+                    "-t", "0", str(empty)], check=True)
+    _, samples, rate, warnings = mix(tmp_path, voice, speed=1.0, final_dur=3.0, music={"file": str(empty), "gainDb": -18}, sfx=[])
+    assert any("empty.wav" in w for w in warnings)
+    assert samples.shape[1] / rate == pytest.approx(3.0, abs=0.002)
+
+
+def test_music_fades_in_and_keeps_its_gain(tmp_path):
+    voice = bursts(tmp_path / "voice.wav", 3000, 6, "lt(t,0)")  # тишина
+    music = synth(tmp_path / "music.wav", f"sine=f=100:r={RATE},volume=8", 10)  # полная шкала: RMS −3 дБ
+    _, samples, rate, _ = mix(tmp_path, voice, speed=1.0, final_dur=6.0, music={"file": str(music), "gainDb": -18}, sfx=[])
+    low = samples[0]
+    assert rms_db(low[: int(0.03 * rate)]) < rms_db(low[int(0.2 * rate) : int(0.6 * rate)]) - 6, "fade-in over 0.1 s"
+    assert rms_db(low[int(1 * rate) : int(4 * rate)]) == pytest.approx(-3 - 18, abs=1.0), "music at gainDb"
+
+
+def test_sfx_lands_on_time_in_both_channels_with_music(tmp_path):
+    voice = bursts(tmp_path / "voice.wav", 440, 6, "lt(t,0)")  # тишина
+    music = synth(tmp_path / "music.wav", f"sine=f=100:r={RATE},volume=8", 10)
+    click = synth(tmp_path / "pop.wav", f"sine=f=1000:r={RATE},volume=8", 0.05)
+    _, samples, rate, warnings = mix(
+        tmp_path, voice, speed=1.0, final_dur=6.0, music={"file": str(music), "gainDb": -18}, sfx=[(3.0, click)]
+    )
+    assert warnings == []
+    for channel in samples:
+        high = band(channel, rate, 800, 1200)
+        loud = np.nonzero(np.abs(high) > 0.02)[0]
+        assert loud[0] / rate == pytest.approx(3.0, abs=0.033)
+
+
+def test_mix_peaks_stay_under_minus_1_5_db(tmp_path):
+    # громкий звук вставки на громком месте речи: сумма не должна уходить за −1,5 дБ
+    voice = synth(tmp_path / "voice.wav", f"sine=f=440:r={RATE},volume=8", 4)
+    click = synth(tmp_path / "pop.wav", f"sine=f=440:r={RATE},volume=8", 0.5)
+    _, samples, _, _ = mix(tmp_path, voice, speed=1.0, final_dur=4.0, music=None, sfx=[(2.0, click)])
+    assert float(np.max(np.abs(samples))) <= 0.85
+
+
+@pytest.mark.parametrize("kw", [{"final_dur": 0.0}, {"speed": 0.3}, {"speed": 200.0}])
+def test_bad_numbers_are_refused(tmp_path, kw):
+    args = {"speed": 1.0, "final_dur": 3.0, "music": None, "sfx": []} | kw
+    with pytest.raises(ValueError):
+        audio_graph("[0:a]", inputs_offset=1, **args)
+
+
+def test_labels_do_not_clash_with_the_picture_graph():
+    _, graph, _ = audio_graph("[0:a]", 1.1, 5.0, None, [], inputs_offset=1)
+    labels = set(re.findall(r"\[([^\]:]+)\]", graph)) - {"aout"}
+    assert labels and all(label.startswith("a_") for label in labels), labels
+
+
+def test_short_final_still_fades_music_to_silence(tmp_path):
+    voice = bursts(tmp_path / "voice.wav", 3000, 1, "lt(t,0)")
+    music = synth(tmp_path / "music.wav", f"sine=f=100:r={RATE},volume=8", 3)
+    _, samples, rate, _ = mix(tmp_path, voice, speed=1.0, final_dur=0.6, music={"file": str(music), "gainDb": -18}, sfx=[])
+    assert rms_db(samples[0][-int(0.02 * rate) :]) < rms_db(samples[0][int(0.1 * rate) : int(0.3 * rate)]) - 10
 
 
 def test_missing_music_file_warns_not_fails(tmp_path):

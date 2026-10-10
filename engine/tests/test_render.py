@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from vm.job import Job
-from vm.render import render, timeline
+from vm.render import RenderError, _ffmpeg, render, timeline
 
 pytestmark = [
     pytest.mark.slow,
@@ -188,3 +188,10 @@ def test_render_reports_a_missing_fullscreen_file(tmp_path, sources):
     )
     result = render(job, job.path("out"), preset="ultrafast")
     assert any("nope.mp4" in m for m in result["missing"])
+
+
+@pytest.mark.slow
+def test_a_stuck_ffmpeg_is_stopped_with_a_clear_error():
+    # зависший ffmpeg не должен держать рутину вечно
+    with pytest.raises(RenderError, match="не уложился"):
+        _ffmpeg(["-f", "lavfi", "-i", "testsrc2=s=1080x1920:r=30:d=600", "-f", "null", "-"], timeout=1)

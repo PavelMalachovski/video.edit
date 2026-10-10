@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://video.edit/schemas/answers.json",
+  "title": "answers.json — ответы Павла, выбранный стиль и его правки",
+  "type": "object",
+  "required": ["answers", "style"],
+  "properties": {
+    "answers": {
+      "description": "Ответы по id вопросов из questions.json.",
+      "type": "object",
+      "additionalProperties": {
+        "type": ["string", "array"],
+        "items": { "type": "string" }
+      }
+    },
+    "style": {
+      "description": "Выбор на экране превью; действует только на этот ролик. font и hand — id из template/fonts.json.",
+      "type": "object",
+      "required": ["variant", "font", "hand", "colors"],
+      "properties": {
+        "variant": { "enum": ["A", "B", "C"] },
+        "font": { "type": "string", "minLength": 1 },
+        "hand": { "type": "string", "minLength": 1 },
+        "colors": {
+          "type": "object",
+          "required": ["text", "accent", "bar"],
+          "properties": {
+            "text": { "$ref": "styles.json#/$defs/Color" },
+            "accent": { "$ref": "styles.json#/$defs/Color" },
+            "bar": { "$ref": "styles.json#/$defs/Color" }
+          }
+        }
+      }
+    },
+    "uploads": {
+      "description": "Загруженные Павлом картинки по id вопросов, путь от папки задачи.",
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "brief": {
+      "description": "ТЗ свободным текстом, как оно было при загрузке.",
+      "type": "string"
+    }
+  }
+}

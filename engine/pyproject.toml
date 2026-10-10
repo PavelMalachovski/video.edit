@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vm"
+version = "0.1.0"
+description = "Движок монтажа video.edit: папка задачи, схемы, статус, рендер"
+requires-python = ">=3.11"
+dependencies = [
+    "jsonschema>=4.18",
+    "numpy",
+    "soundfile",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+include = ["vm*"]
+
+[tool.setuptools.package-data]
+vm = ["schemas/*.json"]
+
+[tool.pytest.ini_options]
+# тесты запускаются из engine/ без установки пакета
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = [
+    "slow: needs models or long media",
+]

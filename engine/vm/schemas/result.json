@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://video.edit/schemas/result.json",
+  "title": "result.json — что сделано, в чём не уверен, чего не хватило, итог проверки",
+  "type": "object",
+  "required": ["durations", "done", "unsure", "missing", "qa"],
+  "properties": {
+    "durations": {
+      "type": "object",
+      "required": ["source", "final"],
+      "properties": {
+        "source": { "type": "number", "minimum": 0 },
+        "final": { "type": "number", "minimum": 0 }
+      }
+    },
+    "done": {
+      "description": "Что сделано: вырезки, вставки, стиль.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "unsure": {
+      "description": "Слова и места, в которых Claude не уверен.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "missing": {
+      "description": "Чего не хватило (нет музыки, шрифта, звуков) — смонтировано без этого.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "qa": {
+      "type": "object",
+      "required": ["ok", "problems"],
+      "properties": {
+        "ok": { "type": "boolean" },
+        "problems": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

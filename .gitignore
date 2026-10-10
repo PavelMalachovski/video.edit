@@ -1,0 +1,17 @@
+# рабочие папки и временные файлы
+work/
+.superpowers/
+__pycache__/
+*.pyc
+.pytest_cache/
+node_modules/
+.next/
+.env*
+# видео — только в tests/fixtures/
+*.mp4
+*.mov
+*.MOV
+!tests/fixtures/**
+!engine/tests/fixtures/**
+# готовые файлы задачи пушатся сессией (Action уносит их в релиз)
+!jobs/*/out/*

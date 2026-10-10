@@ -228,7 +228,8 @@ def normalize(parts: Sequence[PathLike], out: PathLike) -> Probe:
     частях, где он есть; частота кадров постоянная. Размер кадра задаёт первая часть: вертикальная 9:16 (или
     выше) — 1080×1920, остальные — ширина 1080 с теми же пропорциями (фон-размытие делает `render`). Другие
     части вписываются в этот кадр целиком, поля чёрные. Части без звука получают тишину.
-    H.264 crf 16 — промежуточный файл, финал кодирует `render`. Метаданные файла (место съёмки и т. п.) не
+    H.264 crf 16 ultrafast — промежуточный файл (в каждой сессии он делается заново: в git его нет; на 4K HEVC
+    с iPhone половина времени — декодирование, ultrafast экономит ещё ~30 % против veryfast), финал кодирует `render`. Метаданные файла (место съёмки и т. п.) не
     переносятся. Возвращает probe результата.
     """
     parts, out = [Path(p) for p in parts], Path(out)
@@ -250,7 +251,7 @@ def normalize(parts: Sequence[PathLike], out: PathLike) -> Probe:
             "-filter_complex", ";".join([*chains, joined]),
             "-map", "[v]", "-map", "[a]",
             "-map_metadata", "-1", "-map_chapters", "-1",
-            "-c:v", "libx264", "-crf", 16, "-preset", "veryfast", "-pix_fmt", "yuv420p", *BT709,
+            "-c:v", "libx264", "-crf", 16, "-preset", "ultrafast", "-pix_fmt", "yuv420p", *BT709,
             "-r", FPS, "-fps_mode", "cfr",
             "-c:a", "aac", "-b:a", "192k", "-ar", AUDIO_RATE, "-ac", 2,
             tmp,

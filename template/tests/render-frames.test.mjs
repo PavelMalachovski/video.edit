@@ -175,8 +175,10 @@ test('boxes.json lists the layout of every interval', async () => {
   await render(home);
   const boxes = JSON.parse(await readFile(path.join(home, 'frames', 'boxes.json'), 'utf8'));
   assert.equal(boxes.length, 2);
-  assert.deepEqual(boxes[0], { t0: 0, t1: 1, boxes: { inserts: [] } });
+  assert.deepEqual(boxes[0], { t0: 0, t1: 1, frame: boxes[0].frame, boxes: { inserts: [] } });
   assert.ok(boxes[1].boxes.sub && boxes[1].boxes.sub.w > 0);
+  const files = await readdir(path.join(home, 'frames'));
+  for (const b of boxes) assert.ok(files.includes(b.frame), `the png of ${b.t0}–${b.t1}: ${b.frame}`);
 });
 
 test('custom fonts and insert pictures come from the given folders', async () => {

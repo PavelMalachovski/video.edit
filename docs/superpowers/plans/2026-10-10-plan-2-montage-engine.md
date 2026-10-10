@@ -500,14 +500,20 @@ legacy/video-montage/          прошлый скилл как есть (спр
 **Interfaces:**
 - Produces (все печатают короткую сводку для Claude и обновляют статус, если
   `--status`):
-  - `python -m vm prepare <jobdir>` — части из `jobdir/in/` → `source.mp4`,
-    `source.wav`, `words.json`, `cuts.json` (`plan_keep` по умолчанию), `sheet.png`;
-    печатает длительность, число пауз/вырезанных секунд и сплошной текст с временем
-    (по фразам).
+  - `python -m vm prepare <jobdir> [--status] [--state analyzing|rendering] [--redo]` —
+    `in/source.*` (иначе все видео из `in/`) → `source.mp4`, `work/source.wav`, `words.json`,
+    `reference.txt`, `cuts.json` (`plan_keep` по умолчанию), `sheet.png`; только недостающее:
+    `source.mp4` в git нет, и каждая новая сессия зовёт prepare, чтобы его восстановить, а есть
+    `words.json` — речь не распознаётся заново и лист не делается (`--redo` — всё заново);
+    печатает длительность, число пауз/вырезанных секунд и текст с временем (фразы ≤ 10 с).
   - `python -m vm frames <jobdir> --at 12.5 13.0 [--grid]` → `jobdir/look/*.png`.
   - `python -m vm preview <jobdir> --at T` → `jobdir/frame.png` (из `source.mp4`).
-  - `python -m vm render <jobdir> [--version N]` → `jobdir/out/final[-vN].mp4|.srt`,
-    `jobdir/qa/qa.png`, обновляет `result.json` (`durations`, `missing`, `qa`).
+  - `python -m vm check <jobdir>` — до рендера (§5.9 «перед полным рендером — 4 контрольных
+    кадра и проверка геометрии»): слой по `edit.json`, `check_layout`, кадры «исходник + слой»
+    → `look/check.png`; `render` берёт уже нарисованный слой, если ничего не поменялось.
+  - `python -m vm render <jobdir> [--version N≥1]` → `jobdir/out/final[-vN].mp4|.srt`,
+    `jobdir/qa/qa.png`, обновляет `result.json` (`durations`, `missing`, `qa`); `edit.json`
+    проверяется по схеме до работы.
   - `python -m vm fetch <jobdir>` — входные файлы из черновика `job-<id>`:
     `GET https://api.github.com/repos/<repo>/releases` (черновики видны; авторизацию
     в облачной сессии подставляет прокси, свой токен не нужен — если в окружении есть
@@ -516,7 +522,12 @@ legacy/video-montage/          прошлый скилл как есть (спр
     вставки из ответа (`upload-*`) → `in/uploads/`.
   - `python -m vm push <jobdir> -m MSG [--outputs]` → `git.push`; с `--outputs` файлы
     `out/*` больше 95 МБ заменяются частями `split -b 95M -a 2` (`<имя>.part-aa…`) и
-    `<имя>.sha256` (формат `sha256sum`) — их склеит Action `job-outputs`.
+    `<имя>.sha256` (формат `sha256sum`) — их склеит Action `job-outputs`; части прежней версии
+    файла убираются, скрытые (временные) файлы не трогаются. В git не идут `in/`, `sheet.png`,
+    `look/`, `qa/qa-*.png`, `out/.*` (`.gitignore`).
+  - `fetch` и `prepare` с `--status` пишут фазы с `--state` шага (`analyzing` или `rendering`);
+    не вышедший пуш статуса — предупреждение, а не ошибка. `fetch` повторяет оборванные запросы
+    и продолжает с уже скачанных кусков; все группы проверяются до скачивания.
 
 - [ ] **Step 1: Тесты** `test_push_outputs_splits_large_files` (файл 200 МБ из
   `/dev/zero`-подобных данных → в коммите 3 части по ≤ 95 МБ и `.sha256`, исходного файла

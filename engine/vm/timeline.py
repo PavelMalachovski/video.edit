@@ -64,3 +64,10 @@ class Timeline:
             return final
         i = bisect_right(self._starts, t)  # первый отрезок, который начнётся позже t
         return self._played[i] / self._speed if i < len(self._starts) else self._duration
+
+    def to_source(self, t: float) -> float:
+        """Время исходника для времени финала `t` (обратное `to_final`; стык отрезков — начало следующего).
+        После конца финала (стоп-кадр) — конец последнего отрезка."""
+        played = max(0.0, t) * self._speed
+        i = max(0, bisect_right(self._played, played) - 1)
+        return min(self._starts[i] + (played - self._played[i]), self._ends[i])

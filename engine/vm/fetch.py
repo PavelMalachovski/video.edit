@@ -1,10 +1,12 @@
 """Входные файлы задачи из черновика релиза `job-<id>`: куски `<файл>.part-NNNNN` склеиваются по порядку номеров.
 
 `source` → `in/source.<расширение из manifest.json>`, `upload-*` (вставки к ролику и картинки к ответам) →
-`in/uploads/<файл>`. Размер каждого склеенного файла сверяется с манифестом. Уже скачанный файл нужного размера
-второй раз не качается. Ходим через curl, как проверяли в облачной сессии: прокси сессии сам авторизует GitHub для
-video.edit (`GITHUB_TOKEN` там — заглушка `proxy-injected`; настоящий токен из окружения передаётся заголовком,
-и curl не отдаёт его на чужой хост при переходе на подписанную ссылку ассета).
+`in/uploads/<файл>`. Размер каждого склеенного файла сверяется с манифестом, и все группы проверяются до того, как
+качать тяжёлое. Уже скачанный файл нужного размера второй раз не качается; оборванный запуск продолжается с уже
+скачанных кусков (`work/fetch/<файл>/`). Ходим через curl, как проверяли в облачной сессии: прокси сессии сам
+авторизует GitHub для video.edit (`GITHUB_TOKEN` там — заглушка `proxy-injected`; настоящий токен из окружения
+передаётся заголовком, и curl не отдаёт его на чужой хост при переходе на подписанную ссылку ассета). Обрыв
+соединения (прокси сессии такое умеет) или зависший кусок curl повторяет сам.
 """
 import json
 import os
@@ -19,7 +21,10 @@ from .job import Job
 PART = re.compile(r"^(?P<file>.+)\.part-(?P<n>\d{5})$")
 PLACEHOLDERS = {"", "proxy-injected"}
 PARALLEL = 8
-TIMEOUT = 1800  # с на один запрос (кусок 4 МБ качается секунды; потолок — от зависания)
+TIMEOUT = 1800  # с на один запрос со всеми повторами (кусок 4 МБ качается секунды; потолок — от зависания)
+# повторять любую ошибку, в том числе обрыв посреди куска; медленнее 1 КБ/с минуту — зависло, повторить
+RETRY = ["--retry", "5", "--retry-all-errors", "--retry-delay", "2", "--connect-timeout", "20",
+         "--speed-limit", "1024", "--speed-time", "60"]
 
 
 class FetchError(RuntimeError):
@@ -46,7 +51,7 @@ def _repo(job: Job) -> str:
 
 
 def _curl(url: str, out: Path | None = None, accept: str = "application/vnd.github+json") -> bytes:
-    cmd = ["curl", "-sS", "-f", "-L", "--retry", "3", "--retry-delay", "2", "--noproxy", "127.0.0.1,localhost",
+    cmd = ["curl", "-sS", "-f", "-L", *RETRY, "--noproxy", "127.0.0.1,localhost",
            "-H", f"Accept: {accept}", "-H", "X-GitHub-Api-Version: 2022-11-28"]
     token = os.environ.get("GITHUB_TOKEN", "")
     if token not in PLACEHOLDERS:
@@ -73,17 +78,29 @@ def _pages(url: str) -> list[dict]:
     raise FetchError(f"{url}: слишком длинный список")
 
 
+def _release(api: str, repo: str, tag: str) -> dict | None:
+    """Черновик по тегу: страницы списка — пока не найдётся (каждый релиз в списке несёт все свои ассеты)."""
+    for page in range(1, 1000):
+        chunk = json.loads(_curl(f"{api}/repos/{repo}/releases?per_page=100&page={page}"))
+        found = next((r for r in chunk if r.get("tag_name") == tag), None)
+        if found or not chunk:
+            return found
+    raise FetchError(f"{api}/repos/{repo}/releases: слишком длинный список")
+
+
 def _asset_url(api: str, repo: str, asset: dict) -> str:
     return f"{api}/repos/{repo}/releases/assets/{asset['id']}"
 
 
 def _join(api: str, repo: str, pieces: list[dict], dest: Path, work: Path) -> None:
-    """Куски — параллельно во временную папку, затем подряд в dest (через временное имя)."""
-    shutil.rmtree(work, ignore_errors=True)
-    work.mkdir(parents=True)
+    """Куски — параллельно во временную папку (куски нужного размера от прошлого запуска не качаются заново),
+    затем подряд в dest (через временное имя)."""
+    work.mkdir(parents=True, exist_ok=True)
     paths = [work / f"{i:05d}" for i in range(len(pieces))]
 
     def get(i: int) -> None:
+        if paths[i].is_file() and paths[i].stat().st_size == pieces[i]["size"]:
+            return
         _curl(_asset_url(api, repo, pieces[i]), paths[i], accept="application/octet-stream")
         if paths[i].stat().st_size != pieces[i]["size"]:
             raise FetchError(f"{pieces[i]['name']}: скачано {paths[i].stat().st_size} байт вместо {pieces[i]['size']}")
@@ -92,25 +109,34 @@ def _join(api: str, repo: str, pieces: list[dict], dest: Path, work: Path) -> No
         list(pool.map(get, range(len(pieces))))
     dest.parent.mkdir(parents=True, exist_ok=True)
     partial = dest.with_name(f".{dest.name}.partial")
-    with open(partial, "wb") as out:
-        for path in paths:
-            with open(path, "rb") as src:
-                shutil.copyfileobj(src, out, 8 * 1024 * 1024)
-    os.replace(partial, dest)
+    try:
+        with open(partial, "wb") as out:
+            for path in paths:
+                with open(path, "rb") as src:
+                    shutil.copyfileobj(src, out, 8 * 1024 * 1024)
+        os.replace(partial, dest)
+    finally:
+        partial.unlink(missing_ok=True)
     shutil.rmtree(work, ignore_errors=True)
 
 
 def fetch(job: Job) -> dict[str, Path]:
     """Скачать и склеить входные файлы задачи. → {имя группы: путь} (source и upload-*)."""
     api, repo, tag = _api(), _repo(job), f"job-{job.id}"
-    release = next((r for r in _pages(f"{api}/repos/{repo}/releases") if r.get("tag_name") == tag), None)
+    release = _release(api, repo, tag)
     if release is None:
         raise FetchError(f"черновик {tag} не найден в {repo}")
     assets = _pages(f"{api}/repos/{repo}/releases/{release['id']}/assets")
     named = {a["name"]: a for a in assets}
     if "manifest.json" not in named:
         raise FetchError(f"{tag}: нет manifest.json — загрузка видео не закончена")
-    manifest = json.loads(_curl(_asset_url(api, repo, named["manifest.json"]), accept="application/octet-stream"))
+    try:
+        manifest = json.loads(_curl(_asset_url(api, repo, named["manifest.json"]), accept="application/octet-stream"))
+    except json.JSONDecodeError:
+        manifest = None
+    uploads = manifest.get("uploads") or [] if isinstance(manifest, dict) else None
+    if not isinstance(uploads, list) or not all(isinstance(u, dict) and isinstance(u.get("asset"), str) for u in uploads):
+        raise FetchError(f"{tag}: manifest.json не такой, как пишет страница (объект; uploads — список с asset)")
 
     groups: dict[str, list[tuple[int, dict]]] = {}
     for a in assets:
@@ -120,13 +146,13 @@ def fetch(job: Job) -> dict[str, Path]:
     targets: dict[str, tuple[Path, int | None, int | None]] = {
         "source": (job.path(f"in/source{ext}"), manifest.get("size"), manifest.get("parts")),
     }
-    for up in manifest.get("uploads") or []:
+    for up in uploads:
         targets[up["asset"]] = (job.path(f"in/uploads/{up['asset']}"), up.get("size"), up.get("parts"))
     for name in groups:
         if name.startswith("upload-") and name not in targets:  # манифест без списка загрузок — без сверки размера
             targets[name] = (job.path(f"in/uploads/{name}"), None, None)
 
-    files: dict[str, Path] = {}
+    plan = []  # сначала все группы: битая загрузка вставки найдётся до того, как скачаны 2 ГБ исходника
     for name, (dest, size, count) in targets.items():
         pieces = sorted(groups.get(name, []), key=lambda p: p[0])
         numbers = [n for n, _ in pieces]
@@ -140,9 +166,11 @@ def fetch(job: Job) -> dict[str, Path]:
         total = sum(a["size"] for _, a in pieces)
         if size is not None and total != size:
             raise FetchError(f"{name}: куски вместе {total} байт, а по манифесту {size}")
-        if dest.is_file() and dest.stat().st_size == total:
-            files[name] = dest
-            continue
-        _join(api, repo, [a for _, a in pieces], dest, job.path(f"work/fetch/{name}"))
+        plan.append((name, dest, total, [a for _, a in pieces]))
+
+    files: dict[str, Path] = {}
+    for name, dest, total, pieces in plan:
+        if not (dest.is_file() and dest.stat().st_size == total):
+            _join(api, repo, pieces, dest, job.path(f"work/fetch/{name}"))
         files[name] = dest
     return files

@@ -298,6 +298,14 @@ def test_normalize_concat_mixed_parts(mixed):
     assert (audio["sample_rate"], audio["channels"]) == ("48000", 2)
 
 
+def test_normalize_encodes_the_intermediate_fast(mixed):
+    # промежуточный файл пересобирается в каждой сессии (в git его нет): ultrafast — на 30 % быстрее veryfast на 4K
+    # с iPhone (половина времени — декодирование HEVC), а качество держит crf 16
+    out, _ = mixed
+    head = out.read_bytes()[: 1 << 20]
+    assert b"cabac=0" in head and b"crf=16.0" in head, "x264 options of the intermediate"
+
+
 def test_normalize_keeps_parts_in_order_and_in_sync(mixed):
     out, _ = mixed
     frames = frame_colors(out)

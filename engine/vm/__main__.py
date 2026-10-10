@@ -4,6 +4,7 @@
     prepare  in/ → source.mp4, work/source.wav, words.json, reference.txt, cuts.json, sheet.png; сводка
     frames   кадры исходника в моменты --at (с --grid — с сеткой) → look/
     preview  кадр исходника для превью → frame.png
+    check    до рендера: слой по edit.json, проверка геометрии и 4 контрольных кадра → look/check.png
     render   финал по edit.json → out/final[-vN].mp4|.srt, qa/qa.png, result.json
     push     коммит и пуш папки задачи (с --outputs — большие файлы out/ режутся на части)
     status   записать status.json (и при --push отправить)
@@ -23,8 +24,15 @@ from .git import MAX_FILE_BYTES, GitError, push
 from .job import Job, set_status, states
 from .media import extract_frame, grid_frames
 from .prepare import prepare
-from .qa import check_layout, check_render, control_frames, face_box
-from .render import render
+from .qa import (
+    check_layout,
+    check_render,
+    compose_frames,
+    control_frames,
+    face_box,
+    slot_times,
+)
+from .render import draw_layer, render
 
 PART_SIZE = 95 * 1024 * 1024  # как `split -b 95M`: столько же, сколько MAX_FILE_BYTES
 
@@ -34,12 +42,16 @@ def _job(args: argparse.Namespace) -> Job:
 
 
 def _stepper(job: Job, state: str, enabled: bool):
-    """Колбэк фаз: с --status — status.json и пуш только его, иначе ничего."""
+    """Колбэк фаз: с --status — status.json и пуш только его, иначе ничего. Пуш статуса — не повод бросать работу:
+    не вышел — предупреждение в stderr, команда идёт дальше (следующая фаза или итоговый push его догонят)."""
 
     def step(phase: str, message: str) -> None:
         if enabled:
             set_status(job, state=state, phase=phase, message=message)
-            push(job, f"status({job.id}): {phase}", paths=["status.json"])
+            try:
+                push(job, f"status({job.id}): {phase}", paths=["status.json"])
+            except GitError as err:
+                print(f"внимание: статус «{phase}» не отправлен: {err}", file=sys.stderr)
 
     return step
 
@@ -62,7 +74,7 @@ def _status(args: argparse.Namespace) -> None:
 
 def _fetch(args: argparse.Namespace) -> None:
     job = _job(args)
-    _stepper(job, "analyzing", args.status)("Скачиваю видео", "Забираю загруженные файлы")
+    _stepper(job, args.state, args.status)("Скачиваю видео", "Забираю загруженные файлы")
     files = fetch(job)
     for name, path in files.items():
         print(f"{name}: {path.relative_to(job.root)} ({path.stat().st_size / 1024 / 1024:.1f} МБ)")
@@ -70,7 +82,7 @@ def _fetch(args: argparse.Namespace) -> None:
 
 def _prepare(args: argparse.Namespace) -> None:
     job = _job(args)
-    print(prepare(job, _stepper(job, "analyzing", args.status)))
+    print(prepare(job, _stepper(job, args.state, args.status), redo=args.redo))
 
 
 def _frames(args: argparse.Namespace) -> None:
@@ -91,19 +103,21 @@ def _preview(args: argparse.Namespace) -> None:
     print(f"{path.relative_to(job.root)} — кадр {args.at:g} с для превью (styles.json: frameTime)")
 
 
-def _qa_times(boxes: list[dict]) -> dict[str, float]:
-    """Моменты контрольных кадров: середина первого промежутка, где виден хук, субтитры, вставка (уже появившаяся),
-    титр."""
-    times: dict[str, float] = {}
-    for e in boxes:
-        b = e.get("boxes") or {}
-        middle = (e["t0"] + e["t1"]) / 2
-        for key, name in (("hook", "hook"), ("sub", "subs"), ("cta", "cta")):
-            if b.get(key) and name not in times:
-                times[name] = middle
-        if b.get("inserts") and "insert" not in times and e["t1"] - e["t0"] >= 0.1:
-            times["insert"] = middle
-    return times
+def _check(args: argparse.Namespace) -> None:
+    job = _job(args)
+    layer = draw_layer(job)
+    edit = layer.edit
+    problems = check_layout(layer.boxes, face_box(edit.get("face")), edit.get("inserts"))
+    frames = compose_frames(job.path("source.mp4"), layer.boxes, layer.frames.parent, layer.tl, slot_times(layer.boxes),
+                            job.path("look"))
+    print(f"слой нарисован: {len(layer.boxes)} промежутков, {layer.tl.duration:.1f} с (без стоп-кадра)")
+    print(f"контрольные кадры: {frames['sheet'].relative_to(job.root)} — кадр исходника и слой; зум, цвет и перебивки"
+          " видны только после render")
+    for line in layer.warnings:
+        print(f"внимание: {line}")
+    print("геометрия: " + ("всё в порядке" if not problems else "проблемы:"))
+    for line in problems:
+        print(f"  - {line}")
 
 
 def _render(args: argparse.Namespace) -> None:
@@ -112,12 +126,14 @@ def _render(args: argparse.Namespace) -> None:
     name = "final" if args.version in (None, 1) else f"final-v{args.version}"
     step("Монтирую", "Собираю ролик: нарезка, текст, вставки, звук")
     result = render(job, job.path("out"), name=name, preset=args.preset)
+    for done in (f"{name}.mp4", f"{name}.srt"):  # части прошлого push --outputs — от старого ролика
+        drop_parts(job.path("out"), done)
     step("Проверяю", "Смотрю контрольные кадры и геометрию")
     edit = job.read("edit.json")
     final = job.path(f"out/{name}.mp4")
     boxes = json.loads(job.path("work/render/frames/boxes.json").read_text(encoding="utf-8"))
     problems = check_layout(boxes, face_box(edit.get("face")), edit.get("inserts")) + check_render(final, edit, boxes, result)
-    frames = control_frames(final, _qa_times(boxes), job.path("qa"))
+    frames = control_frames(final, slot_times(boxes), job.path("qa"))
     previous = job.read("result.json") if job.path("result.json").is_file() else {}
     job.write(
         "result.json",
@@ -140,18 +156,27 @@ def _render(args: argparse.Namespace) -> None:
         print(f"  - {line}")
 
 
+def drop_parts(out: Path, name: str) -> None:
+    """Убрать `<name>.part-*` и `<name>.sha256` из out/: они от прежней версии файла."""
+    for stale in [*out.glob(f"{name}.part-*"), out / f"{name}.sha256"]:
+        stale.unlink(missing_ok=True)
+
+
 def split_outputs(job: Job) -> list[Path]:
     """Файлы out/ больше 95 МБ → `<имя>.part-aa`, `-ab`, … по 95 МБ и `<имя>.sha256` (как `split -b 95M -a 2` и
-    `sha256sum`); целый файл уходит в work/out/ (в git его нет). Их склеит Action job-outputs. → новые части."""
+    `sha256sum`); целый файл уходит в work/out/ (в git его нет). Их склеит Action job-outputs. → новые части.
+    У каждого целого файла сначала убираются части прежней версии (иначе Action склеил бы и их); скрытые файлы —
+    временные файлы сборки, их не трогаем (и в git их нет)."""
     out = job.path("out")
     made: list[Path] = []
     if not out.is_dir():
         return made
     for path in sorted(out.iterdir()):
-        if not path.is_file() or path.stat().st_size <= MAX_FILE_BYTES or ".part-" in path.name or path.suffix == ".sha256":
+        if not path.is_file() or path.name.startswith(".") or ".part-" in path.name or path.suffix == ".sha256":
             continue
-        for stale in out.glob(f"{path.name}.part-*"):
-            stale.unlink()
+        drop_parts(out, path.name)
+        if path.stat().st_size <= MAX_FILE_BYTES:
+            continue
         digest = hashlib.sha256()
         letters = "abcdefghijklmnopqrstuvwxyz"
         with open(path, "rb") as src:
@@ -185,6 +210,13 @@ def _push(args: argparse.Namespace) -> None:
     print(f"{job.id}: pushed{note}")
 
 
+def _version(text: str) -> int:
+    number = int(text)
+    if number < 1:
+        raise argparse.ArgumentTypeError("версия — 1, 2, 3 …")
+    return number
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m vm", description="Движок монтажа video.edit")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -206,9 +238,13 @@ def _parser() -> argparse.ArgumentParser:
 
     for name, run, help in (
         ("fetch", _fetch, "скачать входные файлы из черновика job-<id> в in/"),
-        ("prepare", _prepare, "исходник, слова, план резки, контактный лист — и сводка"),
+        ("prepare", _prepare, "исходник, слова, план резки, контактный лист (только недостающее) — и сводка"),
     ):
-        command(name, run, help).add_argument("--status", action="store_true", help="писать фазы в status.json и пушить")
+        sub = command(name, run, help)
+        sub.add_argument("--status", action="store_true", help="писать фазы в status.json и пушить")
+        sub.add_argument("--state", choices=["analyzing", "rendering"], default="analyzing",
+                         help="состояние задачи в status.json: analyzing (analyze, restyle) или rendering (render, fix)")
+    commands.choices["prepare"].add_argument("--redo", action="store_true", help="всё заново, в том числе распознавание")
 
     frames = command("frames", _frames, "кадры исходника в моменты --at → look/")
     frames.add_argument("--at", type=float, nargs="+", required=True, help="секунды исходника")
@@ -217,8 +253,10 @@ def _parser() -> argparse.ArgumentParser:
     preview = command("preview", _preview, "кадр исходника для превью → frame.png")
     preview.add_argument("--at", type=float, required=True, help="секунда исходника")
 
+    command("check", _check, "до рендера: слой, проверка геометрии и контрольные кадры → look/check.png")
+
     render_ = command("render", _render, "финал по edit.json → out/, qa/, result.json")
-    render_.add_argument("--version", type=int, help="номер версии: 2 и дальше → final-vN (правки)")
+    render_.add_argument("--version", type=_version, help="номер версии: 1 — final, 2 и дальше → final-vN (правки)")
     render_.add_argument("--preset", default="medium", help="пресет x264 (для проверок — ultrafast)")
     render_.add_argument("--status", action="store_true", help="писать фазы в status.json и пушить")
 

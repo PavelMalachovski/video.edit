@@ -5,13 +5,15 @@
 и титры не ближе 40 px к лицу, вставки не ближе 20 px к субтитрам и не на хуке или титре, тексты не пересекаются.
 Субтитры с лицом не сверяются: их высоту задаёт выбранный стиль. Вставку называют её номером в edit.inserts (с 1)
 и подписью. `check_render` — «не отдавать»: формат, длительность, хук и титр из edit.json есть в ролике, выбранная
-музыка попала в микс и не начинается с тишины. `control_frames` — контрольные кадры и лист 2×2.
+музыка попала в микс и не начинается с тишины. `control_frames` — контрольные кадры готового ролика и лист 2×2;
+`compose_frames` — такие же кадры до рендера: кадр исходника и слой этого момента (`vm check`).
 """
 import re
 import subprocess
 from pathlib import Path
 
 from .media import MediaError, extract_frame, probe
+from .timeline import Timeline
 
 SAFE = {"x0": 60, "x1": 890, "y0": 120, "y1": 1530}
 FACE_GAP = 40
@@ -155,6 +157,21 @@ def check_render(final: Path, edit: dict, boxes_by_event: list[dict], report: di
     return problems
 
 
+def slot_times(boxes_by_event: list[dict]) -> dict[str, float]:
+    """Моменты контрольных кадров (время финала): середина первого промежутка, где виден хук, субтитры, вставка
+    (уже появившаяся) и титр."""
+    times: dict[str, float] = {}
+    for e in boxes_by_event:
+        b = e.get("boxes") or {}
+        middle = (e["t0"] + e["t1"]) / 2
+        for key, name in (("hook", "hook"), ("sub", "subs"), ("cta", "cta")):
+            if b.get(key) and name not in times:
+                times[name] = middle
+        if b.get("inserts") and "insert" not in times and e["t1"] - e["t0"] >= 0.1:
+            times["insert"] = middle
+    return times
+
+
 def control_frames(final: Path, times: dict[str, float], out_dir: Path) -> dict[str, Path]:
     """Контрольные кадры `qa-<что>.png` в моменты `times` (hook, subs, insert, cta — что есть) и лист 2×2 `qa.png`
     в порядке хук, субтитры / вставка, титр (пустая клетка — чёрная)."""
@@ -163,6 +180,39 @@ def control_frames(final: Path, times: dict[str, float], out_dir: Path) -> dict[
     for old in out_dir.glob("qa-*.png"):  # кадры прошлой проверки — не от этого ролика
         old.unlink()
     frames = {name: extract_frame(final, times[name], out_dir / f"qa-{name}.png") for name in SLOTS if name in times}
+    return {**frames, "sheet": _sheet(frames, out_dir / "qa.png")}
+
+
+def compose_frames(source: Path, boxes_by_event: list[dict], layer_dir: Path, tl: Timeline, times: dict[str, float],
+                   out_dir: Path) -> dict[str, Path]:
+    """Контрольные кадры до рендера: кадр исходника в момент `times[что]` (время финала → время исходника) и PNG
+    слоя этого промежутка поверх; зум, цвет, фон и перебивки здесь не видны — только место текста и вставок.
+    → `check-<что>.png` и лист 2×2 `check.png` в `out_dir`."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for old in out_dir.glob("check-*.png"):
+        old.unlink()
+    frames = {}
+    for name in SLOTS:
+        if name not in times:
+            continue
+        t = times[name]
+        entry = next((e for e in boxes_by_event if e["t0"] <= t < e["t1"]), boxes_by_event[-1])
+        out = out_dir / f"check-{name}.png"
+        chain = (f"[0:v]scale={W}:{H}:force_original_aspect_ratio=decrease,pad={W}:{H}:(ow-iw)/2:(oh-ih)/2,setsar=1[bg];"
+                 "[bg][1:v]overlay=0:0")
+        subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-ss", f"{tl.to_source(t):.3f}",
+             "-i", str(source), "-i", str(Path(layer_dir) / entry["frame"]), "-filter_complex", chain,
+             "-frames:v", "1", str(out)],
+            check=True, capture_output=True, timeout=120,
+        )
+        frames[name] = out
+    return {**frames, "sheet": _sheet(frames, out_dir / "check.png")}
+
+
+def _sheet(frames: dict[str, Path], sheet: Path) -> Path:
+    """Лист 2×2: хук, субтитры / вставка, титр; клетки без кадра — чёрные."""
     args, chains = [], []
     for i, name in enumerate(SLOTS):
         if name in frames:
@@ -171,10 +221,9 @@ def control_frames(final: Path, times: dict[str, float], out_dir: Path) -> dict[
             args += ["-f", "lavfi", "-i", f"color=c=black:s={W}x{H}:d=1"]
         chains.append(f"[{i}:v]scale={W // 2}:{H // 2}[c{i}]")
     chains.append("[c0][c1][c2][c3]xstack=inputs=4:layout=0_0|w0_0|0_h0|w0_h0[out]")
-    sheet = out_dir / "qa.png"
     subprocess.run(
         ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y", *args, "-filter_complex", ";".join(chains),
          "-map", "[out]", "-frames:v", "1", str(sheet)],
         check=True, timeout=120,
     )
-    return {**frames, "sheet": sheet}
+    return sheet

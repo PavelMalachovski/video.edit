@@ -15,6 +15,9 @@
 строка в `missing`, а не ошибка: ролик собирается без него. Отрезки `keep` за концом исходника обрезаются
 с предупреждением.
 
+Слой рисует `draw_layer` — он же нужен проверке до рендера (`vm check`); если ни события слоя, ни стиль, ни файлы
+картинок не поменялись, уже нарисованные кадры берутся как есть.
+
 Рабочие файлы — в `work/render/` задачи (в git не попадают); в `out_dir` — только ролик и субтитры, и появляются
 они там только целиком.
 """
@@ -23,12 +26,13 @@ import math
 import os
 import shutil
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 from .asr import Word
 from .audio import audio_graph
-from .job import Job
-from .media import HDR_TO_SDR, MediaError, probe
+from .job import Job, validate
+from .media import HDR_TO_SDR, MediaError, Probe, probe
 from .overlay import FPS, build_overlay_events, insert_spans
 from .subs import to_srt
 from .timeline import Timeline
@@ -67,28 +71,48 @@ def timeline(edit: dict, limit: float | None = None) -> Timeline:
     return Timeline(keep, edit["speed"])
 
 
-def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium") -> dict:
-    """Пишет `out_dir/<name>.mp4` и `out_dir/<name>.srt`. → `{durations, missing, warnings, music}`."""
+@dataclass
+class Layer:
+    """Нарисованный слой для edit.json: по нему проверка до рендера и сам рендер."""
+
+    edit: dict
+    info: Probe  # исходник
+    tl: Timeline  # шкала с keep, обрезанным по исходнику
+    frames: Path  # frames.ffconcat
+    boxes: list[dict]  # boxes.json: [{t0, t1, frame, boxes}]
+    warnings: list[str]
+
+
+def draw_layer(job: Job) -> Layer:
+    """edit.json (по схеме) → шкала по исходнику → кадры слоя в work/render/frames."""
     edit = job.read("edit.json")
-    source = job.path("source.mp4")
-    info = probe(source)
+    validate("edit.json", edit)  # файл пишет Claude: ошибка называет поле, а не падает KeyError где-то в графе
+    info = probe(job.path("source.mp4"))
     tl = timeline(edit, info.duration)
     if tl.duration <= 0:
         raise RenderError("edit.json: отрезки keep не оставляют ни одного кадра исходника")
-    missing: list[str] = []
-    warnings: list[str] = []
+    warnings = []
     beyond = (timeline(edit).duration - tl.duration) * edit["speed"]
     if beyond > 0.1:
         warnings.append(f"keep заходит за конец исходника ({info.duration:.1f} с): {beyond:.1f} с отрезков отброшено")
+    frames = _layer(job, edit, tl, job.path("work/render"))
+    boxes = json.loads((frames.parent / "boxes.json").read_text(encoding="utf-8"))
+    return Layer(edit, info, tl, frames, boxes, warnings)
+
+
+def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium") -> dict:
+    """Пишет `out_dir/<name>.mp4` и `out_dir/<name>.srt`. → `{durations, missing, warnings, music}`."""
+    drawn = draw_layer(job)
+    edit, info, tl, layer = drawn.edit, drawn.info, drawn.tl, drawn.frames
+    source = job.path("source.mp4")
+    missing: list[str] = []
+    warnings = list(drawn.warnings)
     hold = float(edit.get("hold") or 0.0)
     total = tl.duration + hold
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     for stale in out_dir.glob(f".{name}.part.*"):  # от прерванной сборки
         stale.unlink()
-    work = job.path("work/render")
-    shutil.rmtree(work, ignore_errors=True)
-    work.mkdir(parents=True)
 
     if not edit.get("music"):
         missing.append("music: none chosen")
@@ -97,7 +121,6 @@ def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium")
     if not srt:
         missing.append("speech: нет речи — ролик без субтитров")
 
-    layer = _layer(job, edit, tl, work)
     inputs = ["-i", str(source), "-f", "concat", "-safe", "0", "-i", str(layer)]
     chains = _cut(tl, info.has_audio)
     picture, more, skipped = _picture(job, edit, tl, info, _count(inputs), hold, missing, warnings)
@@ -134,23 +157,36 @@ def _count(inputs: list[str]) -> int:
 
 
 def _layer(job: Job, edit: dict, tl: Timeline, work: Path) -> Path:
-    """Кадры слоя PNG и frames.ffconcat (render-frames.mjs)."""
-    (work / "events.json").write_text(json.dumps(build_overlay_events(edit, tl), ensure_ascii=False), encoding="utf-8")
-    (work / "spec.json").write_text(json.dumps(edit["style"], ensure_ascii=False), encoding="utf-8")
+    """Кадры слоя PNG, frames.ffconcat и boxes.json (render-frames.mjs). Ключ — события, стиль и размер/время
+    файлов картинок вставок: совпал с прошлым рисованием — кадры уже есть."""
+    events = build_overlay_events(edit, tl)
+    pictures = sorted({i["src"] for e in events for i in e["state"].get("inserts", []) if i.get("src")})
+    stamps = {}
+    for src in pictures:
+        path = _resolve(job, src)
+        stamps[src] = [path.stat().st_size, path.stat().st_mtime_ns] if path else None
+    key = json.dumps({"events": events, "style": edit["style"], "files": stamps}, ensure_ascii=False, sort_keys=True)
     frames = work / "frames"
+    done = work / "layer.key"
+    if done.is_file() and done.read_text(encoding="utf-8") == key and (frames / "boxes.json").is_file():
+        return frames / "frames.ffconcat"
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir(parents=True)
+    (work / "events.json").write_text(json.dumps(events, ensure_ascii=False), encoding="utf-8")
+    (work / "spec.json").write_text(json.dumps(edit["style"], ensure_ascii=False), encoding="utf-8")
     cmd = ["node", str(TEMPLATE / "render-frames.mjs"), str(work / "events.json"), str(work / "spec.json"), str(frames),
            "--root", str(job.root), "--root", str(REPO)]
     if FONTS.is_dir():
         cmd += ["--fonts", str(FONTS)]
-    events = len(json.loads((work / "events.json").read_text(encoding="utf-8")))
     try:  # ~0,15 с на состояние; потолок — чтобы зависший браузер не держал рутину вечно
-        proc = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=max(600, 2 * events))
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=max(600, 2 * len(events)))
     except subprocess.TimeoutExpired as err:
         raise RenderError(f"слой не уложился в {err.timeout:.0f} с — браузер завис?") from None
     except FileNotFoundError:
         raise RenderError("нет node: слой рисует Chromium через Node 22 — запустите setup/cloud-setup.sh") from None
     if proc.returncode != 0:
         raise RenderError(f"слой не нарисован (код {proc.returncode}): {proc.stderr.strip()[-2000:]}")
+    done.write_text(key, encoding="utf-8")
     return frames / "frames.ffconcat"
 
 

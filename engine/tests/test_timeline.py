@@ -26,6 +26,12 @@ def test_timeline_speed_and_gaps(tl):
     assert tl.to_final_snap(2.5) == approx(2 / SPEED)
 
 
+def test_to_source_goes_back_from_the_final(tl):
+    for t in (0.0, 1.0, 1.99, 3.0, 4.2, 5.0):
+        assert tl.to_source(tl.to_final(t)) == approx(t)
+    assert tl.to_source(tl.duration + 1.0) == approx(5.0)  # стоп-кадр — последний кадр исходника
+
+
 def test_segments_are_source_start_source_end_and_final_start(tl):
     assert tl.segments == [(0, 2, 0), (3, 5, approx(2 / SPEED))]
 

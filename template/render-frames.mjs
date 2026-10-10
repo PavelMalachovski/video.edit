@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Кадры слоя для финала: по одному PNG на промежуток (одинаковые состояния — один файл),
-// frames.ffconcat с длительностью каждого промежутка (вход для ffmpeg) и boxes.json с рамками
-// элементов по промежуткам (для проверки геометрии).
+// frames.ffconcat с длительностью каждого промежутка (вход для ffmpeg) и boxes.json — по промежуткам
+// {t0, t1, frame (имя PNG), boxes (рамки элементов)} для проверки геометрии и контрольных кадров.
 //
 //   node template/render-frames.mjs <events.json> <spec.json> <out_dir> [--root DIR]... [--fonts DIR]
 //
@@ -124,7 +124,7 @@ async function main() {
     for (const u of used) lines.push(`file '${u.name}'`, 'option framerate 30', `duration ${(u.t1 - u.t0).toFixed(6)}`);
     lines.push(`file '${used.at(-1).name}'`, 'option framerate 30'); // последний повторён: иначе его длительность теряется
     await writeFile(path.join(args.out, 'frames.ffconcat'), `${lines.join('\n')}\n`);
-    await writeFile(path.join(args.out, 'boxes.json'), JSON.stringify(used.map((u) => ({ t0: u.t0, t1: u.t1, boxes: u.boxes }))));
+    await writeFile(path.join(args.out, 'boxes.json'), JSON.stringify(used.map((u) => ({ t0: u.t0, t1: u.t1, frame: u.name, boxes: u.boxes }))));
     const duration = used.reduce((sum, u) => sum + (u.t1 - u.t0), 0);
     process.stdout.write(`${JSON.stringify({ frames: files.size, intervals: used.length, duration })}\n`);
   } finally {

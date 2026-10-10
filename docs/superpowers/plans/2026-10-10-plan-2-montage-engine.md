@@ -262,16 +262,18 @@ legacy/video-montage/          прошлый скилл как есть (спр
 - Consumes: `Word`, `Timeline`.
 - Produces:
   - `build_sub_events(words: list[Word], tl: Timeline, mode: str, n_words: int) -> list[dict]`
-    — события во времени финала `{t0, t1, words: [str], active: int, visible: int}`:
-    `karaoke`/`plate` — группы по `n_words` (2–3), событие на каждое слово, `active` —
+    — события во времени финала `{t0, t1, words: [str], active: int, visible: int}`.
+    Слова делятся на фразы (новая фраза — после слова на `.?!…` или после паузы > 0,35 с),
+    фраза — на `n = ceil(len/N)` ровных кусков `words[k·len//n:(k+1)·len//n]` (как в старом
+    навыке): `karaoke`/`plate` — `N = n_words` (2–3), событие на каждое слово, `active` —
     индекс говоримого, `visible = len(words)`; `word` — одно слово; `accumulate` —
-    блоки 3–6 слов (разрыв блока на паузе > 0,35 с или на `.?!`), `visible` растёт по
-    одному слову, `active = visible-1`. `t1` события = `t0` следующего, если разрыв
+    `N = 6`, `visible` растёт по одному слову, `active = visible-1`. `t1` события = `t0` следующего, если разрыв
     < 0,6 с, иначе конец последнего слова + 0,3 с. Слова, попавшие в вырезку,
     пропускаются.
   - `to_srt(words, tl, max_words=7) -> str`.
 
 - [ ] **Step 1: Тесты.** `test_karaoke_groups_of_three_one_event_per_word`;
+  `test_groups_are_balanced_within_a_phrase` (5 слов одной фразы, `n_words=3` → группы 2 и 3);
   `test_accumulate_visible_grows_and_breaks_on_pause`;
   `test_events_do_not_overlap_and_are_sorted`;
   `test_cut_words_are_skipped`;

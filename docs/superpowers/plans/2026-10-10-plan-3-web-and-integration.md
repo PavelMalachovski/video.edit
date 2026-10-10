@@ -697,10 +697,12 @@ setup/routine-prompt.md, .claude/skills/video-montage/SKILL.md («Как раб�
     #FF5C8A #5CC8FF #B892FF`, текст `#FFFFFF #FFF1C2 #DDF7FF`, шкала `#FFD23F #FFFFFF #7CF2B0
     #FF5C8A`, плюс «Свой» (`input type=color`).
   - `sampleState(spec, sample, hook: string | null, inserts: InsertState[]): OverlayState` —
-    субтитры как `build_sub_events`: `karaoke`/`plate` — группа с начала `floor(spoken/n)·n`
-    длиной до `n = spec.subtitles.words`, `active = spoken − начало`, `visible` = длина группы;
-    `word` — одно слово `spoken`; `accumulate` — первые ≤ 6 слов, `visible = spoken + 1`,
-    `active = spoken`; `hook` → `{text}`.
+    субтитры по правилу `build_sub_events` (План 2, задача 5): `sample.words` — фраза у кадра;
+    она делится на фразы по `.?!…` (пауз в образце нет), фраза — на `n = ceil(len/N)` ровных
+    кусков `words[k·len//n:(k+1)·len//n]`; берётся кусок со словом `spoken`.
+    `karaoke`/`plate` — `N = spec.subtitles.words`, `active = spoken − начало куска`,
+    `visible` = длина куска; `word` — одно слово `spoken`; `accumulate` — `N = 6`,
+    `visible = active + 1`; `hook` → `{text}`.
   - `resolveInserts(sample, qs, d: Draft, urlFor: (path: string) => string, localUrl: (qid: string) => string | null): InsertState[]`
     — вставка с `question`: выбран `skip` или ничего → нет; `upload` → `localUrl(qid)` (после
     перезагрузки его нет — вставки нет); вариант с `image` → `urlFor(image)`; без `question` →
@@ -729,7 +731,8 @@ setup/routine-prompt.md, .claude/skills/video-montage/SKILL.md («Как раб�
   `'finalStyle matches the shared engine fixture'` (`../engine/tests/fixtures/style-merge.json`);
   `'switching variant resets font, hand and colors'`; `'sampleState groups subtitles like the
   engine'` (6 слов, `spoken = 4`: karaoke `n = 3` → слова 3–5, `active 1`, `visible 3`; word →
-  `[w4]`; accumulate → `visible 5`, `active 4`); `'question inserts follow the answer'` (skip →
+  `[w4]`; accumulate → `visible 5`, `active 4`; 5 слов, `spoken = 2`, karaoke `n = 3` → куски
+  2 и 3, слова 2–4, `active 0`; «Да. Ну вот так» при `spoken = 0` → кусок `[Да.]`); `'question inserts follow the answer'` (skip →
   нет; вариант с картинкой → её URL; upload без локального URL → нет); `'saved choice resets
   after a restyle'`; `'swatches are #RRGGBB'`. e2e `previews`: 4 iframe; «B», шрифт Rubik,
   рукописный Marck Script, своя подсветка `#00AAFF` → `data-spec` крупного =

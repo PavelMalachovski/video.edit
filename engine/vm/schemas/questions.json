@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://video.edit/schemas/questions.json",
+  "title": "questions.json — вопросы Павлу по этому видео",
+  "type": "object",
+  "required": ["questions"],
+  "properties": {
+    "questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "title"],
+        "properties": {
+          "id": {
+            "description": "Ключ ответа в answers.json.",
+            "type": "string",
+            "minLength": 1
+          },
+          "type": {
+            "description": "choice — один вариант; multi — несколько; text — свободный текст; word — проверка написания слова; insert — вставка с картинкой («добавь сюда»).",
+            "enum": ["choice", "text", "word", "insert", "multi"]
+          },
+          "title": { "type": "string" },
+          "body": { "type": "string" },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "label"],
+              "properties": {
+                "id": { "type": "string", "minLength": 1 },
+                "label": { "type": "string" },
+                "image": {
+                  "description": "Картинка варианта, путь от папки задачи.",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Ответ по умолчанию: строка или список строк (multi).",
+            "type": ["string", "array"],
+            "items": { "type": "string" }
+          },
+          "image": {
+            "description": "Картинка к вопросу (например, кадр с отметкой), путь от папки задачи.",
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

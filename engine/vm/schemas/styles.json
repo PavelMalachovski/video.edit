@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://video.edit/schemas/styles.json",
+  "title": "styles.json — кадр для превью и три варианта стиля A/B/C",
+  "type": "object",
+  "required": ["frame", "frameTime", "sample", "variants"],
+  "properties": {
+    "frame": {
+      "description": "Кадр для превью, путь от папки задачи (обычно frame.png).",
+      "type": "string",
+      "minLength": 1
+    },
+    "frameTime": {
+      "description": "Время этого кадра в исходнике, с.",
+      "type": "number",
+      "minimum": 0
+    },
+    "sample": {
+      "description": "Что показать на превью: текст хука и слова субтитров; spoken — индекс слова, которое «говорится» сейчас.",
+      "type": "object",
+      "required": ["words", "spoken"],
+      "properties": {
+        "hook": { "type": "string" },
+        "words": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "spoken": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "variants": {
+      "description": "Ровно три варианта в порядке A, B, C: A — строго по правилам SKILL.md, B и C — вариации.",
+      "type": "array",
+      "minItems": 3,
+      "prefixItems": [
+        { "$ref": "#/$defs/Variant", "properties": { "id": { "const": "A" } } },
+        { "$ref": "#/$defs/Variant", "properties": { "id": { "const": "B" } } },
+        { "$ref": "#/$defs/Variant", "properties": { "id": { "const": "C" } } }
+      ],
+      "items": false
+    }
+  },
+  "$defs": {
+    "Color": {
+      "description": "Цвет #RRGGBB.",
+      "type": "string",
+      "pattern": "^#[0-9A-Fa-f]{6}$"
+    },
+    "Variant": {
+      "type": "object",
+      "required": ["id", "label", "spec"],
+      "properties": {
+        "id": { "type": "string" },
+        "label": { "type": "string" },
+        "spec": { "$ref": "#/$defs/StyleSpec" }
+      }
+    },
+    "StyleSpec": {
+      "description": "Спецификация стиля: по ней и страница (превью), и рендер рисуют слой текста. font и hand — id из template/fonts.json; размеры и y — пиксели кадра 1080×1920.",
+      "type": "object",
+      "required": ["font", "hand", "colors", "subtitles", "hook", "bar"],
+      "properties": {
+        "font": { "type": "string", "minLength": 1 },
+        "hand": { "type": "string", "minLength": 1 },
+        "colors": {
+          "type": "object",
+          "required": ["text", "accent", "bar", "plate", "outline"],
+          "properties": {
+            "text": { "$ref": "#/$defs/Color" },
+            "accent": { "$ref": "#/$defs/Color" },
+            "bar": { "$ref": "#/$defs/Color" },
+            "plate": { "$ref": "#/$defs/Color" },
+            "outline": { "$ref": "#/$defs/Color" }
+          }
+        },
+        "subtitles": {
+          "type": "object",
+          "required": ["mode", "words", "size", "y"],
+          "properties": {
+            "mode": { "enum": ["karaoke", "plate", "word", "accumulate"] },
+            "words": { "type": "integer", "minimum": 2, "maximum": 6 },
+            "size": { "type": "number", "exclusiveMinimum": 0 },
+            "y": { "type": "number", "minimum": 0, "maximum": 1920 }
+          }
+        },
+        "hook": {
+          "type": "object",
+          "required": ["mode", "size"],
+          "properties": {
+            "mode": { "enum": ["plate", "outline", "shadow"] },
+            "size": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        },
+        "bar": {
+          "type": "object",
+          "required": ["pos", "height"],
+          "properties": {
+            "pos": { "enum": ["bottom", "top"] },
+            "height": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        }
+      }
+    }
+  }
+}

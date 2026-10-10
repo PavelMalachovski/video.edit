@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://video.edit/schemas/edit.json",
+  "title": "edit.json — решения монтажа для рендера",
+  "type": "object",
+  "required": ["speed", "keep", "words", "hook", "cta", "inserts", "zooms", "face", "music", "hold", "style"],
+  "properties": {
+    "speed": {
+      "description": "Ускорение всего ролика (по умолчанию 1.1).",
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "keep": {
+      "description": "Отрезки исходника [начало, конец], которые остаются; по возрастанию, без пересечений.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 2,
+        "items": { "type": "number", "minimum": 0 }
+      }
+    },
+    "words": {
+      "description": "Слова субтитров с исправленным текстом.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["t0", "t1", "text"],
+        "properties": {
+          "t0": { "type": "number", "minimum": 0 },
+          "t1": { "type": "number", "minimum": 0 },
+          "text": { "type": "string" }
+        }
+      }
+    },
+    "hook": {
+      "description": "Хук в начале ролика, показывается до момента until, с. null — без хука.",
+      "type": ["object", "null"],
+      "required": ["text", "until"],
+      "properties": {
+        "text": { "type": "string", "minLength": 1 },
+        "until": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "cta": {
+      "description": "Титр с кодовым словом: строки основным шрифтом, word — рукописным. null — без титра.",
+      "type": ["object", "null"],
+      "required": ["lines", "word", "t0", "t1"],
+      "properties": {
+        "lines": { "type": "array", "items": { "type": "string" } },
+        "word": { "type": "string" },
+        "t0": { "type": "number", "minimum": 0 },
+        "t1": { "type": "number", "minimum": 0 }
+      }
+    },
+    "inserts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Insert" }
+    },
+    "zooms": {
+      "description": "Ступени зума: с момента t (время исходника) уровень level.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["t", "level"],
+        "properties": {
+          "t": { "type": "number", "minimum": 0 },
+          "level": { "type": "number" }
+        }
+      }
+    },
+    "face": {
+      "description": "Лицо в долях кадра: центр x, y; рамка w, h (необязательна).",
+      "type": "object",
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "$ref": "#/$defs/Fraction" },
+        "y": { "$ref": "#/$defs/Fraction" },
+        "w": { "$ref": "#/$defs/Fraction" },
+        "h": { "$ref": "#/$defs/Fraction" }
+      }
+    },
+    "music": {
+      "description": "Фоновая музыка: файл и громкость в дБ. null — без музыки.",
+      "type": ["object", "null"],
+      "required": ["file", "gainDb"],
+      "properties": {
+        "file": { "type": "string", "minLength": 1 },
+        "gainDb": { "type": "number" }
+      }
+    },
+    "hold": {
+      "description": "Стоп-кадр в конце, с.",
+      "type": "number",
+      "minimum": 0
+    },
+    "style": { "$ref": "styles.json#/$defs/StyleSpec" }
+  },
+  "$defs": {
+    "Fraction": {
+      "description": "Доля кадра, 0..1.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "Insert": {
+      "type": "object",
+      "required": ["kind", "t0", "t1"],
+      "properties": {
+        "kind": { "enum": ["image", "badge", "sticker", "anim", "fullscreen"] },
+        "src": { "type": "string" },
+        "text": { "type": "string" },
+        "title": { "type": "string" },
+        "t0": { "type": "number", "minimum": 0 },
+        "t1": { "type": "number", "minimum": 0 },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "w": { "type": "number", "exclusiveMinimum": 0 },
+        "sfx": { "type": ["string", "null"] },
+        "params": { "type": "object" }
+      }
+    }
+  }
+}

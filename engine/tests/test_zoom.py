@@ -94,10 +94,69 @@ def centroid(gray: np.ndarray, near: tuple[float, float], radius: int = 80) -> t
     return x0 - radius + xs.mean(), y0 - radius + ys.mean()
 
 
+def z_expression(vf: str) -> str:
+    """Выражение уровня из фильтра zoompan (z='…')."""
+    return vf.split("z='", 1)[1].split("'", 1)[0]
+
+
+@needs_ffmpeg
+def test_ffmpeg_expression_is_zoom_at(tmp_path):
+    # то же выражение, что получит zoompan, считает сам ffmpeg (aevalsrc: отсчёт = уровень в момент t)
+    tl = Timeline([(0.0, 3.0), (4.0, 9.0)], 1.1)
+    zooms = [{"t": 1.0, "level": 1.06}, {"t": 1.2, "level": 1.02}, {"t": 5.0, "level": 1.08}, {"t": 7.0, "level": 1.0}]
+    expr = z_expression(zoom_filter(zooms, tl, {"x": 0.5, "y": 0.3})).replace("it", "t")
+    rate = 100
+    raw = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", f"aevalsrc='{expr}':s={rate}:d=8",
+         "-f", "f32le", "-acodec", "pcm_f32le", "-"],
+        check=True, capture_output=True,
+    ).stdout
+    values = np.frombuffer(raw, np.float32)
+    worst = max(abs(float(v) - zoom_at(zooms, tl, k / rate)) for k, v in enumerate(values))
+    assert worst < 1e-4, worst
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("source", ["testsrc2=s=1080x1920:r=25:d=3", "testsrc2=s=1080x1920:r=30:d=3,setpts=PTS/1.1"])
+def test_zoom_filter_keeps_the_timing_of_any_input(tmp_path, source):
+    # zoompan считает кадры сам: без приведения к 30 к/с он растягивал бы ролик (25 к/с) или отменял ускорение
+    vf = zoom_filter([{"t": 1.0, "level": 1.08}], WHOLE, {"x": 0.5, "y": 0.3})
+    out = tmp_path / "timing.mp4"
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", source, "-vf", vf,
+         "-c:v", "libx264", "-preset", "ultrafast", str(out)],
+        check=True,
+    )
+    seconds = 3.0 if "setpts" not in source else 3.0 / 1.1
+    duration = float(subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(out)],
+        check=True, capture_output=True, text=True,
+    ).stdout)
+    assert duration == pytest.approx(seconds, abs=0.05)
+
+
+def test_too_many_steps_is_a_clear_error():
+    zooms = [{"t": i * 0.5, "level": 1.0 + 0.01 * (i % 5)} for i in range(200)]
+    with pytest.raises(ValueError, match="зум"):
+        zoom_filter(zooms, Timeline([(0.0, 200.0)], 1.0), {"x": 0.5, "y": 0.3})
+
+
+def test_steps_at_the_same_final_moment_follow_source_order():
+    # 2.5 с в вырезке и 3.0 с на краю отрезка встают на один момент финала; позже в исходнике — то и действует
+    tl = Timeline([(0.0, 2.0), (3.0, 6.0)], 1.0)
+    a, b = {"t": 2.5, "level": 1.02}, {"t": 3.0, "level": 1.06}
+    assert zoom_at([a, b], tl, 4.0) == zoom_at([b, a], tl, 4.0) == pytest.approx(1.06)
+
+
+def test_transition_must_take_time():
+    with pytest.raises(ValueError, match="trans"):
+        zoom_at([{"t": 1.0, "level": 1.05}], WHOLE, 2.0, trans=0)
+
+
 @needs_ffmpeg
 def test_zoom_filter_runs_in_ffmpeg(tmp_path):
     vf = zoom_filter([{"t": 1.0, "level": 1.08}], WHOLE, {"x": 0.5, "y": 0.3})
-    assert vf.startswith("zoompan=") and ":d=1:s=1080x1920:fps=30" in vf
+    assert vf.startswith("fps=30,zoompan=") and ":d=1:s=1080x1920:fps=30" in vf
     out = tmp_path / "zoom.mp4"
     run_filter(["-f", "lavfi", "-i", "testsrc2=s=1080x1920:r=30:d=3"], vf, out, 3)
     assert probe(out) == (1080, 1920, 90)

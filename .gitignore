@@ -26,3 +26,6 @@ jobs/*/qa/qa-*.png
 # входные файлы задачи лежат в черновике релиза — в git их нет
 jobs/*/in/
 *.tsbuildinfo
+
+# копия template/ для превью (web/scripts/copy-template.mjs при сборке)
+web/public/template/

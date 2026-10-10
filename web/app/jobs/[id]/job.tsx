@@ -2,8 +2,8 @@
 // Страница задачи: опрос GET /api/jobs/<id> (5 с; GitHub просит подождать — дольше), пока вкладка видна; шапка,
 // полоса шагов и экран по view.screen.
 import Link from 'next/link';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { loadDraft, saveDraft, type Draft } from '@/lib/answers.ts';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { buildAnswers, loadDraft, saveDraft, type Draft } from '@/lib/answers.ts';
 import { errorText, message, post, storage } from '@/lib/client.ts';
 import { mmss } from '@/lib/format.ts';
 import { stepIndex, type Action, type JobData } from '@/lib/jobview.ts';
@@ -27,7 +27,7 @@ export default function Job({ id }: { id: string }) {
   const alive = useRef(true);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [localUrls, setLocalUrls] = useState<Record<string, string>>({});
-  const [stage, setStage] = useState<'questions' | 'previews'>('questions');
+  const [stage, setStage] = useState<'auto' | 'questions' | 'previews'>('auto');
 
   const poll = useCallback(async () => {
     if (busy.current) {  // запрос уже идёт — повторить сразу после него
@@ -88,7 +88,11 @@ export default function Job({ id }: { id: string }) {
     };
   }, [poll]);
 
-  const questions = data?.view.screen === 'questions' ? data.questions : null;
+  // вопросы и стили — тот же объект, пока не поменялось содержимое (опрос раз в 5 с не перерисовывает превью)
+  const questionsJson = data?.view.screen === 'questions' && data.questions ? JSON.stringify(data.questions) : null;
+  const stylesJson = data?.view.screen === 'questions' && data.styles ? JSON.stringify(data.styles) : null;
+  const questions = useMemo(() => (questionsJson ? (JSON.parse(questionsJson) as JobData['questions']) : null), [questionsJson]);
+  const styles = useMemo(() => (stylesJson ? (JSON.parse(stylesJson) as NonNullable<JobData['styles']>) : null), [stylesJson]);
   useEffect(() => {  // черновик ответов — когда вопросы впервые пришли
     if (questions && !draft) setDraft(loadDraft(storage(), id, questions));
   }, [questions, draft, id]);
@@ -102,6 +106,7 @@ export default function Job({ id }: { id: string }) {
     });
   }, [id]);
   const onLocalUrl = useCallback((qid: string, url: string) => setLocalUrls((all) => ({ ...all, [qid]: url })), []);
+  const localUrl = useCallback((qid: string) => localUrls[qid] ?? null, [localUrls]);
   const head = data?.head ?? null;
   const fileUrl = useCallback((path: string) => `/api/jobs/${id}/file?path=${encodeURIComponent(path)}${head ? `&v=${head}` : ''}`, [id, head]);
 
@@ -125,11 +130,15 @@ export default function Job({ id }: { id: string }) {
     );
   }
   const view = data?.view;
-  if (data && view?.screen === 'questions' && draft && questions && stage === 'previews') {
+  // после «Ещё три варианта» вопросы уже отвечены — сразу превью; «← Вопросы» и «Показать превью» решают сами
+  const answered = questions && draft ? buildAnswers(questions, draft).missing.length === 0 : false;
+  const previews = stage === 'previews' || (stage === 'auto' && view?.step === 'restyle' && answered);
+  if (data && view?.screen === 'questions' && draft && questions && styles && previews) {
     return (
       <>
         <Steps current={3} />
-        <Previews onBack={() => setStage('questions')} />
+        <Previews jobId={id} styles={styles} questions={questions} draft={draft} duration={view.duration} fileUrl={fileUrl} localUrl={localUrl}
+          onBack={() => setStage('questions')} onAct={act} />
       </>
     );
   }

@@ -102,3 +102,31 @@ a.btn.ghost:hover { color: var(--text); }
 .upload-row { display: flex; align-items: center; gap: 10px; font-size: 14px; }
 .screen-title { font-size: 26px; font-weight: 800; letter-spacing: -0.01em; margin: 0; }
 button.back.link { background: none; border: none; padding: 0; color: var(--accent); cursor: pointer; font: inherit; font-size: 14px; font-weight: 600; }
+
+/* превью */
+.preview { position: relative; overflow: hidden; border-radius: 11px; background: var(--thumb); flex: none; }
+.preview.big { border-radius: 18px; }
+.preview > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.preview > iframe { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; border: 0; background: transparent;
+  transform-origin: 0 0; pointer-events: none; }
+.preview-error { position: absolute; left: 6px; right: 6px; bottom: 6px; font-size: 11px; color: var(--bad); background: rgba(0, 0, 0, .7);
+  border-radius: 6px; padding: 4px 6px; }
+.variants { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+.variant { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
+.variant-frame { position: relative; border: 3px solid transparent; border-radius: 14px; }
+.variant-frame.on { border-color: var(--accent); }
+.variant-hit { position: absolute; inset: 0; border: 0; background: transparent; cursor: pointer; border-radius: 11px; }
+.variant-label { font-size: 13px; font-weight: 700; text-align: center; overflow-wrap: anywhere; }
+.big-wrap { display: flex; justify-content: center; }
+.font-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.font { height: 44px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font-size: 14px;
+  cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 6px; }
+.font.hand { font-size: 18px; }
+.font[aria-pressed=true] { background: var(--accent); border-color: var(--accent); color: var(--ink); }
+.swatch-row { display: flex; flex-direction: column; gap: 8px; }
+.swatches { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.swatch { width: 44px; height: 44px; border-radius: 22px; border: 3px solid transparent; background: transparent; padding: 4px; cursor: pointer; }
+.swatch[aria-pressed=true] { border-color: var(--text); }
+.swatch > span { display: block; width: 100%; height: 100%; border-radius: 50%; }
+.own-color { display: flex; align-items: center; gap: 4px; font-size: 13px; color: var(--muted); }
+.own-color input { width: 44px; height: 44px; border: 0; background: transparent; padding: 0; cursor: pointer; }

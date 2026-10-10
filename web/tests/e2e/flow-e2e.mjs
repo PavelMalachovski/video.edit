@@ -7,6 +7,9 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
+
+import { finalStyle } from '../../lib/style.ts';
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -222,12 +225,67 @@ const segments = [
     await page.getByRole('button', { name: 'Показать превью' }).click();
     await page.getByText('Выбери стиль').waitFor();
   }],
+
+  ['previews', async (ctx) => {
+    const { page } = ctx;
+    await until(async () => (await page.locator('iframe[data-spec]').count()) === 4, 10_000, 'три миниатюры и крупное превью');
+    const big = page.locator('iframe[data-big]');
+    const bigSpec = async () => JSON.parse(await big.getAttribute('data-spec'));
+    await page.getByRole('button', { name: /^B · / }).click();
+    await page.getByRole('button', { name: 'Rubik', exact: true }).click();
+    await page.getByRole('button', { name: 'Marck Script', exact: true }).click();
+    await page.getByLabel('Своя подсветка').fill('#00aaff');
+    const b = STYLES.variants[1].spec;
+    const want = finalStyle(STYLES, { variant: 'B', font: 'rubik', hand: 'marck-script', colors: { text: b.colors.text, accent: '#00AAFF', bar: b.colors.bar } });
+    await until(async () => isDeepStrictEqual(await bigSpec(), want), 5000, `spec крупного превью = finalStyle ${JSON.stringify(want)}`);
+
+    // то же состояние в отдельной вкладке шаблона даёт те же рамки: превью рисует то же, что финал
+    const bigFrame = await (await big.elementHandle()).contentFrame();
+    const drawn = { state: JSON.parse(await big.getAttribute('data-state')), progress: Number(await big.getAttribute('data-progress')) };
+    await until(async () => (await bigFrame.evaluate(() => JSON.stringify(window.layoutBoxes()))).includes('"sub"'), 5000, 'крупное превью нарисовано');
+    const inPage = await bigFrame.evaluate(() => window.layoutBoxes());
+    const solo = await page.context().newPage(); // тот же вход (cookie), шаблон отдаётся только после него
+    await solo.setViewportSize({ width: 1080, height: 1920 });
+    await solo.goto(`${APP}/template/overlay.html`);
+    await solo.evaluate(([spec, state, progress]) => window.renderState(spec, state, { bar: { progress } }), [want, drawn.state, drawn.progress]);
+    const alone = await solo.evaluate(() => window.layoutBoxes());
+    await solo.close();
+    check(isDeepStrictEqual(inPage, alone), `рамки превью ${JSON.stringify(inPage)} ≠ шаблона ${JSON.stringify(alone)}`);
+    await shot(page, 'previews');
+
+    await page.getByLabel('Ни один не подходит? Скажи, что поменять').fill('без плашки');
+    await page.getByRole('button', { name: 'Ещё три варианта' }).click();
+    await until(async () => (await fires()).some((f) => f.step === 'restyle' && f.attempt === 1), 10_000, 'запуск restyle');
+    const restyle = JSON.parse((await branchFile(ctx, 'restyle.json')) ?? '{}');
+    check(restyle.requests?.[0]?.text === 'без плашки', `restyle.json: ${JSON.stringify(restyle)}`);
+    await page.getByText('Claude подготовит ещё три варианта').waitFor({ timeout: 7000 });
+
+    const restyled = { ...STYLES, variants: STYLES.variants.map((v) => ({ ...v, label: `${v.label} — без плашки` })) };
+    engineValidate('styles.json', restyled);
+    await session(ctx, { 'styles.json': restyled, 'status.json': { state: 'waiting_answers', phase: 'Ждёт ответов', message: 'Три новых стиля', at: new Date().toISOString(), needs: 'answers' } });
+    await page.getByRole('button', { name: /^A · .*без плашки/ }).waitFor({ timeout: 10_000 });
+    check(await page.getByRole('button', { name: /^A · / }).getAttribute('aria-pressed') === 'true', 'после restyle выбор не сброшен к A');
+
+    await page.getByRole('button', { name: /^B · / }).click();
+    await page.getByRole('button', { name: 'Rubik', exact: true }).click();
+    const go = page.getByRole('button', { name: /^Монтировать: B · Rubik/ });
+    await go.waitFor();
+    const last = await bigSpec();
+    await go.click();
+    await until(async () => (await fires()).some((f) => f.step === 'render' && f.attempt === 1), 10_000, 'запуск render');
+    const answers = JSON.parse((await branchFile(ctx, 'answers.json')) ?? '{}');
+    engineValidate('answers.json', answers);
+    check(answers.uploads?.logo === 'in/uploads/upload-q-logo.png', `uploads: ${JSON.stringify(answers.uploads)}`);
+    check(answers.answers?.['hook.own'] === 'Как я снимаю reels', `hook.own: ${answers.answers?.['hook.own']}`);
+    check(answers.brief === 'ХУК: Как я учу чешский', `brief: ${answers.brief}`);
+    check(isDeepStrictEqual(finalStyle(restyled, answers.style), last), `стиль ответа ${JSON.stringify(answers.style)} ≠ последнему превью`);
+  }],
 ];
 
 // ---------- прогон ----------
 
 const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+const page = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage(); // контекст — чтобы открыть вторую вкладку с тем же входом
 const ctx = { page, browser, tmp: fs.mkdtempSync(path.join(os.tmpdir(), 'vm-e2e-')), jobId: null, fires, state, branchFile, session, until, check };
 let code = 0;
 for (const [name, run] of segments) {

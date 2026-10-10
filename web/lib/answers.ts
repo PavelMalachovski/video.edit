@@ -29,7 +29,7 @@ export function pick(d: Draft, q: Question, optionId: string): Draft {
 }
 
 /** Выбранный вариант вопроса с одним ответом (нет выбора — `default`). */
-function chosen(q: Question, d: Draft): string | undefined {
+export function chosen(q: Question, d: Draft): string | undefined {
   return (d.picks[q.id] ?? []).find((id) => known(q, id)) ?? defaults(q).find((id) => known(q, id));
 }
 

@@ -16,6 +16,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     const f = loaded.files;
     const data: JobData = {
       view: loaded.view,
+      releaseId: loaded.release.id,
       questions: f?.questions ?? null,
       styles: f?.styles ?? null,
       answers: f?.answers ?? null,

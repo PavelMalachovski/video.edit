@@ -45,6 +45,7 @@ export type Action = 'start' | 'answers' | 'restyle' | 'fix' | 'retry' | 'delete
 /** Ответ `GET /api/jobs/<id>`: экран и файлы ветки, которые нужны странице задачи. */
 export type JobData = {
   view: JobView;
+  releaseId: number;
   questions: Question[] | null;
   styles: Styles | null;
   answers: AnswersFile | null;

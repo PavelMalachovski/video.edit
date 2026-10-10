@@ -3,12 +3,15 @@
 // полоса шагов и экран по view.screen.
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { errorText, message, post } from '@/lib/client.ts';
+import { loadDraft, saveDraft, type Draft } from '@/lib/answers.ts';
+import { errorText, message, post, storage } from '@/lib/client.ts';
 import { mmss } from '@/lib/format.ts';
 import { stepIndex, type Action, type JobData } from '@/lib/jobview.ts';
 import { nextDelay } from '@/lib/poll.ts';
 import { Steps } from '../../steps';
 import Phases from './phases';
+import Previews from './previews';
+import Questions, { type ChangeDraft } from './questions';
 
 /** Действие на странице → `POST run`; null — запущено, иначе текст ошибки для кнопки. */
 export type Act = (action: Action, extra?: Record<string, unknown>) => Promise<string | null>;
@@ -22,6 +25,9 @@ export default function Job({ id }: { id: string }) {
   const busy = useRef(false);
   const again = useRef(false);
   const alive = useRef(true);
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [localUrls, setLocalUrls] = useState<Record<string, string>>({});
+  const [stage, setStage] = useState<'questions' | 'previews'>('questions');
 
   const poll = useCallback(async () => {
     if (busy.current) {  // запрос уже идёт — повторить сразу после него
@@ -82,6 +88,23 @@ export default function Job({ id }: { id: string }) {
     };
   }, [poll]);
 
+  const questions = data?.view.screen === 'questions' ? data.questions : null;
+  useEffect(() => {  // черновик ответов — когда вопросы впервые пришли
+    if (questions && !draft) setDraft(loadDraft(storage(), id, questions));
+  }, [questions, draft, id]);
+
+  const changeDraft: ChangeDraft = useCallback((update) => {
+    setDraft((d) => {
+      if (!d) return d;
+      const next = update(d);
+      saveDraft(storage(), id, next);
+      return next;
+    });
+  }, [id]);
+  const onLocalUrl = useCallback((qid: string, url: string) => setLocalUrls((all) => ({ ...all, [qid]: url })), []);
+  const head = data?.head ?? null;
+  const fileUrl = useCallback((path: string) => `/api/jobs/${id}/file?path=${encodeURIComponent(path)}${head ? `&v=${head}` : ''}`, [id, head]);
+
   const act: Act = useCallback(async (action, extra = {}) => {
     try {
       const r = await post(`/api/jobs/${id}/run`, { action, ...extra });
@@ -102,6 +125,14 @@ export default function Job({ id }: { id: string }) {
     );
   }
   const view = data?.view;
+  if (data && view?.screen === 'questions' && draft && questions && stage === 'previews') {
+    return (
+      <>
+        <Steps current={3} />
+        <Previews onBack={() => setStage('questions')} />
+      </>
+    );
+  }
   return (
     <>
       <Link href="/" className="back">← Мои видео</Link>
@@ -113,7 +144,12 @@ export default function Job({ id }: { id: string }) {
       {trouble ? <div className="muted small">{trouble}</div> : null}
       {view ? <Steps current={stepIndex(view)} /> : null}
       {!data || !view ? null : view.screen === 'questions' ? (
-        <div className="card">Claude ждёт ответов — вопросы появятся здесь.</div>
+        questions && draft ? (
+          <Questions jobId={id} releaseId={data.releaseId} questions={questions} draft={draft} onDraft={changeDraft} fileUrl={fileUrl}
+            localUrls={localUrls} onLocalUrl={onLocalUrl} onPreview={() => { setStage('previews'); window.scrollTo(0, 0); }} />
+        ) : (
+          <div className="card">Claude ждёт ответов, но вопросов в задаче нет — откройте сессию или перезапустите анализ.</div>
+        )
       ) : view.screen === 'result' ? (
         <div className="card">Ролик готов.</div>
       ) : (

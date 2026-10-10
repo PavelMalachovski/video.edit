@@ -1,6 +1,7 @@
 // Сквозная проверка страницы по сегментам: вход → загрузка (с продолжением после перезагрузки) → список → ….
 // Нужны запущенные next start (порт 3000) и fake-github.mjs (порт 4010) — их поднимает run.sh.
 // Каждый сегмент печатает `ok <имя>`; первый сбой — `FAIL <имя>` и код 1.
+import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -60,6 +61,28 @@ async function until(fn, ms, what) {
 }
 
 const sha256 = (b) => crypto.createHash('sha256').update(b).digest('hex');
+
+/** Файл задачи проходит схему движка (vm.job.validate) — страница и сессия говорят на одном языке. */
+function engineValidate(name, data) {
+  execFileSync('python3', ['-c', 'import json, sys\nfrom vm.job import validate\nvalidate(sys.argv[1], json.load(sys.stdin))', name], {
+    input: JSON.stringify(data), env: { ...process.env, PYTHONPATH: path.resolve('../engine') }, stdio: ['pipe', 'inherit', 'inherit'],
+  });
+}
+
+const QUESTIONS = { questions: [
+  { id: 'cut', type: 'choice', title: 'Паузы и оговорки', body: 'Нашёл 14 пауз и 2 повтора — будет около 1:16.',
+    options: [{ id: 'all', label: 'Вырезать всё' }, { id: 'edges', label: 'Только края' }], default: 'all' },
+  { id: 'hook', type: 'choice', title: 'Хук на первые 2–3 секунды', body: 'Последнее слово станет рукописным.',
+    options: [{ id: 'h1', label: '«Как я учу чешский»' }, { id: 'own', label: 'Свой' }, { id: 'none', label: 'Без заголовка' }], default: 'h1' },
+  { id: 'brand', type: 'word', title: 'Проверь слово', body: 'На 0:34 слышу «Копленький». Это…',
+    options: [{ id: 'coplanly', label: 'CoPlanly' }, { id: 'copilot', label: 'Copilot' }, { id: 'own', label: 'Напишу сам' }] },
+  { id: 'logo', type: 'insert', title: 'Вставка', body: 'На 0:12 ты говоришь «добавь сюда логотип». Что поставить?', image: 'q-logo.png',
+    options: [{ id: 'logo-a', label: 'Логотип', image: '../../assets/logos/logo.png' }, { id: 'upload', label: 'Загрузить свою' }, { id: 'none', label: 'Не надо' }] },
+  { id: 'stars', type: 'multi', title: 'Звёздочки в субтитрах', body: 'Нашёл: р*бли, беспл*тно, подп*ска.',
+    options: [{ id: 'r', label: 'р*бли' }, { id: 'b', label: 'беспл*тно' }, { id: 'p', label: 'подп*ска' }], default: ['r', 'b', 'p'] },
+] };
+const FIXTURE = JSON.parse(fs.readFileSync(path.resolve('../engine/tests/fixtures/style-merge.json'), 'utf8'));
+const STYLES = { ...FIXTURE.styles, sample: { ...FIXTURE.styles.sample, inserts: [{ kind: 'image', x: 70, y: 500, w: 250, question: 'logo' }] } };
 
 /** Снимок экрана в папку E2E_SHOTS (если задана) — посмотреть вёрстку глазами. */
 async function shot(page, name) {
@@ -163,6 +186,41 @@ const segments = [
     await shot(page, 'phases-error');
     await page.getByRole('button', { name: 'Повторить', exact: true }).click();
     await until(async () => (await fires()).some((f) => f.step === 'analyze' && f.attempt === 3), 10_000, 'повтор шага');
+  }],
+
+  ['questions', async (ctx) => {
+    const { page, tmp } = ctx;
+    engineValidate('questions.json', QUESTIONS);
+    engineValidate('styles.json', STYLES);
+    const waiting = { state: 'waiting_answers', phase: 'Ждёт ответов', message: 'Ответь на вопросы и выбери стиль', at: new Date().toISOString(), needs: 'answers' };
+    engineValidate('status.json', waiting);
+    await session(ctx, { 'questions.json': QUESTIONS, 'styles.json': STYLES, 'frame.png': PNG, 'q-logo.png': PNG, 'status.json': waiting });
+    const cards = page.locator('[data-question]');
+    await until(async () => (await cards.count()) === 5, 10_000, 'пять карточек вопросов');
+    const go = page.getByRole('button', { name: 'Показать превью' });
+    check(await go.isDisabled(), '«Показать превью» включена, хотя brand и logo без ответа');
+    await shot(page, 'questions');
+
+    const card = (id) => page.locator(`[data-question="${id}"]`);
+    await card('hook').getByLabel('Или напиши свой').fill('Как я снимаю reels');
+    const mine = path.join(tmp, 'mine.png');
+    fs.writeFileSync(mine, PNG);
+    await card('logo').locator('input[type=file]').setInputFiles(mine);
+    await card('logo').getByText('mine.png').waitFor();
+    await until(async () => (await card('logo').getByText('Загружено').count()) > 0, 30_000, 'картинка к ответу загрузилась');
+    await card('stars').getByRole('button', { name: 'беспл*тно' }).click();
+    await card('brand').getByRole('button', { name: 'Copilot' }).click();
+    check(!(await go.isDisabled()), '«Показать превью» выключена после всех ответов');
+
+    await page.reload();
+    await until(async () => (await cards.count()) === 5, 10_000, 'карточки после перезагрузки');
+    check(await card('hook').getByLabel('Или напиши свой').inputValue() === 'Как я снимаю reels', 'свой хук пропал');
+    check(await card('stars').getByRole('button', { name: 'беспл*тно' }).getAttribute('aria-pressed') === 'false', 'снятая звёздочка вернулась');
+    check(await card('brand').getByRole('button', { name: 'Copilot' }).getAttribute('aria-pressed') === 'true', 'выбор написания пропал');
+    check(await card('logo').getByText('Загружено').count() > 0, 'загруженная картинка пропала');
+    await shot(page, 'questions-answered');
+    await page.getByRole('button', { name: 'Показать превью' }).click();
+    await page.getByText('Выбери стиль').waitFor();
   }],
 ];
 

@@ -293,9 +293,14 @@ def _frame(src, t: float, out: Path, vf: str | None = None) -> Path:
     return out
 
 
-def extract_frame(src: PathLike, t: float, out: PathLike) -> Path:
-    """Кадр видео в момент t, секунд (PNG, если у out такое расширение)."""
-    return _frame(src, _check_time(t), Path(out))
+def extract_frame(src: PathLike, t: float, out: PathLike, mark: tuple[int, int, int, int] | None = None) -> Path:
+    """Кадр видео в момент t, секунд (PNG или JPEG — по расширению out). `mark` — (x, y, w, h) в px кадра: жёлтая
+    рамка 8 px, например место будущей вставки на картинке к вопросу."""
+    vf = None
+    if mark:
+        x, y, w, h = mark
+        vf = f"drawbox=x={x}:y={y}:w={w}:h={h}:color=0xFFD23F@1:t=8"
+    return _frame(src, _check_time(t), Path(out), vf)
 
 
 def _grid_filter(t: float) -> str:

@@ -555,3 +555,57 @@ def test_check_shows_the_layout_before_the_render(tmp_path, capsys):
     assert boxes.stat().st_mtime_ns == drawn, "render reuses the layer the check drew"
     assert job.path("out/final.mp4").is_file()
 
+
+# ---------- для SKILL.md ----------
+
+
+def variants() -> list[dict]:
+    return [{"id": v, "label": f"Вариант {v}", "spec": STYLE} for v in "ABC"]
+
+
+def test_validate_names_bad_fields_and_missing_pictures(tmp_path, capsys):
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    question = {"id": "logo", "type": "insert", "title": "Что поставить?", "image": "q-logo.png",
+                "options": [{"id": "a", "label": "Логотип", "image": "../../assets/logos/nope.png"}, {"id": "none", "label": "Не надо"}]}
+    job.path("questions.json").write_text(json.dumps({"questions": [question]}), encoding="utf-8")
+    styles = {"frame": "frame.png", "frameTime": 1.0, "sample": {"words": ["раз"], "spoken": 0}, "variants": variants()[:2]}
+    job.path("styles.json").write_text(json.dumps(styles), encoding="utf-8")
+    assert main(["validate", str(job.root)]) == 1
+    err = capsys.readouterr().err
+    assert "variants" in err and "q-logo.png" in err and "nope.png" in err
+    question["options"][0]["image"] = "q-logo.png"
+    job.path("questions.json").write_text(json.dumps({"questions": [question]}), encoding="utf-8")
+    job.path("styles.json").write_text(json.dumps({**styles, "variants": variants()}), encoding="utf-8")
+    job.path("q-logo.png").write_bytes(b"png")
+    assert main(["validate", str(job.root)]) == 1  # ссылки файла проверяются, когда он прошёл схему
+    assert "frame.png" in capsys.readouterr().err
+    job.path("frame.png").write_bytes(b"png")
+    assert main(["validate", str(job.root)]) == 0
+    assert "questions.json" in capsys.readouterr().out
+
+
+def test_validate_finds_insert_files_of_edit_json(tmp_path, capsys):
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    edit = {"speed": 1.1, "keep": [[0.0, 3.0]], "words": [], "hook": None, "cta": None, "zooms": [], "face": {"x": 0.5, "y": 0.3},
+            "music": {"file": "assets/music/nope.mp3", "gainDb": -18}, "hold": 0.0, "style": STYLE,
+            "inserts": [{"kind": "image", "src": "in/uploads/nope.png", "t0": 1.0, "t1": 2.5, "x": 100, "y": 600, "w": 300}]}
+    job.write("edit.json", edit)
+    assert main(["validate", str(job.root)]) == 1
+    err = capsys.readouterr().err
+    assert "in/uploads/nope.png" in err and "assets/music/nope.mp3" in err
+
+
+@needs_ffmpeg
+def test_preview_makes_a_marked_picture_for_a_question(tmp_path):
+    job = Job(tmp_path / "jobs" / "abc")
+    make_source(job.path("source.mp4"), 3)
+    assert main(["preview", str(job.root), "--at", "1.0", "--out", "q-logo.jpg", "--mark", "100,600,300,200"]) == 0
+    img = pixels(job.path("q-logo.jpg"))
+    assert all(abs(img[603, 250] - (0xFF, 0xD2, 0x3F)) <= 40), img[603, 250]  # верхняя сторона рамки
+    assert all(abs(img[700, 103] - (0xFF, 0xD2, 0x3F)) <= 40), img[700, 103]  # левая
+    assert not job.path("frame.png").exists()
+    with pytest.raises(SystemExit):
+        main(["preview", str(job.root), "--at", "1.0", "--out", "../escape.png"])
+

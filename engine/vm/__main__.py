@@ -3,7 +3,8 @@
     fetch    входные файлы из черновика job-<id> → in/
     prepare  in/ → source.mp4, work/source.wav, words.json, reference.txt, cuts.json, sheet.png; сводка
     frames   кадры исходника в моменты --at (с --grid — с сеткой) → look/
-    preview  кадр исходника для превью → frame.png
+    preview  кадр исходника для превью → frame.png (или --out: картинка к вопросу, с --mark — с рамкой)
+    validate файлы задачи по схемам и файлы, на которые они ссылаются
     check    до рендера: слой по edit.json, проверка геометрии и 4 контрольных кадра → look/check.png
     render   финал по edit.json → out/final[-vN].mp4|.srt, qa/qa.png, result.json
     push     коммит и пуш папки задачи (с --outputs — большие файлы out/ режутся на части)
@@ -14,6 +15,7 @@
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -21,7 +23,7 @@ from pathlib import Path
 
 from .fetch import fetch
 from .git import MAX_FILE_BYTES, GitError, push
-from .job import Job, set_status, states
+from .job import Job, set_status, states, validate
 from .media import extract_frame, grid_frames
 from .prepare import prepare
 from .qa import (
@@ -32,7 +34,7 @@ from .qa import (
     face_box,
     slot_times,
 )
-from .render import draw_layer, render
+from .render import _resolve, draw_layer, render
 
 PART_SIZE = 95 * 1024 * 1024  # как `split -b 95M`: столько же, сколько MAX_FILE_BYTES
 
@@ -99,8 +101,60 @@ def _frames(args: argparse.Namespace) -> None:
 
 def _preview(args: argparse.Namespace) -> None:
     job = _job(args)
-    path = extract_frame(job.path("source.mp4"), args.at, job.path("frame.png"))
-    print(f"{path.relative_to(job.root)} — кадр {args.at:g} с для превью (styles.json: frameTime)")
+    path = extract_frame(job.path("source.mp4"), args.at, job.path(args.out), mark=args.mark)
+    what = "для превью (styles.json: frameTime)" if args.out == "frame.png" else "— картинка для вопроса"
+    print(f"{path.relative_to(job.root)} — кадр {args.at:g} с {what}")
+
+
+CHECKED = ("status.json", "questions.json", "answers.json", "styles.json", "edit.json", "result.json")
+
+
+def _files(job: Job, name: str, data: dict) -> list[str]:
+    """Файлы, на которые ссылаются данные и которых нет: картинки вопросов и кадр превью — от папки задачи (так их
+    берёт страница); вставки, звуки и музыка edit.json — от папки задачи или корня репозитория (так их берёт рендер)."""
+    lost = []
+
+    def need(field: str, rel: str, render: bool = False) -> None:
+        found = _resolve(job, rel) is not None if render else (job.root / rel).resolve().is_file()
+        if not found:
+            lost.append(f"{name}: {field}: нет файла {rel}")
+
+    if name == "questions.json":
+        for i, q in enumerate(data["questions"]):
+            if q.get("image"):
+                need(f"questions[{i}].image", q["image"])
+            for k, option in enumerate(q.get("options") or []):
+                if option.get("image"):
+                    need(f"questions[{i}].options[{k}].image", option["image"])
+    elif name == "styles.json":
+        need("frame", data["frame"])
+    elif name == "edit.json":
+        for i, ins in enumerate(data["inserts"]):
+            for key in ("src", "sfx"):
+                if ins.get(key):
+                    need(f"inserts[{i}].{key}", ins[key], render=True)
+        if data.get("music"):
+            need("music.file", data["music"]["file"], render=True)
+    return lost
+
+
+def _validate(args: argparse.Namespace) -> None:
+    job = _job(args)
+    problems, checked = [], []
+    for name in CHECKED:
+        if not job.path(name).is_file():
+            continue
+        checked.append(name)
+        try:
+            data = job.read(name)
+            validate(name, data)
+        except ValueError as err:
+            problems.append(str(err))
+            continue
+        problems += _files(job, name, data)
+    if problems:
+        raise ValueError("\n".join(problems))
+    print("в порядке: " + (", ".join(checked) or "файлов со схемой нет"))
 
 
 def _check(args: argparse.Namespace) -> None:
@@ -210,6 +264,20 @@ def _push(args: argparse.Namespace) -> None:
     print(f"{job.id}: pushed{note}")
 
 
+def _picture_name(text: str) -> str:
+    if not re.fullmatch(r"[\w.-]+\.(png|jpe?g)", text) or text.startswith("."):
+        raise argparse.ArgumentTypeError("имя картинки в папке задачи: буквы, цифры, '.', '-', '_' и .png/.jpg")
+    return text
+
+
+def _box(text: str) -> tuple[int, int, int, int]:
+    try:
+        x, y, w, h = (int(v) for v in text.split(","))
+    except ValueError:
+        raise argparse.ArgumentTypeError("рамка — четыре целых через запятую: x,y,w,h") from None
+    return x, y, w, h
+
+
 def _version(text: str) -> int:
     number = int(text)
     if number < 1:
@@ -250,8 +318,12 @@ def _parser() -> argparse.ArgumentParser:
     frames.add_argument("--at", type=float, nargs="+", required=True, help="секунды исходника")
     frames.add_argument("--grid", action="store_true", help="с сеткой 10×10 и подписью времени")
 
-    preview = command("preview", _preview, "кадр исходника для превью → frame.png")
+    preview = command("preview", _preview, "кадр исходника для превью → frame.png или картинка к вопросу")
     preview.add_argument("--at", type=float, required=True, help="секунда исходника")
+    preview.add_argument("--out", type=_picture_name, default="frame.png", help="имя файла в папке задачи (.png, .jpg)")
+    preview.add_argument("--mark", type=_box, help="рамка x,y,w,h в px кадра — например, место вставки")
+
+    command("validate", _validate, "файлы задачи по схемам и файлы, на которые они ссылаются")
 
     command("check", _check, "до рендера: слой, проверка геометрии и контрольные кадры → look/check.png")
 

@@ -1,0 +1,26 @@
+# Готовые файлы задачи (ролик, субтитры) сессия Claude пушит в ветку claude/job-<id>,
+# в папку jobs/<id>/out/. Этот workflow переносит их в черновик релиза job-<id>
+# (у облачной сессии нет прав на релизы), убирает из ветки и пишет released.json.
+# Файлы больше 95 МБ приходят частями <имя>.part-aa, .part-ab… (лимит GitHub на файл
+# в git — 100 МБ) и склеиваются здесь. Подробности: docs/spikes/2026-10-results.md.
+name: job-outputs
+on:
+  push:
+    branches: ['claude/job-*']
+    paths: ['jobs/*/out/**']
+permissions:
+  contents: write
+concurrency:
+  group: job-outputs-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  move:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+      - name: Move job outputs to draft releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/move-job-outputs.sh

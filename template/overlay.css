@@ -43,17 +43,27 @@ body {
   white-space: nowrap;
 }
 
+.lines {
+  isolation: isolate;
+}
+
 .lines .on {
   color: var(--on-fg);
 }
 
-/* Режим «плашка»: говоримое слово — на фоне цвета подсветки. Поля компенсированы отрицательными
-   отступами, поэтому подсветка не сдвигает слова. */
-.lines.plate .on {
+/* Режим «плашка»: говоримое слово — на подложке цвета подсветки. Подложка нарисована отдельным слоем под
+   буквами и не меняет раскладку: слова, строки и размер не зависят от того, какое слово сейчас звучит. */
+.lines.mode-plate .on {
+  position: relative;
+}
+
+.lines.mode-plate .on::before {
+  content: '';
+  position: absolute;
+  inset: -0.04em -0.12em;
   background: var(--on-bg);
-  padding: 0.04em 0.12em;
-  margin: 0 -0.12em;
   border-radius: 0.16em;
+  z-index: -1;
 }
 
 .caps .line {

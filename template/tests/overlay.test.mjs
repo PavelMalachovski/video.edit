@@ -5,8 +5,11 @@ import path from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { readFile } from 'node:fs/promises';
+
 import { framePage, launch } from '../browser.mjs';
 import { serve } from '../serve.mjs';
+import { cmapCovers, contains, drawnBox } from './helpers.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const SAFE = { x0: 60, x1: 890, y0: 120, y1: 1530 };
@@ -303,6 +306,83 @@ test('empty state clears the layer', async () => {
 test('unknown font id is refused, not replaced', async () => {
   await assert.rejects(render(spec({ font: 'comic-sans' }), { sub: { words: ['раз'], active: 0, visible: 1 } }), /comic-sans/);
   await assert.rejects(render(spec({ hand: 'nope-hand' }), {}), /nope-hand/);
+});
+
+test('plate subtitles keep their size and layout whatever word is active', async () => {
+  const words = ['Покажу', 'как', 'монтировать', 'ролики', 'быстро'];
+  const looks = [];
+  for (let active = 0; active < words.length; active++) {
+    await render(spec({ sub: { mode: 'plate', size: 72 } }), { sub: { words, active, visible: words.length } });
+    looks.push(
+      await page.evaluate(() => ({
+        size: getComputedStyle(document.querySelector('#sub .lines')).fontSize,
+        plate: document.querySelector('#sub .plate').getBoundingClientRect().toJSON(),
+        words: [...document.querySelectorAll('#sub [data-i]')].map((e) => [e.getBoundingClientRect().x, e.getBoundingClientRect().y]),
+        box: window.layoutBoxes().sub,
+      })),
+    );
+  }
+  for (const l of looks.slice(1)) assert.deepEqual(l, looks[0]);
+  assert.equal(new Set(looks[0].words.map(([, y]) => Math.round(y))).size, 2, 'the group takes two lines at full size');
+});
+
+test('subtitle box never crosses the safe zone, wherever y points', async () => {
+  const words = Array(6).fill('достопримечательности');
+  for (const mode of ['karaoke', 'plate', 'accumulate']) {
+    for (const y of [130, 160, 200, 1400, 1430, 1460, 1491, 1500, 1520, 1530]) {
+      await render(spec({ sub: { mode, size: 72, y } }), { sub: { words, active: 1, visible: 6 } });
+      const b = (await boxes()).sub;
+      assert.ok(insideSafe(b), `${mode} y=${y}: ${JSON.stringify(b)}`);
+    }
+  }
+});
+
+test('everything drawn is inside the reported boxes (subtitles)', async () => {
+  for (const font of ['montserrat', 'comfortaa', 'russo-one', 'unbounded']) {
+    for (const mode of ['karaoke', 'plate', 'word', 'accumulate']) {
+      await render(spec({ font, sub: { mode, size: 72 } }), { sub: { words: ['ЙЁЖ', 'Ёлка', 'ящик'], active: 1, visible: 3 } });
+      const seen = await drawnBox(page, scratch, 32);
+      const b = (await boxes()).sub;
+      assert.ok(contains(b, seen), `${font} ${mode}: drawn ${JSON.stringify(seen)} outside ${JSON.stringify(b)}`);
+    }
+  }
+});
+
+test('everything drawn is inside the reported boxes (hook and cta)', async () => {
+  for (const hand of ['caveat', 'marck-script', 'bad-script']) {
+    for (const mode of ['plate', 'outline', 'shadow']) {
+      for (const text of ['Деньги рублей', 'Привет', 'Это не работает']) {
+        await render(spec({ hand, hook: { mode, size: 100 } }), { hook: { text } });
+        const seen = await drawnBox(page, scratch, 64);
+        const b = (await boxes()).hook;
+        assert.ok(contains(b, seen), `${hand} ${mode} «${text}»: drawn ${JSON.stringify(seen)} outside ${JSON.stringify(b)}`);
+      }
+    }
+  }
+  await render(spec({ hand: 'marck-script', hook: { mode: 'outline' } }), { cta: { lines: ['Пиши в директ'], word: 'Деньги' } });
+  assert.ok(contains((await boxes()).cta, await drawnBox(page, scratch, 64)), 'cta');
+});
+
+test('the handwritten word hangs right under the caps, not far below', async () => {
+  for (const hand of ['caveat', 'marck-script', 'bad-script']) {
+    await render(spec({ hand }), { hook: { text: 'Как я учу чешский' } });
+    const g = await page.evaluate(() => {
+      const caps = document.querySelector('#hook .caps').getBoundingClientRect();
+      const hand = document.querySelector('#hook .hand').getBoundingClientRect();
+      return { gap: hand.y - caps.bottom, handSize: parseFloat(getComputedStyle(document.querySelector('#hook .hand')).fontSize) };
+    });
+    assert.ok(Math.abs(g.gap) < 0.6 * g.handSize, `${hand}: ${JSON.stringify(g)}`);
+  }
+});
+
+test('every font file covers Cyrillic', async () => {
+  const fonts = JSON.parse(await readFile(path.join(ROOT, 'fonts.json'), 'utf8'));
+  const need = [...'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдеёжзийклмнопрстуфхцчшщъыьэюя«»—…'].map((c) => c.codePointAt(0));
+  for (const f of fonts) {
+    const have = cmapCovers(await readFile(path.join(ROOT, f.file)), need);
+    const lost = need.filter((cp) => !have.has(cp)).map((cp) => String.fromCodePoint(cp));
+    assert.deepEqual(lost, [], f.id);
+  }
 });
 
 test('every font in fonts.json loads and has Cyrillic', async () => {

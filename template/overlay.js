@@ -50,8 +50,13 @@ function font(id) {
       const entry = (await fontsJson()).find((f) => f.id === id);
       if (!entry) throw new Error(`шрифт «${id}» не найден в fonts.json`);
       const family = `vm-${id}`;
-      const face = new FontFace(family, `url("${new URL(entry.file, FONTS_URL).href}")`, { weight: '1 1000' });
-      await face.load();
+      const url = new URL(entry.file, FONTS_URL).href;
+      const face = new FontFace(family, `url("${url}")`, { weight: '1 1000' });
+      try {
+        await face.load();
+      } catch (err) {
+        throw new Error(`шрифт «${id}» не загрузился (${entry.file}): ${err?.message ?? err}`);
+      }
       document.fonts.add(face);
       return { family, weight: entry.weight ?? 400 };
     })();
@@ -63,11 +68,26 @@ function font(id) {
 
 const measure = document.createElement('canvas').getContext('2d');
 
-/** Настоящие границы букв текста относительно базовой линии (а не высота строки шрифта). */
+/** Настоящие границы букв текста относительно базовой линии (а не высота строки шрифта): подъём, спуск,
+свесы влево и вправо за ширину набора (у рукописных шрифтов — заметные) и подъём шрифта по метрикам. */
 function ink(f, size, text) {
   measure.font = `${f.weight} ${size}px "${f.family}"`;
   const m = measure.measureText(text);
-  return { ascent: m.actualBoundingBoxAscent, descent: m.actualBoundingBoxDescent };
+  return {
+    ascent: m.actualBoundingBoxAscent,
+    descent: m.actualBoundingBoxDescent,
+    left: Math.max(0, m.actualBoundingBoxLeft),
+    right: Math.max(0, m.actualBoundingBoxRight - m.width),
+    fontAscent: m.fontBoundingBoxAscent,
+  };
+}
+
+/** Рамка слова (span) вместе с настоящими буквами: Й и Ё выше строки, свесы букв за ширину набора. */
+function wordRect(span, f, size) {
+  const r = span.getBoundingClientRect();
+  const m = ink(f, size, span.textContent);
+  const base = r.top + m.fontAscent;
+  return union([r, { left: r.left - m.left, right: r.right + m.right, top: base - m.ascent, bottom: base + m.descent }]);
 }
 
 // ---------- мелочи ----------
@@ -127,12 +147,13 @@ function shift(r, dy) {
   return { left: r.left, top: r.top + dy, right: r.right, bottom: r.bottom + dy };
 }
 
-/** Сдвиг по высоте, после которого рамка `r` (уже со сдвигом `dy`) стоит внутри безопасной зоны. */
+/** Целый сдвиг по высоте, после которого рамка `r` стоит внутри безопасной зоны — с тем же округлением
+наружу, что и у `box`, чтобы отчётная рамка тоже не вышла за зону ни на пиксель. */
 function keepInside(r, dy) {
-  let d = dy;
-  if (r.bottom + d > SAFE.y1) d = SAFE.y1 - r.bottom;
-  if (r.top + d < SAFE.y0) d = SAFE.y0 - r.top;
-  return Math.round(d);
+  let d = Math.round(dy);
+  if (Math.ceil(r.bottom) + d > SAFE.y1) d = SAFE.y1 - Math.ceil(r.bottom);
+  if (Math.floor(r.top) + d < SAFE.y0) d = SAFE.y0 - Math.floor(r.top);
+  return d;
 }
 
 function place(node, r, style = {}) {
@@ -175,10 +196,12 @@ function stroke(node, width, color) {
 
 // ---------- субтитры ----------
 
+const MITER = 2; // px — острые углы обводки выходят чуть дальше её толщины
+
 function subExtent(mode, size) {
   if (mode === 'plate') return { x: Math.round(0.4 * size), y: Math.round(0.22 * size), stroke: 0 };
   const w = Math.max(2, Math.round(0.06 * size));
-  return { x: w, y: w, stroke: w };
+  return { x: w + MITER, y: w + MITER, stroke: w };
 }
 
 function drawSub({ spec, main }, sub) {
@@ -194,7 +217,7 @@ function drawSub({ spec, main }, sub) {
 
   const plate = el('div', 'plate');
   plate.hidden = mode !== 'plate';
-  const lines = el('div', `lines ${mode}`);
+  const lines = el('div', `lines mode-${mode}`);
   const underline = el('div', 'uline');
   underline.hidden = !single;
   root.append(plate, lines, underline);
@@ -228,13 +251,14 @@ function drawSub({ spec, main }, sub) {
   fit: for (const [maxLines, floor] of tries) {
     for (let scale = 1; ; scale *= SHRINK) {
       const width = setSize(size * Math.max(scale, floor));
-      const rects = spans.map((s) => s.getBoundingClientRect());
-      if (lineCount(rects) <= maxLines && Math.max(...rects.map((r) => r.width)) <= width + 0.5) break fit;
+      const all = union(spans.map((s) => wordRect(s, main, px)));
+      const inside = all.left >= SAFE.x0 + ext.x - 0.5 && all.right <= SAFE.x1 - ext.x + 0.5;
+      if (lineCount(spans.map((s) => s.getBoundingClientRect())) <= maxLines && inside && all.right - all.left <= width + 0.5) break fit;
       if (scale <= floor) break;
     }
   }
 
-  const words0 = union(spans.map((s) => s.getBoundingClientRect()));
+  const words0 = union(spans.map((s) => wordRect(s, main, px)));
   let below = 0;
   let bar = null;
   if (single) {
@@ -272,10 +296,12 @@ function ctaTitle(cta) {
   return { lines, word, wrap: 1 };
 }
 
+/** Поля вокруг букв: плашка — её поля (у рукописного слова — его мягкая тень), обводка — её толщина с запасом
+на острые углы, тень — её размытие. */
 function titleLook(mode, size) {
-  if (mode === 'plate') return { pad: { x: Math.round(0.42 * size), y: Math.round(0.26 * size) }, caps: 0, hand: 13, shadow: true };
-  if (mode === 'outline') return { pad: { x: 3, y: 3 }, caps: 3, hand: 3, outline: 3 };
-  return { pad: { x: 20, y: 20 }, caps: 20, hand: 20, shadow: true };
+  if (mode === 'plate') return { pad: { x: Math.round(0.42 * size), y: Math.round(0.26 * size) }, hand: 13 };
+  if (mode === 'outline') return { pad: { x: 3 + MITER, y: 3 + MITER }, hand: 3 + MITER, outline: 3 };
+  return { pad: { x: 20, y: 20 }, hand: 20 };
 }
 
 function drawTitle(id, { spec, main, hand }, title) {
@@ -322,8 +348,13 @@ function drawTitle(id, { spec, main, hand }, title) {
   };
   for (let scale = 1; ; scale *= SHRINK) {
     const { capsWidth, handWidth } = setSize(size * Math.max(scale, MIN_SCALE));
-    const capsFit = [...caps.children].every((line) => line.scrollWidth <= capsWidth + 0.5 && lineCount(textRects(line)) <= title.wrap);
-    const handFit = !title.word || handText.getBoundingClientRect().width <= handWidth + 0.5;
+    const capsOver = first ? ink(main, px, upper(title.lines.join(' '))) : null;
+    const capsFit = [...caps.children].every((line) => {
+      const r = union(textRects(line));
+      return line.scrollWidth <= capsWidth + 0.5 && lineCount(textRects(line)) <= title.wrap && (!r || r.right - r.left + capsOver.left + capsOver.right <= capsWidth + 0.5);
+    });
+    const handOver = title.word ? ink(hand, px * HAND, title.word) : null;
+    const handFit = !title.word || handText.getBoundingClientRect().width + handOver.left + handOver.right <= handWidth + 0.5;
     if ((capsFit && handFit) || scale <= MIN_SCALE) break;
   }
 
@@ -334,14 +365,19 @@ function drawTitle(id, { spec, main, hand }, title) {
   if (first) {
     const m = ink(main, px, upper(title.lines.join(' ')));
     const sides = union(textRects(caps));
-    capsInk = { left: sides.left, right: sides.right, top: capsTop.getBoundingClientRect().top - m.ascent, bottom: capsBottom.getBoundingClientRect().top + m.descent };
+    capsInk = {
+      left: sides.left - m.left,
+      right: sides.right + m.right,
+      top: capsTop.getBoundingClientRect().top - m.ascent,
+      bottom: capsBottom.getBoundingClientRect().top + m.descent,
+    };
   }
   let handInk = null;
   if (title.word) {
     const m = ink(hand, handPx, title.word);
     const r = handText.getBoundingClientRect();
     const base = handMark.getBoundingClientRect().top;
-    handInk = { left: r.left, right: r.right, top: base - m.ascent, bottom: base + m.descent };
+    handInk = { left: r.left - m.left, right: r.right + m.right, top: base - m.ascent, bottom: base + m.descent };
   }
 
   let capsDy = 0;

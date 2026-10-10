@@ -59,7 +59,7 @@ export async function serve(roots, port = 0) {
     const type = TYPES[path.extname(found.file).toLowerCase()] ?? 'application/octet-stream';
     res.writeHead(200, { 'Content-Type': type, 'Content-Length': found.size, 'Cache-Control': 'no-store' });
     if (req.method === 'HEAD') res.end();
-    else createReadStream(found.file).pipe(res);
+    else createReadStream(found.file).on('error', () => res.destroy()).pipe(res);
   });
   await new Promise((resolve, reject) => {
     server.once('error', reject);

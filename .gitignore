@@ -17,3 +17,4 @@ node_modules/
 !engine/tests/fixtures/**
 # готовые файлы задачи пушатся сессией (Action уносит их в релиз)
 !jobs/*/out/*
+*.tsbuildinfo

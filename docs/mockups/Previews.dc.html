@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Выбор стиля, шрифта и цветов</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&amp;family=Montserrat:wght@800;900&amp;family=Unbounded:wght@800&amp;family=Rubik:wght@800&amp;family=Oswald:wght@700&amp;family=Russo+One&amp;family=Comfortaa:wght@700&amp;family=Caveat:wght@700&amp;family=Marck+Script&amp;family=Bad+Script&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#FFD23F}a:hover{color:#FFE27A}
+</style>
+</helmet>
+<div style="width: 390px; height: 1740px; box-sizing: border-box; background: #0F1012; color: #F3F3F1; font-family: Manrope, system-ui, sans-serif; padding: 24px 20px 28px; display: flex; flex-direction: column; gap: 18px; overflow: hidden">
+  <a href="Questions.dc.html" style="font-size: 14px; font-weight: 600; text-decoration: none; min-height: 44px; display: flex; align-items: center">← Вопросы</a>
+
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <div style="font-size: 26px; font-weight: 800; letter-spacing: -0.01em">Выбери стиль</div>
+    <div style="font-size: 15px; line-height: 1.5; color: #A3A6AD">Один кадр с 0:21 в трёх вариантах. Шрифт и цвета меняются сразу, без ожидания.</div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px">
+    <div style="display: flex; flex-direction: column; gap: 6px; align-items: center">
+      <button type="button" aria-label="Вариант A, обводка" aria-pressed="{{aPressed}}" onClick="{{pickA}}" style="padding: 0; border: 3px solid {{aRing}}; border-radius: 14px; background: transparent; cursor: pointer; line-height: 0">
+        <div style="position: relative; width: 108px; height: 192px; border-radius: 11px; overflow: hidden; background: #3D434C; line-height: normal">
+          <svg aria-hidden="true" width="108" height="192" viewBox="0 0 108 192" style="position: absolute; left: 0; top: 0"><rect x="64" y="22" width="34" height="50" rx="3" fill="#4C535E"></rect><circle cx="54" cy="80" r="20" fill="#262A30"></circle><path d="M12 192 C 14 134, 94 134, 96 192 Z" fill="#262A30"></path></svg>
+          <div style="position: absolute; left: 0; right: 0; top: 124px; text-align: center; font-family: {{fontCss}}; font-weight: {{fontWeight}}; font-size: 12px; color: {{text}}; text-shadow: 1px 0 0 #000, -1px 0 0 #000, 0 1px 0 #000, 0 -1px 0 #000">КАЖДЫЙ <span style="color: {{accent}}">ДЕНЬ</span></div>
+          <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(0,0,0,0.5)"><div style="width: 38%; height: 3px; background: {{bar}}"></div></div>
+        </div>
+      </button>
+      <div style="font-size: 13px; font-weight: 700">A · обводка</div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 6px; align-items: center">
+      <button type="button" aria-label="Вариант B, плашка" aria-pressed="{{bPressed}}" onClick="{{pickB}}" style="padding: 0; border: 3px solid {{bRing}}; border-radius: 14px; background: transparent; cursor: pointer; line-height: 0">
+        <div style="position: relative; width: 108px; height: 192px; border-radius: 11px; overflow: hidden; background: #3D434C; line-height: normal">
+          <svg aria-hidden="true" width="108" height="192" viewBox="0 0 108 192" style="position: absolute; left: 0; top: 0"><rect x="64" y="22" width="34" height="50" rx="3" fill="#4C535E"></rect><circle cx="54" cy="80" r="20" fill="#262A30"></circle><path d="M12 192 C 14 134, 94 134, 96 192 Z" fill="#262A30"></path></svg>
+          <div style="position: absolute; left: 0; right: 0; top: 0; height: 3px; background: rgba(255,255,255,0.25)"><div style="width: 38%; height: 3px; background: {{bar}}"></div></div>
+          <div style="position: absolute; left: 0; right: 0; top: 124px; display: flex; justify-content: center">
+            <div style="background: rgba(0,0,0,0.62); border-radius: 5px; padding: 2px 4px; font-family: {{fontCss}}; font-weight: {{fontWeight}}; font-size: 10px; color: {{text}}; display: flex; gap: 3px">каждый <span style="background: {{accent}}; color: #111111; border-radius: 3px; padding: 0 2px">день</span></div>
+          </div>
+        </div>
+      </button>
+      <div style="font-size: 13px; font-weight: 700">B · плашка</div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 6px; align-items: center">
+      <button type="button" aria-label="Вариант C, слово за словом" aria-pressed="{{cPressed}}" onClick="{{pickC}}" style="padding: 0; border: 3px solid {{cRing}}; border-radius: 14px; background: transparent; cursor: pointer; line-height: 0">
+        <div style="position: relative; width: 108px; height: 192px; border-radius: 11px; overflow: hidden; background: #3D434C; line-height: normal">
+          <svg aria-hidden="true" width="108" height="192" viewBox="0 0 108 192" style="position: absolute; left: 0; top: 0"><rect x="64" y="22" width="34" height="50" rx="3" fill="#4C535E"></rect><circle cx="54" cy="80" r="20" fill="#262A30"></circle><path d="M12 192 C 14 134, 94 134, 96 192 Z" fill="#262A30"></path></svg>
+          <div style="position: absolute; left: 30px; top: 120px; width: 70px; font-family: {{fontCss}}; font-weight: {{fontWeight}}; font-size: 10px; line-height: 1.3; color: {{text}}; text-shadow: 0 1px 3px rgba(0,0,0,0.7)">я учу чешский<br>каждый</div>
+          <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 5px; background: rgba(0,0,0,0.5)"><div style="width: 38%; height: 5px; background: {{bar}}"></div></div>
+        </div>
+      </button>
+      <div style="font-size: 13px; font-weight: 700">C · слово за словом</div>
+    </div>
+  </div>
+
+  <div style="display: flex; justify-content: center">
+    <div style="position: relative; width: 270px; height: 480px; border-radius: 18px; overflow: hidden; background: #3D434C">
+      <svg aria-hidden="true" width="270" height="480" viewBox="0 0 270 480" style="position: absolute; left: 0; top: 0"><rect x="160" y="55" width="85" height="125" rx="6" fill="#4C535E"></rect><circle cx="135" cy="200" r="51" fill="#262A30"></circle><path d="M30 480 C 36 334, 233 334, 240 480 Z" fill="#262A30"></path></svg>
+
+      <sc-if value="{{isA}}" hint-placeholder-val="{{true}}">
+        <div style="position: absolute; left: 0; right: 0; top: 60px; display: flex; flex-direction: column; align-items: center">
+          <div style="background: #FFFFFF; color: #111111; border-radius: 9px; padding: 8px 16px; font-family: {{fontCss}}; font-weight: {{fontWeight}}; font-size: 20px">КАК Я УЧУ</div>
+          <div style="margin-top: -10px; font-family: {{handCss}}; font-weight: {{handWeight}}; font-size: 44px; line-height: 1; color: {{accent}}; text-shadow: 0 2px 0 #111, 0 0 6px rgba(0,0,0,0.5)">чешский</div>
+        </div>
+        <div style="position: absolute; left: 0; right: 0; top: 312px; text-align: center; font-family: {{fontCss}}; font-weight: {{fontWeight}}; font-size: 28px; color: {{text}}; text-shadow: 3px 0 0 #000, -3px 0 0 #000, 0 3px 0 #000, 0 -3px 0 #000, 2px 2px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000">КАЖДЫЙ <span style="color: {{accent}}">ДЕНЬ</span></div>
+        <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 5px; background: rgba(0,0,0,0.5)"><div style="width: 38%; height: 5px; background: {{bar}}"></div></div>
+      </sc-if>
+
+      <sc-if value="{{isB}}" hint-placeholder-val="{{false}}">
+        <div style="position: absolute; left: 0; right: 0; top: 0; height: 4px; background: rgba(255,255,255,0.25)"><div style="width: 38%; height: 4px; background: {{bar}}"></div></div>
+        <div style="position: absolute; left: 20px; top: 62px; display: flex; flex-direction: column; gap: 7px">
+          <div style="font-family: {{fontCss}}; font-weight: {{fontWeight}}; font-size: 24px; line-height: 1.05; color: #FFFFFF; text-shadow: 0 2px 10px rgba(0,0,0,0.6)">КАК Я УЧУ</div>
+          <div style="margin-top: -6px; font-family: {{handCss}}; font-weight: {{handWeight}}; font-size: 40px; line-height: 1; color: {{accent}}; text-shadow: 0 2px 8px rgba(0,0,0,0.6)">чешский</div>
+        </div>
+        <div style="position: absolute; left: 0; right: 0; top: 316px; display: flex; justify-content: center">
+          <div style="background: rgba(0,0,0,0.62); border-radius: 10px; padding: 6px 9px; font-family: {{fontCss}}; font-weight: {{fontWeight}}; font-size: 22px; color: {{text}}; display: flex; gap: 6px; align-items: center">каждый <span style="background: {{accent}}; color: #111111; border-radius: 7px; padding: 1px 6px">день</span></div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isC}}" hint-placeholder-val="{{false}}">
+        <div style="position: absolute; left: 0; right: 0; top: 58px; display: flex; flex-direction: column; align-items: center">
+          <div style="font-family: {{fontCss}}; font-weight: {{fontWeight}}; font-size: 30px; line-height: 0.9; color: #F1F1EF; text-shadow: 2px 0 0 #171717, -2px 0 0 #171717, 0 2px 0 #171717, 0 -2px 0 #171717">КАК Я УЧУ</div>
+          <div style="margin-top: -4px; font-family: {{handCss}}; font-weight: {{handWeight}}; font-size: 48px; line-height: 1; color: {{accent}}; text-shadow: 0 1px 0 #2B2520, 0 0 4px rgba(0,0,0,0.5)">чешский</div>
+        </div>
+        <div style="position: absolute; left: 78px; top: 318px; width: 160px; font-family: {{fontCss}}; font-weight: {{fontWeight}}; font-size: 17px; line-height: 1.3; color: {{text}}; text-shadow: 0 1px 4px rgba(0,0,0,0.7)">я учу чешский<br>каждый</div>
+        <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 8px; background: rgba(0,0,0,0.5)"><div style="width: 38%; height: 8px; background: {{bar}}"></div></div>
+      </sc-if>
+    </div>
+  </div>
+
+  <div style="background: #1A1B1F; border-radius: 18px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px">
+    <div style="font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #A3A6AD">Шрифт</div>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+      <sc-for list="{{fonts}}" as="f" hint-placeholder-count="6">
+        <button type="button" aria-pressed="{{f.pressed}}" onClick="{{f.pick}}" style="height: 44px; border-radius: 12px; border: 1px solid {{f.border}}; background: {{f.bg}}; color: {{f.fg}}; font-family: {{f.css}}; font-weight: {{f.weight}}; font-size: 14px; cursor: pointer; white-space: nowrap; overflow: hidden">{{f.id}}</button>
+      </sc-for>
+    </div>
+    <div style="font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #A3A6AD; margin-top: 4px">Рукописный — для хука и кодового слова</div>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+      <sc-for list="{{hands}}" as="f" hint-placeholder-count="3">
+        <button type="button" aria-pressed="{{f.pressed}}" onClick="{{f.pick}}" style="height: 44px; border-radius: 12px; border: 1px solid {{f.border}}; background: {{f.bg}}; color: {{f.fg}}; font-family: {{f.css}}; font-weight: {{f.weight}}; font-size: 18px; cursor: pointer; white-space: nowrap; overflow: hidden">{{f.id}}</button>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="background: #1A1B1F; border-radius: 18px; padding: 16px 18px; display: flex; flex-direction: column; gap: 14px">
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <div style="font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #A3A6AD">Подсветка слова</div>
+      <div style="display: flex; flex-wrap: wrap; gap: 4px; align-items: center">
+        <sc-for list="{{accentSw}}" as="s" hint-placeholder-count="5">
+          <button type="button" aria-label="{{s.name}}" aria-pressed="{{s.pressed}}" onClick="{{s.pick}}" style="width: 44px; height: 44px; box-sizing: border-box; border-radius: 22px; border: 3px solid {{s.ring}}; background: transparent; padding: 4px; cursor: pointer"><span style="display: block; width: 100%; height: 100%; border-radius: 50%; background: {{s.color}}"></span></button>
+        </sc-for>
+        <label style="display: flex; align-items: center; gap: 4px; font-size: 13px; color: #A3A6AD"><input type="color" value="{{accent}}" onChange="{{setAccent}}" style="width: 44px; height: 44px; border: none; background: transparent; padding: 0; cursor: pointer">Свой</label>
+      </div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <div style="font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #A3A6AD">Текст</div>
+      <div style="display: flex; flex-wrap: wrap; gap: 4px; align-items: center">
+        <sc-for list="{{textSw}}" as="s" hint-placeholder-count="3">
+          <button type="button" aria-label="{{s.name}}" aria-pressed="{{s.pressed}}" onClick="{{s.pick}}" style="width: 44px; height: 44px; box-sizing: border-box; border-radius: 22px; border: 3px solid {{s.ring}}; background: transparent; padding: 4px; cursor: pointer"><span style="display: block; width: 100%; height: 100%; border-radius: 50%; background: {{s.color}}"></span></button>
+        </sc-for>
+        <label style="display: flex; align-items: center; gap: 4px; font-size: 13px; color: #A3A6AD"><input type="color" value="{{text}}" onChange="{{setText}}" style="width: 44px; height: 44px; border: none; background: transparent; padding: 0; cursor: pointer">Свой</label>
+      </div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <div style="font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #A3A6AD">Шкала времени</div>
+      <div style="display: flex; flex-wrap: wrap; gap: 4px; align-items: center">
+        <sc-for list="{{barSw}}" as="s" hint-placeholder-count="4">
+          <button type="button" aria-label="{{s.name}}" aria-pressed="{{s.pressed}}" onClick="{{s.pick}}" style="width: 44px; height: 44px; box-sizing: border-box; border-radius: 22px; border: 3px solid {{s.ring}}; background: transparent; padding: 4px; cursor: pointer"><span style="display: block; width: 100%; height: 100%; border-radius: 50%; background: {{s.color}}"></span></button>
+        </sc-for>
+        <label style="display: flex; align-items: center; gap: 4px; font-size: 13px; color: #A3A6AD"><input type="color" value="{{bar}}" onChange="{{setBar}}" style="width: 44px; height: 44px; border: none; background: transparent; padding: 0; cursor: pointer">Свой</label>
+      </div>
+    </div>
+  </div>
+
+  <div style="background: #1A1B1F; border-radius: 18px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+    <label for="tweak" style="font-size: 14px; font-weight: 700">Ни один не подходит? Скажи, что поменять</label>
+    <input id="tweak" type="text" placeholder="Например: заголовок без плашки" style="height: 44px; box-sizing: border-box; border-radius: 12px; border: 1px solid #34373E; background: #0F1012; color: #F3F3F1; padding: 0 14px; font-family: Manrope, system-ui, sans-serif; font-size: 15px">
+    <button type="button" style="height: 44px; border-radius: 22px; border: 1px solid #34373E; background: #1A1B1F; color: #F3F3F1; font-family: Manrope, system-ui, sans-serif; font-size: 15px; font-weight: 700; cursor: pointer">Ещё три варианта</button>
+  </div>
+
+  <a href="Result.dc.html" style="min-height: 56px; border-radius: 28px; background: #FFD23F; color: #141414; text-decoration: none; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 800; text-align: center; padding: 0 16px">{{ctaLabel}}</a>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1740}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { chosen: 'A', font: 'Montserrat', hand: 'Caveat', accent: '#FFD23F', text: '#FFFFFF', bar: '#FFD23F' };
+  }
+  swatches(key, list) {
+    return list.map((pair) => {
+      const on = this.state[key].toLowerCase() === pair[0].toLowerCase();
+      return {
+        color: pair[0],
+        name: pair[1],
+        pressed: on ? 'true' : 'false',
+        ring: on ? '#F3F3F1' : 'transparent',
+        pick: () => this.setState({ [key]: pair[0] })
+      };
+    });
+  }
+  renderVals() {
+    const fontList = [
+      ['Montserrat', 'Montserrat, sans-serif', 900],
+      ['Unbounded', 'Unbounded, sans-serif', 800],
+      ['Rubik', 'Rubik, sans-serif', 800],
+      ['Oswald', 'Oswald, sans-serif', 700],
+      ['Russo One', 'Russo One, sans-serif', 400],
+      ['Comfortaa', 'Comfortaa, sans-serif', 700]
+    ];
+    const handList = [
+      ['Caveat', 'Caveat, cursive', 700],
+      ['Marck Script', 'Marck Script, cursive', 400],
+      ['Bad Script', 'Bad Script, cursive', 400]
+    ];
+    const cur = fontList.find((f) => f[0] === this.state.font) || fontList[0];
+    const hand = handList.find((f) => f[0] === this.state.hand) || handList[0];
+    const ch = this.state.chosen;
+    return {
+      fontCss: cur[1],
+      fontWeight: cur[2],
+      handCss: hand[1],
+      handWeight: hand[2],
+      hands: handList.map((f) => {
+        const on = f[0] === this.state.hand;
+        return {
+          id: f[0],
+          css: f[1],
+          weight: f[2],
+          pressed: on ? 'true' : 'false',
+          bg: on ? '#FFD23F' : '#0F1012',
+          fg: on ? '#141414' : '#F3F3F1',
+          border: on ? '#FFD23F' : '#34373E',
+          pick: () => this.setState({ hand: f[0] })
+        };
+      }),
+      accent: this.state.accent,
+      text: this.state.text,
+      bar: this.state.bar,
+      isA: ch === 'A',
+      isB: ch === 'B',
+      isC: ch === 'C',
+      aRing: ch === 'A' ? '#FFD23F' : 'transparent',
+      bRing: ch === 'B' ? '#FFD23F' : 'transparent',
+      cRing: ch === 'C' ? '#FFD23F' : 'transparent',
+      aPressed: ch === 'A' ? 'true' : 'false',
+      bPressed: ch === 'B' ? 'true' : 'false',
+      cPressed: ch === 'C' ? 'true' : 'false',
+      pickA: () => this.setState({ chosen: 'A' }),
+      pickB: () => this.setState({ chosen: 'B' }),
+      pickC: () => this.setState({ chosen: 'C' }),
+      fonts: fontList.map((f) => {
+        const on = f[0] === this.state.font;
+        return {
+          id: f[0],
+          css: f[1],
+          weight: f[2],
+          pressed: on ? 'true' : 'false',
+          bg: on ? '#FFD23F' : '#0F1012',
+          fg: on ? '#141414' : '#F3F3F1',
+          border: on ? '#FFD23F' : '#34373E',
+          pick: () => this.setState({ font: f[0] })
+        };
+      }),
+      accentSw: this.swatches('accent', [['#FFD23F', 'Жёлтый'], ['#7CF2B0', 'Мятный'], ['#FF5C8A', 'Розовый'], ['#5CC8FF', 'Голубой'], ['#B892FF', 'Сиреневый']]),
+      textSw: this.swatches('text', [['#FFFFFF', 'Белый'], ['#FFF1C2', 'Кремовый'], ['#DDF7FF', 'Холодный белый']]),
+      barSw: this.swatches('bar', [['#FFD23F', 'Жёлтый'], ['#FFFFFF', 'Белый'], ['#7CF2B0', 'Мятный'], ['#FF5C8A', 'Розовый']]),
+      setAccent: (e) => this.setState({ accent: e.target.value }),
+      setText: (e) => this.setState({ text: e.target.value }),
+      setBar: (e) => this.setState({ bar: e.target.value }),
+      ctaLabel: 'Монтировать: ' + ch + ' · ' + this.state.font
+    };
+  }
+}
+</script>
+</body>
+</html>

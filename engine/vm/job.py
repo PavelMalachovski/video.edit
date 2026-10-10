@@ -86,6 +86,11 @@ def _check(name: str, data: Any) -> None:
         raise ValueError(f"{name}: invalid data\n" + "\n".join(f"  {line}" for line in problems))
 
 
+def validate(name: str, data: Any) -> None:
+    """Данные файла `name` по его схеме (edit.json → schemas/edit.json); не так — ValueError с путями полей."""
+    _check(name, data)
+
+
 def _atomic_write(path: Path, text: str) -> None:
     """tmp рядом + rename: читатель видит старый файл или новый целиком, но не половину."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -115,7 +120,11 @@ class Job:
         return self.root / rel
 
     def read(self, name: str) -> Any:
-        return json.loads(self.path(name).read_text(encoding="utf-8"))
+        """JSON-файл задачи; битый JSON — ValueError с именем файла (его мог написать Claude руками)."""
+        try:
+            return json.loads(self.path(name).read_text(encoding="utf-8"))
+        except json.JSONDecodeError as err:
+            raise ValueError(f"{name}: не JSON — {err}") from None
 
     def write(self, name: str, data: Any) -> None:
         """Пишет JSON атомарно. Если у файла есть схема (status.json -> schemas/status.json) —

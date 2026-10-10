@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Вопросы перед монтажом</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;family=Montserrat:wght@800;900&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#FFD23F}a:hover{color:#FFE27A}
+</style>
+</helmet>
+<div style="width: 390px; height: 1880px; box-sizing: border-box; background: #0F1012; color: #F3F3F1; font-family: Manrope, system-ui, sans-serif; padding: 24px 20px 28px; display: flex; flex-direction: column; gap: 16px; overflow: hidden">
+  <a href="Main.dc.html" style="font-size: 14px; font-weight: 600; text-decoration: none; min-height: 44px; display: flex; align-items: center">← Мои видео</a>
+
+  <div style="display: flex; flex-direction: column; gap: 6px">
+    <div style="font-size: 26px; font-weight: 800; letter-spacing: -0.01em">IMG_4802.MOV</div><div style="font-size: 14px; color: #A3A6AD">1:42 · вертикальное · речь на русском</div>
+    
+  </div>
+  <div style="font-size: 16px; line-height: 1.5">Посмотрел видео. Ответь на вопросы — и я покажу два варианта кадра.</div>
+
+  <div style="background: #1A1B1F; border-radius: 18px; padding: 18px; display: flex; flex-direction: column; gap: 12px">
+    <div style="font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #A3A6AD">1 · Паузы и оговорки</div>
+    <div style="font-size: 16px; line-height: 1.45">Нашёл 14 пауз и 2 повтора. Если вырезать — будет около 1:16.</div>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px">
+      <sc-for list="{{cutOpts}}" as="o" hint-placeholder-count="3">
+        <sc-if value="{{o.selected}}" hint-placeholder-val="{{false}}">
+          <button type="button" aria-pressed="true" onClick="{{o.pick}}" style="height: 44px; padding: 0 16px; border-radius: 22px; border: 1px solid #FFD23F; background: #FFD23F; color: #141414; font-family: Manrope, system-ui, sans-serif; font-size: 15px; font-weight: 700; cursor: pointer">{{o.label}}</button>
+        </sc-if>
+        <sc-if value="{{o.unselected}}" hint-placeholder-val="{{true}}">
+          <button type="button" aria-pressed="false" onClick="{{o.pick}}" style="height: 44px; padding: 0 16px; border-radius: 22px; border: 1px solid #34373E; background: #1A1B1F; color: #F3F3F1; font-family: Manrope, system-ui, sans-serif; font-size: 15px; font-weight: 600; cursor: pointer">{{o.label}}</button>
+        </sc-if>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="background: #1A1B1F; border-radius: 18px; padding: 18px; display: flex; flex-direction: column; gap: 12px">
+    <div style="font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #A3A6AD">2 · Хук на первые 2–3 секунды</div>
+    <div style="font-size: 14px; line-height: 1.45; color: #A3A6AD">Последнее слово станет рукописным.</div>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px">
+      <sc-for list="{{titleOpts}}" as="o" hint-placeholder-count="2">
+        <sc-if value="{{o.selected}}" hint-placeholder-val="{{false}}">
+          <button type="button" aria-pressed="true" onClick="{{o.pick}}" style="height: 44px; padding: 0 16px; border-radius: 22px; border: 1px solid #FFD23F; background: #FFD23F; color: #141414; font-family: Manrope, system-ui, sans-serif; font-size: 15px; font-weight: 700; cursor: pointer">{{o.label}}</button>
+        </sc-if>
+        <sc-if value="{{o.unselected}}" hint-placeholder-val="{{true}}">
+          <button type="button" aria-pressed="false" onClick="{{o.pick}}" style="height: 44px; padding: 0 16px; border-radius: 22px; border: 1px solid #34373E; background: #1A1B1F; color: #F3F3F1; font-family: Manrope, system-ui, sans-serif; font-size: 15px; font-weight: 600; cursor: pointer">{{o.label}}</button>
+        </sc-if>
+      </sc-for>
+    </div>
+    <label for="own-title" style="font-size: 13px; color: #A3A6AD">Или напиши свой</label>
+    <input id="own-title" type="text" placeholder="Свой заголовок" style="height: 44px; box-sizing: border-box; border-radius: 12px; border: 1px solid #34373E; background: #0F1012; color: #F3F3F1; padding: 0 14px; font-family: Manrope, system-ui, sans-serif; font-size: 15px">
+  </div>
+
+  <div style="background: #1A1B1F; border-radius: 18px; padding: 18px; display: flex; flex-direction: column; gap: 12px">
+    <div style="font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #A3A6AD">3 · Проверь слово</div>
+    <div style="font-size: 16px; line-height: 1.45">На 0:34 слышу «Копленький». Это…</div>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px">
+      <sc-for list="{{wordOpts}}" as="o" hint-placeholder-count="3">
+        <sc-if value="{{o.selected}}" hint-placeholder-val="{{false}}">
+          <button type="button" aria-pressed="true" onClick="{{o.pick}}" style="height: 44px; padding: 0 16px; border-radius: 22px; border: 1px solid #FFD23F; background: #FFD23F; color: #141414; font-family: Manrope, system-ui, sans-serif; font-size: 15px; font-weight: 700; cursor: pointer">{{o.label}}</button>
+        </sc-if>
+        <sc-if value="{{o.unselected}}" hint-placeholder-val="{{true}}">
+          <button type="button" aria-pressed="false" onClick="{{o.pick}}" style="height: 44px; padding: 0 16px; border-radius: 22px; border: 1px solid #34373E; background: #1A1B1F; color: #F3F3F1; font-family: Manrope, system-ui, sans-serif; font-size: 15px; font-weight: 600; cursor: pointer">{{o.label}}</button>
+        </sc-if>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="background: #1A1B1F; border-radius: 18px; padding: 18px; display: flex; flex-direction: column; gap: 12px">
+    <div style="font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #A3A6AD">4 · Вставка</div>
+    <div style="display: flex; gap: 14px; align-items: flex-start">
+      <div style="position: relative; flex: none; width: 72px; height: 128px; border-radius: 10px; overflow: hidden; background: #3D434C">
+        <svg aria-hidden="true" width="72" height="128" viewBox="0 0 72 128" style="position: absolute; left: 0; top: 0"><rect x="42" y="14" width="24" height="34" rx="2" fill="#4C535E"></rect><circle cx="34" cy="52" r="14" fill="#262A30"></circle><path d="M6 128 C 8 86, 60 86, 64 128 Z" fill="#262A30"></path></svg>
+        <div style="position: absolute; left: 46px; top: 22px; width: 16px; height: 16px; border-radius: 8px; border: 3px solid #FFD23F; box-sizing: border-box"></div>
+      </div>
+      <div style="font-size: 16px; line-height: 1.45">На 0:12 ты говоришь «добавь сюда логотип» и показываешь вправо вверх. Что поставить?</div>
+    </div>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px">
+      <sc-for list="{{insertOpts}}" as="o" hint-placeholder-count="3">
+        <sc-if value="{{o.selected}}" hint-placeholder-val="{{false}}">
+          <button type="button" aria-pressed="true" onClick="{{o.pick}}" style="height: 44px; padding: 0 16px; border-radius: 22px; border: 1px solid #FFD23F; background: #FFD23F; color: #141414; font-family: Manrope, system-ui, sans-serif; font-size: 15px; font-weight: 700; cursor: pointer">{{o.label}}</button>
+        </sc-if>
+        <sc-if value="{{o.unselected}}" hint-placeholder-val="{{true}}">
+          <button type="button" aria-pressed="false" onClick="{{o.pick}}" style="height: 44px; padding: 0 16px; border-radius: 22px; border: 1px solid #34373E; background: #1A1B1F; color: #F3F3F1; font-family: Manrope, system-ui, sans-serif; font-size: 15px; font-weight: 600; cursor: pointer">{{o.label}}</button>
+        </sc-if>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="background: #1A1B1F; border-radius: 18px; padding: 18px; display: flex; flex-direction: column; gap: 12px">
+    <div style="font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #A3A6AD">5 · Стоп-кадр в конце</div>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px">
+      <sc-for list="{{holdOpts}}" as="o" hint-placeholder-count="3">
+        <sc-if value="{{o.selected}}" hint-placeholder-val="{{false}}">
+          <button type="button" aria-pressed="true" onClick="{{o.pick}}" style="height: 44px; padding: 0 16px; border-radius: 22px; border: 1px solid #FFD23F; background: #FFD23F; color: #141414; font-family: Manrope, system-ui, sans-serif; font-size: 15px; font-weight: 700; cursor: pointer">{{o.label}}</button>
+        </sc-if>
+        <sc-if value="{{o.unselected}}" hint-placeholder-val="{{true}}">
+          <button type="button" aria-pressed="false" onClick="{{o.pick}}" style="height: 44px; padding: 0 16px; border-radius: 22px; border: 1px solid #34373E; background: #1A1B1F; color: #F3F3F1; font-family: Manrope, system-ui, sans-serif; font-size: 15px; font-weight: 600; cursor: pointer">{{o.label}}</button>
+        </sc-if>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="background: #1A1B1F; border-radius: 18px; padding: 18px; display: flex; flex-direction: column; gap: 12px">
+    <div style="font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #A3A6AD">6 · Музыка</div>
+    <div style="font-size: 16px; line-height: 1.45">Треки из assets/music. Голос всегда громче.</div>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px">
+      <sc-for list="{{musicOpts}}" as="o" hint-placeholder-count="3">
+        <sc-if value="{{o.selected}}" hint-placeholder-val="{{false}}">
+          <button type="button" aria-pressed="true" onClick="{{o.pick}}" style="height: 44px; padding: 0 16px; border-radius: 22px; border: 1px solid #FFD23F; background: #FFD23F; color: #141414; font-family: Manrope, system-ui, sans-serif; font-size: 15px; font-weight: 700; cursor: pointer">{{o.label}}</button>
+        </sc-if>
+        <sc-if value="{{o.unselected}}" hint-placeholder-val="{{true}}">
+          <button type="button" aria-pressed="false" onClick="{{o.pick}}" style="height: 44px; padding: 0 16px; border-radius: 22px; border: 1px solid #34373E; background: #1A1B1F; color: #F3F3F1; font-family: Manrope, system-ui, sans-serif; font-size: 15px; font-weight: 600; cursor: pointer">{{o.label}}</button>
+        </sc-if>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="background: #1A1B1F; border-radius: 18px; padding: 18px; display: flex; flex-direction: column; gap: 12px">
+    <div style="font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #A3A6AD">7 · Кодовое слово</div>
+    <div style="font-size: 16px; line-height: 1.45">На 1:05 ты говоришь «пишите мне слово…». Какое слово показать?</div>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px">
+      <sc-for list="{{codeOpts}}" as="o" hint-placeholder-count="3">
+        <sc-if value="{{o.selected}}" hint-placeholder-val="{{false}}">
+          <button type="button" aria-pressed="true" onClick="{{o.pick}}" style="height: 44px; padding: 0 16px; border-radius: 22px; border: 1px solid #FFD23F; background: #FFD23F; color: #141414; font-family: Manrope, system-ui, sans-serif; font-size: 15px; font-weight: 700; cursor: pointer">{{o.label}}</button>
+        </sc-if>
+        <sc-if value="{{o.unselected}}" hint-placeholder-val="{{true}}">
+          <button type="button" aria-pressed="false" onClick="{{o.pick}}" style="height: 44px; padding: 0 16px; border-radius: 22px; border: 1px solid #34373E; background: #1A1B1F; color: #F3F3F1; font-family: Manrope, system-ui, sans-serif; font-size: 15px; font-weight: 600; cursor: pointer">{{o.label}}</button>
+        </sc-if>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="background: #1A1B1F; border-radius: 18px; padding: 18px; display: flex; flex-direction: column; gap: 12px">
+    <div style="font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #A3A6AD">8 · Звёздочки в субтитрах</div>
+    <div style="font-size: 16px; line-height: 1.45">Нашёл: р*блей, бесплатн*, подп*ска. Оставить так?</div>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px">
+      <sc-for list="{{starOpts}}" as="o" hint-placeholder-count="3">
+        <sc-if value="{{o.selected}}" hint-placeholder-val="{{false}}">
+          <button type="button" aria-pressed="true" onClick="{{o.pick}}" style="height: 44px; padding: 0 16px; border-radius: 22px; border: 1px solid #FFD23F; background: #FFD23F; color: #141414; font-family: Manrope, system-ui, sans-serif; font-size: 15px; font-weight: 700; cursor: pointer">{{o.label}}</button>
+        </sc-if>
+        <sc-if value="{{o.unselected}}" hint-placeholder-val="{{true}}">
+          <button type="button" aria-pressed="false" onClick="{{o.pick}}" style="height: 44px; padding: 0 16px; border-radius: 22px; border: 1px solid #34373E; background: #1A1B1F; color: #F3F3F1; font-family: Manrope, system-ui, sans-serif; font-size: 15px; font-weight: 600; cursor: pointer">{{o.label}}</button>
+        </sc-if>
+      </sc-for>
+    </div>
+  </div>
+
+  <a href="Previews.dc.html" style="margin-top: 4px; height: 56px; border-radius: 28px; background: #FFD23F; color: #141414; text-decoration: none; display: flex; align-items: center; justify-content: center; font-size: 17px; font-weight: 800">Показать два превью</a>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1880}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { cuts: 'all', title: 'suggested', word: 'coplanly', insert: 'logo', hold: '1', music: 'lofi', code: 'czech', stars: 'ok' };
+  }
+  opts(key, list) {
+    return list.map((pair) => ({
+      label: pair[1],
+      selected: this.state[key] === pair[0],
+      unselected: this.state[key] !== pair[0],
+      pick: () => this.setState({ [key]: pair[0] })
+    }));
+  }
+  renderVals() {
+    return {
+      cutOpts: this.opts('cuts', [['all', 'Вырезать всё'], ['long', 'Только длинные'], ['none', 'Не трогать']]),
+      titleOpts: this.opts('title', [['suggested', '«Как я учу чешский»'], ['none', 'Без заголовка']]),
+      wordOpts: this.opts('word', [['coplanly', 'CoPlanly'], ['copilot', 'Copilot'], ['own', 'Напишу сам']]),
+      insertOpts: this.opts('insert', [['logo', 'Логотип Mluv.me'], ['sticker', 'Стикер с текстом'], ['skip', 'Не надо']]),
+      holdOpts: this.opts('hold', [['0', 'Нет'], ['1', '1 с'], ['2', '2 с']]),
+      musicOpts: this.opts('music', [['lofi', 'lofi-morning'], ['upbeat', 'upbeat-1'], ['none', 'Без музыки']]),
+      codeOpts: this.opts('code', [['czech', 'ЧЕШСКИЙ'], ['plan', 'ПЛАН'], ['own', 'Напишу сам']]),
+      starOpts: this.opts('stars', [['ok', 'Да, так'], ['edit', 'Поправлю список'], ['none', 'Без звёздочек']])
+    };
+  }
+}
+</script>
+</body>
+</html>

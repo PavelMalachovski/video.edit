@@ -1,0 +1,170 @@
+"""Подготовка задачи к монтажу: исходник, звук, слова, план мягкой резки, контактный лист — и сводка для Claude.
+
+Видео из `in/` (`in/source.*`, как кладёт fetch; иначе все видео по имени) → `source.mp4` (1080×1920 SDR 30 к/с)
+→ `work/source.wav` (16 кГц) → `words.json` (GigaAM), `reference.txt` (сплошной текст Whisper, по нему Claude
+правит слова), `speech.json` (где речь по VAD: мягкая резка внутри неё не режет), `cuts.json` (`plan_keep`),
+`sheet.png`. Какие модели были и каких нет — в сводке: без GigaAM
+работать нельзя, без Whisper и VAD — можно, но хуже.
+
+Делается только недостающее. `source.mp4` в git нет, поэтому каждая новая сессия (render, fix, restyle) запускает
+prepare, чтобы его восстановить; речь при этом заново не распознаётся: есть `words.json` — распознавание, план резки
+(если `cuts.json` есть) и контактный лист пропускаются. `redo=True` (`--redo`) делает всё заново.
+"""
+import json
+import math
+import re
+from collections.abc import Callable
+from pathlib import Path
+
+from . import asr
+from .cuts import plan_keep
+from .job import Job, _atomic_write
+from .media import contact_sheet, extract_wav, normalize, probe
+
+VIDEO = {".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi", ".3gp", ".hevc"}
+SHEET_THUMBS = 60  # кадров на контактном листе — не больше, иначе лист выходит в десятки тысяч пикселей
+PHRASE_GAP = 0.6  # с — пауза, после которой сводка начинает новую строку текста
+LINE_MAX = 10.0  # с — строка сводки не длиннее: по её времени Claude выбирает кадры
+
+
+def models() -> tuple[list[str], list[str]]:
+    """(что есть, чего нет) из моделей распознавания; без GigaAM — ValueError."""
+    have, lack = [], []
+    gigaam = asr._model("ASR_MODEL", asr.GIGAAM)
+    if asr._missing(gigaam, asr.GIGAAM_FILES):
+        raise ValueError(f"нет модели распознавания GigaAM ({gigaam}): запустите setup/cloud-setup.sh")
+    have.append("GigaAM")
+    whisper = asr._model("ASR_REF_MODEL", asr.WHISPER)
+    (lack if asr._missing(whisper, asr.WHISPER_FILES) else have).append("Whisper")
+    vad = asr._model("VAD_MODEL", asr.SILERO)
+    (have if vad.is_file() else lack).append("VAD")
+    return have, lack
+
+
+def _clock(t: float) -> str:
+    tenths = round(t * 10)  # сначала округлить: 59,96 с — это 1:00.0, а не 0:60.0
+    return f"{tenths // 600}:{tenths % 600 / 10:04.1f}"
+
+
+def _lines(words: list[asr.Word]) -> list[str]:
+    """Текст по фразам (не длиннее `LINE_MAX`) с временем начала — чтобы Claude находил места «добавь сюда»."""
+    out, phrase, start = [], [], 0.0
+    for i, w in enumerate(words):
+        if not phrase:
+            start = w.t0
+        phrase.append(w.text)
+        last = i + 1 == len(words)
+        if last or words[i + 1].t0 - w.t1 > PHRASE_GAP or words[i + 1].t0 - start >= LINE_MAX:
+            out.append(f"[{_clock(start)}] {' '.join(phrase)}")
+            phrase = []
+    return out
+
+
+def _coverage(words: list[asr.Word], reference: str) -> str | None:
+    """Предупреждение, если GigaAM услышал заметно меньше слов, чем Whisper (меньше 60 %): значит, в words.json
+    могли пропасть целые фразы, и по ним не будет субтитров."""
+    heard = len(re.findall(r"\w+", reference))
+    if heard < 10 or len(words) >= 0.6 * heard:
+        return None
+    return (f"ВНИМАНИЕ: GigaAM услышал {len(words)} слов, а Whisper — {heard}: сверь words.json с reference.txt — "
+            "пропавшие фразы допиши словами с временем из соседних слов или скажи об этом в unsure")
+
+
+def _uncovered(words: list[asr.Word], spans: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Речь по VAD (не короче 0,5 с), на которую слова покрывают меньше трети: там GigaAM ничего не разобрал, и
+    мягкая резка вырезала бы эту речь как паузу."""
+    out = []
+    for a, b in spans:
+        covered = sum(max(0.0, min(b, w.t1) - max(a, w.t0)) for w in words)
+        if b - a >= 0.5 and covered < (b - a) / 3:
+            out.append((a, b))
+    return out
+
+
+def _videos(folder: Path) -> list[Path]:
+    """Видео исходника: `in/source.*` (так его кладёт fetch), а если такого нет — все видео в `in/` по имени."""
+    videos = sorted(p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in VIDEO) if folder.is_dir() else []
+    return [p for p in videos if p.stem == "source"] or videos
+
+
+def _write_cuts(path: Path, cuts: dict) -> None:
+    """cuts.json — по отрезку в строке (json с отступами ставит каждое число на свою строку)."""
+    rows = ",\n".join(f"  {json.dumps(list(k))}" for k in cuts["keep"])
+    keep = f"[\n{rows}\n]" if rows else "[]"
+    _atomic_write(path, f'{{"duration": {cuts["duration"]}, "cut_seconds": {cuts["cut_seconds"]}, "keep": {keep}}}\n')
+
+
+def prepare(job: Job, step: Callable[[str, str], None] | None = None, redo: bool = False) -> str:
+    """Готовит задачу (только недостающее; `redo` — всё заново); `step(фаза, текст)` зовётся на каждой смене фазы.
+    → сводка для Claude."""
+    step = step or (lambda phase, message: None)
+    source, words_path, cuts_path = job.path("source.mp4"), job.path("words.json"), job.path("cuts.json")
+    speech_path = job.path("speech.json")
+    recognise = redo or not words_path.is_file()
+    have, lack = models() if recognise else ([], [])  # до тяжёлой работы: без GigaAM распознавать нечем
+    notes = []
+
+    if redo or not source.is_file():
+        parts = _videos(job.path("in"))
+        if not parts:
+            raise ValueError(f"{job.path('in')}: нет видео — сначала python -m vm fetch {job.root}")
+        if len(parts) > 1:
+            notes.append(f"Части по порядку: {', '.join(p.name for p in parts)}")
+        step("Готовлю видео", "Привожу к 1080×1920, 30 к/с, SDR")
+        info = normalize(parts, source)
+    else:
+        info = probe(source)
+    if not (math.isfinite(info.duration) and info.duration > 0):
+        raise ValueError(f"source.mp4: непонятная длительность {info.duration!r}")
+
+    reference = ""
+    if recognise:
+        wav = extract_wav(source, job.path("work/source.wav"))
+        step("Расшифровываю", "Слушаю речь и расставляю слова по времени")
+        words = asr.transcribe(wav)
+        asr.save_words(words, words_path)
+        reference = asr.reference_text(wav) if "Whisper" in have else ""
+        _atomic_write(job.path("reference.txt"), reference + ("\n" if reference else ""))
+        speech = asr.speech_spans(wav)
+        _atomic_write(speech_path, json.dumps([list(span) for span in speech]) + "\n")
+        if warning := _coverage(words, reference):
+            notes.append(warning)
+        if lost := _uncovered(words, speech):
+            spans = ", ".join(f"{_clock(a)}–{_clock(b)}" for a, b in lost)
+            notes.append(f"ВНИМАНИЕ: речь без слов ({spans}) — GigaAM там ничего не разобрал, субтитров там не будет; "
+                         "сверь с reference.txt и добавь слова (asr.distribute_words)")
+    else:
+        words = asr.load_words(words_path)
+        notes.append("Речь уже расшифрована (words.json) — распознавание не повторял; заново — --redo")
+
+    if recognise or not cuts_path.is_file():
+        step("Ищу паузы", "Отмечаю длинные паузы для мягкой резки")
+        speech = json.loads(speech_path.read_text(encoding="utf-8")) if speech_path.is_file() else []
+        keep = [(round(a, 6), round(b, 6)) for a, b in plan_keep(words, info.duration, speech=speech)]
+        kept = sum(b - a for a, b in keep)
+        cuts = {"duration": round(info.duration, 3), "keep": [list(k) for k in keep], "cut_seconds": round(info.duration - kept, 3)}
+        _write_cuts(cuts_path, cuts)
+    else:
+        cuts = json.loads(cuts_path.read_text(encoding="utf-8"))
+        keep = [tuple(k) for k in cuts["keep"]]
+        kept = sum(b - a for a, b in keep)
+    if recognise:
+        contact_sheet(source, job.path("sheet.png"), fps=min(1.0, SHEET_THUMBS / info.duration))
+
+    cut_line = f"Слов: {len(words)}; мягкая резка: {max(0, len(keep) - 1)} пауз, вырезано {cuts['cut_seconds']:.1f} с"
+    summary = [
+        f"Длительность: {info.duration:.1f} с, кадр {info.width}×{info.height}",
+        f"{cut_line} → {kept:.1f} с (до ускорения)",
+        *notes,
+    ]
+    if recognise:
+        summary.append(f"Модели: {', '.join(have)}" + (f"; нет: {', '.join(lack)}" if lack else ""))
+    if "Whisper" in lack:
+        summary.append("Whisper нет: reference.txt пуст — слова правьте по смыслу")
+    if "VAD" in lack:
+        summary.append("VAD нет: паузы для кусков распознавания ищутся по громкости")
+    summary += ["", "Текст (по фразам; слова — words.json):", *_lines(words)]
+    if reference or (not recognise and job.path("reference.txt").is_file()):
+        summary += ["", "Сплошной текст (Whisper) — reference.txt"]
+    return "\n".join(summary)
+

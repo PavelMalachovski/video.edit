@@ -33,7 +33,7 @@ HDR→SDR — прямой `zscale`; сессия не может создава
   Не на лицо (+40 px) и не на субтитры (+20 px). Исключения: шкала времени,
   полноэкранные перебивки.
 - Ускорение по умолчанию ×1.1 (`setpts=PTS/1.1`, `atempo=1.1`); музыка не ускоряется.
-- Мягкая резка: паузы > 0,45 с ужимаются до 0,18 с, края — 0,08 с; никогда не резать
+- Мягкая резка: паузы > 0,45 с ужимаются до 0,18 с, запас 0,12 с перед словом и 0,08 с после; никогда не резать
   внутри слова.
 - Зумы: уровни ≤ 1.08, переход 0,45 с (smoothstep), якорь — лицо; только исходник.
 - Голос `loudnorm=I=-14:TP=-1.5:LRA=11`; музыка −18 дБ, приглушение под речью 3 дБ
@@ -225,21 +225,24 @@ legacy/video-montage/          прошлый скилл как есть (спр
 **Interfaces:**
 - Consumes: `Word` (задача 3).
 - Produces:
-  - `plan_keep(words: list[Word], duration: float, *, max_pause=0.45, keep_pause=0.18, edge_pad=0.08, extra_cuts: list[tuple[float,float]] = ()) -> list[tuple[float,float]]`
-    — отрезки исходника, которые остаются, по возрастанию, без пересечений.
+  - `plan_keep(words: list[Word], duration: float, *, max_pause=0.45, keep_pause=0.18, pad_before=0.12, pad_after=0.08, extra_cuts: list[tuple[float,float]] = ()) -> list[tuple[float,float]]`
+    — отрезки исходника, которые остаются, по возрастанию, без пересечений; перед словом
+    запас 0,12 с (GigaAM ставит начало слова ~35 мс позже), после — 0,08 с; длинная пауза
+    сжимается до 0,18 с: 0,06 после слова + 0,12 перед следующим; пересекающиеся слова — одна
+    речь.
   - `class Timeline(keep: list[tuple[float,float]], speed: float)`:
     `.duration -> float`; `.to_final(t) -> float | None` (None — время вырезано);
     `.to_final_snap(t) -> float` (вырезанное время → начало следующего отрезка);
     `.segments -> list[tuple[float,float,float]]` (`src0, src1, final0`).
 
 - [ ] **Step 1: Тесты.**
-  `test_trims_leading_and_trailing_silence` (слова 2.0–5.0 в ролике 8 с → `[(1.92, 5.08)]`);
+  `test_trims_leading_and_trailing_silence` (слова 2.0–5.0 в ролике 8 с → `[(1.88, 5.08)]`);
   `test_long_pause_shrinks_to_keep_pause` (слова 1.0–2.0 и 3.0–4.0 → отрезки
-  `(0.92, 2.09)` и `(2.91, 4.08)`: пауза 1,0 → 0,18);
+  `(0.88, 2.06)` и `(2.88, 4.08)`: пауза 1,0 → 0,18);
   `test_short_pause_kept_whole` (пауза 0,3 с — один отрезок);
   `test_extra_cut_snaps_to_word_bounds` (слова 1.0–2.0, 3.0–4.0, 4.2–5.0; вырезка
   1.5–3.2 задевает первые два слова → вырезка расширяется до их границ и оба уходят
-  целиком; остаётся только отрезок вокруг 4.2–5.0 — внутри слова не режем никогда);
+  целиком; остаётся только `(4.08, 5.08)` — внутри слова не режем никогда);
   `test_no_words_keeps_everything` (`[(0, duration)]`);
   `test_timeline_speed_and_gaps` (keep `[(0,2),(3,5)]`, speed 1.1:
   `duration == 4/1.1`, `to_final(3.0) == 2/1.1`, `to_final(2.5) is None`,
@@ -259,16 +262,18 @@ legacy/video-montage/          прошлый скилл как есть (спр
 - Consumes: `Word`, `Timeline`.
 - Produces:
   - `build_sub_events(words: list[Word], tl: Timeline, mode: str, n_words: int) -> list[dict]`
-    — события во времени финала `{t0, t1, words: [str], active: int, visible: int}`:
-    `karaoke`/`plate` — группы по `n_words` (2–3), событие на каждое слово, `active` —
+    — события во времени финала `{t0, t1, words: [str], active: int, visible: int}`.
+    Слова делятся на фразы (новая фраза — после слова на `.?!…` или после паузы > 0,35 с),
+    фраза — на `n = ceil(len/N)` ровных кусков `words[k·len//n:(k+1)·len//n]` (как в старом
+    навыке): `karaoke`/`plate` — `N = n_words` (2–3), событие на каждое слово, `active` —
     индекс говоримого, `visible = len(words)`; `word` — одно слово; `accumulate` —
-    блоки 3–6 слов (разрыв блока на паузе > 0,35 с или на `.?!`), `visible` растёт по
-    одному слову, `active = visible-1`. `t1` события = `t0` следующего, если разрыв
+    `N = 6`, `visible` растёт по одному слову, `active = visible-1`. `t1` события = `t0` следующего, если разрыв
     < 0,6 с, иначе конец последнего слова + 0,3 с. Слова, попавшие в вырезку,
     пропускаются.
   - `to_srt(words, tl, max_words=7) -> str`.
 
 - [ ] **Step 1: Тесты.** `test_karaoke_groups_of_three_one_event_per_word`;
+  `test_groups_are_balanced_within_a_phrase` (5 слов одной фразы, `n_words=3` → группы 2 и 3);
   `test_accumulate_visible_grows_and_breaks_on_pause`;
   `test_events_do_not_overlap_and_are_sorted`;
   `test_cut_words_are_skipped`;
@@ -463,12 +468,20 @@ legacy/video-montage/          прошлый скилл как есть (спр
 **Interfaces:**
 - Produces:
   - `control_frames(final: Path, times: dict[str, float], out_dir) -> dict[str, Path]` —
-    кадры `hook`, `subs`, `insert`, `cta` (что есть) + один лист 2×2 `qa.png`.
-  - `check_layout(boxes_by_event: list[dict], face_box: dict | None) -> list[str]` —
-    проблемы: элемент вне X 60–890 / Y 120–1530 (кроме шкалы и fullscreen),
-    вставка ближе 40 px к лицу или 20 px к субтитрам, пересечение текстов.
-  - `check_render(probe, edit, report) -> list[str]` — «не отдавать»: длительность,
-    музыка не с 0 (если выбрана), хук/CTA есть в `edit`, но нет в событиях.
+    кадры `hook`, `subs`, `insert`, `cta` (что есть) + один лист 2×2 `qa.png`
+    (ключ `sheet`); кадры прошлой проверки удаляются.
+  - `face_box(edit_face: dict | None) -> dict | None` — рамка лица в px (без w/h —
+    0,30 × 0,22 кадра).
+  - `check_layout(boxes_by_event: list[dict], face: dict | None, inserts: list[dict] | None = None)
+    -> list[str]` — проблемы: элемент вне X 60–890 / Y 120–1530 (кроме шкалы и
+    fullscreen), вставка или титр ближе 40 px к лицу, вставка ближе 20 px к субтитрам
+    или на хуке/титре, пересечение текстов. Вставка — по номеру `n` в рамке (её место
+    в `edit.inserts`, с 1) и подписи; время — первое место в ролике (промежутки подряд
+    склеены) и число мест.
+  - `check_render(final: Path, edit, boxes_by_event, report) -> list[str]` — «не
+    отдавать»: формат, звук, длительность (по `report` от `render`), хук/CTA есть в
+    `edit`, но нет в событиях, выбранная музыка не попала в микс или начинается с
+    тишины (громкость начала самого файла `report["music"]`).
 
 - [ ] **Step 1: Тесты.** `test_box_outside_safe_zone_reported`;
   `test_insert_over_face_reported`; `test_clean_layout_has_no_problems`;
@@ -487,14 +500,20 @@ legacy/video-montage/          прошлый скилл как есть (спр
 **Interfaces:**
 - Produces (все печатают короткую сводку для Claude и обновляют статус, если
   `--status`):
-  - `python -m vm prepare <jobdir>` — части из `jobdir/in/` → `source.mp4`,
-    `source.wav`, `words.json`, `cuts.json` (`plan_keep` по умолчанию), `sheet.png`;
-    печатает длительность, число пауз/вырезанных секунд и сплошной текст с временем
-    (по фразам).
+  - `python -m vm prepare <jobdir> [--status] [--state analyzing|rendering] [--redo]` —
+    `in/source.*` (иначе все видео из `in/`) → `source.mp4`, `work/source.wav`, `words.json`,
+    `reference.txt`, `cuts.json` (`plan_keep` по умолчанию), `sheet.png`; только недостающее:
+    `source.mp4` в git нет, и каждая новая сессия зовёт prepare, чтобы его восстановить, а есть
+    `words.json` — речь не распознаётся заново и лист не делается (`--redo` — всё заново);
+    печатает длительность, число пауз/вырезанных секунд и текст с временем (фразы ≤ 10 с).
   - `python -m vm frames <jobdir> --at 12.5 13.0 [--grid]` → `jobdir/look/*.png`.
   - `python -m vm preview <jobdir> --at T` → `jobdir/frame.png` (из `source.mp4`).
-  - `python -m vm render <jobdir> [--version N]` → `jobdir/out/final[-vN].mp4|.srt`,
-    `jobdir/qa/qa.png`, обновляет `result.json` (`durations`, `missing`, `qa`).
+  - `python -m vm check <jobdir>` — до рендера (§5.9 «перед полным рендером — 4 контрольных
+    кадра и проверка геометрии»): слой по `edit.json`, `check_layout`, кадры «исходник + слой»
+    → `look/check.png`; `render` берёт уже нарисованный слой, если ничего не поменялось.
+  - `python -m vm render <jobdir> [--version N≥1]` → `jobdir/out/final[-vN].mp4|.srt`,
+    `jobdir/qa/qa.png`, обновляет `result.json` (`durations`, `missing`, `qa`); `edit.json`
+    проверяется по схеме до работы.
   - `python -m vm fetch <jobdir>` — входные файлы из черновика `job-<id>`:
     `GET https://api.github.com/repos/<repo>/releases` (черновики видны; авторизацию
     в облачной сессии подставляет прокси, свой токен не нужен — если в окружении есть
@@ -503,7 +522,12 @@ legacy/video-montage/          прошлый скилл как есть (спр
     вставки из ответа (`upload-*`) → `in/uploads/`.
   - `python -m vm push <jobdir> -m MSG [--outputs]` → `git.push`; с `--outputs` файлы
     `out/*` больше 95 МБ заменяются частями `split -b 95M -a 2` (`<имя>.part-aa…`) и
-    `<имя>.sha256` (формат `sha256sum`) — их склеит Action `job-outputs`.
+    `<имя>.sha256` (формат `sha256sum`) — их склеит Action `job-outputs`; части прежней версии
+    файла убираются, скрытые (временные) файлы не трогаются. В git не идут `in/`, `sheet.png`,
+    `look/`, `qa/qa-*.png`, `out/.*` (`.gitignore`).
+  - `fetch` и `prepare` с `--status` пишут фазы с `--state` шага (`analyzing` или `rendering`);
+    не вышедший пуш статуса — предупреждение, а не ошибка. `fetch` повторяет оборванные запросы
+    и продолжает с уже скачанных кусков; все группы проверяются до скачивания.
 
 - [ ] **Step 1: Тесты** `test_push_outputs_splits_large_files` (файл 200 МБ из
   `/dev/zero`-подобных данных → в коммите 3 части по ≤ 95 МБ и `.sha256`, исходного файла

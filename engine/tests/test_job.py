@@ -277,6 +277,18 @@ def test_styles_accepts_empty_sample_words_for_a_silent_clip(job):
     assert job.read("styles.json") == styles
 
 
+def test_style_hook_y_is_optional_and_stays_in_the_frame(job):
+    # высота хука (центр строки капсом) — часть стиля: хук не должен лечь на лицо
+    styles = make_styles()
+    styles["variants"][0]["spec"]["hook"]["y"] = 420
+    job.write("styles.json", styles)
+    assert job.read("styles.json")["variants"][0]["spec"]["hook"]["y"] == 420
+
+    styles["variants"][0]["spec"]["hook"]["y"] = 2000
+    with pytest.raises(ValueError, match=r"variants\[0\]\.spec\.hook\.y"):
+        job.write("styles.json", styles)
+
+
 def test_styles_variant_ids_are_a_b_c(job):
     styles = make_styles()
     styles["variants"][1]["id"] = "D"
@@ -346,6 +358,28 @@ def test_edit_accepts_insert_title_and_face_box(job):
     edit["inserts"][1]["title"] = 5
     with pytest.raises(ValueError, match=r"inserts\[1\]\.title"):
         job.write("edit.json", edit)
+
+
+def test_edit_keeps_a_planned_insert_waiting_for_its_answer(job):
+    # шаг analyze решает место и время вставки «добавь сюда», картинку даст ответ Павла на шаге render
+    edit = make_edit()
+    edit["inserts"] = [{"kind": "image", "question": "insert-1", "t0": 12.0, "t1": 15.5, "x": 70, "y": 500, "w": 250}]
+    job.write("edit.json", edit)
+    assert job.read("edit.json")["inserts"][0]["question"] == "insert-1"
+    edit["inserts"][0]["question"] = ""
+    with pytest.raises(ValueError, match=r"inserts\[0\]\.question"):
+        job.write("edit.json", edit)
+
+
+def test_styles_sample_inserts_optional(job):
+    styles = json.loads((Path(__file__).parent / "fixtures" / "style-merge.json").read_text(encoding="utf-8"))["styles"]
+    plain = {**styles, "sample": {k: v for k, v in styles["sample"].items() if k != "inserts"}}
+    job.write("styles.json", plain)
+    job.write("styles.json", styles)
+    bad = json.loads(json.dumps(styles))
+    bad["sample"]["inserts"][0]["x"] = "a"
+    with pytest.raises(ValueError, match=r"sample\.inserts\[0\]\.x"):
+        job.write("styles.json", bad)
 
 
 def test_edit_face_is_fractions_of_the_frame(job):

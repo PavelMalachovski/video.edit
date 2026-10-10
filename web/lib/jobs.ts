@@ -18,3 +18,121 @@ export const partName = (index: number): string => `source.part-${String(index).
 export const chunkCount = (size: number, chunk: number = CHUNK_SIZE): number => Math.ceil(size / chunk);
 
 export const isJobId = (s: string): boolean => /^\d{6}-\d{6}-[0-9a-z]{4}$/.test(s);
+
+// ---------- ветка и папка задачи ----------
+
+export const jobBranch = (id: string): string => `claude/job-${id}`;
+export const jobDir = (id: string): string => `jobs/${id}`;
+
+/** Кусок загрузки: `<file>.part-NNNNN` (исходник — `source.part-NNNNN`). */
+export const chunkName = (file: string, index: number): string => `${file}.part-${String(index).padStart(5, '0')}`;
+
+// ---------- имена загрузок ----------
+
+const TYPE_EXT: Record<string, string> = {
+  'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif', 'video/mp4': 'mp4', 'video/quicktime': 'mov',
+};
+
+/** FNV-1a 32 бит по UTF-8: короткий ASCII-ключ для id вопроса с кириллицей (одинаков в браузере и на сервере). */
+function fnv1a(text: string): string {
+  let hash = 0x811c9dc5;
+  for (const byte of new TextEncoder().encode(text)) {
+    hash ^= byte;
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, '0');
+}
+
+/**
+ * Имя ассета загрузки, только ASCII (иные GitHub переименовывает): `upload-i2.mov` (вставка к ролику),
+ * `upload-q-hook.png` (картинка к ответу). Расширение — из имени файла, иначе из типа, иначе `bin`.
+ */
+export function uploadAssetName(kind: 'i' | 'q', key: string | number, fileName: string, type: string): string {
+  const fromName = /\.([a-z0-9]{1,5})$/.exec(fileName.toLowerCase())?.[1];
+  const ext = fromName ?? TYPE_EXT[type] ?? 'bin';
+  if (kind === 'i') return `upload-i${key}.${ext}`;
+  const qid = String(key).toLowerCase();
+  return `upload-q-${/^[a-z0-9_-]{1,40}$/.test(qid) ? qid : `x${fnv1a(String(key))}`}.${ext}`;
+}
+
+export const isUploadFile = (name: string): boolean => /^upload-(i\d{1,2}|q-[a-z0-9_-]{1,40})\.[a-z0-9]{1,5}$/.test(name);
+
+// ---------- пределы ----------
+
+export const MAX_SOURCE_BYTES = 3 * 1024 ** 3;
+export const MAX_INSERT_BYTES = 200 * 1024 ** 2;
+export const MAX_INSERTS = 10;
+export const MAX_UPLOAD_PARTS = 900; // у GitHub не больше 1000 ассетов в релизе; остаток — манифест, ответы, ролики
+export const MAX_ANSWER_IMAGE_BYTES = 20 * 1024 ** 2;
+export const MAX_BRIEF = 4000;
+export const MAX_NOTE = 2000;
+export const LONG_VIDEO_SEC = 300;
+export const INSERT_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'video/mp4', 'video/quicktime'] as const;
+
+export const partsOf = (size: number): number => Math.max(1, Math.ceil(size / CHUNK_SIZE));
+
+export function checkTotal(sourceSize: number, insertSizes: number[]): string | null {
+  const parts = partsOf(sourceSize) + insertSizes.reduce((sum, size) => sum + partsOf(size), 0);
+  return parts > MAX_UPLOAD_PARTS
+    ? 'Видео и вставки вместе больше 3,5 ГБ — в одну задачу столько не войдёт. Уберите часть вставок или обрежьте видео.'
+    : null;
+}
+
+export function checkSource(size: number): string | null {
+  if (size <= 0) return 'Файл пустой — выберите другое видео.';
+  return size > MAX_SOURCE_BYTES ? 'Файл больше 3 ГБ — столько GitHub не примет. Обрежьте видео.' : null;
+}
+
+export function checkInsert(f: { name: string; size: number; type: string }): string | null {
+  if (/\.(heic|heif)$/i.test(f.name) || /^image\/hei[cf]/.test(f.type)) return `${f.name}: HEIC не подходит — сохраните как JPEG или PNG.`;
+  if (f.size <= 0) return `${f.name}: пустой файл`;
+  if (f.size > MAX_INSERT_BYTES) return `${f.name}: больше 200 МБ`;
+  if (!(INSERT_TYPES as readonly string[]).includes(f.type)) return `${f.name}: такой тип не подходит (нужны PNG, JPEG, WebP, GIF, MP4 или MOV)`;
+  return null;
+}
+
+/**
+ * Каких кусков `<file>.part-NNNNN` из `parts` нет среди ассетов и сколько байт в тех, что есть. Файл цел, когда
+ * `missing` пуст и `total === size`.
+ */
+export function verifyParts(assets: { name: string; size: number }[], file: string, parts: number, size: number): { missing: number[]; total: number } {
+  const byName = new Map(assets.map((a) => [a.name, a]));
+  const missing: number[] = [];
+  let total = 0;
+  for (let i = 0; i < parts; i++) {
+    const a = byName.get(chunkName(file, i));
+    if (!a) missing.push(i);
+    else total += a.size;
+  }
+  return { missing, total };
+}
+
+// ---------- пути и картинки ----------
+
+/**
+ * Путь от папки задачи (как его пишет сессия: `frame.png`, `../../assets/logos/a.png`) → путь в репозитории.
+ * Только внутри `jobs/<id>/` или `assets/`; `\`, абсолютный путь или выход наружу — null.
+ */
+export function resolveJobPath(id: string, rel: string): string | null {
+  if (!rel || rel.includes('\\') || rel.startsWith('/') || /^[a-z]+:/i.test(rel)) return null;
+  const stack = ['jobs', id];
+  for (const part of rel.split('/')) {
+    if (part === '' || part === '.') continue;
+    if (part === '..') {
+      if (!stack.length) return null;
+      stack.pop();
+    } else {
+      stack.push(part);
+    }
+  }
+  const inJob = stack[0] === 'jobs' && stack[1] === id && stack.length > 2;
+  const inAssets = stack[0] === 'assets' && stack.length > 1;
+  return inJob || inAssets ? stack.join('/') : null;
+}
+
+/** Тип картинки, которую можно отдать странице (только растровые: SVG и HTML — нет). */
+export function imageType(path: string): string | null {
+  const ext = /\.([a-z0-9]+)$/.exec(path.toLowerCase())?.[1];
+  return ext === 'png' ? 'image/png' : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : ext === 'gif' ? 'image/gif' : null;
+}
+

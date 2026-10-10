@@ -82,7 +82,8 @@ def _stage_and_commit(root: Path, message: str, targets: list[str]) -> None:
         raise GitError(
             f"refusing to commit files over {MAX_FILE_BYTES // MB} MB (GitHub rejects files over 100 MB): "
             + ", ".join(big)
-            + ". Split them (split -b 95M) or keep them in the ignored work/ folder"
+            + ". Finished videos in out/ go with `python -m vm push <job> --outputs` (it cuts them into parts);"
+            " anything else heavy belongs in the ignored work/ folder"
         )
     _git(root, "add", "-A", "--", *targets)
     staged = _git(root, "diff", "--cached", "--quiet", "--", *targets, check=False)

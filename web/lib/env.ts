@@ -1,4 +1,5 @@
 import type { GH } from './github.ts';
+import type { Routine } from './routine.ts';
 
 export function env(name: string): string {
   const v = process.env[name];
@@ -14,4 +15,9 @@ export function gh(): GH {
     api: process.env.GITHUB_API_URL || undefined,
     uploads: process.env.GITHUB_UPLOADS_URL || undefined,
   };
+}
+
+// ROUTINE_API_URL — только для локальной проверки (поддельный API рутины).
+export function routine(): Routine {
+  return { id: env('ROUTINE_ID'), token: env('ROUTINE_TOKEN'), api: process.env.ROUTINE_API_URL || undefined };
 }

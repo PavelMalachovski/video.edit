@@ -15,6 +15,17 @@ node_modules/
 *.MOV
 !tests/fixtures/**
 !engine/tests/fixtures/**
-# готовые файлы задачи пушатся сессией (Action уносит их в релиз)
+# готовые файлы задачи пушатся сессией (Action уносит их в релиз); скрытые — временные файлы сборки
 !jobs/*/out/*
+jobs/*/out/.*
+# тяжёлые кадры задачи — только для глаз Claude в этой сессии: контактный лист, кадры look/, контрольные кадры
+# (лист qa/qa.png и frame.png для превью — в git)
+jobs/*/sheet.png
+jobs/*/look/
+jobs/*/qa/qa-*.png
+# входные файлы задачи лежат в черновике релиза — в git их нет
+jobs/*/in/
 *.tsbuildinfo
+
+# копия template/ для превью (web/scripts/copy-template.mjs при сборке)
+web/public/template/

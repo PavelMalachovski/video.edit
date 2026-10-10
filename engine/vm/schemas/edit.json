@@ -110,6 +110,11 @@
       "properties": {
         "kind": { "enum": ["image", "badge", "sticker", "anim", "fullscreen"] },
         "src": { "type": "string" },
+        "question": {
+          "description": "id вопроса insert-<n> из questions.json: место и время вставки «добавь сюда» решены на шаге analyze, src (или стикер) — по ответу Павла на шаге render. Без src такая вставка в монтаж не идёт.",
+          "type": "string",
+          "minLength": 1
+        },
         "text": { "type": "string" },
         "title": { "type": "string" },
         "t0": { "type": "number", "minimum": 0 },

@@ -166,7 +166,7 @@ Dolby Vision с iPhone (профиль 8.4) несёт HLG-базу — ffmpeg �
 - API запуска требует ещё `anthropic-version: 2023-06-01` (без него 400).
   Ответ: `{"claude_code_session_id", "claude_code_session_url", "type":"routine_fire"}`,
   1,5 с.
-- Сессия рутины: модель claude-opus-5-5, режим разрешений auto, ей назначается
+- Сессия рутины: модель по умолчанию, режим разрешений auto, ей назначается
   своя ветка (`claude/<слово>-<слово>-<id>`), но пуш в `claude/job-<job>` проходит.
 - Время (запуск → коммит `boot` → `work`): холодный старт 130 с; тёплый (через
   3 мин) 35 с. `setup/cloud-setup.sh` внутри сессии — 2–10 с: Setup script

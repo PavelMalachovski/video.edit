@@ -225,21 +225,24 @@ legacy/video-montage/          прошлый скилл как есть (спр
 **Interfaces:**
 - Consumes: `Word` (задача 3).
 - Produces:
-  - `plan_keep(words: list[Word], duration: float, *, max_pause=0.45, keep_pause=0.18, edge_pad=0.08, extra_cuts: list[tuple[float,float]] = ()) -> list[tuple[float,float]]`
-    — отрезки исходника, которые остаются, по возрастанию, без пересечений.
+  - `plan_keep(words: list[Word], duration: float, *, max_pause=0.45, keep_pause=0.18, pad_before=0.12, pad_after=0.08, extra_cuts: list[tuple[float,float]] = ()) -> list[tuple[float,float]]`
+    — отрезки исходника, которые остаются, по возрастанию, без пересечений; перед словом
+    запас 0,12 с (GigaAM ставит начало слова ~35 мс позже), после — 0,08 с; длинная пауза
+    сжимается до 0,18 с: 0,06 после слова + 0,12 перед следующим; пересекающиеся слова — одна
+    речь.
   - `class Timeline(keep: list[tuple[float,float]], speed: float)`:
     `.duration -> float`; `.to_final(t) -> float | None` (None — время вырезано);
     `.to_final_snap(t) -> float` (вырезанное время → начало следующего отрезка);
     `.segments -> list[tuple[float,float,float]]` (`src0, src1, final0`).
 
 - [ ] **Step 1: Тесты.**
-  `test_trims_leading_and_trailing_silence` (слова 2.0–5.0 в ролике 8 с → `[(1.92, 5.08)]`);
+  `test_trims_leading_and_trailing_silence` (слова 2.0–5.0 в ролике 8 с → `[(1.88, 5.08)]`);
   `test_long_pause_shrinks_to_keep_pause` (слова 1.0–2.0 и 3.0–4.0 → отрезки
-  `(0.92, 2.09)` и `(2.91, 4.08)`: пауза 1,0 → 0,18);
+  `(0.88, 2.06)` и `(2.88, 4.08)`: пауза 1,0 → 0,18);
   `test_short_pause_kept_whole` (пауза 0,3 с — один отрезок);
   `test_extra_cut_snaps_to_word_bounds` (слова 1.0–2.0, 3.0–4.0, 4.2–5.0; вырезка
   1.5–3.2 задевает первые два слова → вырезка расширяется до их границ и оба уходят
-  целиком; остаётся только отрезок вокруг 4.2–5.0 — внутри слова не режем никогда);
+  целиком; остаётся только `(4.08, 5.08)` — внутри слова не режем никогда);
   `test_no_words_keeps_everything` (`[(0, duration)]`);
   `test_timeline_speed_and_gaps` (keep `[(0,2),(3,5)]`, speed 1.1:
   `duration == 4/1.1`, `to_final(3.0) == 2/1.1`, `to_final(2.5) is None`,

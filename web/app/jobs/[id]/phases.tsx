@@ -2,9 +2,13 @@
 // Состояние шага на странице задачи: идёт (фаза, текст, полоса), «завис», ошибка, не запущен, ещё загружается.
 import { useState } from 'react';
 import type { Action, JobView } from '@/lib/jobview.ts';
+import type { Step } from '@/lib/routine.ts';
 import type { Act } from './job';
 
 const minutes = (at: string, now: number): number => Math.max(0, Math.floor((now - Date.parse(at)) / 60_000));
+
+/** Куда вернуться, если шаг сорвался из-за входных данных: повтор с теми же данными сорвётся снова. */
+const BACK: Partial<Record<Step, string>> = { restyle: 'Вернуться к превью', render: 'Изменить ответы', fix: 'Вернуть готовый ролик' };
 
 function ago(at: string, now: number): string {
   const n = minutes(at, now);
@@ -62,6 +66,7 @@ export default function Phases({ view, repo, onAction }: { view: JobView; repo: 
         <b>{status?.message ?? 'Шаг не получился'}</b>
         {status?.error ? <div className="muted small pre">{status.error}</div> : null}
         <ActionButton label="Повторить" action="retry" onAction={onAction} primary />
+        {view.step && BACK[view.step] ? <ActionButton label={BACK[view.step]!} action="back" onAction={onAction} /> : null}
         {session}
         {previous}
       </div>

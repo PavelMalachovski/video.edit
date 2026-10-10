@@ -82,10 +82,11 @@ export type Pending = {
 type Picked = { name: string; size: number; lastModified: number };
 
 const PENDING_KEY = 'vm:pending';
-const same = (a: Picked, b: Picked): boolean => a.name === b.name && a.size === b.size && a.lastModified === b.lastModified;
+// Имя и размер до байта: iPhone отдаёт из «Фото» свежую копию, и время изменения у неё — момент выбора.
+const same = (a: Picked, b: Picked): boolean => a.name === b.name && a.size === b.size;
 
 /**
- * Тот же ли файл выбран снова (имя, размер, время изменения) и какие вставки выбраны заново: `inserts` — ассет → файл;
+ * Тот же ли файл выбран снова (имя и размер) и какие вставки выбраны заново: `inserts` — ассет → файл;
  * невыбранные заново выпадают — их имена в `dropped`.
  */
 export function matchPending<F extends Picked>(p: Pending, source: F, inserts: F[]): { ok: boolean; inserts: Map<string, F>; dropped: string[] } {

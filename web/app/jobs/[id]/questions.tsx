@@ -2,9 +2,9 @@
 // Экран «2 · Вопросы»: карточка на вопрос из questions.json — варианты кнопками, свой текст, своя картинка.
 // Черновик ответов живёт у страницы задачи (его же читают превью); «Показать превью» — без запроса к серверу.
 import { useMemo, useState } from 'react';
-import { buildAnswers, pick, type Draft, type LocalUpload } from '@/lib/answers.ts';
+import { buildAnswers, pick, pictureAsset, type Draft, type LocalUpload } from '@/lib/answers.ts';
 import { RESERVED, type Question } from '@/lib/jobfiles.ts';
-import { MAX_ANSWER_IMAGE_BYTES, uploadAssetName } from '@/lib/jobs.ts';
+import { MAX_ANSWER_IMAGE_BYTES } from '@/lib/jobs.ts';
 import { planChunks, runUpload } from '@/lib/uploader.ts';
 
 const PICTURE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
@@ -35,8 +35,14 @@ export default function Questions({ jobId, releaseId, questions, draft, onDraft,
     if (file.size > MAX_ANSWER_IMAGE_BYTES) return setErrors((e) => ({ ...e, [q.id]: `${file.name}: больше 20 МБ` }));
     if (file.size === 0) return setErrors((e) => ({ ...e, [q.id]: `${file.name}: пустой файл` }));
     const before = draft.uploads[q.id];
-    const n = before ? (before.n ?? 1) + 1 : 1; // новый выбор — новый ассет: куски прошлой картинки с ним не смешаются
-    const asset = uploadAssetName('q', n > 1 ? `${q.id}-${n}` : q.id, file.name, file.type);
+    let taken = new Set<string>(); // ассеты, у которых уже есть куски в черновике (прошлые выборы, даже из другой вкладки)
+    try {
+      const r = await fetch(`/api/jobs/${jobId}/parts?release=${releaseId}`, { cache: 'no-store' });
+      if (r.ok) taken = new Set(((await r.json()) as { name: string }[]).map((a) => a.name.replace(/\.part-\d{5}$/, '')));
+    } catch {
+      // не узнали — хватит номера из черновика
+    }
+    const { asset, n } = pictureAsset(q.id, file.name, file.type, taken, before ? (before.n ?? 1) + 1 : 1);
     const chunks = planChunks([{ asset, size: file.size }]);
     const local: LocalUpload = { asset, name: file.name, size: file.size, type: file.type, parts: chunks.length, done: false, n };
     onLocalUrl(q.id, URL.createObjectURL(file));

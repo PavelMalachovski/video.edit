@@ -9,6 +9,7 @@ import { checkInsert, checkSource, checkTotal, INSERT_TYPES, LONG_VIDEO_SEC, MAX
 import {
   clearPending, loadPending, matchPending, planChunks, resumeDone, runUpload, savePending, type Pending, type PendingInsert,
 } from '@/lib/uploader.ts';
+import { keepScreenOn } from '@/lib/wakelock.ts';
 import { CloseIcon, PlayIcon, PlusIcon, UploadIcon } from './icons';
 import { JOBS_CHANGED } from './jobs-list';
 
@@ -41,15 +42,6 @@ function videoDuration(file: File, timeoutMs = 5000): Promise<number | null> {
   });
 }
 
-/** Экран не гаснет, пока идёт загрузка (iOS 16.4+): заблокированный телефон останавливает страницу. */
-async function keepAwake(): Promise<() => void> {
-  try {
-    const lock = await (navigator as Navigator & { wakeLock?: { request(t: 'screen'): Promise<{ release(): Promise<void> }> } }).wakeLock?.request('screen');
-    return () => void lock?.release().catch(() => undefined);
-  } catch {
-    return () => undefined;
-  }
-}
 
 const sameFile = (a: File, b: File) => a.name === b.name && a.size === b.size && a.lastModified === b.lastModified;
 
@@ -174,7 +166,7 @@ export default function Uploader() {
     setPending(a.p);
     setError('');
     setPhase('uploading');
-    const release = await keepAwake();
+    const release = keepScreenOn(navigator as Parameters<typeof keepScreenOn>[0], document); // экран не гаснет до конца загрузки
     const { p, files } = a;
     try {
       const chunks = planChunks([{ asset: 'source', size: p.source.size }, ...p.inserts.map((i) => ({ asset: i.asset, size: i.size }))]);

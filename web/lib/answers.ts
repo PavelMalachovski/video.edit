@@ -1,6 +1,6 @@
 // Ответы на вопросы Claude в браузере: черновик (выбранные варианты, тексты, картинки к ответам) живёт в
 // localStorage['vm:draft:<id>'] и переживает перезагрузку; из него — ответы для «Монтировать» и хук для превью.
-import { isUploadFile } from './jobs.ts';
+import { isUploadFile, uploadAssetName } from './jobs.ts';
 import { ownKey, RESERVED, type Question } from './jobfiles.ts';
 
 /** Картинка к ответу «загрузить свою»: ассет черновика, его куски и готова ли; `n` — какой это выбор по счёту. */
@@ -9,6 +9,18 @@ export type Draft = { picks: Record<string, string[]>; texts: Record<string, str
 
 const defaults = (q: Question): string[] => (q.default === undefined ? [] : Array.isArray(q.default) ? q.default : [q.default]);
 const known = (q: Question, id: string): boolean => (q.options ?? []).some((o) => o.id === id);
+
+/**
+ * Ассет картинки к ответу: `upload-q-<id>[-n].<ext>` с первым `n ≥ from`, у которого нет кусков в черновике (`taken` —
+ * имена ассетов с кусками). Новый выбор — новый ассет: куски прошлой картинки с ним не смешаются, даже если
+ * localStorage потерян.
+ */
+export function pictureAsset(qid: string, fileName: string, type: string, taken: Set<string>, from = 1): { asset: string; n: number } {
+  for (let n = Math.max(1, from); ; n++) {
+    const asset = uploadAssetName('q', n > 1 ? `${qid}-${n}` : qid, fileName, type);
+    if (!taken.has(asset)) return { asset, n };
+  }
+}
 
 /** Черновик по умолчанию: `default` выбран заранее, у вопроса-текста он — в поле. */
 export function initialDraft(qs: Question[]): Draft {

@@ -4,13 +4,13 @@ import { listAllAssets } from '@/lib/github.ts';
 import { answersFile, appendFix, appendRestyle, parseAnswersBody, parseNote } from '@/lib/jobfiles.ts';
 import { isJobId, verifyParts } from '@/lib/jobs.ts';
 import { canRun, loadJob, type Action } from '@/lib/jobview.ts';
-import { retryStep, runStep, startJob, type Deps } from '@/lib/steps.ts';
+import { backStep, retryStep, runStep, startJob, type Deps } from '@/lib/steps.ts';
 import { gh, routine } from '@/lib/env.ts';
 
 export const maxDuration = 30;
 
 const json = (data: unknown): string => `${JSON.stringify(data, null, 2)}\n`;
-const ACTIONS: Action[] = ['start', 'answers', 'restyle', 'fix', 'retry'];
+const ACTIONS: Action[] = ['start', 'answers', 'restyle', 'fix', 'retry', 'back'];
 
 // Действие на странице задачи → шаг рутины. Можно ли сейчас — решает canRun по состоянию ветки.
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -27,6 +27,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const files = loaded.files;
     if (action === 'start') return NextResponse.json(await startJob(d, id));
     if (action === 'retry') return NextResponse.json(await retryStep(d, id));
+    if (action === 'back') return NextResponse.json(await backStep(d, id));
     if (action === 'answers') {
       const parsed = parseAnswersBody(body, files?.questions ?? []);
       if ('error' in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });

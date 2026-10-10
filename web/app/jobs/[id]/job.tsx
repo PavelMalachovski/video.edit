@@ -115,6 +115,7 @@ export default function Job({ id }: { id: string }) {
     try {
       const r = await post(`/api/jobs/${id}/run`, { action, ...extra });
       if (!r.ok) return await errorText(r, 'Не получилось');
+      if (action === 'back') setStage('auto'); // после restyle — к превью, после render — к вопросам
       void poll();
       return null;
     } catch (e) {

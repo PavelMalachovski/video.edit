@@ -3,7 +3,7 @@
 import { getHead, listDir, readText } from './branch.ts';
 import { findReleaseByTag, getRelease, listAllAssets, type GH, type Release } from './github.ts';
 import {
-  finalNames, parseStatus, wantedVersion,
+  finalNames, parseQuestions, parseResult, parseStatus, parseStyles, wantedVersion,
   type AnswersFile, type FixFile, type JobFile, type Question, type Released, type RestyleFile, type ResultFile, type Status, type Styles,
   type UploadRef,
 } from './jobfiles.ts';
@@ -12,6 +12,7 @@ import type { Step } from './routine.ts';
 
 export type JobFiles = {
   head: string;
+  full: boolean; // прочитаны все файлы (страница задачи), а не только нужные списку
   job: JobFile | null;
   status: Status | null;
   statusBroken: boolean;
@@ -40,7 +41,7 @@ export type JobView = {
   final: { mp4: string; srt: string | null } | null;
   previous: string | null;
 };
-export type Action = 'start' | 'answers' | 'restyle' | 'fix' | 'retry' | 'delete';
+export type Action = 'start' | 'answers' | 'restyle' | 'fix' | 'retry' | 'back' | 'delete';
 
 /** Ответ `GET /api/jobs/<id>`: экран и файлы ветки, которые нужны странице задачи. */
 export type JobData = {
@@ -70,11 +71,12 @@ function remember(key: string, value: string | null): void {
   if (CACHE.size > CACHE_LIMIT) CACHE.delete(CACHE.keys().next().value as string);
 }
 
+// Помним только найденное: «нет файла» сразу после пуша бывает мимолётным — следующий опрос спросит снова.
 async function cachedText(gh: GH, head: string, path: string): Promise<string | null> {
   const key = `${head}:${path}`;
   if (CACHE.has(key)) return CACHE.get(key) ?? null;
   const text = await readText(gh, head, path);
-  remember(key, text);
+  if (text !== null) remember(key, text);
   return text;
 }
 
@@ -82,10 +84,10 @@ async function cachedNames(gh: GH, head: string, dir: string): Promise<Set<strin
   const key = `${head}:${dir}/`;
   if (!CACHE.has(key)) {
     const entries = await listDir(gh, head, dir);
-    remember(key, entries ? JSON.stringify(entries.map((e) => e.name)) : null);
+    if (!entries) return null;
+    remember(key, JSON.stringify(entries.map((e) => e.name)));
   }
-  const names = CACHE.get(key);
-  return names ? new Set(JSON.parse(names) as string[]) : null;
+  return new Set(JSON.parse(CACHE.get(key) as string) as string[]);
 }
 
 function parse<T>(text: string | null): T | null {
@@ -115,13 +117,14 @@ export async function readJobFiles(gh: GH, id: string, head: string, parts: 'lis
   const status = parseStatus(parse(statusText));
   return {
     head,
+    full: parts === 'all',
     job: json<JobFile>('job.json'),
     status,
     statusBroken: statusText !== null && status === null,
-    questions: json<{ questions: Question[] }>('questions.json')?.questions ?? null,
-    styles: json<Styles>('styles.json'),
+    questions: parseQuestions(json<unknown>('questions.json')),  // файлы сессии — по форме: кривой файл как нет файла
+    styles: parseStyles(json<unknown>('styles.json')),
     answers: json<AnswersFile>('answers.json'),
-    result: json<ResultFile>('result.json'),
+    result: parseResult(json<unknown>('result.json')),
     fix: json<FixFile>('fix.json'),
     restyle: json<RestyleFile>('restyle.json'),
     released: names.has('out') ? parse<Released>(await cachedText(gh, head, `${dir}/out/released.json`)) : null,
@@ -173,9 +176,16 @@ export function deriveView(release: Release, files: JobFiles | null, now: number
   }
   const age = now - Date.parse(status.at);
   if (status.state === 'error') return { ...view, screen: 'error' };
-  if (status.state === 'waiting_answers') return { ...view, screen: 'questions' };
+  if (status.state === 'waiting_answers') {
+    if (!files.full || (files.questions && files.styles)) return { ...view, screen: 'questions' };
+    const error = { state: 'error' as const, phase: 'Ошибка', message: 'Claude не оставил вопросы или стили — повторите шаг', at: status.at,
+      error: 'questions.json или styles.json нет или не по схеме' };
+    return { ...view, screen: 'error', status: error };
+  }
   const state = status.state;
-  const limit = state === 'queued' || state === 'analyzing' || state === 'rendering' ? STUCK_MS[state] : null;
+  // длинный ролик дольше расшифровывается и монтируется: на каждые 5 минут видео сверх первых — ещё столько же
+  const scale = Math.max(1, (view.duration ?? 0) / 300);
+  const limit = state === 'queued' ? STUCK_MS.queued : state === 'analyzing' || state === 'rendering' ? STUCK_MS[state] * scale : null;
   const stuck = limit !== null && age > limit ? 'session' : state === 'rendered' && age > STUCK_MS.delivery ? 'delivery' : null;
   return { ...view, screen: 'working', stuck };
 }
@@ -203,6 +213,8 @@ export function canRun(v: JobView, a: Action): string | null {
       return v.screen === 'result' ? null : 'Поправить можно готовый ролик';
     case 'retry':
       return v.screen === 'error' || v.stuck ? null : 'Повторять нечего: шаг идёт';
+    case 'back':
+      return v.screen === 'error' && (v.step === 'restyle' || v.step === 'render' || v.step === 'fix') ? null : 'Вернуться некуда: шаг можно только повторить';
     case 'delete':
       return v.screen === 'working' && !v.stuck ? 'Claude ещё работает — дождитесь или перезапустите шаг' : null;
   }

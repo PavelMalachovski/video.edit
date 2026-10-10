@@ -109,7 +109,10 @@ test('matchPending resumes re-picked files and drops the rest', () => {
   assert.equal(m.ok, true);
   assert.deepEqual([...m.inserts.entries()], [['upload-i1.png', a]]);
   assert.deepEqual(m.dropped, ['b.mov']);
-  assert.equal(matchPending(pending, file('clip.mov', 10, 112), [a]).ok, false); // другое время изменения
+  // iPhone отдаёт свежую копию из «Фото»: время изменения — момент выбора; совпадают имя и размер до байта
+  const again = matchPending(pending, file('clip.mov', 10, 999), [file('a.png', 3, 777)]);
+  assert.equal(again.ok, true);
+  assert.deepEqual([...again.inserts.keys()], ['upload-i1.png']);
   assert.equal(matchPending(pending, file('clip.mov', 11, 111), [a]).ok, false);
   assert.equal(matchPending(pending, file('other.mov', 10, 111), [a]).ok, false);
 });

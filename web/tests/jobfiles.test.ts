@@ -115,3 +115,13 @@ test('parseNote trims and limits to 2000 chars', () => {
   assert.equal(parseNote({ text: 'я'.repeat(2000) }), 'я'.repeat(2000));
   assert.ok(typeof parseNote(null) === 'object');
 });
+
+test('own font ids from assets/fonts pass: Cyrillic, spaces, -hand', () => {
+  const body = (font: string, hand: string) => ({ answers: {}, style: { variant: 'A', font, hand, colors: { text: '#FFFFFF', accent: '#FFD23F', bar: '#FFD23F' } } });
+  const ok = parseAnswersBody(body('Pacifico Regular', 'Мой почерк-hand'), []);
+  assert.ok(!('error' in ok), JSON.stringify(ok));
+  if (!('error' in ok)) assert.deepEqual([ok.style.font, ok.style.hand], ['Pacifico Regular', 'Мой почерк-hand']);
+  for (const bad of ['', '   ', 'a\nb', 'x'.repeat(201), 'шрифты/свой']) {
+    assert.ok('error' in parseAnswersBody(body(bad, 'caveat'), []), JSON.stringify(bad));
+  }
+});

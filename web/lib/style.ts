@@ -64,7 +64,7 @@ export function sampleState(spec: StyleSpec, sample: Styles['sample'], hook: str
     const spoken = Math.min(Math.max(0, Math.trunc(sample.spoken) || 0), words.length - 1);
     const phrase = phrases.find((p) => p.includes(spoken)) ?? [spoken];
     const mode = spec.subtitles.mode;
-    const size = mode === 'accumulate' ? ACCUMULATE_BLOCK : mode === 'word' ? 1 : spec.subtitles.words;
+    const size = mode === 'accumulate' ? ACCUMULATE_BLOCK : mode === 'word' ? 1 : Math.max(1, Math.trunc(spec.subtitles.words) || 1);
     const total = phrase.length;
     const count = Math.ceil(total / size);
     for (let k = 0; k < count; k++) {

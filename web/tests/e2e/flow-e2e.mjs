@@ -333,6 +333,19 @@ const segments = [
     const src = await page.locator('video').getAttribute('src');
     check(/name=final-v2\.mp4$/.test(src ?? ''), `видео второй версии: ${src}`);
     check(await page.getByText('логотип левее').count() > 0, 'прошлая правка не показана');
+
+    // правка не получилась — вернуть готовый ролик и попросить иначе
+    await page.getByLabel('Поправить').fill('субтитры крупнее');
+    await page.getByRole('button', { name: 'Переделать' }).click();
+    await until(async () => (await fires()).filter((f) => f.step === 'fix').length === 2, 10_000, 'вторая правка запущена');
+    await session(ctx, { 'status.json': { state: 'error', phase: 'Ошибка', message: 'Не получилось применить правку', at: iso(), error: 'шрифт не найден' } });
+    await page.getByText('Не получилось применить правку').waitFor({ timeout: 7000 });
+    await page.getByRole('button', { name: 'Вернуть готовый ролик' }).click();
+    await page.getByText('Что я сделал').waitFor({ timeout: 7000 });
+    check(/name=final-v2\.mp4$/.test((await page.locator('video').getAttribute('src')) ?? ''), 'вернулся не тот ролик');
+    const fixes = JSON.parse((await branchFile(ctx, 'fix.json')) ?? '{}').fixes ?? [];
+    check(fixes.length === 1 && fixes[0].text === 'логотип левее', `fix.json после «Вернуть»: ${JSON.stringify(fixes)}`);
+    check((await fires()).filter((f) => f.step === 'fix').length === 2, '«Вернуть» ничего не запускает');
   }],
 ];
 

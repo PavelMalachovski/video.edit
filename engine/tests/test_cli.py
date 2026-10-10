@@ -163,6 +163,29 @@ def test_fetch_joins_upload_parts(tmp_path, github):
     assert (job / "in" / "source.mov").read_bytes() == body
 
 
+def test_fetch_takes_only_referenced_uploads(tmp_path, github):
+    # заново выбранная картинка к ответу лежит новым ассетом, а брошенная (оборванная) осталась в черновике:
+    # качаются исходник, вставки манифеста и картинки ответов, остальное — нет, иначе дыра в брошенной валит шаг
+    body = random.Random(11).randbytes(5000)
+    pic = random.Random(12).randbytes(2500)
+    insert = random.Random(13).randbytes(1500)
+    gone = parts("upload-q-logo.png", random.Random(14).randbytes(5000), 2000)
+    gone.pop("upload-q-logo.png.part-00000")  # загрузка оборвалась
+    dropped = parts("upload-i2.mov", random.Random(15).randbytes(3000), 2000)  # не выбрана заново при продолжении
+    uploads = [{"asset": "upload-i1.png", "name": "a.png", "size": len(insert), "type": "image/png", "parts": 1}]
+    github.draft("job-abc", {**parts("source", body, 3000), **parts("upload-i1.png", insert, 2000), **gone, **dropped,
+                             **parts("upload-q-logo-2.png", pic, 2000), "manifest.json": manifest("a.mp4", body, 2, uploads=uploads)})
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    job.write("answers.json", {"answers": {"logo": "upload"}, "uploads": {"logo": "in/uploads/upload-q-logo-2.png"},
+                               "style": {"variant": "A", "font": "montserrat", "hand": "caveat",
+                                         "colors": {"text": "#FFFFFF", "accent": "#FFD23F", "bar": "#FFD23F"}}})
+    assert main(["fetch", str(job.root)]) == 0
+    assert job.path("in/uploads/upload-q-logo-2.png").read_bytes() == pic
+    assert job.path("in/uploads/upload-i1.png").read_bytes() == insert
+    assert not job.path("in/uploads/upload-q-logo.png").exists() and not job.path("in/uploads/upload-i2.mov").exists()
+
+
 def test_fetch_rejects_upload_size_mismatch(tmp_path, github, capsys):
     body = random.Random(9).randbytes(5000)
     pic = random.Random(10).randbytes(2500)

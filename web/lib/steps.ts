@@ -3,7 +3,7 @@
 // стартовав, уже видит всё в ветке. Текст запуска — только {job, step, attempt}.
 import { commitFiles, deleteBranch, readText } from './branch.ts';
 import { deleteRelease, findReleaseByTag, listAllAssets, readAssetText, type GH } from './github.ts';
-import { buildJobFile, errorStatus, queuedStatus, type JobFile, type Manifest, type Run } from './jobfiles.ts';
+import { backStatus, buildJobFile, errorStatus, queuedStatus, type FixFile, type JobFile, type Manifest, type Run } from './jobfiles.ts';
 import { jobBranch, jobDir, jobTag } from './jobs.ts';
 import { fireRoutine, RoutineError, type Routine, type Step } from './routine.ts';
 
@@ -72,6 +72,30 @@ export async function retryStep(d: Deps, id: string): Promise<{ attempt: number;
   const last = job?.runs.at(-1);
   if (!last) return startJob(d, id);
   return runStep(d, id, last.step, {}, { retry: true });
+}
+
+/**
+ * Шаг сорвался из-за входных данных — вернуться к последнему хорошему: после restyle и render снова ждём ответов (файлы
+ * шага остаются: прежние стили, ответы), после fix снимается последняя, не доставленная правка — экран «Готово» с
+ * прежним роликом. Ничего не запускает.
+ */
+export async function backStep(d: Deps, id: string): Promise<{ screen: 'questions' | 'result' }> {
+  const now = (d.now ?? (() => new Date()))();
+  const dir = jobDir(id);
+  const branch = jobBranch(id);
+  const last = (await readJob(d.gh, id))?.runs.at(-1);
+  if (!last || last.step === 'analyze') throw new Error('Вернуться некуда: шаг можно только повторить');
+  if (last.step === 'fix') {
+    const text = await readText(d.gh, branch, `${dir}/fix.json`);
+    const fixes = text ? (JSON.parse(text) as FixFile).fixes ?? [] : [];
+    const dropped = fixes.at(-1);
+    if (!dropped) throw new Error('Правок нет — возвращать нечего');
+    await commitFiles(d.gh, branch, { [`${dir}/fix.json`]: json({ fixes: fixes.slice(0, -1) }), [`${dir}/status.json`]: json(backStatus('fix', now)) },
+      `web(${id}): правка ${dropped.version} отменена`);
+    return { screen: 'result' };
+  }
+  await commitFiles(d.gh, branch, { [`${dir}/status.json`]: json(backStatus(last.step, now)) }, `web(${id}): назад к ответам после ${last.step}`);
+  return { screen: 'questions' };
 }
 
 /** Удалить задачу: сначала ветку, потом черновик с видео; чего уже нет — пропускается. */

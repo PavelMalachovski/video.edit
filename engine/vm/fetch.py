@@ -1,8 +1,9 @@
 """Входные файлы задачи из черновика релиза `job-<id>`: куски `<файл>.part-NNNNN` склеиваются по порядку номеров.
 
-`source` → `in/source.<расширение из manifest.json>`, `upload-*` (вставки к ролику и картинки к ответам) →
-`in/uploads/<файл>`. Размер каждого склеенного файла сверяется с манифестом, и все группы проверяются до того, как
-качать тяжёлое. Уже скачанный файл нужного размера второй раз не качается; оборванный запуск продолжается с уже
+`source` → `in/source.<расширение из manifest.json>`; вставки к ролику (`uploads` манифеста) и картинки к ответам
+(`uploads` в answers.json) → `in/uploads/<файл>`. Другие группы `upload-*` в черновике — брошенные загрузки (картинку
+выбрали заново, вставку не выбрали при продолжении): их не качаем. Размер каждого склеенного файла сверяется с
+манифестом, и все группы проверяются до того, как качать тяжёлое. Уже скачанный файл нужного размера второй раз не качается; оборванный запуск продолжается с уже
 скачанных кусков (`work/fetch/<файл>/`). Ходим через curl, как проверяли в облачной сессии: прокси сессии сам
 авторизует GitHub для video.edit (`GITHUB_TOKEN` там — заглушка `proxy-injected`; настоящий токен из окружения
 передаётся заголовком, и curl не отдаёт его на чужой хост при переходе на подписанную ссылку ассета). Обрыв
@@ -120,6 +121,14 @@ def _join(api: str, repo: str, pieces: list[dict], dest: Path, work: Path) -> No
     shutil.rmtree(work, ignore_errors=True)
 
 
+def _answer_uploads(job: Job) -> list[str]:
+    """Ассеты картинок к ответам, на которые ссылается answers.json (`in/uploads/<ассет>`); ответов ещё нет — []."""
+    if not job.path("answers.json").is_file():
+        return []
+    uploads = job.read("answers.json").get("uploads") or {}
+    return sorted({Path(rel).name for rel in uploads.values() if isinstance(rel, str) and rel.startswith("in/uploads/upload-")})
+
+
 def fetch(job: Job) -> dict[str, Path]:
     """Скачать и склеить входные файлы задачи. → {имя группы: путь} (source и upload-*)."""
     api, repo, tag = _api(), _repo(job), f"job-{job.id}"
@@ -148,9 +157,8 @@ def fetch(job: Job) -> dict[str, Path]:
     }
     for up in uploads:
         targets[up["asset"]] = (job.path(f"in/uploads/{up['asset']}"), up.get("size"), up.get("parts"))
-    for name in groups:
-        if name.startswith("upload-") and name not in targets:  # манифест без списка загрузок — без сверки размера
-            targets[name] = (job.path(f"in/uploads/{name}"), None, None)
+    for name in _answer_uploads(job):  # картинок к ответам в манифесте нет — размер не сверить
+        targets.setdefault(name, (job.path(f"in/uploads/{name}"), None, None))
 
     plan = []  # сначала все группы: битая загрузка вставки найдётся до того, как скачаны 2 ГБ исходника
     for name, (dest, size, count) in targets.items():

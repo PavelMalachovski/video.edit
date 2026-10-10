@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildAnswers, initialDraft, loadDraft, pick, previewHook, saveDraft, type LocalUpload } from '../lib/answers.ts';
+import { buildAnswers, initialDraft, loadDraft, pick, pictureAsset, previewHook, saveDraft, type LocalUpload } from '../lib/answers.ts';
 import type { Question } from '../lib/jobfiles.ts';
 import { blockedStorage, memoryStorage } from './helpers.ts';
 
@@ -104,4 +104,10 @@ test('saved draft survives reload and drops unknown options; corrupt storage giv
   assert.deepEqual(loadDraft(blockedStorage, id, QS), initialDraft(QS));
   assert.deepEqual(loadDraft(null, id, QS), initialDraft(QS));
   saveDraft(blockedStorage, id, d); // не бросает
+});
+
+test('a re-picked answer picture never reuses an asset that has parts in the draft', () => {
+  assert.deepEqual(pictureAsset('logo', 'мой.png', 'image/png', new Set()), { asset: 'upload-q-logo.png', n: 1 });
+  assert.deepEqual(pictureAsset('logo', 'мой.png', 'image/png', new Set(['upload-q-logo.png'])), { asset: 'upload-q-logo-2.png', n: 2 });
+  assert.deepEqual(pictureAsset('logo', 'b.jpg', 'image/jpeg', new Set(['upload-q-logo-2.jpg']), 2), { asset: 'upload-q-logo-3.jpg', n: 3 });
 });

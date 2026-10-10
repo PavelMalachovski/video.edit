@@ -4,7 +4,7 @@ import { getHead } from '../lib/branch.ts';
 import { findReleaseByTag } from '../lib/github.ts';
 import { appendFix } from '../lib/jobfiles.ts';
 import { fireText } from '../lib/routine.ts';
-import { deleteJob, retryStep, runStep, startJob, type Deps } from '../lib/steps.ts';
+import { backStep, deleteJob, retryStep, runStep, startJob, type Deps } from '../lib/steps.ts';
 import { withFake } from './helpers.ts';
 
 const ID = '261010-070509-abcd';
@@ -99,4 +99,36 @@ test('deleteJob removes the branch, then the release, and tolerates missing ones
   assert.equal(await findReleaseByTag(gh, `job-${ID}`), null);
   await deleteJob(gh, ID);
   await assert.rejects(runStep({ gh, routine, now: () => NOW }, ID, 'render', {}), /не найдена|404/);
+}));
+
+test('back after a failed restyle or render waits for answers again, without a fire', () => withFake(async ({ fake, gh, routine }) => {
+  fake.addAsset(`job-${ID}`, 'manifest.json', JSON.stringify(MANIFEST));
+  const d: Deps = { gh, routine, now: () => NOW };
+  await startJob(d, ID);
+  await runStep(d, ID, 'restyle', { 'restyle.json': JSON.stringify({ requests: [{ text: 'без плашки', at: NOW.toISOString() }] }) });
+  const fires = fake.fires.length;
+  assert.deepEqual(await backStep(d, ID), { screen: 'questions' });
+  const st = read(fake, `claude/job-${ID}`, 'status.json');
+  assert.equal(st.state, 'waiting_answers');
+  assert.equal(st.needs, 'answers');
+  assert.equal(fake.fires.length, fires, 'going back runs nothing');
+}));
+
+test('back after a failed fix drops that fix and keeps the finished video', () => withFake(async ({ fake, gh, routine }) => {
+  fake.addAsset(`job-${ID}`, 'manifest.json', JSON.stringify(MANIFEST));
+  const d: Deps = { gh, routine, now: () => NOW };
+  await startJob(d, ID);
+  const first = appendFix(null, 'логотип левее', NOW);
+  const second = appendFix(first, 'субтитры крупнее', NOW);
+  await runStep(d, ID, 'fix', { 'fix.json': JSON.stringify(second) });
+  assert.deepEqual(await backStep(d, ID), { screen: 'result' });
+  assert.deepEqual(read(fake, `claude/job-${ID}`, 'fix.json'), first);
+  assert.equal(read(fake, `claude/job-${ID}`, 'status.json').state, 'rendered');
+}));
+
+test('back after a failed analyze is refused', () => withFake(async ({ fake, gh, routine }) => {
+  fake.addAsset(`job-${ID}`, 'manifest.json', JSON.stringify(MANIFEST));
+  const d: Deps = { gh, routine, now: () => NOW };
+  await startJob(d, ID);
+  await assert.rejects(backStep(d, ID), /некуда/);
 }));

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { canRun, deriveView, readJobFiles, stepIndex, STUCK_MS, type Action, type JobFiles, type Screen } from '../lib/jobview.ts';
+import { canRun, deriveView, readJobFiles, stepIndex, STUCK_MS, type Action, type JobFiles, type JobView, type Screen } from '../lib/jobview.ts';
 import type { Release } from '../lib/github.ts';
 import type { JobFile, Status } from '../lib/jobfiles.ts';
 import { withFake } from './helpers.ts';
@@ -17,8 +17,14 @@ const job = (runs: JobFile['runs'] = [{ step: 'analyze', attempt: 1, at: new Dat
   id: ID, name: 'IMG_1.MOV', size: 1, type: 'video/quicktime', duration: 75, createdAt: new Date(T0).toISOString(), brief: '', uploads: [], runs,
 });
 const status = (state: Status['state'], at = T0): Status => ({ state, phase: 'Фаза', message: 'Текст', at: new Date(at).toISOString() });
+const QUESTIONS = [{ id: 'cut', type: 'choice' as const, title: 'Резать?', options: [{ id: 'all', label: 'Всё' }], default: 'all' }];
+const SPEC = {
+  font: 'montserrat', hand: 'caveat', colors: { text: '#FFFFFF', accent: '#FFD23F', bar: '#FFD23F', plate: '#111111', outline: '#000000' },
+  subtitles: { mode: 'karaoke' as const, words: 3, size: 64, y: 1300 }, hook: { mode: 'plate' as const, size: 72, y: 400 }, bar: { pos: 'bottom' as const, height: 14 },
+};
+const STYLES = { frame: 'frame.png', frameTime: 1, sample: { words: ['раз'], spoken: 0 }, variants: (['A', 'B', 'C'] as const).map((id) => ({ id, label: id, spec: SPEC })) };
 const files = (over: Partial<JobFiles> = {}): JobFiles => ({
-  head: 'h1', job: job(), status: status('analyzing'), statusBroken: false, questions: null, styles: null, answers: null, result: null,
+  head: 'h1', full: true, job: job(), status: status('analyzing'), statusBroken: false, questions: QUESTIONS, styles: STYLES, answers: null, result: null,
   fix: null, restyle: null, released: null, ...over,
 });
 const delivered = (...names: string[]) => ({ release_id: 7, assets: names.map((name, i) => ({ name, id: 200 + i, size: 1 })), at: new Date(T0).toISOString() });
@@ -38,7 +44,7 @@ test('no branch is not_started; runs without status is error', () => {
 });
 
 test('session states map to screens', () => {
-  assert.equal(deriveView(release(), files({ status: status('waiting_answers') }), T0).screen, 'questions');
+  assert.equal(deriveView(release(), files({ status: status('waiting_answers') }), T0).screen, 'questions'); // вопросы и стили есть
   for (const s of ['queued', 'analyzing', 'rendering', 'rendered'] as const) {
     assert.equal(deriveView(release(), files({ status: status(s) }), T0).screen, 'working', s);
   }
@@ -146,3 +152,62 @@ test('stepIndex follows the screen and the running step', () => {
   assert.equal(at('fix', 'error'), 4);
   assert.equal(stepIndex(deriveView(release(), files({ released: delivered('final.mp4') }), T0)), 5); // всё готово
 });
+
+test('a failed step can go back to its last good state', () => {
+  const failed = (step: 'analyze' | 'restyle' | 'render' | 'fix') =>
+    deriveView(release(), files({ job: job([{ step, attempt: 1, at: new Date(T0).toISOString() }]), status: status('error') }), T0);
+  assert.equal(canRun(failed('restyle'), 'back'), null, 'to the previews');
+  assert.equal(canRun(failed('render'), 'back'), null, 'to the answers');
+  assert.equal(canRun(failed('fix'), 'back'), null, 'to the finished video');
+  assert.ok(canRun(failed('analyze'), 'back'), 'nothing before analyze');
+  const working: JobView = deriveView(release(), files({ status: status('rendering') }), T0);
+  assert.ok(canRun(working, 'back'), 'only after an error');
+});
+
+test('long videos get more time before «завис»', () => {
+  const at = (duration: number, minutes: number) => deriveView(release(),
+    files({ job: { ...job(), duration }, status: status('rendering', T0 - minutes * MIN) }), T0).stuck;
+  assert.equal(at(120, 30), 'session', 'a 2-minute video rendering for 30 min is stuck');
+  assert.equal(at(600, 30), null, 'a 10-minute video gets twice the time');
+  assert.equal(at(600, 55), 'session');
+});
+
+test('waiting for answers without questions or styles is an error with retry', () => {
+  for (const missing of [{ questions: null }, { styles: null }]) {
+    const v = deriveView(release(), files({ status: status('waiting_answers'), ...missing }), T0);
+    assert.equal(v.screen, 'error', JSON.stringify(missing));
+    assert.match(v.status?.message ?? '', /вопрос|стил/);
+    assert.equal(canRun(v, 'retry'), null);
+  }
+  const list = deriveView(release(), files({ full: false, status: status('waiting_answers'), questions: null, styles: null }), T0);
+  assert.equal(list.screen, 'questions', 'the list does not read questions — no false error there');
+});
+
+test('a missing read is not remembered for the commit', () => withFake(async ({ fake, gh }) => {
+  const head = fake.commit(`claude/job-${ID}`, { [`jobs/${ID}/job.json`]: JSON.stringify(job()), [`jobs/${ID}/status.json`]: JSON.stringify(status('analyzing')) });
+  let fail = true;
+  const flaky = { ...gh, fetch: (async (url: string | URL, init?: RequestInit) => {
+    if (fail && String(url).includes(`/contents/jobs/${ID}`)) {
+      fail = false;
+      return new Response('{"message":"Not Found"}', { status: 404 });
+    }
+    return fetch(url, init);
+  }) as typeof fetch };
+  assert.equal(await readJobFiles(flaky, ID, head), null, 'a transient 404 right after a push');
+  assert.notEqual(await readJobFiles(flaky, ID, head), null, 'the next poll reads it again');
+}));
+
+test('malformed session files read as missing', () => withFake(async ({ fake, gh }) => {
+  const head = fake.commit(`claude/job-${ID}`, {
+    [`jobs/${ID}/job.json`]: JSON.stringify(job()),
+    [`jobs/${ID}/status.json`]: JSON.stringify(status('waiting_answers')),
+    [`jobs/${ID}/questions.json`]: JSON.stringify({ questions: [{ type: 'choice', title: 'без id' }] }),
+    [`jobs/${ID}/styles.json`]: JSON.stringify({ ...STYLES, variants: STYLES.variants.map((v) => ({ ...v, spec: { ...v.spec, subtitles: { ...v.spec.subtitles, words: 0 } } })) }),
+    [`jobs/${ID}/result.json`]: JSON.stringify({ durations: { source: 1 }, done: 'всё' }),
+  });
+  const f = await readJobFiles(gh, ID, head);
+  assert.equal(f?.questions, null);
+  assert.equal(f?.styles, null);
+  assert.equal(f?.result, null);
+  assert.equal(deriveView(release(), f, T0).screen, 'error');
+}));

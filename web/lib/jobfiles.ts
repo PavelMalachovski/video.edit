@@ -43,6 +43,14 @@ export function errorStatus(message: string, error: string, now: Date): Status {
   return { state: 'error', phase: 'Не запустилось', message, at: now.toISOString(), needs: null, progress: null, error };
 }
 
+/** Статус после «назад» со сорвавшегося шага: снова ждём ответов (restyle, render) или остаётся готовый ролик (fix). */
+export function backStatus(step: Step, now: Date): Status {
+  const at = now.toISOString();
+  if (step === 'fix') return { state: 'rendered', phase: 'Готово', message: 'Правка не получилась — остался прежний ролик', at, needs: null, progress: null, error: null };
+  const message = step === 'restyle' ? 'Новые варианты не получились — выбери из прежних или попроси иначе' : 'Монтаж не получился — поправь ответы или стиль и запусти снова';
+  return { state: 'waiting_answers', phase: 'Ждёт ответов', message, at, needs: 'answers', progress: null, error: null };
+}
+
 // ---------- questions.json ----------
 
 export const QUESTION_TYPES = ['choice', 'text', 'word', 'insert', 'multi'] as const;
@@ -53,6 +61,20 @@ export type Question = { id: string; type: QuestionType; title: string; body?: s
 /** Зарезервированные id: вопрос `hook` (его ответ — хук превью); варианты «свой текст», «своя картинка», «не надо». */
 export const RESERVED = { hook: 'hook', own: 'own', upload: 'upload', none: 'none' } as const;
 export const ownKey = (qid: string): string => `${qid}.own`;
+
+/** questions.json сессии → вопросы; не та форма — null (страница скажет, что вопросов нет, и даст повторить шаг). */
+export function parseQuestions(raw: unknown): Question[] | null {
+  const list = isObject(raw) ? raw.questions : null;
+  if (!Array.isArray(list)) return null;
+  const optionOk = (o: unknown) => isObject(o) && isStr(o.id) && o.id !== '' && isStr(o.label) && (o.image === undefined || isStr(o.image));
+  for (const q of list) {
+    if (!isObject(q) || !isStr(q.id) || q.id === '' || !QUESTION_TYPES.includes(q.type as QuestionType) || !isStr(q.title)) return null;
+    if ((q.body !== undefined && !isStr(q.body)) || (q.image !== undefined && !isStr(q.image))) return null;
+    if (q.options !== undefined && !(Array.isArray(q.options) && q.options.every(optionOk))) return null;
+    if (q.default !== undefined && !isStr(q.default) && !(Array.isArray(q.default) && q.default.every(isStr))) return null;
+  }
+  return list as Question[];
+}
 
 // ---------- styles.json ----------
 
@@ -72,6 +94,31 @@ export type Styles = {
   variants: { id: 'A' | 'B' | 'C'; label: string; spec: StyleSpec }[];
 };
 export type StyleChoice = { variant: 'A' | 'B' | 'C'; font: string; hand: string; colors: { text: string; accent: string; bar: string } };
+
+function isSpec(s: unknown): s is StyleSpec {
+  if (!isObject(s) || !isFontId(s.font) || !isFontId(s.hand) || !isObject(s.colors)) return false;
+  const colors = s.colors;
+  if (!['text', 'accent', 'bar', 'plate', 'outline'].every((k) => isStr(colors[k]) && COLOR.test(colors[k] as string))) return false;
+  const { subtitles: sub, hook, bar } = s;
+  return isObject(sub) && ['karaoke', 'plate', 'word', 'accumulate'].includes(sub.mode as string) && Number.isInteger(sub.words)
+    && (sub.words as number) >= 2 && (sub.words as number) <= 6 && isNum(sub.size) && sub.size > 0 && isNum(sub.y)
+    && isObject(hook) && ['plate', 'outline', 'shadow'].includes(hook.mode as string) && isNum(hook.size) && hook.size > 0
+    && (hook.y === undefined || isNum(hook.y))
+    && isObject(bar) && (bar.pos === 'bottom' || bar.pos === 'top') && isNum(bar.height) && bar.height > 0;
+}
+
+/** styles.json сессии → стили для превью; не та форма — null. */
+export function parseStyles(raw: unknown): Styles | null {
+  if (!isObject(raw) || !isStr(raw.frame) || raw.frame === '' || !isNum(raw.frameTime) || raw.frameTime < 0) return null;
+  const sample = raw.sample;
+  if (!isObject(sample) || !Array.isArray(sample.words) || !sample.words.every(isStr) || !Number.isInteger(sample.spoken) || (sample.spoken as number) < 0) return null;
+  if (sample.hook !== undefined && !isStr(sample.hook)) return null;
+  const insertOk = (i: unknown) => isObject(i) && ['image', 'badge', 'sticker', 'anim'].includes(i.kind as string) && isNum(i.x) && isNum(i.y) && isNum(i.w) && i.w > 0;
+  if (sample.inserts !== undefined && !(Array.isArray(sample.inserts) && sample.inserts.every(insertOk))) return null;
+  const v = raw.variants;
+  if (!Array.isArray(v) || v.length !== 3 || !v.every((x, k) => isObject(x) && x.id === 'ABC'[k] && isStr(x.label) && isSpec(x.spec))) return null;
+  return raw as Styles;
+}
 
 // ---------- manifest.json и job.json ----------
 
@@ -108,13 +155,17 @@ export type UploadClaim = { asset: string; name: string; size: number; type: str
 export type ParsedAnswers = { answers: Record<string, string | string[]>; style: StyleChoice; uploads: Record<string, UploadClaim> };
 
 const COLOR = /^#[0-9A-Fa-f]{6}$/;
-const FONT = /^[A-Za-z0-9._-]{1,64}$/;
+const isStr = (x: unknown): x is string => typeof x === 'string';
+const isNum = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
+
+/** id шрифта: встроенный (`montserrat`) или свой — имя файла из assets/fonts без расширения (кириллица и пробелы можно). */
+const isFontId = (x: unknown): x is string => isStr(x) && x.trim() !== '' && x.length <= 200 && !/[\u0000-\u001f\u007f/\\]/.test(x);
 
 function parseStyle(raw: unknown): StyleChoice | string {
   if (!isObject(raw)) return 'style: нужен объект';
   const { variant, font, hand, colors } = raw;
   if (variant !== 'A' && variant !== 'B' && variant !== 'C') return 'style.variant: A, B или C';
-  if (typeof font !== 'string' || !FONT.test(font) || typeof hand !== 'string' || !FONT.test(hand)) return 'style: шрифт не такой';
+  if (!isFontId(font) || !isFontId(hand)) return 'style: шрифт не такой';
   if (!isObject(colors) || !['text', 'accent', 'bar'].every((k) => typeof colors[k] === 'string' && COLOR.test(colors[k] as string))) {
     return 'style.colors: нужны #RRGGBB для text, accent, bar';
   }
@@ -208,4 +259,13 @@ export type ResultFile = {
   missing: string[];
   qa: { ok: boolean; problems: string[] };
 };
+
+/** result.json (его дописывает и сессия) → итоги; не та форма — null: экран «Готово» покажет ролик без итогов. */
+export function parseResult(raw: unknown): ResultFile | null {
+  if (!isObject(raw) || !isObject(raw.durations) || !isNum(raw.durations.source) || !isNum(raw.durations.final)) return null;
+  const lists = ['done', 'unsure', 'missing'].every((k) => Array.isArray(raw[k]) && (raw[k] as unknown[]).every(isStr));
+  const qa = raw.qa;
+  if (!lists || !isObject(qa) || typeof qa.ok !== 'boolean' || !Array.isArray(qa.problems) || !qa.problems.every(isStr)) return null;
+  return raw as ResultFile;
+}
 

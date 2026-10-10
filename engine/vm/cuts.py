@@ -12,6 +12,9 @@
   words.json вручную, и `t1` слова может оказаться за `t0` следующего).
 * Вырезка из `extra_cuts` расширяется до границ задетых слов (задето — значит, у слова с вырезкой есть общий кусок
   времени), и эти слова уходят целиком. Паузы считаются между оставшимися словами.
+* `speech` — где речь по VAD. Внутри неё не режем (кроме `extra_cuts`): GigaAM бывает не разбирает слово или фразу
+  (на синтетической речи — целые фразы), и без VAD мягкая резка приняла бы их за паузу. Паузы между фразами VAD
+  (от 0,3 с) ужимаются как обычно.
 
 Результат — отрезки исходника по возрастанию, без пересечений и стыков; каждый длиннее `EPS`.
 Время в секундах от начала исходника, как в words.json.
@@ -32,6 +35,7 @@ def plan_keep(
     pad_before: float = 0.12,
     pad_after: float = 0.08,
     extra_cuts: Iterable[tuple[float, float]] = (),
+    speech: Iterable[tuple[float, float]] = (),
 ) -> list[tuple[float, float]]:
     """Отрезки исходника, которые остаются: `[(начало, конец), ...]` по возрастанию, без пересечений.
 
@@ -52,7 +56,9 @@ def plan_keep(
     if not words:
         return _without(0.0, duration, cuts)
 
-    heard = sorted((w for w in words if not any(_overlap(w, c0, c1) > EPS for c0, c1 in cuts)), key=_by_start)
+    voiced = [Word(a, b, "") for s0, s1 in speech for a, b in _without(s0, s1, cuts)]  # речь по VAD без вырезок
+    kept_words = [w for w in words if not any(_overlap(w, c0, c1) > EPS for c0, c1 in cuts)]
+    heard = sorted(kept_words + (voiced if kept_words else []), key=_by_start)
     if not heard:
         return []
     before = min(pad_before, keep_pause)  # от ужатой паузы перед следующим словом — не больше keep_pause

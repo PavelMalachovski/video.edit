@@ -6,6 +6,7 @@
 import difflib
 import json
 import re
+import shutil
 import subprocess
 from itertools import pairwise
 from pathlib import Path
@@ -792,3 +793,42 @@ def test_models_are_loaded_once_per_process():
     giga, whisper = (str(asr._model(*args)) for args in (("ASR_MODEL", asr.GIGAAM), ("ASR_REF_MODEL", asr.WHISPER)))
     assert asr._gigaam(giga) is asr._gigaam(giga)
     assert asr._whisper(whisper) is asr._whisper(whisper)
+
+
+# ---------- найдено сквозным прогоном (План 2, задача 14) ----------
+
+SENTENCES = [  # фраза и пауза после неё, с
+    ("Сегодня покажу, как я монтирую ролики за десять минут.", 0.9),
+    ("Я снимаю, я снимаю всё на айфон, без штатива.", 2.2),
+    ("Сюда добавь мой логотип.", 0.9),
+    ("Обычно монтажёр стоит пять тысяч рублей.", 0.8),
+    ("А этот способ почти бесплатный.", 0.9),
+    ("Главное — убрать паузы и оставить только смысл.", 1.0),
+    ("Пишите мне слово монтаж, и я пришлю подробный гайд.", 0.8),
+]
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(shutil.which("espeak-ng") is None, reason="espeak-ng is not installed")
+def test_transcribe_keeps_speech_that_a_long_chunk_loses(tmp_path):
+    # 30 с синтетической речи фразами: целиком GigaAM на ней замолкает после первой фразы (0 слов на 25+ с),
+    # а по фразам (VAD) слышит всё — кусок с подозрительно малым числом слов перераспознаётся по фразам
+    pieces = [np.zeros(int(0.6 * RATE), "float32")]
+    for k, (text, gap) in enumerate(SENTENCES):
+        raw = tmp_path / f"s{k}.wav"
+        subprocess.run(["espeak-ng", "-v", "ru", "-s", "150", "-w", str(raw), text], check=True)
+        wav = extract_wav(raw, tmp_path / f"s{k}-16k.wav")
+        pieces += [soundfile.read(wav, dtype="float32")[0], np.zeros(int(gap * RATE), "float32")]
+    path = tmp_path / "voice.wav"
+    soundfile.write(path, np.concatenate(pieces), RATE)
+    words = transcribe(path)
+    assert len(words) >= 25, [w.text for w in words]
+    assert words[0].t0 < 2.0 and words[-1].t0 > 24.0, (words[0], words[-1])
+
+
+def test_speech_spans_are_seconds_of_speech(speech):
+    spans = asr.speech_spans(speech.wav)
+    assert spans and all(b > a for a, b in spans)
+    assert spans[0][0] == pytest.approx(speech.words[0].t0, abs=0.3)
+    assert spans[-1][1] == pytest.approx(speech.words[-1].t1, abs=0.3)
+

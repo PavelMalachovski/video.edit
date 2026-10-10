@@ -248,3 +248,36 @@ def test_random_speech_gives_ordered_segments_and_whole_words():
         cuts = random_cuts(rng, duration)
         keep = plan_keep(words, duration, extra_cuts=cuts)
         assert_ordered_and_whole(keep, words, duration, cuts, f"seed {seed}, cuts {cuts}: {keep}")
+
+
+# ---------- речь по VAD (найдено сквозным прогоном) ----------
+
+
+def covered(keep, a: float, b: float) -> bool:
+    return any(k0 <= a + 1e-9 and b <= k1 + 1e-9 for k0, k1 in keep)
+
+
+def test_speech_without_words_is_not_cut():
+    # GigaAM не разобрал фразу 2–3 с: без VAD мягкая резка приняла бы её за паузу
+    words = [Word(0.0, 1.0, "раз"), Word(5.0, 6.0, "два")]
+    keep = plan_keep(words, 7.0, speech=[(0.0, 1.0), (2.0, 3.0), (5.0, 6.0)])
+    assert covered(keep, 2.0, 3.0), keep
+    assert not covered(keep, 3.5, 4.5), "the pauses around it still shrink"
+
+
+def test_speech_keeps_the_tail_of_a_word_cut_short_by_asr():
+    words = [Word(0.5, 1.0, "раз"), Word(1.1, 1.4, "айфон")]  # «без штатива» GigaAM не услышал
+    keep = plan_keep(words, 4.0, speech=[(0.45, 2.4)])
+    assert covered(keep, 0.45, 2.4)
+
+
+def test_an_extra_cut_still_cuts_inside_speech():
+    words = [Word(0.2, 0.6, "я"), Word(0.8, 1.2, "снимаю"), Word(1.5, 2.0, "снимаю")]
+    keep = plan_keep(words, 3.0, extra_cuts=[(0.9, 1.0)], speech=[(0.1, 2.1)])
+    assert covered(keep, 0.2, 0.6) and covered(keep, 1.5, 2.0)
+    assert not any(k0 < 1.2 - 1e-9 and k1 > 0.8 + 1e-9 for k0, k1 in keep), keep
+
+
+def test_speech_without_any_words_changes_nothing():
+    assert plan_keep([], 5.0, speech=[(1.0, 2.0)]) == [(0.0, 5.0)]
+

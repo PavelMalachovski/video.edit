@@ -2,7 +2,8 @@
 
 Видео из `in/` (`in/source.*`, как кладёт fetch; иначе все видео по имени) → `source.mp4` (1080×1920 SDR 30 к/с)
 → `work/source.wav` (16 кГц) → `words.json` (GigaAM), `reference.txt` (сплошной текст Whisper, по нему Claude
-правит слова), `cuts.json` (`plan_keep`), `sheet.png`. Какие модели были и каких нет — в сводке: без GigaAM
+правит слова), `speech.json` (где речь по VAD: мягкая резка внутри неё не режет), `cuts.json` (`plan_keep`),
+`sheet.png`. Какие модели были и каких нет — в сводке: без GigaAM
 работать нельзя, без Whisper и VAD — можно, но хуже.
 
 Делается только недостающее. `source.mp4` в git нет, поэтому каждая новая сессия (render, fix, restyle) запускает
@@ -11,6 +12,7 @@ prepare, чтобы его восстановить; речь при этом з
 """
 import json
 import math
+import re
 from collections.abc import Callable
 from pathlib import Path
 
@@ -58,6 +60,27 @@ def _lines(words: list[asr.Word]) -> list[str]:
     return out
 
 
+def _coverage(words: list[asr.Word], reference: str) -> str | None:
+    """Предупреждение, если GigaAM услышал заметно меньше слов, чем Whisper (меньше 60 %): значит, в words.json
+    могли пропасть целые фразы, и по ним не будет субтитров."""
+    heard = len(re.findall(r"\w+", reference))
+    if heard < 10 or len(words) >= 0.6 * heard:
+        return None
+    return (f"ВНИМАНИЕ: GigaAM услышал {len(words)} слов, а Whisper — {heard}: сверь words.json с reference.txt — "
+            "пропавшие фразы допиши словами с временем из соседних слов или скажи об этом в unsure")
+
+
+def _uncovered(words: list[asr.Word], spans: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Речь по VAD (не короче 0,5 с), на которую слова покрывают меньше трети: там GigaAM ничего не разобрал, и
+    мягкая резка вырезала бы эту речь как паузу."""
+    out = []
+    for a, b in spans:
+        covered = sum(max(0.0, min(b, w.t1) - max(a, w.t0)) for w in words)
+        if b - a >= 0.5 and covered < (b - a) / 3:
+            out.append((a, b))
+    return out
+
+
 def _videos(folder: Path) -> list[Path]:
     """Видео исходника: `in/source.*` (так его кладёт fetch), а если такого нет — все видео в `in/` по имени."""
     videos = sorted(p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in VIDEO) if folder.is_dir() else []
@@ -76,6 +99,7 @@ def prepare(job: Job, step: Callable[[str, str], None] | None = None, redo: bool
     → сводка для Claude."""
     step = step or (lambda phase, message: None)
     source, words_path, cuts_path = job.path("source.mp4"), job.path("words.json"), job.path("cuts.json")
+    speech_path = job.path("speech.json")
     recognise = redo or not words_path.is_file()
     have, lack = models() if recognise else ([], [])  # до тяжёлой работы: без GigaAM распознавать нечем
     notes = []
@@ -101,13 +125,22 @@ def prepare(job: Job, step: Callable[[str, str], None] | None = None, redo: bool
         asr.save_words(words, words_path)
         reference = asr.reference_text(wav) if "Whisper" in have else ""
         _atomic_write(job.path("reference.txt"), reference + ("\n" if reference else ""))
+        speech = asr.speech_spans(wav)
+        _atomic_write(speech_path, json.dumps([list(span) for span in speech]) + "\n")
+        if warning := _coverage(words, reference):
+            notes.append(warning)
+        if lost := _uncovered(words, speech):
+            spans = ", ".join(f"{_clock(a)}–{_clock(b)}" for a, b in lost)
+            notes.append(f"ВНИМАНИЕ: речь без слов ({spans}) — GigaAM там ничего не разобрал, субтитров там не будет; "
+                         "сверь с reference.txt и добавь слова (asr.distribute_words)")
     else:
         words = asr.load_words(words_path)
         notes.append("Речь уже расшифрована (words.json) — распознавание не повторял; заново — --redo")
 
     if recognise or not cuts_path.is_file():
         step("Ищу паузы", "Отмечаю длинные паузы для мягкой резки")
-        keep = [(round(a, 6), round(b, 6)) for a, b in plan_keep(words, info.duration)]
+        speech = json.loads(speech_path.read_text(encoding="utf-8")) if speech_path.is_file() else []
+        keep = [(round(a, 6), round(b, 6)) for a, b in plan_keep(words, info.duration, speech=speech)]
         kept = sum(b - a for a, b in keep)
         cuts = {"duration": round(info.duration, 3), "keep": [list(k) for k in keep], "cut_seconds": round(info.duration - kept, 3)}
         _write_cuts(cuts_path, cuts)

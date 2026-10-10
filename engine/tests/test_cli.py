@@ -270,7 +270,7 @@ def test_cli_prepare_then_render_on_fixture(tmp_path, speech, capsys):
     make_source(job.path("in/source.mp4"), speech.duration, speech.wav)
     assert main(["prepare", str(job.root)]) == 0
     out = capsys.readouterr().out
-    for name in ("source.mp4", "words.json", "cuts.json", "sheet.png"):
+    for name in ("source.mp4", "words.json", "speech.json", "cuts.json", "sheet.png"):
         assert job.path(name).is_file(), name
     assert job.path("work/source.wav").is_file()
     assert "длительность" in out.lower()
@@ -608,4 +608,25 @@ def test_preview_makes_a_marked_picture_for_a_question(tmp_path):
     assert not job.path("frame.png").exists()
     with pytest.raises(SystemExit):
         main(["preview", str(job.root), "--at", "1.0", "--out", "../escape.png"])
+
+
+def test_summary_warns_when_gigaam_heard_much_less_than_whisper():
+    from vm.asr import Word
+    from vm.prepare import _coverage
+
+    reference = "Сегодня покажу, как я монтирую ролики за десять минут. Я снимаю всё на айфон без штатива."
+    few = [Word(0.5, 0.9, "сегодня"), Word(1.0, 1.4, "покажу")]
+    assert "2" in _coverage(few, reference) and "16" in _coverage(few, reference)
+    most = [Word(i, i + 0.5, "слово") for i in range(14)]
+    assert _coverage(most, reference) is None
+    assert _coverage(few, "") is None  # Whisper нет — сравнивать не с чем
+
+
+def test_summary_names_speech_without_words():
+    from vm.asr import Word
+    from vm.prepare import _uncovered
+
+    words = [Word(0.5, 0.9, "раз"), Word(1.0, 1.4, "два"), Word(6.0, 6.3, "аа")]
+    spans = [(0.4, 1.5), (3.0, 5.0), (5.8, 8.8), (9.0, 9.3)]  # речь по VAD
+    assert _uncovered(words, spans) == [(3.0, 5.0), (5.8, 8.8)]  # короче 0,5 с — не в счёт
 

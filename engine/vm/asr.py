@@ -42,6 +42,9 @@ REF_MIN, REF_MAX = 10.0, 28.0
 SILENCE_PEAK = 1e-3  # громкость пика, ниже которой записи нечего слушать (−60 дБ); у шума комнаты пик выше
 MIN_AUDIO = 0.1  # звук короче, с, слова не вместит; модели на таком входе ещё и падают (Whisper — segfault)
 MIN_PAUSE = 0.3  # пауза для VAD, с
+SPARSE = 1.5  # слов на секунду речи (по VAD): меньше — кусок перераспознаётся по фразам (живая речь — 2–2,5)
+BETTER = 1.1  # результат по фразам берётся, если слов в нём больше хотя бы во столько раз
+UTTERANCE_PAD = 0.2  # с — поля фразы по VAD при перераспознавании: VAD обрезает края слов
 QUIET_FRAME = RATE // 20  # 50 мс: шаг поиска самого тихого места
 THREADS = min(4, os.cpu_count() or 1)
 
@@ -334,22 +337,63 @@ def _words(recognizer, chunk: np.ndarray, offset: float, end: float) -> list[Wor
     return words
 
 
+def _utterances(spans: list[tuple[int, int]], start: int, stop: int) -> list[tuple[int, int]]:
+    """Фразы по VAD внутри [start, stop) с полями `UTTERANCE_PAD`; фразы, чьи поля сходятся, — одна."""
+    pad = round(UTTERANCE_PAD * RATE)
+    out: list[tuple[int, int]] = []
+    for a, b in spans:
+        a, b = max(start, a - pad), min(stop, b + pad)
+        if a >= b:
+            continue
+        if out and a <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], b))
+        else:
+            out.append((a, b))
+    return out
+
+
 def transcribe(wav: PathLike) -> list[Word]:
     """Слова записи со временем: GigaAM v2 transducer. Запись до минуты распознаётся целиком, длиннее — кусками до
-    минуты: режем около середины остатка в самой длинной паузе (куски и хвост не короче 15 с). Тишина — пустой список."""
+    минуты: режем около середины остатка в самой длинной паузе (куски и хвост не короче 15 с). Тишина — пустой список.
+
+    Страховка: бывает, что на длинном куске модель замолкает или теряет фразы (на синтетической речи — всё после
+    первой фразы). Если слов в куске меньше `SPARSE` на секунду речи по VAD, кусок распознаётся заново по фразам, и
+    этот результат берётся, когда слов в нём больше в `BETTER` раз. На живой речи потерь не было (ролик 4:25 —
+    517 слов целиком и 515 по фразам), так что обычный путь — целый кусок."""
     audio = _read(wav)
     if _blank(audio):
         return []
     recognizer = _gigaam(str(_model("ASR_MODEL", GIGAAM)))
+    speech = _speech(audio)
     if len(audio) > ASR_MAX * RATE:
-        chunks = _chunks(audio, _pauses(_speech(audio), len(audio)), _asr_window)
+        chunks = _chunks(audio, _pauses(speech, len(audio)), _asr_window)
     else:
         chunks = [(0, len(audio))]
     words: list[Word] = []
     for start, stop in chunks:
-        if not _blank(audio[start:stop]):
-            words += _words(recognizer, audio[start:stop], start / RATE, stop / RATE)
+        if _blank(audio[start:stop]):
+            continue
+        found = _words(recognizer, audio[start:stop], start / RATE, stop / RATE)
+        talk = sum(max(0, min(b, stop) - max(a, start)) for a, b in speech or []) / RATE
+        if talk and len(found) < SPARSE * talk:
+            again = [
+                word
+                for a, b in _utterances(speech, start, stop)
+                if not _blank(audio[a:b])
+                for word in _words(recognizer, audio[a:b], a / RATE, b / RATE)
+            ]
+            if len(again) > BETTER * len(found):
+                found = again
+        words += found
     return words
+
+
+def speech_spans(wav: PathLike) -> list[tuple[float, float]]:
+    """Где в записи речь (Silero VAD), секунды. Нет модели VAD или тишина — пустой список."""
+    audio = _read(wav)
+    if _blank(audio):
+        return []
+    return [(round(a / RATE, 3), round(b / RATE, 3)) for a, b in _speech(audio) or []]
 
 
 def _overlaps(spans: list[tuple[int, int]], start: int, stop: int) -> bool:

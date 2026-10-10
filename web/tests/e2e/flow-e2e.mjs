@@ -260,11 +260,22 @@ const segments = [
     check(restyle.requests?.[0]?.text === 'без плашки', `restyle.json: ${JSON.stringify(restyle)}`);
     await page.getByText('Claude подготовит ещё три варианта').waitFor({ timeout: 7000 });
 
-    const restyled = { ...STYLES, variants: STYLES.variants.map((v) => ({ ...v, label: `${v.label} — без плашки` })) };
+    // ролик на румынском: в «ț» нет у Russo One и Marck Script — страница их не предлагает (styles.fonts от vm fonts)
+    const restyled = {
+      ...STYLES,
+      sample: { ...STYLES.sample, hook: 'Cum învăț limbi', words: ['Vă', 'mulțumesc', 'pentru', 'întrebare'], spoken: 1 },
+      variants: STYLES.variants.map((v) => ({ ...v, label: `${v.label} — без плашки` })),
+      fonts: { main: ['montserrat', 'unbounded', 'rubik', 'oswald', 'comfortaa'], hand: ['caveat', 'bad-script'] },
+    };
     engineValidate('styles.json', restyled);
     await session(ctx, { 'styles.json': restyled, 'status.json': { state: 'waiting_answers', phase: 'Ждёт ответов', message: 'Три новых стиля', at: new Date().toISOString(), needs: 'answers' } });
     await page.getByRole('button', { name: /^A · .*без плашки/ }).waitFor({ timeout: 10_000 });
     check(await page.getByRole('button', { name: /^A · / }).getAttribute('aria-pressed') === 'true', 'после restyle выбор не сброшен к A');
+    await page.getByRole('button', { name: 'Montserrat', exact: true }).waitFor();
+    for (const lacking of ['Russo One', 'Marck Script']) {
+      check(await page.getByRole('button', { name: lacking, exact: true }).count() === 0, `${lacking} без «ț» предложен Павлу`);
+    }
+    await shot(page, 'previews-romanian');
 
     await page.getByRole('button', { name: /^B · / }).click();
     await page.getByRole('button', { name: 'Rubik', exact: true }).click();

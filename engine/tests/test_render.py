@@ -6,6 +6,8 @@
 import json
 import shutil
 import subprocess
+import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -195,3 +197,149 @@ def test_a_stuck_ffmpeg_is_stopped_with_a_clear_error():
     # зависший ffmpeg не должен держать рутину вечно
     with pytest.raises(RenderError, match="не уложился"):
         _ffmpeg(["-f", "lavfi", "-i", "testsrc2=s=1080x1920:r=30:d=600", "-f", "null", "-"], timeout=1)
+
+
+# ---------- исправления после ревью ----------
+
+
+def frame_n(path, n: int) -> np.ndarray:
+    """Кадр номер n (точно по номеру, без поиска по времени)."""
+    raw = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(path), "-vf", f"select=eq(n\\,{n})", "-frames:v", "1",
+         "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+        check=True, capture_output=True,
+    ).stdout
+    return np.frombuffer(raw, np.uint8).reshape(1920, 1080, 3)
+
+
+def test_render_memory_stays_small_for_many_cuts(tmp_path):
+    # исходник 40 с, 12 отрезков: ffmpeg не должен копить кадры для ещё не начавшихся отрезков
+    source = make_source(tmp_path / "long.mp4", 40)
+    keep = [[i * 3.3, i * 3.3 + 2.5] for i in range(12)]
+    job = make_job(tmp_path, source, keep=keep)
+    code = (
+        f"import resource, sys; sys.path.insert(0, {str(Path(__file__).parents[1])!r});"
+        "from vm.job import Job; from vm.render import render;"
+        f"job = Job({str(job.root)!r}); render(job, job.path('out'), preset='ultrafast');"
+        "print(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss)"
+    )
+    peak_kb = int(subprocess.run([sys.executable, "-c", code], check=True, capture_output=True, text=True).stdout.split()[-1])
+    assert peak_kb < 1_500_000, f"peak child memory {peak_kb / 1024:.0f} MB"
+
+
+def test_render_gif_fullscreen_insert(tmp_path, sources):
+    job = make_job(tmp_path, sources["short"], keep=[[0.0, 6.0]])
+    ffmpeg("-f", "lavfi", "-i", "color=c=red:s=320x240:r=10:d=1", job.path("in/uploads/meme.gif"))
+    edit = job.read("edit.json")
+    edit["inserts"] = [{"kind": "fullscreen", "src": "in/uploads/meme.gif", "t0": 2.0, "t1": 4.0, "sfx": None, "params": {}}]
+    job.write("edit.json", edit)
+    render(job, job.path("out"), preset="ultrafast")
+    assert close(frame(job.path("out") / "final.mp4", 3.0)[300, 540], (255, 0, 0), tol=30)
+
+
+def test_render_hdr_fullscreen_video_is_converted_like_the_source(tmp_path, sources, hlg):
+    from vm.media import normalize
+
+    job = make_job(tmp_path, sources["short"], keep=[[0.0, 6.0]])
+    shutil.copy(hlg, job.path("in/uploads/hdr.mp4"))
+    edit = job.read("edit.json")
+    edit["inserts"] = [{"kind": "fullscreen", "src": "in/uploads/hdr.mp4", "t0": 2.0, "t1": 4.0, "sfx": None, "params": {}}]
+    job.write("edit.json", edit)
+    render(job, job.path("out"), preset="ultrafast")
+    got = frame(job.path("out") / "final.mp4", 2.0 + 0.5)
+    normalize([hlg], tmp_path / "sdr.mp4")
+    want = frame(tmp_path / "sdr.mp4", 0.5)
+    region = (slice(200, 400), slice(100, 300))
+    assert np.abs(got[region].astype(int) - want[region].astype(int)).mean() < 12
+
+
+def test_cutaway_window_is_frame_exact(tmp_path, sources):
+    job = make_job(
+        tmp_path, sources["short"], keep=[[0.0, 6.0]],
+        inserts=[{"kind": "fullscreen", "src": "in/uploads/upload-i2.png", "t0": 62 / 30, "t1": 62 / 30 + 2.0, "sfx": None, "params": {}}],
+    )
+    render(job, job.path("out"), preset="ultrafast")
+    final = job.path("out") / "final.mp4"
+
+    def red(n):
+        return close(frame_n(final, n)[300, 540], (255, 0, 0), tol=40)
+
+    assert (red(61), red(62), red(121), red(122)) == (False, True, True, False)
+
+
+def test_odd_bar_height_covers_the_last_row(tmp_path, sources):
+    style = {**STYLE, "bar": {"pos": "bottom", "height": 15}}
+    job = make_job(tmp_path, sources["short"], keep=[[0.0, 2.0]], style=style, hold=0.5)
+    render(job, job.path("out"), preset="ultrafast")
+    last = frame(job.path("out") / "final.mp4", 2.3)
+    assert close(last[1919, 100], (0xFF, 0xD2, 0x3F)) and close(last[1905, 100], (0xFF, 0xD2, 0x3F))
+
+
+def test_music_outside_job_and_repo_is_not_used(tmp_path, sources):
+    outside = tmp_path / "elsewhere" / "track.wav"
+    outside.parent.mkdir()
+    ffmpeg("-f", "lavfi", "-i", "sine=f=100:d=3", outside)
+    job = make_job(tmp_path, sources["short"], keep=[[0.0, 2.0]], music={"file": str(outside), "gainDb": -18})
+    result = render(job, job.path("out"), preset="ultrafast")
+    assert any("track.wav" in m for m in result["missing"])
+
+
+def test_keep_beyond_the_source_is_clamped(tmp_path, sources):
+    job = make_job(tmp_path, sources["short"], keep=[[0.0, 7.5]])  # исходник 6 с
+    result = render(job, job.path("out"), preset="ultrafast")
+    assert result["durations"]["final"] == pytest.approx(6.0, abs=0.05)
+    assert any("keep" in w for w in result["warnings"])
+    info = probe(job.path("out") / "final.mp4")
+    assert float(info["format"]["duration"]) == pytest.approx(6.0, abs=0.05)
+
+
+def test_failed_render_leaves_no_part_file(tmp_path, sources, monkeypatch):
+    import vm.render as rendering
+
+    def broken(args, timeout):  # ffmpeg успел начать файл и упал
+        Path(args[-1]).write_bytes(b"half a video")
+        raise RenderError("ffmpeg не собрал ролик (код 1)")
+
+    job = make_job(tmp_path, sources["short"], keep=[[0.0, 2.0]])
+    job.path("out").mkdir()
+    job.path("out/.final.part.mp4").write_bytes(b"left from a killed run")
+    monkeypatch.setattr(rendering, "_ffmpeg", broken)
+    with pytest.raises(RenderError):
+        render(job, job.path("out"), preset="ultrafast")
+    assert not list(job.path("out").glob(".*part*"))
+    assert not job.path("out/final.mp4").exists() and not job.path("out/final.srt").exists()
+
+
+def test_unreadable_fullscreen_file_is_reported_not_fatal(tmp_path, sources):
+    job = make_job(tmp_path, sources["short"], keep=[[0.0, 2.0]])
+    job.path("in/uploads/broken.mp4").write_bytes(b"not a video")
+    job.path("in/uploads/broken.png").write_bytes(b"not a picture")
+    ffmpeg("-f", "lavfi", "-i", "color=c=red:s=320x240:r=10:d=1", job.path("in/uploads/full.gif"))
+    gif = job.path("in/uploads/full.gif").read_bytes()
+    job.path("in/uploads/empty.gif").write_bytes(gif[:800])  # заголовок и палитра есть, кадров нет — ffprobe доволен
+    edit = job.read("edit.json")
+    edit["inserts"] = [
+        {"kind": "fullscreen", "src": f"in/uploads/{name}", "t0": t0, "t1": t0 + 0.5, "sfx": None, "params": {}}
+        for name, t0 in (("broken.mp4", 0.5), ("broken.png", 0.2), ("empty.gif", 0.1))
+    ]
+    job.write("edit.json", edit)
+    result = render(job, job.path("out"), preset="ultrafast")
+    for name in ("broken.mp4", "broken.png", "empty.gif"):
+        assert any(name in m for m in result["missing"]), (name, result["missing"])
+    assert job.path("out/final.mp4").is_file()
+
+
+def test_sounds_skip_absent_cutaways_and_report_missing_files(tmp_path):
+    from vm.render import _sounds, timeline
+
+    job = Job(tmp_path / "jobs" / "abc")
+    job.path("in/uploads").mkdir(parents=True)
+    ffmpeg("-f", "lavfi", "-i", "sine=f=900:d=0.3", job.path("in/uploads/swoosh.wav"))
+    edit = {"speed": 1.0, "keep": [[0.0, 6.0]], "hook": None, "music": {"file": "assets/music/nope.mp3", "gainDb": -18},
+            "inserts": [{"kind": "fullscreen", "src": "in/uploads/nope.mp4", "t0": 1.0, "t1": 3.0, "sfx": "in/uploads/swoosh.wav"},
+                        {"kind": "image", "src": "in/uploads/a.png", "t0": 3.0, "t1": 4.5, "sfx": "in/uploads/swoosh.wav"},
+                        {"kind": "image", "src": "in/uploads/a.png", "t0": 4.5, "t1": 6.0, "sfx": "assets/sfx/nope.mp3"}]}
+    sfx, music, notes = _sounds(job, edit, timeline(edit), skip={0})
+    assert sfx == [(3.0, job.path("in/uploads/swoosh.wav").resolve())]
+    assert music is None
+    assert any("assets/sfx/nope.mp3" in n for n in notes) and any("assets/music/nope.mp3" in n for n in notes)

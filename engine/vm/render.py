@@ -10,9 +10,16 @@
 (по умолчанию ffmpeg взял бы BT.601, и жёлтый субтитров на ролике отличался бы от превью). Шкала — полоса, которая
 выезжает слева (`overlay` пересчитывает место каждый кадр; у `drawbox` ширина считается один раз).
 
-Рабочие файлы — в `work/render/` задачи (в git не попадают); в `out_dir` — только ролик и субтитры.
+Перебивка: картинка держится всё окно, GIF крутится по кругу, видео короче окна стоит на последнем кадре; HDR
+переводится в SDR так же, как исходник. Файл перебивки, музыки или звука, которого нет (или он не читается), —
+строка в `missing`, а не ошибка: ролик собирается без него. Отрезки `keep` за концом исходника обрезаются
+с предупреждением.
+
+Рабочие файлы — в `work/render/` задачи (в git не попадают); в `out_dir` — только ролик и субтитры, и появляются
+они там только целиком.
 """
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -21,7 +28,7 @@ from pathlib import Path
 from .asr import Word
 from .audio import audio_graph
 from .job import Job
-from .media import probe
+from .media import HDR_TO_SDR, MediaError, probe
 from .overlay import FPS, build_overlay_events, insert_spans
 from .subs import to_srt
 from .timeline import Timeline
@@ -37,19 +44,24 @@ FADE = 0.01  # с — микро-фейд звука на стыке отрез�
 COLOR = "eq=brightness=-0.02:contrast=1.03,lutyuv=u='clip(val-3,16,240)':v='clip(val+3,16,240)'"
 BLUR = "boxblur=luma_radius=40:luma_power=2:chroma_radius=20:chroma_power=2,eq=brightness=-0.06"
 TO_709 = "scale=out_color_matrix=bt709:out_range=tv"
-IMAGES = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+IMAGES = {".png", ".jpg", ".jpeg", ".webp"}  # картинка держится всё окно перебивки; GIF крутится по кругу
+LOOPED = {".gif"}
 
 
 class RenderError(RuntimeError):
     """Слой или ffmpeg не справились: в сообщении — что именно и последние строки вывода."""
 
 
-def timeline(edit: dict) -> Timeline:
+def timeline(edit: dict, limit: float | None = None) -> Timeline:
     """Шкала финала по edit.json: границы отрезков `keep` — на целых кадрах исходника (30 к/с), иначе субтитры
-    и звук разошлись бы с картинкой на долю кадра на каждом стыке."""
+    и звук разошлись бы с картинкой на долю кадра на каждом стыке. `limit` — длина исходника, с: кадров после его
+    последнего целого кадра в отрезках нет (длина файла бывает чуть больше видео — из-за кадра AAC)."""
+    last = math.floor(limit * FPS + 0.01) if limit is not None else None
     keep = []
     for a, b in edit["keep"]:
         fa, fb = round(a * FPS), round(b * FPS)
+        if last is not None:
+            fb = min(fb, last)
         if fb > fa:
             keep.append((fa / FPS, fb / FPS))
     return Timeline(keep, edit["speed"])
@@ -60,19 +72,24 @@ def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium")
     edit = job.read("edit.json")
     source = job.path("source.mp4")
     info = probe(source)
-    tl = timeline(edit)
+    tl = timeline(edit, info.duration)
     if tl.duration <= 0:
-        raise RenderError("edit.json: отрезки keep не оставляют ни одного кадра")
+        raise RenderError("edit.json: отрезки keep не оставляют ни одного кадра исходника")
+    missing: list[str] = []
+    warnings: list[str] = []
+    beyond = (timeline(edit).duration - tl.duration) * edit["speed"]
+    if beyond > 0.1:
+        warnings.append(f"keep заходит за конец исходника ({info.duration:.1f} с): {beyond:.1f} с отрезков отброшено")
     hold = float(edit.get("hold") or 0.0)
     total = tl.duration + hold
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    for stale in out_dir.glob(f".{name}.part.*"):  # от прерванной сборки
+        stale.unlink()
     work = job.path("work/render")
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
 
-    missing: list[str] = []
-    warnings: list[str] = []
     if not edit.get("music"):
         missing.append("music: none chosen")
     words = [Word(w["t0"], w["t1"], w["text"]) for w in edit.get("words") or []]
@@ -83,21 +100,27 @@ def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium")
     layer = _layer(job, edit, tl, work)
     inputs = ["-i", str(source), "-f", "concat", "-safe", "0", "-i", str(layer)]
     chains = _cut(tl, info.has_audio)
-    picture, more = _picture(job, edit, tl, info, _count(inputs), hold, missing, warnings)
+    picture, more, skipped = _picture(job, edit, tl, info, _count(inputs), hold, missing, warnings)
     inputs += more
     chains += picture
     chains += _layers(edit["style"], tl)
-    sfx, music = _sounds(job, edit, tl)
+    sfx, music, notes = _sounds(job, edit, tl, skip=skipped)
+    missing += notes
     extra, sound, notes = audio_graph("[ac]", edit["speed"], total, music, sfx, inputs_offset=_count(inputs))
     inputs += extra
     chains.append(sound)
     missing += notes
 
-    part = out_dir / f".{name}.part.mp4"
-    _ffmpeg([*inputs, "-filter_complex", ";".join(chains), "-map", "[vout]", "-map", "[aout]", *_encode(preset),
-             "-t", f"{total:.6f}", str(part)], timeout=max(900, 30 * total))
-    os.replace(part, out_dir / f"{name}.mp4")
-    (out_dir / f"{name}.srt").write_text(srt, encoding="utf-8")
+    video, subs = out_dir / f".{name}.part.mp4", out_dir / f".{name}.part.srt"
+    try:  # ролик и субтитры появляются в out/ только целиком; от упавшей сборки не остаётся ничего
+        subs.write_text(srt, encoding="utf-8")
+        _ffmpeg([*inputs, "-filter_complex", ";".join(chains), "-map", "[vout]", "-map", "[aout]", *_encode(preset),
+                 "-t", f"{total:.6f}", str(video)], timeout=max(900, 30 * total))
+        os.replace(video, out_dir / f"{name}.mp4")
+        os.replace(subs, out_dir / f"{name}.srt")
+    finally:
+        video.unlink(missing_ok=True)
+        subs.unlink(missing_ok=True)
     return {"durations": {"source": round(info.duration, 3), "final": round(total, 3)}, "missing": missing, "warnings": warnings}
 
 
@@ -119,23 +142,32 @@ def _layer(job: Job, edit: dict, tl: Timeline, work: Path) -> Path:
         proc = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=max(600, 2 * events))
     except subprocess.TimeoutExpired as err:
         raise RenderError(f"слой не уложился в {err.timeout:.0f} с — браузер завис?") from None
+    except FileNotFoundError:
+        raise RenderError("нет node: слой рисует Chromium через Node 22 — запустите setup/cloud-setup.sh") from None
     if proc.returncode != 0:
-        raise RenderError(f"слой не нарисован: {proc.stderr.strip()[-2000:]}")
+        raise RenderError(f"слой не нарисован (код {proc.returncode}): {proc.stderr.strip()[-2000:]}")
     return frames / "frames.ffconcat"
 
 
 def _cut(tl: Timeline, has_audio: bool) -> list[str]:
-    """Отрезки keep встык: картинка — по целым кадрам, звук — те же границы в отсчётах, с фейдами 10 мс."""
-    chains = []
+    """Отрезки keep встык: картинка — по целым кадрам, звук — те же границы в отсчётах, с фейдами 10 мс.
+
+    Исходник читается один раз и раздаётся отрезкам через split/asplit: каждый trim отбрасывает чужие кадры сразу.
+    Если бы каждый trim брал `[0:v]` сам, ffmpeg держал бы в памяти кадры для отрезков, до которых concat ещё
+    не дошёл (≈3 МБ на кадр 1080×1920 — гигабайты на минутном ролике)."""
+    segments = tl.segments
+    chains = [f"[0:v]split={len(segments)}" + "".join(f"[sv{i}]" for i in range(len(segments)))]
+    if has_audio:
+        chains.append(f"[0:a]asplit={len(segments)}" + "".join(f"[sa{i}]" for i in range(len(segments))))
     pads = []
-    for i, (start, end, _) in enumerate(tl.segments):
+    for i, (start, end, _) in enumerate(segments):
         f0, f1 = round(start * FPS), round(end * FPS)
         length = (f1 - f0) / FPS
-        chains.append(f"[0:v]trim=start_frame={f0}:end_frame={f1},setpts=PTS-STARTPTS[v{i}]")
+        chains.append(f"[sv{i}]trim=start_frame={f0}:end_frame={f1},setpts=PTS-STARTPTS[v{i}]")
         if has_audio:
             a0, a1 = f0 * RATE // FPS, f1 * RATE // FPS
             chains.append(
-                f"[0:a]atrim=start_sample={a0}:end_sample={a1},asetpts=PTS-STARTPTS,"
+                f"[sa{i}]atrim=start_sample={a0}:end_sample={a1},asetpts=PTS-STARTPTS,"
                 f"afade=t=in:d={FADE}:curve=tri,afade=t=out:st={max(0.0, length - FADE):.6f}:d={FADE}:curve=tri[a{i}]"
             )
         else:
@@ -145,8 +177,9 @@ def _cut(tl: Timeline, has_audio: bool) -> list[str]:
     return chains
 
 
-def _picture(job, edit, tl, info, index, hold, missing, warnings) -> tuple[list[str], list[str]]:
-    """Ускорение, цвет, зум, фон, перебивки, стоп-кадр → `[vh]`; плюс входы для перебивок."""
+def _picture(job, edit, tl, info, index, hold, missing, warnings) -> tuple[list[str], list[str], set[int]]:
+    """Ускорение, цвет, зум, фон, перебивки, стоп-кадр → `[vh]`; плюс входы для перебивок и номера перебивок,
+    которых в ролике не будет (файла нет, не читается, начало после конца) — их звук не нужен."""
     chains = []
     inputs: list[str] = []
     chain = f"[vc]setpts=PTS/{edit['speed']:g},fps={FPS},{COLOR}"
@@ -164,25 +197,43 @@ def _picture(job, edit, tl, info, index, hold, missing, warnings) -> tuple[list[
         current = "[vbg]"
 
     inserts = edit.get("inserts") or []
+    skipped: set[int] = set()
     for i, first, after in insert_spans(edit, tl):
         ins = inserts[i]
         if ins["kind"] != "fullscreen":
             continue
+        seconds = min(after / FPS, tl.duration) - first / FPS
+        if seconds <= 0:  # начинается после конца ролика
+            skipped.add(i)
+            continue
         path = _resolve(job, ins.get("src"))
         if path is None:
             missing.append(f"fullscreen: {ins.get('src')} not found — перебивки нет")
+            skipped.add(i)
             continue
-        a, b = first / FPS, min(after / FPS, tl.duration)
-        if b <= a:
+        try:
+            hdr = probe(path).hdr
+        except MediaError:
+            hdr = None
+        if hdr is None or not _decodes(path):
+            missing.append(f"fullscreen: {ins.get('src')} не читается — перебивки нет")
+            skipped.add(i)
             continue
-        if path.suffix.lower() in IMAGES:
-            inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{b - a:.6f}", "-i", str(path)]
-        else:
-            inputs += ["-t", f"{b - a:.6f}", "-i", str(path)]
+        suffix = path.suffix.lower()
+        if suffix in IMAGES:
+            inputs += ["-loop", "1", "-framerate", str(FPS)]
+        elif suffix in LOOPED:
+            inputs += ["-stream_loop", "-1"]
+        inputs += ["-t", f"{seconds:.6f}", "-i", str(path)]
+        # HDR (HLG/PQ с телефона) — в SDR так же, как исходник в normalize; остальное — из своей матрицы в BT.709
+        color = HDR_TO_SDR if hdr else f"{TO_709},format=yuv420p"
+        # после fps=30 шаг времени — 1/30 с: +first ставит первый кадр перебивки ровно на кадр first финала
         chains.append(
             f"[{index}:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},fps={FPS},"
-            f"{TO_709},format=yuv420p,setpts=PTS-STARTPTS+{a:.6f}/TB[fs{i}]"
+            f"{color},setpts=PTS-STARTPTS+{first}[fs{i}]"
         )
+        # границы окна — посередине между кадрами: кадр first виден, кадр after — уже нет, без ошибок округления
+        a, b = (first - 0.5) / FPS, (after - 0.5) / FPS
         chains.append(f"{current}[fs{i}]overlay=0:0:enable='gte(t,{a:.6f})*lt(t,{b:.6f})'[vf{i}]")
         current = f"[vf{i}]"
         index += 1
@@ -191,13 +242,28 @@ def _picture(job, edit, tl, info, index, hold, missing, warnings) -> tuple[list[
         chains.append(f"{current}tpad=stop_mode=clone:stop_duration={hold:.6f}[vh]")
     else:
         chains.append(f"{current}null[vh]")
-    return chains, inputs
+    return chains, inputs, skipped
+
+
+def _decodes(path: Path) -> bool:
+    """Из файла декодируется хотя бы один кадр. Битая картинка с `-loop 1` или GIF без кадров по кругу иначе
+    вешают ffmpeg до таймаута (ffprobe такой GIF пропускает)."""
+    try:
+        done = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-v", "error", "-nostdin", "-i", str(path), "-frames:v", "1", "-vf", "scale=2:2",
+             "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+            capture_output=True, check=False, timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        return False
+    return done.returncode == 0 and len(done.stdout) > 0
 
 
 def _layers(style: dict, tl: Timeline) -> list[str]:
     """Слой PNG поверх кадра, затем шкала времени: ширина 1080·t/D, на стоп-кадре — полная."""
     bar = style["bar"]
     height = max(1, round(bar["height"]))
+    height += height % 2  # в yuv420p overlay ставит картинку с чётной строки: нечётная полоса не дошла бы до края
     y = 0 if bar["pos"] == "top" else H - height
     color = style["colors"]["bar"].lstrip("#")
     return [
@@ -208,18 +274,29 @@ def _layers(style: dict, tl: Timeline) -> list[str]:
     ]
 
 
-def _sounds(job: Job, edit: dict, tl: Timeline) -> tuple[list, dict | None]:
-    """Звуки появления вставок (время финала, файл) и музыка с путём от задачи или репозитория."""
+def _sounds(job: Job, edit: dict, tl: Timeline, skip: set[int]) -> tuple[list, dict | None, list[str]]:
+    """Звуки появления вставок (время финала, файл) — кроме вставок `skip`, которых в ролике нет, — и музыка.
+    Файлы — только из папки задачи или репозитория; ненайденные — в заметках (третий элемент)."""
     inserts = edit.get("inserts") or []
-    sfx = []
+    sfx, notes = [], []
     for i, first, _ in insert_spans(edit, tl):
         name = inserts[i].get("sfx")
-        if name:
-            sfx.append((first / FPS, _resolve(job, name) or Path(name)))
+        if not name or i in skip:
+            continue
+        path = _resolve(job, name)
+        if path is None:
+            notes.append(f"sfx: {name} not found — вставка {i + 1} без звука")
+        else:
+            sfx.append((first / FPS, path))
     music = edit.get("music")
     if music:
-        music = {"file": str(_resolve(job, music["file"]) or music["file"]), "gainDb": music["gainDb"]}
-    return sfx, music
+        path = _resolve(job, music["file"])
+        if path is None:
+            notes.append(f"music: {music['file']} not found — ролик без музыки")
+            music = None
+        else:
+            music = {"file": str(path), "gainDb": music["gainDb"]}
+    return sfx, music, notes
 
 
 def _resolve(job: Job, rel: str | None) -> Path | None:
@@ -248,6 +325,8 @@ def _ffmpeg(args: list[str], timeout: float) -> None:
                               capture_output=True, text=True, check=False, timeout=timeout)
     except subprocess.TimeoutExpired:
         raise RenderError(f"ffmpeg не уложился в {timeout:.0f} с — остановлен") from None
+    except FileNotFoundError:
+        raise RenderError("нет ffmpeg — запустите setup/cloud-setup.sh") from None
     if proc.returncode != 0:
         tail = "\n".join(proc.stderr.strip().splitlines()[-15:])
-        raise RenderError(f"ffmpeg не собрал ролик:\n{tail}")
+        raise RenderError(f"ffmpeg не собрал ролик (код {proc.returncode}):\n{tail}")

@@ -1,0 +1,64 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "Main.dc.html": {
+      "h": 1240,
+      "is_interactive": true,
+      "title": "1 · Загрузка",
+      "w": 390,
+      "x": 0,
+      "y": 0
+    },
+    "Previews.dc.html": {
+      "h": 1740,
+      "is_interactive": true,
+      "title": "3 · Три превью, шрифты и цвета",
+      "w": 390,
+      "x": 940,
+      "y": 0
+    },
+    "Questions.dc.html": {
+      "h": 1880,
+      "is_interactive": true,
+      "title": "2 · Вопросы",
+      "w": 390,
+      "x": 470,
+      "y": 0
+    },
+    "Result.dc.html": {
+      "h": 1040,
+      "is_interactive": true,
+      "title": "4 · Готово",
+      "w": 390,
+      "x": 1410,
+      "y": 0
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-10-10T07:00:00Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {
+    "view": "canvas"
+  },
+  "notes": {
+    "flow": {
+      "kind": "title1",
+      "maxW": 1800,
+      "text": "Как это работает с телефона",
+      "w": 240,
+      "x": 0,
+      "y": -300
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "Questions.dc.html",
+    "Previews.dc.html",
+    "Result.dc.html"
+  ],
+  "pages": [],
+  "title": "Video Edit — макеты"
+}

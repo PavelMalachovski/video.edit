@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Загрузка видео</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;family=Montserrat:wght@800;900&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#FFD23F}a:hover{color:#FFE27A}
+</style>
+</helmet>
+<div style="width: 390px; height: 1240px; box-sizing: border-box; background: #0F1012; color: #F3F3F1; font-family: Manrope, system-ui, sans-serif; padding: 28px 20px; display: flex; flex-direction: column; gap: 22px; overflow: hidden">
+  <div style="display: flex; align-items: center; justify-content: space-between">
+    <div style="font-family: Montserrat, sans-serif; font-weight: 900; font-size: 22px; letter-spacing: -0.02em">video<span style="color: #FFD23F">.</span>edit</div>
+    <div style="font-size: 13px; color: #A3A6AD">для одного</div>
+  </div>
+
+  <button type="button" style="width: 100%; box-sizing: border-box; border: 2px dashed #3A3D44; border-radius: 22px; background: #17181B; color: #F3F3F1; font-family: Manrope, system-ui, sans-serif; padding: 30px 24px; display: flex; flex-direction: column; align-items: center; gap: 10px; cursor: pointer">
+    <span style="width: 64px; height: 64px; border-radius: 32px; background: #FFD23F; display: flex; align-items: center; justify-content: center">
+      <svg aria-hidden="true" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#141414" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"></path><path d="M6 10l6-6 6 6"></path><path d="M4 20h16"></path></svg>
+    </span>
+    <span style="font-size: 20px; font-weight: 800">Выбрать видео</span>
+    <span style="font-size: 14px; line-height: 1.45; color: #A3A6AD; text-align: center">Из галереи телефона, до 2 ГБ.<br>Несколько частей — склею по порядку.</span>
+  </button>
+
+  <div style="background: #1A1B1F; border-radius: 18px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px">
+    <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 12px">
+      <span style="font-size: 16px; font-weight: 700">IMG_4821.MOV</span>
+      <span style="font-size: 13px; color: #A3A6AD">184 МБ</span>
+    </div>
+    <div style="height: 8px; border-radius: 4px; background: #2E3036; overflow: hidden">
+      <div style="width: 62%; height: 8px; background: #FFD23F"></div>
+    </div>
+    <div style="display: flex; justify-content: space-between; font-size: 13px; color: #A3A6AD">
+      <span>Загружаю в GitHub…</span>
+      <span>62%</span>
+    </div>
+  </div>
+
+  <div style="background: #1A1B1F; border-radius: 18px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+    <label for="brief" style="font-size: 15px; font-weight: 700">ТЗ <span style="font-weight: 500; color: #A3A6AD">— необязательно</span></label>
+    <textarea id="brief" rows="5" placeholder="ХУК: Как я учу чешский&#10;КОДОВОЕ СЛОВО: чешский&#10;МУЗЫКА: lofi&#10;Когда говорю «приложение» — покажи логотип&#10;На «вот так это выглядит» — фуллскрин демо" style="box-sizing: border-box; width: 100%; border-radius: 12px; border: 1px solid #34373E; background: #0F1012; color: #F3F3F1; padding: 12px 14px; font-family: Manrope, system-ui, sans-serif; font-size: 14px; line-height: 1.5; resize: none"></textarea>
+    <button type="button" style="height: 44px; border-radius: 22px; border: 1px solid #34373E; background: #0F1012; color: #F3F3F1; font-family: Manrope, system-ui, sans-serif; font-size: 15px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px">
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F3F3F1" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
+      Вставки для этого ролика
+    </button>
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <div style="display: flex; align-items: center; gap: 10px">
+        <div style="width: 40px; height: 40px; border-radius: 8px; background: #3D434C; flex: none"></div>
+        <span style="flex: 1; font-size: 14px">скрин-статистики.jpg</span>
+        <button type="button" aria-label="Убрать скрин-статистики.jpg" style="width: 44px; height: 44px; border: none; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#A3A6AD" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg></button>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px">
+        <div style="width: 40px; height: 40px; border-radius: 8px; background: #3D434C; flex: none; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="#F3F3F1"><path d="M8 5v14l11-7z"></path></svg></div>
+        <span style="flex: 1; font-size: 14px">демо.mov</span>
+        <button type="button" aria-label="Убрать демо.mov" style="width: 44px; height: 44px; border: none; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#A3A6AD" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg></button>
+      </div>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px">
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <div style="height: 4px; border-radius: 2px; background: #FFD23F"></div>
+      <div style="font-size: 11px; font-weight: 700; color: #F3F3F1">Загрузка</div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <div style="height: 4px; border-radius: 2px; background: #2E3036"></div>
+      <div style="font-size: 11px; color: #A3A6AD">Текст</div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <div style="height: 4px; border-radius: 2px; background: #2E3036"></div>
+      <div style="font-size: 11px; color: #A3A6AD">Вопросы</div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <div style="height: 4px; border-radius: 2px; background: #2E3036"></div>
+      <div style="font-size: 11px; color: #A3A6AD">Превью</div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <div style="height: 4px; border-radius: 2px; background: #2E3036"></div>
+      <div style="font-size: 11px; color: #A3A6AD">Монтаж</div>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 10px">
+    <div style="font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #A3A6AD">Мои видео</div>
+
+    <a href="Questions.dc.html" style="text-decoration: none; color: #F3F3F1; background: #1A1B1F; border-radius: 16px; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px">
+      <span style="display: flex; flex-direction: column; gap: 4px">
+        <span style="font-size: 15px; font-weight: 700">IMG_4802.MOV</span>
+        <span style="font-size: 13px; color: #A3A6AD">1:42</span>
+      </span>
+      <span style="font-size: 12px; font-weight: 700; color: #141414; background: #FFD23F; border-radius: 12px; padding: 5px 10px">Ждёт ответов</span>
+    </a>
+
+    <div style="background: #1A1B1F; border-radius: 16px; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px">
+      <span style="display: flex; flex-direction: column; gap: 4px">
+        <span style="font-size: 15px; font-weight: 700">IMG_4815.MOV</span>
+        <span style="font-size: 13px; color: #A3A6AD">2:10</span>
+      </span>
+      <span style="font-size: 12px; font-weight: 700; color: #F3F3F1; background: #2E3036; border-radius: 12px; padding: 5px 10px">Монтирую…</span>
+    </div>
+
+    <div style="background: #1A1B1F; border-radius: 16px; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px">
+      <span style="display: flex; flex-direction: column; gap: 4px">
+        <span style="font-size: 15px; font-weight: 700">IMG_4790.MOV</span>
+        <span style="font-size: 13px; color: #A3A6AD">0:58</span>
+      </span>
+      <span style="font-size: 12px; font-weight: 700; color: #0F2A1E; background: #7CF2B0; border-radius: 12px; padding: 5px 10px">Готово</span>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1240}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

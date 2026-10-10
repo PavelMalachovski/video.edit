@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Готовый ролик</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;family=Montserrat:wght@800;900&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#FFD23F}a:hover{color:#FFE27A}
+</style>
+</helmet>
+<div style="width: 390px; height: 1040px; box-sizing: border-box; background: #0F1012; color: #F3F3F1; font-family: Manrope, system-ui, sans-serif; padding: 24px 20px 28px; display: flex; flex-direction: column; gap: 18px; overflow: hidden">
+  <a href="Main.dc.html" style="font-size: 14px; font-weight: 600; text-decoration: none; min-height: 44px; display: flex; align-items: center">← Мои видео</a>
+
+  <div style="display: flex; flex-direction: column; gap: 6px">
+    <div style="font-size: 26px; font-weight: 800; letter-spacing: -0.01em">Готово</div>
+    <div style="font-size: 14px; color: #A3A6AD">IMG_4802 · было 1:42 → стало 1:16 · стиль A</div>
+  </div>
+
+  <div style="display: flex; justify-content: center">
+    <div style="position: relative; width: 234px; height: 416px; border-radius: 18px; overflow: hidden; background: #3D434C">
+      <svg aria-hidden="true" width="234" height="416" viewBox="0 0 234 416" style="position: absolute; left: 0; top: 0"><rect x="139" y="48" width="74" height="108" rx="5" fill="#4C535E"></rect><circle cx="117" cy="174" r="44" fill="#262A30"></circle><path d="M26 416 C 31 290, 202 290, 209 416 Z" fill="#262A30"></path></svg>
+      <div style="position: absolute; left: 20px; right: 20px; top: 56px; background: #FFFFFF; color: #111111; border-radius: 8px; padding: 7px 4px; text-align: center; font-family: Montserrat, sans-serif; font-weight: 900; font-size: 15px">КАК Я УЧУ ЧЕШСКИЙ</div>
+      <div style="position: absolute; left: 0; right: 0; top: 270px; text-align: center; font-family: Montserrat, sans-serif; font-weight: 900; font-size: 24px; color: #FFFFFF; text-shadow: 2px 0 0 #000, -2px 0 0 #000, 0 2px 0 #000, 0 -2px 0 #000, 2px 2px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000">КАЖДЫЙ <span style="color: #FFD23F">ДЕНЬ</span></div>
+      <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 5px; background: rgba(0,0,0,0.5)"><div style="width: 38%; height: 5px; background: #FFD23F"></div></div>
+      <button type="button" aria-label="Смотреть ролик" style="position: absolute; left: 85px; top: 176px; width: 64px; height: 64px; border-radius: 32px; border: none; background: rgba(15,16,18,0.72); display: flex; align-items: center; justify-content: center; cursor: pointer">
+        <svg aria-hidden="true" width="26" height="26" viewBox="0 0 24 24" fill="#FFFFFF"><path d="M8 5v14l11-7z"></path></svg>
+      </button>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+    <button type="button" style="height: 52px; border-radius: 26px; border: none; background: #FFD23F; color: #141414; font-family: Manrope, system-ui, sans-serif; font-size: 16px; font-weight: 800; cursor: pointer">Скачать видео</button>
+    <button type="button" style="height: 52px; border-radius: 26px; border: 1px solid #34373E; background: #1A1B1F; color: #F3F3F1; font-family: Manrope, system-ui, sans-serif; font-size: 16px; font-weight: 700; cursor: pointer">Субтитры .srt</button>
+  </div>
+
+  <div style="background: #1A1B1F; border-radius: 18px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+    <div style="font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #A3A6AD">Что я сделал</div>
+    <div style="font-size: 15px; line-height: 1.55">Вырезал 14 пауз и 2 повтора<br>Логотип Mluv.me — 0:09–0:13, справа вверху<br>Заголовок — первые 5 секунд<br>Стоп-кадр 1 с в конце</div>
+  </div>
+
+  <div style="background: #1A1B1F; border-radius: 18px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+    <label for="fix" style="font-size: 14px; font-weight: 700">Поправить</label>
+    <input id="fix" type="text" placeholder="Например: логотип чуть левее" style="height: 44px; box-sizing: border-box; border-radius: 12px; border: 1px solid #34373E; background: #0F1012; color: #F3F3F1; padding: 0 14px; font-family: Manrope, system-ui, sans-serif; font-size: 15px">
+    <button type="button" style="height: 44px; border-radius: 22px; border: 1px solid #34373E; background: #1A1B1F; color: #F3F3F1; font-family: Manrope, system-ui, sans-serif; font-size: 15px; font-weight: 700; cursor: pointer">Переделать</button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1040}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

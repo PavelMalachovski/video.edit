@@ -21,7 +21,7 @@
       "required": ["words", "spoken"],
       "properties": {
         "hook": { "type": "string" },
-        "words": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "words": { "type": "array", "items": { "type": "string" } },
         "spoken": { "type": "integer", "minimum": 0 }
       }
     },

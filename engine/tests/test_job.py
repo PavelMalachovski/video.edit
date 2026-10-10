@@ -269,6 +269,14 @@ def test_styles_requires_three_variants(job):
         job.write("styles.json", four)
 
 
+def test_styles_accepts_empty_sample_words_for_a_silent_clip(job):
+    # у ролика без речи слов для превью нет, но styles.json писать всё равно надо
+    styles = make_styles()
+    styles["sample"] = {"words": [], "spoken": 0}
+    job.write("styles.json", styles)
+    assert job.read("styles.json") == styles
+
+
 def test_styles_variant_ids_are_a_b_c(job):
     styles = make_styles()
     styles["variants"][1]["id"] = "D"

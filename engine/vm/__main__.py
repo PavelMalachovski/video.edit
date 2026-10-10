@@ -18,8 +18,8 @@ def _status(args: argparse.Namespace) -> None:
         progress=args.progress,
         error=args.error,
     )
-    if args.push:
-        push(job, f"status({job.id}): {args.phase}")
+    if args.push:  # только status.json: остальные файлы задачи уходят своим push (тяжёлое режется перед этим)
+        push(job, f"status({job.id}): {args.phase}", paths=["status.json"])
     print(f"{job.id}: {status['state']} / {status['phase']}" + (" (pushed)" if args.push else ""))
 
 
@@ -35,7 +35,7 @@ def _parser() -> argparse.ArgumentParser:
     status.add_argument("--needs", choices=["answers"], help="что ждём от Павла")
     status.add_argument("--progress", type=float, help="готовность фазы, 0..1")
     status.add_argument("--error", help="понятный текст ошибки")
-    status.add_argument("--push", action="store_true", help="закоммитить папку задачи и запушить")
+    status.add_argument("--push", action="store_true", help="закоммитить status.json и запушить")
     status.set_defaults(run=_status)
     return parser
 

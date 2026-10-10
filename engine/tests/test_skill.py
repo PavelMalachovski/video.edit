@@ -35,3 +35,12 @@ def test_analyze_refreshes_the_status_before_the_long_text_work():
 def test_quiet_recordings_and_the_zoom_cap_are_in_the_rules():
     assert "тихая запись" in section("5. Звук").lower()
     assert "90" in section("4. Зумы")
+
+
+def test_the_page_contract_names_what_the_page_reads_and_waits_for():
+    page = section("Страница")
+    for must in ("job.json", "answers.json", "restyle.json", "fix.json", "<qid>.own", "needs: answers", "sample.inserts",
+                 "vm style", "released.json", "final-v<version>.mp4", "PNG"):
+        assert must in page, must
+    assert "vm style" in section("Команды движка")
+    assert "vm style" in section("Шаг render")

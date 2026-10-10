@@ -146,6 +146,7 @@ description: Монтаж вертикальных роликов Павла в 
 | `vm frames --at T… [--grid]` | кадры исходника → `look/` (с `--grid` — сетка 10×10 и подпись времени) |
 | `vm preview --at T [--out q-<id>.jpg] [--mark x,y,w,h]` | кадр для превью → `frame.png`; с `--out` — картинка к вопросу, `--mark` — жёлтая рамка (где встанет вставка) |
 | `vm validate` | файлы задачи по схемам: что не так и где |
+| `vm style` | итоговый стиль по `styles.json` и `answers.json` (вариант Павла с его шрифтами и цветами) — для `edit.json.style` |
 | `vm check` | до рендера: слой по `edit.json`, проверка геометрии, контрольные кадры → `look/check.png` |
 | `vm render [--version N] [--status]` | ролик → `out/final.mp4` (`final-vN.mp4` для правок) и `.srt`, `qa/qa.png`, `result.json`; проверки качества |
 | `vm push -m "…" [--outputs]` | коммит и пуш папки задачи; `--outputs` режет большие файлы `out/` на части |
@@ -172,6 +173,28 @@ description: Монтаж вертикальных роликов Павла в 
 | `words.json`, `reference.txt`, `speech.json`, `cuts.json` | `vm prepare` | слова GigaAM с временем (сырые — исправленные живут в `edit.json`), сплошной текст Whisper, где речь по VAD, мягкая резка |
 
 Схемы всех файлов — `engine/vm/schemas/`. После записи — `vm validate`. Времена в `edit.json` — по исходнику.
+
+## Страница
+Страница показывает Павлу то, что лежит в ветке задачи, и пишет свои файлы — их ты читаешь, но не меняешь:
+- `job.json` — `brief` (ТЗ), `uploads[]` — вставки Павла к ролику (`file` — путь от папки задачи после `vm fetch`,
+  `name`, `kind`: `image` или `video`), `runs` — запуски шагов.
+- `answers.json` — `answers` по id вопросов: id варианта; `own` → свой текст в `answers["<qid>.own"]`; `upload` →
+  путь картинки в `uploads["<qid>"]` (её скачивает `vm fetch`); `none` — «не надо». `style` — вариант, шрифты и цвета.
+- `restyle.json` — просьбы «Ещё три варианта», последняя — в конце `requests`.
+- `fix.json` — правки «Поправить», последняя — в конце `fixes`; её `version` → `vm render --version <version>`.
+
+Чего страница ждёт от тебя:
+- `status.json` на каждой смене фазы — Павел видит фазу и текст.
+- После analyze и restyle — `waiting_answers` с `needs: answers` (`--needs answers`), одним коммитом с файлами шага.
+  restyle меняет только `styles.json` (и кадр, если просьба о нём); вопросы не трогает — ответы у Павла уже есть.
+- Картинки к вопросам и вариантам — PNG или JPEG (из папки задачи или `assets/`); SVG страница не покажет — для
+  такого логотипа дай кадр `vm preview` или растровую картинку.
+- Вопрос `hook` — тексты хука в `label` вариантов: выбранный страница рисует на превью.
+- `styles.sample.inserts` — вставки на кадре превью: «добавь сюда» — с теми же `x, y, w`, что у вставки черновика
+  `edit.json`, и её `question` (картинку страница подставит по ответу Павла); вставки из ТЗ — с `src`.
+- `edit.json.style` — вывод `vm style`: тот же стиль, что Павел видел на крупном превью.
+- Готовый ролик — только через `vm push --outputs`: страница ждёт `final.mp4` (после правки — `final-v<version>.mp4`)
+  в `out/released.json`; этот файл пишет Action после твоего пуша.
 
 ## Шаг analyze
 1. `vm fetch --status` и `vm prepare --status`. Прочитай сводку `prepare`, `job.json` (ТЗ и вставки), `words.json`,
@@ -247,9 +270,10 @@ description: Монтаж вертикальных роликов Павла в 
   - `hold` (choice) — стоп-кадр в конце: `0`, `1`, `2` с — если есть титр.
 
 ## Стили (styles.json)
-`{frame, frameTime, sample: {hook?, words, spoken}, variants: [A, B, C]}`.
+`{frame, frameTime, sample: {hook?, words, spoken, inserts?}, variants: [A, B, C]}`.
 - `frame` — `frame.png` (`vm preview --at T`), `frameTime` — T. `sample.words` — 3–6 слов, которые звучат около T
-  (исправленные), `spoken` — индекс слова, которое «говорится»; `sample.hook` — предложенный хук.
+  (исправленные), `spoken` — индекс слова, которое «говорится»; `sample.hook` — предложенный хук; `sample.inserts` —
+  вставки на кадре превью (раздел «Страница»).
 - Вариант — `{id, label, spec}`, `spec` — стиль как в разделе 2 (`hook.y` уже подобран по лицу).
   - **A** — строго по правилам (раздел 2).
   - **B** и **C** — в каждом заметно меняется одно-два: режим субтитров (`plate` / `word` / `accumulate`), место
@@ -278,8 +302,8 @@ description: Монтаж вертикальных роликов Павла в 
      стикер → `kind: "sticker"` и `text`, `none` — убери вставку. Вставку с `question` без `src` `vm check` не
      пропустит. Прочие вставки — выбранные из `library`;
    - стоп-кадр `hold`;
-   - стиль: `spec` выбранного варианта (`answers.style.variant`), в нём заменить `font`, `hand`, `colors.text`,
-     `colors.accent`, `colors.bar` на выбранные Павлом.
+   - стиль: вывод `vm style` целиком в `edit.json.style` — `spec` выбранного варианта с шрифтом, рукописным и тремя
+     цветами Павла, как на крупном превью.
 3. `vm check`. Посмотри `look/check.png` (хук, субтитры, вставка, титр поверх кадров исходника) и список
    проблем; исправь `edit.json` и повтори, пока не чисто.
 4. `vm render --status`. Посмотри `qa/qa.png` и вывод: «проверка: всё в порядке» — дальше; проблемы —

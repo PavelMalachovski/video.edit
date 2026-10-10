@@ -20,6 +20,11 @@ Node 22 + Playwright (Chromium), распознавание — бэкенд, в
 **Spec:** `docs/superpowers/specs/2026-10-10-video-edit-service-design.md` (§4, §5.5–5.9)
 
 **Зависит от:** План 1, задача 1 (`setup/cloud-setup.sh`, выбор `ASR=`, команда HDR→SDR).
+Выводы Плана 1, уже внесённые ниже (подробно — `docs/spikes/2026-10-results.md`):
+распознавание — GigaAM v2 transducer (sherpa-onnx), сплошной текст — Whisper turbo;
+HDR→SDR — прямой `zscale`; сессия не может создавать релизы и удалять ветки, готовые файлы
+> 95 МБ пушатся частями; входные файлы качаются из черновика `job-<id>` REST-запросом без
+своего токена; ES-модули не видят `NODE_PATH`.
 
 ## Global Constraints
 - Кадр 1080×1920, 30 к/с, H.264 `libx264 -crf 18 -preset medium -pix_fmt yuv420p`,
@@ -108,8 +113,9 @@ legacy/video-montage/          прошлый скилл как есть (спр
     `state ∈ {uploading, queued, analyzing, waiting_answers, rendering, rendered, error}`,
     `needs ∈ {None, "answers"}`, добавляет `at` (ISO UTC).
   - `push(job, message: str, paths: list[str] | None = None) -> None` — `git add`
-    папки задачи (или `paths`), commit, `git push -u origin HEAD`, повтор при сетевой
-    ошибке через 2/4/8/16 с.
+    папки задачи (или `paths`), commit, `git push -u origin HEAD`; отказ пуша (Action мог
+    закоммитить в ветку задачи) → `git pull --rebase` и повтор; сетевая ошибка → повтор
+    через 2/4/8/16 с.
   - CLI: `python -m vm status <jobdir> --state S --phase P --message M [--needs answers] [--progress 0.4] [--error E] [--push]`.
 - Схемы (обязательные поля; остальное — по дизайну §5.6):
   - `status`: `state, phase, message, at` (+ `needs, progress, error`).
@@ -126,7 +132,9 @@ legacy/video-montage/          прошлый скилл как есть (спр
   `test_set_status_adds_iso_at`; `test_styles_requires_three_variants`;
   `test_edit_rejects_unknown_subtitle_mode`. `test_git.py`:
   `test_push_commits_and_pushes_to_bare_remote` (временный bare-репозиторий как
-  `origin`, после `push` в remote есть коммит с сообщением).
+  `origin`, после `push` в remote есть коммит с сообщением);
+  `test_push_rebases_when_remote_moved` (в remote появился чужой коммит в другом файле →
+  `push` всё равно проходит, оба коммита в истории).
 - [ ] **Step 2:** Run `cd engine && pytest -q` — Expected: FAIL (модуля нет).
 - [ ] **Step 3:** Реализовать `job.py`, `git.py`, схемы, CLI `status`.
 - [ ] **Step 4:** Run `cd engine && pytest -q` — Expected: PASS.
@@ -145,7 +153,8 @@ legacy/video-montage/          прошлый скилл как есть (спр
     `fps`, `duration`, `hdr: bool` — по `color_transfer ∈ {arib-std-b67, smpte2084}`
     или Dolby Vision side data, `has_audio`).
   - `normalize(parts: list[Path], out: Path) -> Probe` — склейка по порядку, поворот
-    применён, HDR→SDR командой из `docs/spikes/2026-10-results.md`, 30 к/с CFR,
+    применён, HDR→SDR `zscale=t=bt709:m=bt709:p=bt709:r=tv:npl=100,format=yuv420p` (выбрано в
+    Плане 1; выход помечается BT.709), 30 к/с CFR,
     вертикальный → 1080×1920, иной → сохраняет пропорции по ширине 1080 (фон-размытие
     делает `render`), звук 48 кГц стерео; H.264 crf 16 (промежуточный).
   - `extract_wav(src, out, rate=16000) -> Path` (моно).
@@ -170,30 +179,40 @@ legacy/video-montage/          прошлый скилл как есть (спр
 
 **Files:**
 - Create: `engine/vm/asr.py`
-- Test: `engine/tests/test_asr.py` (+ фикстура `ru_speech.wav`: `espeak-ng -v ru` фраза
-  «Привет. Сегодня я расскажу, как я учу чешский каждый день. Добавь сюда логотип.
-  Пишите мне слово чешский.» с паузами 0,8 с между предложениями)
+- Test: `engine/tests/test_asr.py` (+ фикстура в `conftest.py`: речь `espeak-ng -v ru -s 150`
+  **по одному слову** с известным началом каждого слова, как в `docs/spikes/asr_bench.py` —
+  12 слов, паузы 0,12 с внутри фразы и 0,8 с между фразами; разметка — в JSON рядом)
 
 **Interfaces:**
-- Consumes: `extract_wav` (задача 2); бэкенд `ASR` из окружения (`setup/cloud-setup.sh`).
+- Consumes: `extract_wav` (задача 2); модели из `setup/cloud-setup.sh`: переменные окружения
+  `ASR_MODEL` (по умолчанию `~/.cache/vm/sherpa-onnx-nemo-transducer-giga-am-v2-russian-2025-04-19`),
+  `ASR_REF_MODEL` (Whisper turbo, может отсутствовать), `VAD_MODEL` (silero).
 - Produces:
   - `@dataclass Word(t0: float, t1: float, text: str)`.
-  - `transcribe(wav: Path, *, lang="ru") -> list[Word]` — по бэкенду; пустой список
-    для тишины.
-  - `distribute_words(text: str, t0: float, t1: float) -> list[Word]` — время
-    фразы делится между словами пропорционально числу букв (пунктуация не
-    считается), слова идут встык.
-  - `save_words(words, path)`, `load_words(path) -> list[Word]` (формат
-    `[{t0,t1,text}]`).
+  - `transcribe(wav: Path) -> list[Word]` — GigaAM v2 transducer
+    (`sherpa_onnx.OfflineRecognizer.from_transducer(..., model_type="nemo_transducer")`);
+    токены — буквы, граница слова — пробел; `t0` — время первой буквы, `t1` —
+    `min(t0 следующего слова, время последней буквы + 0.12)`. Запись ≤ 60 с — целиком;
+    длиннее — куски 30–60 с, разрезы в паузах по VAD (мельче не резать: в Плане 1 мелкие
+    куски ухудшили и текст, и время), время сдвигается на начало куска. Тишина → `[]`.
+  - `reference_text(wav: Path) -> str` — Whisper turbo (пунктуация, регистр) для правки
+    слов Claude; модели нет → `""`.
+  - `distribute_words(text: str, t0: float, t1: float) -> list[Word]` — запасной вариант:
+    время делится по числу букв (пунктуация не считается), слова встык.
+  - `save_words(words, path)`, `load_words(path) -> list[Word]` (формат `[{t0,t1,text}]`).
 
 - [ ] **Step 1: Тесты.** `test_distribute_words_proportional` («а бб ссс», 0–6 с →
   длительности 1, 2, 3); `test_distribute_words_ignores_punctuation`;
+  `test_words_from_char_tokens` (токены `["п","р","и"," ","в"]` с временем → два слова,
+  `t0` = время первой буквы, `t1` ≤ `t0` следующего);
   `test_transcribe_silence_returns_empty` (`anullsrc` 3 с → `[]`);
-  `@pytest.mark.slow test_transcribe_ru_speech` (найдены «чешский» и «логотип»;
-  времена не убывают; первое слово начинается в пределах 0,3 с от начала речи).
+  `@pytest.mark.slow test_transcribe_word_timing` (фикстура: совпало ≥ 7 из 12 слов,
+  средняя ошибка начала ≤ 80 мс — по сравнению с разметкой, как в `asr_bench.py`);
+  `@pytest.mark.slow test_transcribe_long_audio_is_chunked` (та же речь ×8 ≈ 85 с:
+  времена не убывают, последнее слово позже 75 с);
+  `@pytest.mark.slow test_reference_text_has_punctuation` (Whisper вернул текст с точкой).
 - [ ] **Step 2:** Run `pytest tests/test_asr.py -q -m "not slow"` — FAIL.
-- [ ] **Step 3:** Реализовать `asr.py` (если бэкенд даёт только фразы — фразы +
-  `distribute_words`).
+- [ ] **Step 3:** Реализовать `asr.py`.
 - [ ] **Step 4:** Run `pytest tests/test_asr.py -q` (включая slow) — PASS.
 - [ ] **Step 5: Commit** `feat(engine): word timings`.
 
@@ -266,6 +285,9 @@ legacy/video-montage/          прошлый скилл как есть (спр
   `template/package.json` (devDependency `playwright`), `template/tests/overlay.test.mjs`
 
 **Interfaces:**
+- Тесты и `render-frames.mjs` подключают Playwright через `createRequire` с запасным путём
+  `$(npm root -g)/playwright` (ES-модули не видят `NODE_PATH`; браузер — из
+  `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`, ничего не скачивать).
 - Produces (браузер, без сборки, ES-модуль):
   - `window.renderState(spec: StyleSpec, state: OverlayState, opts?: {bar?: {progress: number}, background?: string}) -> Promise<void>`
     (ждёт загрузки шрифтов).
@@ -473,9 +495,21 @@ legacy/video-montage/          прошлый скилл как есть (спр
   - `python -m vm preview <jobdir> --at T` → `jobdir/frame.png` (из `source.mp4`).
   - `python -m vm render <jobdir> [--version N]` → `jobdir/out/final[-vN].mp4|.srt`,
     `jobdir/qa/qa.png`, обновляет `result.json` (`durations`, `missing`, `qa`).
-  - `python -m vm push <jobdir> -m MSG` → `git.push`.
+  - `python -m vm fetch <jobdir>` — входные файлы из черновика `job-<id>`:
+    `GET https://api.github.com/repos/<repo>/releases` (черновики видны; авторизацию
+    в облачной сессии подставляет прокси, свой токен не нужен — если в окружении есть
+    `GITHUB_TOKEN`, передать его), ассеты `source.part-*` по порядку имён → склеить в
+    `in/source.<ext>` (расширение из `manifest.json`), сверить размер с манифестом;
+    вставки из ответа (`upload-*`) → `in/uploads/`.
+  - `python -m vm push <jobdir> -m MSG [--outputs]` → `git.push`; с `--outputs` файлы
+    `out/*` больше 95 МБ заменяются частями `split -b 95M -a 2` (`<имя>.part-aa…`) и
+    `<имя>.sha256` (формат `sha256sum`) — их склеит Action `job-outputs`.
 
-- [ ] **Step 1: Тест** `test_cli_prepare_then_render_on_fixture` (`@slow`: фикстура в
+- [ ] **Step 1: Тесты** `test_push_outputs_splits_large_files` (файл 200 МБ из
+  `/dev/zero`-подобных данных → в коммите 3 части по ≤ 95 МБ и `.sha256`, исходного файла
+  в коммите нет); `test_fetch_joins_parts_in_order` (подменённый HTTP-ответ GitHub с тремя
+  частями в перемешанном порядке → файл совпадает с исходным); и
+  `test_cli_prepare_then_render_on_fixture` (`@slow`: фикстура в
   `in/`, `prepare` → `words.json`/`cuts.json` есть; тест пишет минимальный
   `edit.json` из них; `render` → `out/final.mp4` и `result.json` валиден).
 - [ ] **Step 2:** Run — FAIL. **Step 3:** Реализовать. **Step 4:** Run — PASS.

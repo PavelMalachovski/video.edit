@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  answersFile, appendFix, appendRestyle, buildJobFile, errorStatus, finalNames, parseAnswersBody, parseNote, parseStatus,
+  answersFile, appendFix, appendRestyle, buildJobFile, errorStatus, finalNames, parseAnswersBody, parseNote, parseStatus, parseStyles,
   QUESTION_TYPES, queuedStatus, STATES, wantedVersion, type Manifest, type Question,
 } from '../lib/jobfiles.ts';
 import { STEPS } from '../lib/routine.ts';
@@ -123,5 +123,15 @@ test('own font ids from assets/fonts pass: Cyrillic, spaces, -hand', () => {
   if (!('error' in ok)) assert.deepEqual([ok.style.font, ok.style.hand], ['Pacifico Regular', 'Мой почерк-hand']);
   for (const bad of ['', '   ', 'a\nb', 'x'.repeat(201), 'шрифты/свой']) {
     assert.ok('error' in parseAnswersBody(body(bad, 'caveat'), []), JSON.stringify(bad));
+  }
+});
+
+test('parseStyles takes the fonts that have every letter of the video, or none', () => {
+  const styles = JSON.parse(readFileSync(new URL('../../engine/tests/fixtures/style-merge.json', import.meta.url), 'utf8')).styles;
+  assert.ok(parseStyles(styles), 'without fonts — all fonts');
+  const fonts = { main: ['montserrat', 'comfortaa'], hand: ['bad-script'] };
+  assert.deepEqual(parseStyles({ ...styles, fonts })?.fonts, fonts);
+  for (const bad of [{ main: ['montserrat'] }, { main: 'montserrat', hand: [] }, { main: ['montserrat'], hand: [7] }, { main: [''], hand: [] }, []]) {
+    assert.equal(parseStyles({ ...styles, fonts: bad }), null, JSON.stringify(bad));
   }
 });

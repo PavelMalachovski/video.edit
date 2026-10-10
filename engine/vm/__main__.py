@@ -1,11 +1,13 @@
 """CLI движка для Claude: python -m vm <команда> <папка задачи> …
 
     fetch    входные файлы из черновика job-<id> → in/
-    prepare  in/ → source.mp4, work/source.wav, words.json, reference.txt, cuts.json, sheet.png; сводка
+    prepare  in/ → source.mp4, work/source.wav, language.json, words.json, reference.txt, cuts.json, sheet.png; сводка
+             (--lang — язык ролика по ответу Павла)
     frames   кадры исходника в моменты --at (с --grid — с сеткой) → look/
     preview  кадр исходника для превью → frame.png (или --out: картинка к вопросу, с --mark — с рамкой)
     validate файлы задачи по схемам и файлы, на которые они ссылаются
     style    итоговый стиль по styles.json и answers.json (для edit.json.style)
+    fonts    шрифты, в которых есть все буквы текста ролика (для styles.json.fonts), и чего каким не хватает
     check    до рендера: слой по edit.json, проверка геометрии и 4 контрольных кадра → look/check.png
     render   финал по edit.json → out/final[-vN].mp4|.srt, qa/qa.png, result.json
     push     коммит и пуш папки задачи (с --outputs — большие файлы out/ режутся на части)
@@ -22,6 +24,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from . import fonts
 from .fetch import fetch
 from .git import MAX_FILE_BYTES, GitError, push
 from .job import Job, set_status, states, validate
@@ -176,8 +179,32 @@ def _style(args: argparse.Namespace) -> None:
     print(json.dumps(final_style(styles, answers), ensure_ascii=False, indent=2))
 
 
+def _fonts(args: argparse.Namespace) -> None:
+    job = _job(args)
+    parts = []
+    if job.path("words.json").is_file():
+        parts += [w["text"] for w in json.loads(job.path("words.json").read_text(encoding="utf-8"))]
+    if job.path("reference.txt").is_file():
+        parts.append(job.path("reference.txt").read_text(encoding="utf-8"))
+    main_text, hand_text = "\n".join(parts), "\n".join(parts)  # хук и кодовое слово — из этих же слов
+    if job.path("edit.json").is_file():
+        edit_main, edit_hand = fonts.texts(job.read("edit.json"))
+        main_text, hand_text = f"{main_text}\n{edit_main}", f"{hand_text}\n{edit_main}\n{edit_hand}"
+    print(json.dumps(fonts.coverage(main_text, hand_text), ensure_ascii=False))
+    for font in fonts.catalog():
+        if lack := fonts.missing(font, main_text if font.kind == "main" else hand_text):
+            print(f"нет букв: {font.id} — {lack}")
+
+
+def _fonts_ok(job: Job) -> None:
+    """Шрифты стиля edit.json с буквами ролика — до тяжёлой работы: иначе превью и ролик разойдутся."""
+    if problems := fonts.check(job.read("edit.json")):
+        raise ValueError("шрифты:\n" + "\n".join(f"  - {line}" for line in problems))
+
+
 def _check(args: argparse.Namespace) -> None:
     job = _job(args)
+    _fonts_ok(job)
     layer = draw_layer(job)
     edit = layer.edit
     problems = check_layout(layer.boxes, face_box(edit.get("face")), edit.get("inserts"))
@@ -197,6 +224,7 @@ def _render(args: argparse.Namespace) -> None:
     job = _job(args)
     step = _stepper(job, "rendering", args.status)
     name = "final" if args.version in (None, 1) else f"final-v{args.version}"
+    _fonts_ok(job)
     step("Монтирую", "Собираю ролик: нарезка, текст, вставки, звук")
     result = render(job, job.path("out"), name=name, preset=args.preset)
     for done in (f"{name}.mp4", f"{name}.srt"):  # части прошлого push --outputs — от старого ролика
@@ -351,6 +379,8 @@ def _parser() -> argparse.ArgumentParser:
     command("validate", _validate, "файлы задачи по схемам и файлы, на которые они ссылаются")
 
     command("style", _style, "итоговый стиль: вариант из answers.json с выбранными шрифтами и цветами (для edit.json.style)")
+
+    command("fonts", _fonts, "шрифты, в которых есть все буквы текста ролика, и чего каким не хватает")
 
     command("check", _check, "до рендера: слой, проверка геометрии и контрольные кадры → look/check.png")
 

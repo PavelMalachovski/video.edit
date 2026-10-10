@@ -30,6 +30,12 @@ export function choiceFor(styles: Styles, variant: Variant): StyleChoice {
   return { variant, font: spec.font, hand: spec.hand, colors: { text: spec.colors.text, accent: spec.colors.accent, bar: spec.colors.bar } };
 }
 
+/** Шрифты, которые можно предложить Павлу: те, где есть все буквы ролика (`styles.fonts`); поля нет — все. */
+export function allowedFonts<T extends { id: string; kind: 'main' | 'hand' }>(list: T[], styles: Styles): T[] {
+  const ok = styles.fonts;
+  return ok ? list.filter((f) => (f.kind === 'hand' ? ok.hand : ok.main).includes(f.id)) : list;
+}
+
 /** Цвета из макета «3 · Три превью»; плюс «Свой» — выбор любого цвета. */
 export const SWATCHES = {
   accent: [
@@ -119,7 +125,8 @@ function isChoice(x: unknown, styles: Styles): x is StyleChoice {
   const c = x as StyleChoice;
   return typeof c === 'object' && c !== null && styles.variants.some((v) => v.id === c.variant) && typeof c.font === 'string' && c.font !== ''
     && typeof c.hand === 'string' && c.hand !== '' && typeof c.colors === 'object' && c.colors !== null
-    && ['text', 'accent', 'bar'].every((k) => COLOR.test(String((c.colors as Record<string, unknown>)[k])));
+    && ['text', 'accent', 'bar'].every((k) => COLOR.test(String((c.colors as Record<string, unknown>)[k])))
+    && (!styles.fonts || (styles.fonts.main.includes(c.font) && styles.fonts.hand.includes(c.hand)));
 }
 
 export function saveChoice(storage: Storage | null, jobId: string, styles: Styles, c: StyleChoice): void {

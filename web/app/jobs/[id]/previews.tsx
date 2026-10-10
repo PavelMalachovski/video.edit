@@ -7,7 +7,7 @@ import { storage } from '@/lib/client.ts';
 import { mmss } from '@/lib/format.ts';
 import type { Question, StyleChoice, Styles } from '@/lib/jobfiles.ts';
 import { MAX_NOTE } from '@/lib/jobs.ts';
-import { choiceFor, finalStyle, loadChoice, resolveInserts, sampleState, saveChoice, SWATCHES } from '@/lib/style.ts';
+import { allowedFonts, choiceFor, finalStyle, loadChoice, resolveInserts, sampleState, saveChoice, SWATCHES } from '@/lib/style.ts';
 import PreviewFrame from '../../preview-frame';
 import type { Act } from './job';
 
@@ -68,6 +68,7 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
   const progress = duration ? Math.min(1, styles.frameTime / duration) : 0.3;
   const frameUrl = fileUrl(styles.frame);
   const family = (id: string) => fonts.find((f) => f.id === id)?.family ?? id;
+  const offered = useMemo(() => allowedFonts(fonts, styles), [fonts, styles]); // только шрифты со всеми буквами ролика
 
   const [tweak, setTweak] = useState('');
   const [busy, setBusy] = useState<'restyle' | 'answers' | null>(null);
@@ -119,14 +120,14 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
       <div className="card">
         <div className="caps small">Шрифт</div>
         <div className="font-grid">
-          {fonts.filter((f) => f.kind !== 'hand').map((f) => (
+          {offered.filter((f) => f.kind !== 'hand').map((f) => (
             <button key={f.id} type="button" className="font" aria-pressed={choice.font === f.id} style={{ fontFamily: `"pv-${f.id}", var(--font-ui)` }}
               onClick={() => pickFont('font', f.id)}>{f.family}</button>
           ))}
         </div>
         <div className="caps small">Рукописный — для хука и кодового слова</div>
         <div className="font-grid">
-          {fonts.filter((f) => f.kind === 'hand').map((f) => (
+          {offered.filter((f) => f.kind === 'hand').map((f) => (
             <button key={f.id} type="button" className="font hand" aria-pressed={choice.hand === f.id} style={{ fontFamily: `"pv-${f.id}", var(--font-ui)` }}
               onClick={() => pickFont('hand', f.id)}>{f.family}</button>
           ))}

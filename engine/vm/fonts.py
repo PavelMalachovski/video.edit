@@ -1,0 +1,92 @@
+"""Буквы в шрифтах: есть ли в выбранном шрифте все буквы текста ролика (ролик может быть на любом языке этапа 1).
+
+Каталог — как у шаблона: встроенные шрифты из `template/fonts.json` и свои шрифты Павла из `assets/fonts/` (правило
+`template/fonts.mjs`: id — имя файла без расширения, «-hand» в конце — рукописный, встроенный с тем же id важнее).
+Буквы шрифта — его таблица символов (cmap, fontTools). Буквы текста — сам текст и он же капсом (хук — капсом).
+
+Основной шрифт рисует субтитры, хук, строки титра и тексты вставок; рукописный — последнее слово хука и кодовое
+слово титра. Буквы, которой нет в шрифте, браузер подставит из другого шрифта — превью и ролик разойдутся, — поэтому
+`vm check` и `vm render` такой стиль не пропускают (`check`), а `vm fonts` говорит, какие шрифты подходят тексту.
+"""
+import json
+from dataclasses import dataclass
+from functools import cache
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[2]
+TEMPLATE = REPO / "template"
+CUSTOM = REPO / "assets" / "fonts"
+FONT_FILE = {".ttf", ".otf"}
+
+
+@dataclass(frozen=True)
+class Font:
+    id: str
+    kind: str  # main | hand
+    path: Path
+
+
+def catalog(custom: Path | None = None) -> list[Font]:
+    """Встроенные шрифты и свои (`custom`, по умолчанию assets/fonts) — одним списком, без повторов id."""
+    built = [
+        Font(f["id"], f["kind"], TEMPLATE / f["file"])
+        for f in json.loads((TEMPLATE / "fonts.json").read_text(encoding="utf-8"))
+    ]
+    known = {f.id for f in built}
+    folder = CUSTOM if custom is None else custom
+    files = sorted(p for p in folder.iterdir() if p.suffix.lower() in FONT_FILE) if folder.is_dir() else []
+    for path in files:
+        if path.stem not in known:  # A.ttf и A.otf — один id, берём первый
+            known.add(path.stem)
+            built.append(Font(path.stem, "hand" if path.stem.lower().endswith("-hand") else "main", path))
+    return built
+
+
+@cache
+def _cmap(path: Path) -> frozenset[int]:
+    from fontTools.ttLib import TTFont  # тяжёлый импорт — только когда он нужен
+
+    with TTFont(path, lazy=True) as font:
+        return frozenset(font.getBestCmap())
+
+
+def missing(font: Font, text: str) -> str:
+    """Буквы текста (и его капса), которых нет в шрифте, по порядку кодов; пробелы — не буквы."""
+    have = _cmap(font.path)
+    return "".join(sorted(c for c in set(text) | set(text.upper()) if not c.isspace() and ord(c) not in have))
+
+
+def texts(edit: dict) -> tuple[str, str]:
+    """Текст ролика из edit.json: (что рисует основной шрифт, что — рукописный)."""
+    hook = (edit.get("hook") or {}).get("text") or ""
+    cta = edit.get("cta") or {}
+    main = [w.get("text", "") for w in edit.get("words") or []]
+    main += [hook, *(cta.get("lines") or [])]
+    main += [i.get(key) or "" for i in edit.get("inserts") or [] for key in ("title", "text")]
+    hand = [hook.split()[-1] if hook.split() else "", cta.get("word") or ""]
+    return "\n".join(main), " ".join(part for part in hand if part)
+
+
+def coverage(main_text: str, hand_text: str, custom: Path | None = None) -> dict[str, list[str]]:
+    """Шрифты, в которых есть все буквы: основные — для `main_text`, рукописные — для `hand_text`."""
+    fonts = catalog(custom)
+    return {
+        kind: [f.id for f in fonts if f.kind == kind and not missing(f, text)]
+        for kind, text in (("main", main_text), ("hand", hand_text))
+    }
+
+
+def check(edit: dict, custom: Path | None = None) -> list[str]:
+    """Проблемы шрифтов стиля edit.json: в основном или рукописном нет букв ролика. Неизвестный id — не здесь."""
+    fonts = {f.id: f for f in catalog(custom)}
+    style = edit.get("style") or {}
+    main_text, hand_text = texts(edit)
+    problems = []
+    for kind, text in (("main", main_text), ("hand", hand_text)):
+        font = fonts.get(style.get("font" if kind == "main" else "hand") or "")
+        if font is None or not (lack := missing(font, text)):
+            continue
+        fits = coverage(main_text, hand_text, custom)[kind]
+        role = "основном" if kind == "main" else "рукописном"
+        problems.append(f"в {role} шрифте {font.id} нет букв {lack} — возьми тот, где они есть: {', '.join(fits) or 'таких нет'}")
+    return problems

@@ -34,10 +34,10 @@ fi
 say "ffmpeg: $(ffmpeg -hide_banner -version 2>/dev/null | head -1 | cut -d' ' -f3)"
 
 # 2. Python-зависимости движка.
-if ! python3 -c "import sherpa_onnx, soundfile, numpy, jsonschema, pytest" 2>/dev/null; then
-  say "pip: sherpa-onnx soundfile numpy jsonschema pytest"
-  python3 -m pip install -q --break-system-packages sherpa-onnx soundfile numpy jsonschema pytest >/dev/null 2>&1 \
-    || python3 -m pip install -q sherpa-onnx soundfile numpy jsonschema pytest >/dev/null 2>&1 \
+if ! python3 -c "import sherpa_onnx, soundfile, numpy, jsonschema, fontTools, pytest" 2>/dev/null; then
+  say "pip: sherpa-onnx soundfile numpy jsonschema fonttools pytest"
+  python3 -m pip install -q --break-system-packages sherpa-onnx soundfile numpy jsonschema fonttools pytest >/dev/null 2>&1 \
+    || python3 -m pip install -q sherpa-onnx soundfile numpy jsonschema fonttools pytest >/dev/null 2>&1 \
     || { say "НЕ удалось поставить Python-пакеты"; fail=1; }
 fi
 

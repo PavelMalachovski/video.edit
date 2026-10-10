@@ -5,8 +5,11 @@
 //
 //   InsertState = {kind: "image"|"badge"|"sticker"|"anim", src?, text?, title?, x, y, w,
 //                  anim /* 0..1 — прогресс появления */, t /* с от начала показа, для anim */, params?}
-//   x, y — левый верхний угол вставки в кадре, w — её ширина; высоту задаёт содержимое.
-//   src — адрес картинки (относительно overlay.html или полный).
+//   x, y — левый верхний угол вставки в кадре, w — её ширина (у бейджа — наибольшая: плашка по тексту);
+//   высоту задаёт содержимое. src — адрес картинки (относительно overlay.html или полный); у бейджа — значок.
+//   params: image — cutout (PNG без фона: контур по силуэту вместо рамки); badge — height, colors;
+//   sticker — textSize, titleSize, colors; anim — name ("bachata"), scale, titleSize, colors.
+//   colors — 2–3 цвета градиента карточки.
 
 /** Плавное замедление появления: быстро в начале, мягко в конце. */
 export function ease(x) {
@@ -58,13 +61,15 @@ async function photo(ins) {
     Object.assign(img.style, { border: `1px solid ${FRAME_COLOR}`, borderRadius: '10px', boxShadow: '0 2px 10px rgba(0, 0, 0, 0.08)' });
   }
   await img.decode();
-  return { node: img, w, h, ext: cutout ? CUTOUT_EXT : PHOTO_EXT, offset: 0 };
+  return { node: img, w, h, ext: cutout ? CUTOUT_EXT : PHOTO_EXT };
 }
 
 // ---------- карточки на холсте ----------
 
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const easeInOut = (x) => (x < 0.5 ? 2 * x * x : 1 - (-2 * x + 2) ** 2 / 2);
+
+const probe = document.createElement('canvas').getContext('2d'); // мерить текст
 
 function fontOf(main, size) {
   return `${main.weight} ${size}px "${main.family}"`;
@@ -125,7 +130,13 @@ function card(ctx, w, h, { colors, title, titleSize, main }, inner) {
   inner?.();
   ctx.restore();
   if (title) {
-    ctx.font = fontOf(main, titleSize ?? 58);
+    // заголовок крупно, но не шире карточки (по 24 px полей)
+    let size = titleSize ?? 58;
+    ctx.font = fontOf(main, size);
+    while (size > 16 && ctx.measureText(title).width > w - 48) {
+      size -= 1;
+      ctx.font = fontOf(main, size);
+    }
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
     ctx.lineWidth = 10;
@@ -140,7 +151,6 @@ function card(ctx, w, h, { colors, title, titleSize, main }, inner) {
 function sticker(ins, main) {
   const w = ins.w;
   const size = ins.params?.textSize ?? 44;
-  const probe = document.createElement('canvas').getContext('2d');
   probe.font = fontOf(main, size);
   const lines = wrap(probe, ins.text ?? '', w - 60);
   const lh = size * 1.2;
@@ -154,7 +164,7 @@ function sticker(ins, main) {
     ctx.textBaseline = 'top';
     lines.forEach((l, i) => ctx.fillText(l, w / 2, top + i * lh));
   });
-  return { node: canvas, w, h, ext: CARD_EXT, offset: MARGIN };
+  return { node: canvas, w, h, ext: CARD_EXT };
 }
 
 async function badge(ins, main) {
@@ -164,7 +174,6 @@ async function badge(ins, main) {
   const pad = 16;
   const gap = 22;
   const start = icon ? pad + tile + gap : 40;
-  const probe = document.createElement('canvas').getContext('2d');
   // текст — крупно, но так, чтобы плашка уложилась в ширину вставки
   let size = Math.round(height * 0.53);
   probe.font = fontOf(main, size);
@@ -207,7 +216,7 @@ async function badge(ins, main) {
   ctx.textBaseline = 'middle';
   ctx.fillText(ins.text ?? '', start, h / 2 + 3);
   ctx.restore();
-  return { node: canvas, w, h, ext: CARD_EXT, offset: MARGIN };
+  return { node: canvas, w, h, ext: CARD_EXT };
 }
 
 // ---------- танцующая пара (базовый шаг бачаты) ----------
@@ -402,7 +411,7 @@ const ANIMS = {
       // с заголовком пара мельче, чтобы поднятые руки не заходили на него
       couple(ctx, t, w / 2, h - 34, (ins.params?.scale ?? (ins.title ? 0.95 : 1.1)) * (w / 384));
     });
-    return { node: canvas, w, h, ext: CARD_EXT, offset: MARGIN };
+    return { node: canvas, w, h, ext: CARD_EXT };
   },
 };
 

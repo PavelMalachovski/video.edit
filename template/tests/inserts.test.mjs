@@ -177,6 +177,74 @@ test('a missing picture or an unknown kind is an error, not a silent gap', async
   await assert.rejects(render([{ kind: 'anim', x: 0, y: 0, w: 300, anim: 1, t: 0, params: { name: 'salsa' } }]), /salsa/);
 });
 
+/** Рамка всех пикселей кадра с прозрачностью ≥ 4/255 (что реально нарисовано); считает соседняя вкладка. */
+async function drawnBox() {
+  const png = await page.screenshot({ omitBackground: true });
+  return scratch.evaluate(async (b64) => {
+    const img = new Image();
+    img.src = `data:image/png;base64,${b64}`;
+    await img.decode();
+    const c = document.createElement('canvas');
+    c.width = img.width;
+    c.height = img.height;
+    const ctx = c.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    const d = ctx.getImageData(0, 0, c.width, c.height).data;
+    let x0 = Infinity;
+    let y0 = Infinity;
+    let x1 = -Infinity;
+    let y1 = -Infinity;
+    for (let k = 3, i = 0; k < d.length; k += 4, i++) {
+      if (d[k] < 4) continue;
+      const x = i % c.width;
+      const y = (i / c.width) | 0;
+      if (x < x0) x0 = x;
+      if (y < y0) y0 = y;
+      if (x + 1 > x1) x1 = x + 1;
+      if (y + 1 > y1) y1 = y + 1;
+    }
+    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+  }, png.toString('base64'));
+}
+
+test('everything drawn stays inside the reported box, at any appearance step', async () => {
+  const kinds = [
+    photo(),
+    { kind: 'image', src: 'cutout.png', x: 100, y: 300, w: 400, t: 0, params: { cutout: true } },
+    { kind: 'badge', text: 'Чешский с нуля', src: 'cutout.png', x: 100, y: 300, w: 600, t: 0 },
+    { kind: 'sticker', title: 'Главная ошибка', text: 'Учите по 15 минут в день', x: 100, y: 300, w: 420, t: 0 },
+    { kind: 'sticker', title: 'Очень длинный заголовок вставки', text: 'текст', x: 100, y: 300, w: 420, t: 0 },
+    { kind: 'anim', title: 'Важный совет', x: 100, y: 300, w: 300, t: 0.4, params: { name: 'bachata' } },
+  ];
+  for (const ins of kinds) {
+    for (const anim of [0.3, 1]) {
+      await render([{ ...ins, anim }]);
+      const [box] = (await boxes()).inserts;
+      const seen = await drawnBox();
+      const name = `${ins.kind} ${ins.title ?? ''} anim=${anim}`;
+      assert.ok(seen.x >= box.x && seen.y >= box.y && seen.x + seen.w <= box.x + box.w && seen.y + seen.h <= box.y + box.h, `${name}: drawn ${JSON.stringify(seen)} outside ${JSON.stringify(box)}`);
+      // у PNG без фона рамка — весь прямоугольник картинки, а нарисован силуэт внутри: тесноту не проверяем
+      if (anim === 1 && !ins.params?.cutout) assert.ok(box.w * box.h <= 1.6 * seen.w * seen.h, `${name}: box ${JSON.stringify(box)} far larger than drawn ${JSON.stringify(seen)}`);
+    }
+  }
+});
+
+test('a long sticker title shrinks to fit its card', async () => {
+  await render([{ kind: 'sticker', title: 'Очень длинный заголовок вставки', text: 'текст', x: 100, y: 300, w: 420, anim: 1, t: 0 }]);
+  const seen = await drawnBox();
+  assert.ok(seen.x >= 100 - 30 && seen.x + seen.w <= 520 + 30, `title kept to the card: ${JSON.stringify(seen)}`);
+});
+
+test('the latest renderState call wins even when an earlier one is slower', async () => {
+  const final = await page.evaluate(async ([s, slow]) => {
+    const a = window.renderState(s, { sub: { words: ['А'], active: 0, visible: 1 }, inserts: [slow] });
+    const b = window.renderState(s, { sub: { words: ['Б'], active: 0, visible: 1 } });
+    await Promise.all([a, b]);
+    return { sub: document.querySelector('#sub .w')?.textContent, inserts: document.querySelectorAll('#inserts .ins').length, boxes: window.layoutBoxes().inserts.length };
+  }, [SPEC, photo({ src: `photo.png?slow=${Date.now()}` })]);
+  assert.deepEqual(final, { sub: 'Б', inserts: 0, boxes: 0 });
+});
+
 test('inserts sit under subtitles and the hook', async () => {
   const order = await page.evaluate(() => [...document.querySelectorAll('#frame > div')].map((e) => e.id));
   assert.ok(order.indexOf('inserts') < order.indexOf('sub') && order.indexOf('inserts') < order.indexOf('hook'), order.join(','));

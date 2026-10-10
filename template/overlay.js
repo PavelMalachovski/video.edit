@@ -378,7 +378,17 @@ function drawBar(spec, bar) {
 
 let lastBoxes = { inserts: [] };
 
-window.renderState = async function renderState(spec, state = {}, opts = {}) {
+// Вызовы идут по очереди: страница может звать renderState на каждое изменение, не дожидаясь прошлого, —
+// на экране всегда остаётся последний вызов, а не тот, что дольше грузил картинку.
+let queue = Promise.resolve();
+
+window.renderState = function renderState(spec, state = {}, opts = {}) {
+  const run = queue.then(() => draw(spec, state, opts));
+  queue = run.catch(() => {});
+  return run;
+};
+
+async function draw(spec, state, opts) {
   const [main, hand] = await Promise.all([font(spec.font), font(spec.hand)]);
   await document.fonts.ready;
   const look = { spec, main, hand };
@@ -393,7 +403,7 @@ window.renderState = async function renderState(spec, state = {}, opts = {}) {
   if (cta) boxes.cta = cta;
   drawBar(spec, opts?.bar);
   lastBoxes = boxes;
-};
+}
 
 window.layoutBoxes = function layoutBoxes() {
   return structuredClone(lastBoxes);

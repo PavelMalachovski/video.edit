@@ -3,7 +3,7 @@ import { errorResponse } from '@/lib/http.ts';
 import { createDraftRelease, listAllAssets, listReleases } from '@/lib/github.ts';
 import { listHeads } from '@/lib/branch.ts';
 import { deriveView, readJobFiles, type Screen } from '@/lib/jobview.ts';
-import { CHUNK_SIZE, chunkCount, isJobId, jobBranch, jobTag, newJobId } from '@/lib/jobs.ts';
+import { CHUNK_SIZE, checkSource, chunkCount, isJobId, jobBranch, jobTag, newJobId } from '@/lib/jobs.ts';
 import { gh } from '@/lib/env.ts';
 
 export const maxDuration = 60;
@@ -15,6 +15,8 @@ export async function POST(request: Request) {
     if (!name || !Number.isFinite(size) || !size || size <= 0) {
       return NextResponse.json({ error: 'name and size are required' }, { status: 400 });
     }
+    const tooBig = checkSource(size);
+    if (tooBig) return NextResponse.json({ error: tooBig }, { status: 413 });
     const jobId = newJobId();
     const rel = await createDraftRelease(gh(), jobTag(jobId), name, `Исходник: ${name}, ${size} байт, ${type || 'тип неизвестен'}`);
     return NextResponse.json({ jobId, releaseId: rel.id, chunkSize: CHUNK_SIZE, parts: chunkCount(size) });

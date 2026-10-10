@@ -130,3 +130,9 @@ button.back.link { background: none; border: none; padding: 0; color: var(--acce
 .swatch > span { display: block; width: 100%; height: 100%; border-radius: 50%; }
 .own-color { display: flex; align-items: center; gap: 4px; font-size: 13px; color: var(--muted); }
 .own-color input { width: 44px; height: 44px; border: 0; background: transparent; padding: 0; cursor: pointer; }
+
+/* готово */
+.result-video { width: 234px; height: 416px; border-radius: 18px; background: var(--thumb); object-fit: cover; }
+.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.two .btn { font-size: 16px; padding: 0 12px; }
+ul.plain { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 15px; line-height: 1.55; }

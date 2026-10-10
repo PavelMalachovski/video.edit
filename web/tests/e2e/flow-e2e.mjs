@@ -280,6 +280,60 @@ const segments = [
     check(answers.brief === 'ХУК: Как я учу чешский', `brief: ${answers.brief}`);
     check(isDeepStrictEqual(finalStyle(restyled, answers.style), last), `стиль ответа ${JSON.stringify(answers.style)} ≠ последнему превью`);
   }],
+
+  ['result', async (ctx) => {
+    const { page } = ctx;
+    const iso = () => new Date().toISOString();
+    const tag = `job-${ctx.jobId}`;
+    const asset = (name, bytes) => fakeJson('/__asset', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ tag, name, base64: bytes.toString('base64') }) });
+    const released = async (names) => {
+      const draft = (await state()).drafts.find((d) => d.tag === tag);
+      const list = await fakeJson('/__dump').then((all) => all.find((d) => d.tag === tag).assets);
+      return { release_id: draft.id, assets: list.filter((a) => names.includes(a.name)).map(({ name, id, size }) => ({ name, id, size })), at: iso() };
+    };
+
+    await session(ctx, { 'status.json': { state: 'rendering', phase: 'Монтирую', message: 'Собираю ролик', at: iso() } });
+    await page.getByText('Монтирую').waitFor({ timeout: 7000 });
+    const result = {
+      durations: { source: 102.4, final: 76.2 },
+      done: ['Вырезал 14 пауз и 2 повтора', 'Логотип — 0:09–0:13, справа вверху'],
+      unsure: ['«Мемсон» на 0:31 — не уверен в написании'],
+      missing: ['нет музыки assets/music/lofi.mp3 — ролик без неё'],
+      qa: { ok: false, problems: ['хук на лице или ближе 40 px к нему (0,0–1,5 с ролика)'] },
+    };
+    engineValidate('result.json', result);
+    const v1 = crypto.randomBytes(48 * 1024);
+    await asset('final.mp4', v1);
+    await asset('final.srt', Buffer.from('1\n00:00:00,000 --> 00:00:01,000\nпривет\n\n'));
+    await session(ctx, { 'result.json': result, 'status.json': { state: 'rendered', phase: 'Загружаю', message: 'Ролик собран, загружаю', at: iso() },
+      'out/released.json': await released(['final.mp4', 'final.srt']) });
+    await page.getByText('Что я сделал').waitFor({ timeout: 7000 });
+    check(await page.getByRole('heading', { name: 'Готово' }).count() === 1, 'нет заголовка «Готово»');
+    check((await page.textContent('body')).includes('было 1:42 → стало 1:16 · стиль B'), 'нет строки «было → стало · стиль»');
+    await shot(page, 'result');
+
+    const got = await page.request.get(`${APP}/api/jobs/${ctx.jobId}/download?name=final.mp4`, { maxRedirects: 0 });
+    check(got.status() === 302 && /\/__blob\/\d+$/.test(got.headers().location ?? ''), `скачивание: ${got.status()} ${got.headers().location}`);
+    const bytes = Buffer.from(await (await fetch(got.headers().location)).arrayBuffer());
+    check(bytes.equals(v1), 'скачанный ролик не совпал байт в байт');
+
+    await page.getByLabel('Поправить').fill('логотип левее');
+    await page.getByRole('button', { name: 'Переделать' }).click();
+    await until(async () => (await fires()).some((f) => f.step === 'fix' && f.attempt === 1), 10_000, 'запуск fix');
+    const fix = JSON.parse((await branchFile(ctx, 'fix.json')) ?? '{}');
+    check(fix.fixes?.[0]?.text === 'логотип левее' && fix.fixes[0].version === 2, `fix.json: ${JSON.stringify(fix)}`);
+    await page.getByText('Предыдущая версия').waitFor({ timeout: 7000 });
+    check(await page.getByText('Что я сделал').count() === 0, 'пока в релизе только final.mp4, это ещё не «Готово»');
+
+    await asset('final-v2.mp4', crypto.randomBytes(40 * 1024));
+    await session(ctx, { 'status.json': { state: 'rendered', phase: 'Загружаю', message: 'Правка 2 собрана', at: iso() },
+      'out/released.json': await released(['final.mp4', 'final.srt', 'final-v2.mp4']) });
+    await page.getByText('Что я сделал').waitFor({ timeout: 7000 });
+    const src = await page.locator('video').getAttribute('src');
+    check(/name=final-v2\.mp4$/.test(src ?? ''), `видео второй версии: ${src}`);
+    check(await page.getByText('логотип левее').count() > 0, 'прошлая правка не показана');
+  }],
 ];
 
 // ---------- прогон ----------

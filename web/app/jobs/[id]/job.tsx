@@ -12,6 +12,7 @@ import { Steps } from '../../steps';
 import Phases from './phases';
 import Previews from './previews';
 import Questions, { type ChangeDraft } from './questions';
+import Result from './result';
 
 /** Действие на странице → `POST run`; null — запущено, иначе текст ошибки для кнопки. */
 export type Act = (action: Action, extra?: Record<string, unknown>) => Promise<string | null>;
@@ -142,6 +143,15 @@ export default function Job({ id }: { id: string }) {
       </>
     );
   }
+  if (data && view?.screen === 'result') {
+    return (
+      <>
+        <Link href="/" className="back">← Мои видео</Link>
+        {wait !== null ? <div className="muted small">GitHub просит подождать, обновлю через {wait} с</div> : null}
+        <Result view={view} result={data.result} answers={data.answers} fixes={data.fixes} onAct={act} />
+      </>
+    );
+  }
   return (
     <>
       <Link href="/" className="back">← Мои видео</Link>
@@ -159,8 +169,6 @@ export default function Job({ id }: { id: string }) {
         ) : (
           <div className="card">Claude ждёт ответов, но вопросов в задаче нет — откройте сессию или перезапустите анализ.</div>
         )
-      ) : view.screen === 'result' ? (
-        <div className="card">Ролик готов.</div>
       ) : (
         <Phases view={view} repo={data.repo} onAction={act} />
       )}

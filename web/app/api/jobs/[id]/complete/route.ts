@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { errorResponse } from '@/lib/http.ts';
 import { listAllAssets, uploadAsset } from '@/lib/github.ts';
-import { CHUNK_SIZE, isJobId, partName } from '@/lib/jobs.ts';
+import { CHUNK_SIZE, isJobId, verifyParts } from '@/lib/jobs.ts';
 import { gh } from '@/lib/env.ts';
 
 export const maxDuration = 60;
@@ -16,14 +16,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const d = (await request.json()) as Done;
     if (!isJobId(id) || !Number.isInteger(d.releaseId)) return NextResponse.json({ error: 'bad request' }, { status: 400 });
     const g = gh();
-    const assets = await listAllAssets(g, d.releaseId);
-    const byName = new Map(assets.map((a) => [a.name, a]));
-    const missing: number[] = [];
-    let total = 0;
-    for (let i = 0; i < d.parts; i++) {
-      const a = byName.get(partName(i));
-      if (!a) missing.push(i); else total += a.size;
-    }
+    const { missing, total } = verifyParts(await listAllAssets(g, d.releaseId), 'source', d.parts, d.size);
     if (missing.length || total !== d.size) {
       return NextResponse.json({ ok: false, missing, total, expected: d.size }, { status: 409 });
     }

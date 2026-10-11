@@ -630,3 +630,25 @@ def test_loudness_reads_integrated_lufs_and_none_without_sound(tmp_path):
     assert a == pytest.approx(-21.0, abs=1.5), a  # синус lavfi — амплитуда 1/8
     assert a - b == pytest.approx(20.0, abs=0.5)
     assert media.loudness(mute) is None
+
+
+# ---------- коробки MP4 ----------
+
+
+def test_mp4_boxes_lists_nested_boxes_like_edit_lists(tmp_path):
+    # ffmpeg по умолчанию пишет edit list (edts/elst) под приминг AAC; с -use_editlist 0 — нет
+    for name, extra in (("with.mp4", []), ("without.mp4", ["-use_editlist", "0"])):
+        ff("-f", "lavfi", "-i", "color=c=red:s=64x64:r=30:d=0.5", "-f", "lavfi", "-i", "sine=f=440:r=48000:d=0.5",
+           "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", *extra, tmp_path / name)
+    boxes = media.mp4_boxes(tmp_path / "with.mp4")
+    assert "moov/trak/edts/elst" in boxes
+    assert "moov/trak/mdia/minf/stbl/stsd" in boxes
+    assert "mdat" in boxes
+    assert not any(b.endswith(("edts", "elst")) for b in media.mp4_boxes(tmp_path / "without.mp4"))
+
+
+def test_mp4_boxes_of_a_broken_file_is_an_error(tmp_path):
+    bad = tmp_path / "bad.mp4"
+    bad.write_bytes(b"\x00\x00\x00\x08ftyp" + b"\x00\x00\x10\x00moov")  # коробка moov заявлена длиннее файла
+    with pytest.raises(MediaError, match="MP4"):
+        media.mp4_boxes(bad)

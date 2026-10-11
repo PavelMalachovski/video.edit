@@ -4,7 +4,8 @@
 лёгкий цветокор → зум (якорь — лицо) → у невертикального исходника фон из размытой копии кадра → полноэкранные
 перебивки (масштаб с обрезкой по центру, без своего звука) → стоп-кадр в конце (`hold`) → слой PNG (субтитры, хук,
 титр, вставки; кадры рисует template/render-frames.mjs тем же шаблоном, что и превью) → шкала времени → H.264/AAC
-с метками BT.709. Звук — граф `audio_graph`: голос, музыка, звуки вставок.
+с метками BT.709, без B-кадров и edit lists (их не принимает Meta). Звук — граф `audio_graph`: голос, музыка, звуки
+вставок.
 
 Цвет считается по BT.709 явно: цветокор — прямо в YUV (`eq`, `lutyuv`), слой и шкала переводятся из RGB по BT.709
 (по умолчанию ffmpeg взял бы BT.601, и жёлтый субтитров на ролике отличался бы от превью). Шкала — полоса, которая
@@ -50,6 +51,10 @@ FADE = 0.01  # с — микро-фейд звука на стыке отрез�
 COLOR = "eq=brightness=-0.02:contrast=1.03,lutyuv=u='clip(val-3,16,240)':v='clip(val+3,16,240)'"
 BLUR = "boxblur=luma_radius=40:luma_power=2:chroma_radius=20:chroma_power=2,eq=brightness=-0.06"
 TO_709 = "scale=out_color_matrix=bt709:out_range=tv"
+# Meta не принимает edit lists в контейнере (гайд «Всё о Reels», стр. 63). Без них плеер играет приминг кодера AAC
+# ffmpeg — 1024 отсчёта в начале, поэтому на вход кодера звук идёт с 1024-го отсчёта: приминг занимает его место, и
+# отсчёт n звучит ровно в n. B-кадров нет (`-bf 0`): с ними картинка начиналась бы на 2 кадра позже звука.
+AAC_PRIMING = 1024
 IMAGES = {".png", ".jpg", ".jpeg", ".webp"}  # картинка держится всё окно перебивки; GIF крутится по кругу
 LOOPED = {".gif"}
 
@@ -142,13 +147,14 @@ def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium")
     extra, sound, notes = audio_graph("[ac]", edit["speed"], total, music, sfx, inputs_offset=_count(inputs), denoise=quiet)
     inputs += extra
     chains.append(sound)
+    chains.append(f"[aout]atrim=start_sample={AAC_PRIMING}[aenc]")
     missing += notes
 
     video, subs = out_dir / f".{name}.part.mp4", out_dir / f".{name}.part.srt"
     try:  # ролик и субтитры появляются в out/ только целиком; от упавшей сборки не остаётся ничего
         if srt:
             subs.write_text(srt, encoding="utf-8")
-        _ffmpeg([*inputs, "-filter_complex", ";".join(chains), "-map", "[vout]", "-map", "[aout]", *_encode(preset),
+        _ffmpeg([*inputs, "-filter_complex", ";".join(chains), "-map", "[vout]", "-map", "[aenc]", *_encode(preset),
                  "-t", f"{total:.6f}", str(video)], timeout=max(900, 30 * total))
         os.replace(video, out_dir / f"{name}.mp4")
         if srt:
@@ -374,9 +380,9 @@ def _resolve(job: Job, rel: str | None) -> Path | None:
 
 def _encode(preset: str) -> list[str]:
     return [
-        "-c:v", "libx264", "-crf", "18", "-preset", preset, "-pix_fmt", "yuv420p", "-r", str(FPS),
+        "-c:v", "libx264", "-crf", "18", "-preset", preset, "-bf", "0", "-pix_fmt", "yuv420p", "-r", str(FPS),
         "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv",
-        "-c:a", "aac", "-b:a", "192k", "-ar", str(RATE), "-movflags", "+faststart",
+        "-c:a", "aac", "-b:a", "192k", "-ar", str(RATE), "-movflags", "+faststart", "-use_editlist", "0",
     ]
 
 

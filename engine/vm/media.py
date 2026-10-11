@@ -8,6 +8,7 @@ import json
 import math
 import os
 import re
+import struct
 import subprocess
 import tempfile
 from collections.abc import Iterable, Sequence
@@ -258,6 +259,43 @@ def normalize(parts: Sequence[PathLike], out: PathLike) -> Probe:
             tmp,
         )  # fmt: skip
     return probe(out)
+
+
+# ---------- контейнер ----------
+
+# коробки-контейнеры MP4, в которые заходим (у stsd, avc1 и mp4a перед детьми — свои поля, их пропускаем)
+_MP4_CONTAINERS = {"moov": 0, "trak": 0, "mdia": 0, "minf": 0, "stbl": 0, "edts": 0, "dinf": 0, "udta": 0, "mvex": 0,
+                   "stsd": 8, "avc1": 78, "mp4a": 28}
+
+
+def mp4_boxes(path: PathLike) -> list[str]:
+    """Коробки MP4 по порядку, путём от корня: `moov/trak/edts/elst`. Файл не MP4 или обрезан — MediaError."""
+    data = Path(path).read_bytes()
+    out: list[str] = []
+
+    def walk(off: int, end: int, parent: str) -> None:
+        while off < end:
+            if end - off < 8:
+                raise MediaError(f"{path}: не MP4 — обрывок коробки на {off}")
+            size, kind = struct.unpack(">I4s", data[off:off + 8])
+            head = 8
+            if size == 1:
+                if end - off < 16:
+                    raise MediaError(f"{path}: не MP4 — обрывок коробки на {off}")
+                size, head = struct.unpack(">Q", data[off + 8:off + 16])[0], 16
+            elif size == 0:
+                size = end - off
+            name = kind.decode("latin-1")
+            if size < head or off + size > end:
+                raise MediaError(f"{path}: не MP4 — коробка {name!r} на {off} длиной {size} выходит за границу")
+            here = f"{parent}/{name}" if parent else name
+            out.append(here)
+            if name in _MP4_CONTAINERS:
+                walk(off + head + _MP4_CONTAINERS[name], off + size, here)
+            off += size
+
+    walk(0, len(data), "")
+    return out
 
 
 # ---------- звук и кадры ----------

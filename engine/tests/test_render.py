@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from vm.job import Job
+from vm.media import mp4_boxes
 from vm.render import RenderError, _ffmpeg, render, timeline
 
 pytestmark = [
@@ -139,6 +140,32 @@ def test_render_end_to_end(tmp_path, sources):
     srt = (out / "final.srt").read_text(encoding="utf-8")
     assert "раз" in srt and "три" in srt
     assert not any(p.suffix == ".png" for p in out.iterdir()), "work files stay out of out/"
+
+
+def test_final_has_no_edit_lists_and_stays_in_sync(tmp_path, sources):
+    """Meta (гайд «Всё о Reels», стр. 63): в контейнере нет edit lists. Без них B-кадры сдвинули бы картинку на
+    2 кадра, а приминг AAC — звук на 21 мс: оба потока начинаются с нуля, кадры ровно 30 к/с, всплеск звука
+    исходника (синус с 1,0 с) — на 1,0 с ролика."""
+    job = make_job(tmp_path, sources["short"], keep=[[0.0, 4.0]])
+    render(job, job.path("out"), preset="ultrafast")
+    final = job.path("out/final.mp4")
+    assert not [b for b in mp4_boxes(final) if b.split("/")[-1] in ("edts", "elst")]
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,start_time,avg_frame_rate", "-of", "json", str(final)],
+        check=True, capture_output=True, text=True,
+    ).stdout
+    streams = {s["codec_type"]: s for s in json.loads(out)["streams"]}
+    assert float(streams["video"]["start_time"]) == 0 and float(streams["audio"]["start_time"]) == 0
+    assert streams["video"]["avg_frame_rate"] == "30/1"
+    raw = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(final), "-map", "0:a", "-ac", "1", "-ar", "48000",
+         "-f", "f32le", "-"],
+        check=True, capture_output=True,
+    ).stdout
+    pcm = np.frombuffer(raw, np.float32)
+    after = pcm[int(0.75 * 48000):int(1.25 * 48000)]
+    onset = 0.75 + int(np.argmax(np.abs(after) > 0.05)) / 48000
+    assert onset == pytest.approx(1.0, abs=0.004), f"синус вернулся на {onset:.4f} с"
 
 
 def test_render_without_words_has_no_subs(tmp_path, sources):

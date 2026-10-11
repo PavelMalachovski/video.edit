@@ -142,10 +142,10 @@ export function resolveInserts(sample: Styles['sample'], qs: Question[], d: Draf
   return out;
 }
 
-/** Стикер `id` снят: есть вопрос с несколькими ответами, где он — вариант, и он не выбран (вопрос stickers). */
+/** Стикер `id` снят в вопросе `stickers` (как его читает шаг render; варианты других вопросов могут иметь те же id). */
 function unticked(id: string, qs: Question[], d: Draft): boolean {
-  const q = qs.find((x) => x.type === 'multi' && (x.options ?? []).some((o) => o.id === id));
-  if (!q) return false;
+  const q = qs.find((x) => x.id === 'stickers' && x.type === 'multi');
+  if (!q || !(q.options ?? []).some((o) => o.id === id)) return false;
   const picked = d.picks[q.id] ?? (Array.isArray(q.default) ? q.default : q.default === undefined ? [] : [q.default]);
   return !picked.includes(id);
 }

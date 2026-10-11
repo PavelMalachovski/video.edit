@@ -664,7 +664,8 @@ def test_validate_finds_insert_files_of_edit_json(tmp_path, capsys):
             "music": {"file": "assets/music/nope.mp3", "gainDb": -18}, "hold": 0.0, "style": STYLE,
             "inserts": [{"kind": "image", "src": "in/uploads/nope.png", "t0": 1.0, "t1": 2.5, "x": 100, "y": 600, "w": 300}]}
     job.write("edit.json", edit)
-    job.path("in").mkdir()  # после vm fetch
+    job.path("in").mkdir()
+    job.path("in/source.mov").write_bytes(b"mov")  # после vm fetch
     assert main(["validate", str(job.root)]) == 1
     err = capsys.readouterr().err
     assert "in/uploads/nope.png" in err and "assets/music/nope.mp3" in err
@@ -680,7 +681,11 @@ def test_validate_leaves_uploads_alone_until_fetch(tmp_path, capsys):
     job.write("edit.json", edit)
     assert main(["validate", str(job.root)]) == 0
     assert "in/" in capsys.readouterr().out  # сказано, что их не проверял
-    job.path("in").mkdir()  # после vm fetch — проверяются
+    job.path("in/brand").mkdir(parents=True)  # копия логотипа бренда лежит в ветке задачи — это ещё не vm fetch
+    job.path("in/brand/logo.png").write_bytes(b"png")
+    assert main(["validate", str(job.root)]) == 0
+    assert "in/uploads/upload-i1.png" in capsys.readouterr().out
+    job.path("in/source.mov").write_bytes(b"mov")  # после vm fetch — проверяются
     assert main(["validate", str(job.root)]) == 1
     assert "in/uploads/upload-i1.png" in capsys.readouterr().err
 

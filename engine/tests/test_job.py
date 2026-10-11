@@ -533,6 +533,12 @@ def test_a_script_job_ends_with_script_ready_and_a_script(job):
             job.write("script.json", bad)
 
 
+def test_styles_sample_end_card_takes_an_empty_brand(job):
+    styles = json.loads((Path(__file__).parent / "fixtures" / "style-merge.json").read_text(encoding="utf-8"))["styles"]
+    styles["sample"]["end"] = {"lines": ["Подпишись 👇"], "handle": None, "logo": None}  # в бренде нет ника и логотипа
+    job.write("styles.json", styles)
+
+
 def test_edit_rejects_unknown_insert_kind(job):
     edit = make_edit()
     edit["inserts"][0]["kind"] = "gif"

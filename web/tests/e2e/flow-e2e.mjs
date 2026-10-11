@@ -519,7 +519,8 @@ const segments = [
     const v1 = crypto.randomBytes(48 * 1024);
     await asset('final.mp4', v1);
     await asset('final.srt', Buffer.from('1\n00:00:00,000 --> 00:00:01,000\nпривет\n\n'));
-    await asset('final-b.mp4', crypto.randomBytes(44 * 1024));
+    const vB = crypto.randomBytes(44 * 1024);
+    await asset('final-b.mp4', vB);
     await session(ctx, { 'result.json': result, 'status.json': { state: 'rendered', phase: 'Загружаю', message: 'Ролик собран, загружаю', at: iso() },
       'out/released.json': await released(['final.mp4', 'final.srt', 'final-b.mp4']) });
     await page.getByText('Что я сделал').waitFor({ timeout: 7000 });
@@ -551,6 +552,9 @@ const segments = [
     check(got.status() === 302 && /\/__blob\/\d+$/.test(got.headers().location ?? ''), `скачивание: ${got.status()} ${got.headers().location}`);
     const bytes = Buffer.from(await (await fetch(got.headers().location)).arrayBuffer());
     check(bytes.equals(v1), 'скачанный ролик не совпал байт в байт');
+    const second = await page.request.get(`${APP}/api/jobs/${ctx.jobId}/download?name=final-b.mp4`, { maxRedirects: 0 });
+    check(second.status() === 302, `скачивание версии B: ${second.status()}`);
+    check(Buffer.from(await (await fetch(second.headers().location)).arrayBuffer()).equals(vB), 'версия B скачалась не та');
 
     await page.getByLabel('Поправить').fill('логотип левее');
     await page.getByRole('button', { name: 'Переделать' }).click();

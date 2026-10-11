@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  abLabels, answersFile, appendFix, appendRestyle, buildJobFile, errorStatus, finalNames, parseAnswersBody, parseNote, parseResult, parseStatus, parseStyles,
+  abLabels, answersFile, appendFix, appendRestyle, buildJobFile, errorStatus, finalNames, isFinalName, parseAnswersBody, parseNote, parseResult, parseStatus, parseStyles,
   QUESTION_TYPES, queuedStatus, STATES, wantedVersion, type Manifest, type Question,
   AB_KINDS, CHECK_IDS, parseReview, REVIEW_IDS, SAMPLE_INSERT_KINDS,
 } from '../lib/jobfiles.ts';
@@ -208,6 +208,9 @@ test('parseStyles takes the end card sample and refuses a broken one', () => {
   assert.deepEqual(parseStyles({ ...fx, sample: { ...fx.sample, end } })?.sample.end, end);
   assert.equal(parseStyles({ ...fx, sample: { ...fx.sample, end: { lines: [] } } }), null);
   assert.equal(parseStyles({ ...fx, sample: { ...fx.sample, end: { lines: ['a'], logo: 5 } } }), null);
+  // ника или логотипа в бренде нет — в job.json.brand это null; тот же null в образце карточки — не поломка стилей
+  const bare = { lines: ['Подпишись 👇'], handle: null, logo: null };
+  assert.deepEqual(parseStyles({ ...fx, sample: { ...fx.sample, end: bare } })?.sample.end, bare);
 });
 
 test('A/B: the answers take ab — teaser or music — and version B has its own file names', () => {
@@ -265,4 +268,16 @@ test('result.json checklist: lines of the guide check; a broken one is dropped, 
     assert.ok(parsed && parsed.checklist === undefined, JSON.stringify(bad));
   }
   assert.deepEqual([...CHECK_IDS], schema('result.json').properties.checklist.items.properties.id.enum);
+});
+
+test('download takes every name finalNames gives — version B too — and nothing else', () => {
+  for (const v of [1, 2, 13]) {
+    for (const variant of [undefined, 'b'] as const) {
+      const { mp4, srt } = finalNames(v, variant);
+      assert.ok(isFinalName(mp4) && isFinalName(srt), `${mp4}, ${srt}`);
+    }
+  }
+  for (const bad of ['final-c.mp4', 'final-b-v2.mp4', 'final.mov', '../final.mp4', 'final-v1234.mp4', 'released.json', '']) {
+    assert.equal(isFinalName(bad), false, bad);
+  }
 });

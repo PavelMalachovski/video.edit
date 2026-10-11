@@ -118,10 +118,11 @@ CHECKED = ("status.json", "questions.json", "answers.json", "styles.json", "revi
 def _files(job: Job, name: str, data: dict, unchecked: set[str] | None = None) -> list[str]:
     """Файлы, на которые ссылаются данные и которых нет: картинки вопросов и кадр превью — от папки задачи (так их
     берёт страница); вставки, звуки и музыка edit.json — от папки задачи или корня репозитория (так их берёт рендер).
-    Файлы `in/…` появляются только после `vm fetch` (шаг restyle идёт без него): нет папки `in/` — их не проверить,
-    они попадают в `unchecked`, а не в потерянные."""
+    Файлы `in/…` появляются только после `vm fetch` (шаг restyle идёт без него): пока исходника `in/source.*` нет, их
+    не проверить — они попадают в `unchecked`, а не в потерянные. Сама папка `in/` — ещё не признак: в ней с первого
+    коммита лежит копия логотипа бренда (`in/brand/`)."""
     lost = []
-    fetched = job.path("in").is_dir()
+    fetched = any(job.path("in").glob("source.*"))
 
     def need(field: str, rel: str, render: bool = False) -> None:
         if render and not fetched and rel.startswith("in/"):
@@ -169,7 +170,7 @@ def _validate(args: argparse.Namespace) -> None:
         raise ValueError("\n".join(problems))
     print("в порядке: " + (", ".join(checked) or "файлов со схемой нет"))
     if unchecked:
-        print("не проверял (in/ появится после vm fetch): " + ", ".join(sorted(unchecked)))
+        print("не проверял (in/uploads/ появится после vm fetch): " + ", ".join(sorted(unchecked)))
 
 
 def _style(args: argparse.Namespace) -> None:

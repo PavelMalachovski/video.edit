@@ -97,7 +97,7 @@ export type SampleInsert = {
 export type Styles = {
   frame: string;
   frameTime: number;
-  sample: { hook?: string; words: string[]; spoken: number; inserts?: SampleInsert[]; end?: { lines: string[]; handle?: string; logo?: string } };
+  sample: { hook?: string; words: string[]; spoken: number; inserts?: SampleInsert[]; end?: { lines: string[]; handle?: string | null; logo?: string | null } };
   variants: { id: 'A' | 'B' | 'C'; label: string; spec: StyleSpec }[];
   /** Шрифты, в которых есть все буквы ролика (`vm fonts`); нет поля — годятся все. */
   fonts?: { main: string[]; hand: string[] };
@@ -147,7 +147,7 @@ export function parseStyles(raw: unknown): Styles | null {
   if (sample.inserts !== undefined && !(Array.isArray(sample.inserts) && sample.inserts.every(insertOk))) return null;
   const end = sample.end;
   if (end !== undefined && !(isObject(end) && Array.isArray(end.lines) && end.lines.length >= 1 && end.lines.length <= 2 && end.lines.every((l) => isStr(l) && l !== '')
-    && (end.handle === undefined || isStr(end.handle)) && (end.logo === undefined || isStr(end.logo)))) return null;
+    && (end.handle == null || isStr(end.handle)) && (end.logo == null || isStr(end.logo)))) return null;  // null — поля нет в бренде
   const ids = (x: unknown) => Array.isArray(x) && x.every((i) => isStr(i) && i !== '');
   if (raw.fonts !== undefined && !(isObject(raw.fonts) && ids(raw.fonts.main) && ids(raw.fonts.hand))) return null;
   const v = raw.variants;
@@ -337,6 +337,9 @@ export function finalNames(v: number, variant?: 'b'): { mp4: string; srt: string
   const base = `${v <= 1 ? 'final' : `final-v${v}`}${variant ? `-${variant}` : ''}`;
   return { mp4: `${base}.mp4`, srt: `${base}.srt` };
 }
+
+/** Имя, которое можно скачать со страницы: всё, что даёт finalNames, и ничего больше. */
+export const isFinalName = (name: string): boolean => /^final(-v\d{1,3})?(-b)?\.(mp4|srt)$/.test(name);
 
 // ---------- out/released.json и result.json ----------
 

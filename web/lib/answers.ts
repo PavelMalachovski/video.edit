@@ -100,15 +100,21 @@ export function previewHook(qs: Question[], d: Draft, sampleHook?: string): stri
 /** Финальная карточка на превью (`styles.sample.end`: ник и логотип бренда); призыв — по вопросу `end` (`none` — без
  *  карточки, `own` — свой текст, иначе подпись варианта без кавычек). Вопроса нет — карточка образца. */
 export type EndCard = { lines: string[]; handle?: string; logo?: string };
-export function previewEnd(qs: Question[], d: Draft, sample?: EndCard): EndCard | null {
+export function previewEnd(qs: Question[], d: Draft, sample?: SampleEnd): EndCard | null {
   const q = qs.find((x) => x.id === RESERVED.end);
-  if (!q) return sample ?? null;
+  if (!q) return sample ? card(sample.lines, sample) : null;
   const id = chosen(q, d);
   if (!id || id === RESERVED.none || id === RESERVED.upload) return null;
   const text = id === RESERVED.own ? (d.texts[q.id] ?? '').trim() : unquote(q.options?.find((o) => o.id === id)?.label ?? '');
   if (!text) return null;
-  return { ...(sample?.handle ? { handle: sample.handle } : {}), ...(sample?.logo ? { logo: sample.logo } : {}), lines: [text] };
+  return card([text], sample);
 }
+
+/** Образец карточки из styles.json: ника или логотипа в бренде может не быть (null). */
+type SampleEnd = { lines: string[]; handle?: string | null; logo?: string | null };
+
+/** Карточка с призывом `lines`; ник и логотип — из образца, пустые не попадают. */
+const card = (lines: string[], s?: SampleEnd): EndCard => ({ ...(s?.handle ? { handle: s.handle } : {}), ...(s?.logo ? { logo: s.logo } : {}), lines });
 
 /** Чем может отличаться вторая версия A/B-теста: тизером — если Павел согласился на него (вопрос `teaser`, ответ
  *  `yes`), музыкой — если выбрал трек (вопрос `music`, ответ не `none`). */

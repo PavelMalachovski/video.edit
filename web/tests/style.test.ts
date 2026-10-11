@@ -215,6 +215,12 @@ test('a thesis sticker keeps its text and tone on the preview, moves by its id a
   const one = resolveInserts(sample, [stickers], pick(initialDraft([stickers]), stickers, 's1'), url, () => null);
   assert.deepEqual(one.map((i) => i.key), ['s2'], 'снятый стикер не рисуется');
   assert.deepEqual(resolveInserts(sample, [], initialDraft([]), url, () => null).map((i) => i.key), ['s1', 's2'], 'без вопроса — все');
+  // другой вопрос с несколькими ответами и тем же id варианта (звёздочки «s1») стикеры не трогает — как в ролике
+  const stars = { id: 'stars', type: 'multi' as const, title: 'Звёздочки', options: [{ id: 's1', label: 'бл*н' }], default: ['s1'] };
+  const qs = [stars, stickers];
+  const noStar = pick(initialDraft(qs), stars, 's1');
+  assert.deepEqual(resolveInserts(sample, qs, noStar, url, () => null).map((i) => i.key), ['s1', 's2'], 'снятая звёздочка не прячет стикер');
+  assert.deepEqual(resolveInserts(sample, qs, pick(initialDraft(qs), stickers, 's1'), url, () => null).map((i) => i.key), ['s2']);
 });
 
 test('the A/B choice is remembered per job and junk is dropped', () => {

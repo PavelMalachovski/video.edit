@@ -124,6 +124,9 @@ test('previewEnd: the call from the end question, the handle and the logo from t
   assert.deepEqual(previewEnd([], d, sample), sample, 'вопроса нет — карточка образца');
   assert.equal(previewEnd([], d, undefined), null);
   assert.deepEqual(previewEnd([end], d, undefined), { lines: ['Подпишись, чтобы не пропустить 👇'] }, 'без бренда — только призыв');
+  const bare = { lines: ['Сохрани ✅'], handle: null, logo: null }; // ника и логотипа в бренде нет
+  assert.deepEqual(previewEnd([], d, bare), { lines: ['Сохрани ✅'] }, 'пустые поля бренда в карточку не попадают');
+  assert.deepEqual(previewEnd([end], d, bare), { lines: ['Подпишись, чтобы не пропустить 👇'] });
 });
 
 test('abOptions: a version without the teaser if Pavel took it, without music if he chose a track', () => {

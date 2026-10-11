@@ -13,7 +13,7 @@ import {
 } from '@/lib/uploader.ts';
 import { keepScreenOn } from '@/lib/wakelock.ts';
 import { takeNextBrief } from '@/lib/script.ts';
-import { CloseIcon, FilmIcon, ImageIcon, MicIcon, PlayIcon, PlusIcon, UploadIcon } from './icons';
+import { CloseIcon, FilmIcon, ImageIcon, MicIcon, PlayIcon, PlusIcon, RefreshIcon, UploadIcon } from './icons';
 import { JOBS_CHANGED } from './jobs-list';
 
 const BRIEF_HINT = 'ХУК: Как я учу чешский\nКОДОВОЕ СЛОВО: чешский\nМУЗЫКА: lofi\nКогда говорю «приложение» — покажи логотип\nНа «вот так это выглядит» — фуллскрин демо';
@@ -337,7 +337,7 @@ export default function Uploader() {
         <label className={`tool${busy ? ' off' : ''}`}>
           <span className="tool-icon"><MicIcon size={20} /></span>
           <span className="grow">Озвучка</span>
-          <span className="tool-plus"><PlusIcon size={16} /></span>
+          <span className="tool-plus">{voice ? <RefreshIcon size={16} /> : <PlusIcon size={16} />}</span>
           <input id="voice" type="file" accept={['audio/*', ...VOICE_EXT.map((e) => `.${e}`)].join(',')} disabled={busy} hidden
             onChange={(e) => { pickVoice(e.target.files?.[0] ?? null); e.target.value = ''; }} />
         </label>

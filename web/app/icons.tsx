@@ -40,5 +40,4 @@ export const PaletteIcon = ({ size = 20 }: P) => <Stroke size={size}><path d="M1
 export const MoveIcon = ({ size = 20 }: P) => <Stroke size={size}><path d="M12 3v18" /><path d="M3 12h18" /><path d="M9 6l3-3 3 3" /><path d="M9 18l3 3 3-3" /><path d="M6 9l-3 3 3 3" /><path d="M18 9l3 3-3 3" /></Stroke>;
 export const GaugeIcon = ({ size = 20 }: P) => <Stroke size={size}><path d="M4 17a8 8 0 1 1 16 0" /><path d="M12 17l4-5" /></Stroke>;
 export const FrameIcon = ({ size = 20 }: P) => <Stroke size={size}><rect x="5" y="3" width="14" height="18" rx="2" /><path d="M9 11h6" /><path d="M9 15h6" /></Stroke>;
-export const MegaphoneIcon = ({ size = 20 }: P) => <Stroke size={size}><path d="M4 10v4h4l6 4V6l-6 4z" /><path d="M17.5 9a4 4 0 0 1 0 6" /></Stroke>;
 export const SplitIcon = ({ size = 20 }: P) => <Stroke size={size}><rect x="3" y="5" width="7" height="14" rx="1.5" /><rect x="14" y="5" width="7" height="14" rx="1.5" /></Stroke>;

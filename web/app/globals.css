@@ -140,7 +140,9 @@ input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); 
 .job-meta { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .badge { flex: none; font-size: 11px; font-weight: 700; border-radius: 6px; padding: 4px 8px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   display: inline-flex; align-items: center; gap: 6px; }
-.job-meta .badge { flex: 0 1 auto; }
+.job-meta .badge { flex: 0 1 auto; min-width: 0; }
+.badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job-meta .mono { flex: none; white-space: nowrap; }
 .badge.grey { background: var(--panel-2); color: var(--text); }
 .badge.yellow { background: var(--warn); color: var(--warn-ink); }
 .badge.green { background: var(--ok); color: var(--ok-ink); }
@@ -167,6 +169,7 @@ input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); 
   cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
 .pill:hover { background: var(--line); }
 .pill[aria-pressed=true], .pill.on { background: var(--accent); color: var(--ink); }
+.pill.mono { font-family: var(--mono); }
 .pill img { width: 26px; height: 26px; border-radius: 6px; object-fit: cover; background: #fff; }
 .own { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
 .own input.on { border-color: var(--accent); }
@@ -181,27 +184,30 @@ input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); 
 .preview-error { position: absolute; left: 6px; right: 6px; bottom: 6px; font-size: 11px; color: var(--bad); background: rgba(0, 0, 0, .7);
   border-radius: 6px; padding: 4px 6px; }
 
-/* редактор превью: тулбар и чёрная сцена прилипают к верху, ниже прокручиваются инструменты; пока в инструментах
-   печатают — сцена не липнет, чтобы клавиатура телефона не спрятала поле под ней */
+/* редактор превью: тулбар и чёрная сцена (высота — от экрана, lib/editor.ts) прилипают к верху, ниже прокручиваются
+   инструменты; липнут, только если экрану хватает высоты и в поле под сценой не печатают (.stuck ставит экран) */
 .editor { margin: -8px -16px 0; display: flex; flex-direction: column; gap: 12px; }
-.editor-top { position: sticky; top: 0; z-index: 5; background: var(--bg); }
+.editor-top { background: var(--bg); }
+.editor.stuck .editor-top { position: sticky; top: 0; z-index: 5; }
 .editor-top .toolbar { padding: 0 12px; }
-.editor:has(.editor-body :is(input[type=text], textarea):focus) .editor-top { position: relative; }
-.stage { height: clamp(340px, calc(100vh - 324px), 500px); height: clamp(340px, calc(100svh - 324px), 500px); background: var(--stage); display: flex;
-  align-items: center; justify-content: center; }
+.editor-alert { margin: 0 12px 8px; padding: 10px 12px; border-radius: 10px; background: rgba(255, 100, 100, .12); box-shadow: inset 0 0 0 1px var(--bad);
+  font-size: 14px; }
+.stage { background: var(--stage); display: flex; align-items: center; justify-content: center; }
 .editor-body { padding: 0 12px; display: flex; flex-direction: column; gap: 12px; }
 .summary { font-family: var(--mono); font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .tabs { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--line); }
 .tabs::-webkit-scrollbar { display: none; }
-.tab { flex: 1 0 auto; min-width: 62px; min-height: 56px; padding: 6px 8px; border: none; border-bottom: 2px solid transparent; background: transparent; color: var(--muted);
-  font: inherit; font-size: 11px; font-weight: 600; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; cursor: pointer; }
+.tab { flex: 1 0 auto; min-height: 56px; padding: 6px 4px; border: none; border-bottom: 2px solid transparent; background: transparent; color: var(--muted);
+  font: inherit; font-size: 11px; font-weight: 600; white-space: nowrap; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+  cursor: pointer; }
+.tab:focus-visible { outline-offset: -2px; }
 .tab:hover { color: var(--text); }
 .tab[aria-selected=true] { color: var(--text); border-bottom-color: var(--accent); }
 .tab[aria-selected=true] svg { color: var(--accent); }
 .tab-panel { display: flex; flex-direction: column; gap: 12px; }
 .seg { display: flex; gap: 3px; padding: 3px; border-radius: 10px; background: var(--panel); }
 .seg > button { flex: 1; min-height: 44px; border: none; border-radius: 8px; background: transparent; color: var(--muted); font-size: 13px; font-weight: 600; cursor: pointer; }
-.seg > button[aria-pressed=true] { background: var(--line); color: var(--text); }
+.seg > button[aria-pressed=true] { background: var(--accent); color: var(--ink); }
 
 .variants { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .variant { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }

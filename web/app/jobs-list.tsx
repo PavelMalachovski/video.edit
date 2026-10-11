@@ -95,7 +95,7 @@ export default function JobsList() {
                 <span className="job-name">
                   <b>{r.title}</b>
                   <span className="job-meta">
-                    <span className={`badge ${b.tone}${b.live ? ' live' : ''}`}>{b.text}</span>
+                    <span className={`badge ${b.tone}${b.live ? ' live' : ''}`}><span>{b.text}</span></span>
                     {r.duration ? <span className="mono muted small">{mmss(r.duration)}</span> : null}
                   </span>
                 </span>

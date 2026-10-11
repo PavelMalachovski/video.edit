@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { abOptions, buildAnswers, previewEnd, previewHook, type Draft } from '@/lib/answers.ts';
 import { storage } from '@/lib/client.ts';
 import { mmss } from '@/lib/format.ts';
-import { editorTabs, mountSummary, nextTab, STAGE_W, stageWidth, type TabId } from '@/lib/editor.ts';
+import { editorTabs, mountSummary, nextTab, STAGE, stageFit, type TabId } from '@/lib/editor.ts';
 import { ADJUSTABLE, COVER, type AbKind, type Adjustable, type Question, type StyleChoice, type Styles } from '@/lib/jobfiles.ts';
 import { MAX_NOTE } from '@/lib/jobs.ts';
 import {
@@ -17,7 +17,7 @@ import {
   SPEEDS, SUB_SIZE, SUB_Y, SWATCHES,
 } from '@/lib/style.ts';
 import {
-  FrameIcon, GaugeIcon, LayersIcon, MegaphoneIcon, MoveIcon, PaletteIcon, RefreshIcon, ScissorsIcon, SplitIcon, TypeIcon,
+  FrameIcon, GaugeIcon, LayersIcon, MoveIcon, PaletteIcon, RefreshIcon, ScissorsIcon, SplitIcon, TypeIcon,
 } from '../../icons';
 import PreviewFrame from '../../preview-frame';
 import { TopBar } from '../../top-bar';
@@ -39,8 +39,8 @@ type Props = {
   onAct: Act;
 };
 
-// крупное превью — STAGE_W.max px экрана, на низком экране — уже (по высоте сцены); scale — px экрана на px кадра
-const STAGE_PAD = 20; // сцена выше превью на столько px: по 10 сверху и снизу
+// крупное превью — до 270 px экрана, на невысоком экране — уже (lib/editor.ts, stageFit); scale — px экрана на px кадра
+const RESTICK_MS = 400; // поле под сценой потеряло фокус — столько ждать, прежде чем сцена снова прилипнет (тап успеет дойти)
 const STEP = 20; // px кадра на нажатие «Выше» / «Ниже» и стрелку
 const SIZE_STEP = 4; // px размера на нажатие «Меньше» / «Больше»
 const GROW = 540; // уголок ⤢: на столько px кадра (половина его ширины) потянуть вправо, чтобы размер вырос вдвое
@@ -52,8 +52,8 @@ const HOOK_DEFAULT = 400; // центр хука, если в стиле не з
 const CARD_T = 10 / 13; // с от начала карточки: уже появилась, призыв — в обычном размере (дышит с частотой 1,3 Гц)
 
 const TAB_ICONS: Record<TabId, ReactNode> = {
-  style: <LayersIcon />, font: <TypeIcon />, color: <PaletteIcon />, place: <MoveIcon />, speed: <GaugeIcon />, cover: <FrameIcon />, ad: <MegaphoneIcon />,
-  ab: <SplitIcon />,
+  style: <LayersIcon />, font: <TypeIcon />, color: <PaletteIcon />, place: <MoveIcon />, speed: <GaugeIcon />, cover: <FrameIcon />,
+  versions: <SplitIcon />,
 };
 
 const ROWS: { key: ColorKey; title: string; own: string }[] = [
@@ -70,19 +70,48 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
     saveChoice(storage(), jobId, styles, c);
   };
 
-  // ширина крупного превью — по высоте сцены (она по высоте экрана): превью и инструменты под ним влезают на телефон
-  const stageRef = useRef<HTMLDivElement>(null);
-  const [bigW, setBigW] = useState<number>(STAGE_W.max);
+  // сцена по высоте экрана: липнет, если под ней остаётся место на инструменты; превью экран рисует только в браузере,
+  // поэтому высота известна сразу (без мигания). Пересчёт — при повороте: высота сама скачет, когда Safari прячет панель
+  const [fit, setFit] = useState(() => stageFit(typeof window === 'undefined' ? Number.NaN : window.innerHeight));
   useEffect(() => {
-    const el = stageRef.current;
-    if (!el || typeof ResizeObserver === 'undefined') return;
-    const fit = () => setBigW(stageWidth(el.clientHeight - STAGE_PAD));
-    fit();
-    const ro = new ResizeObserver(fit);
-    ro.observe(el);
-    return () => ro.disconnect();
+    let width = window.innerWidth;
+    const onResize = () => {
+      if (window.innerWidth === width) return;
+      width = window.innerWidth;
+      setFit(stageFit(window.innerHeight));
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
   }, []);
+  const bigW = fit.width;
   const scale = bigW / 1080;
+  // пока печатают в поле под сценой, она не липнет (клавиатура телефона спрятала бы поле под ней); потерял поле фокус —
+  // липнет не сразу, а через RESTICK_MS: иначе тап, который увёл фокус, отпускается уже на сцене и до цели не доходит
+  const [typing, setTyping] = useState(false);
+  const restick = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (restick.current) clearTimeout(restick.current);
+  }, []);
+  const isField = (t: EventTarget | null) => (t instanceof HTMLInputElement && t.type === 'text') || t instanceof HTMLTextAreaElement;
+  const onFieldFocus = (e: React.FocusEvent) => {
+    if (!isField(e.target)) return;
+    if (restick.current) clearTimeout(restick.current);
+    setTyping(true);
+  };
+  const onFieldBlur = (e: React.FocusEvent) => {
+    if (!isField(e.target)) return;
+    if (restick.current) clearTimeout(restick.current);
+    restick.current = setTimeout(() => setTyping(false), RESTICK_MS);
+  };
+  const stuck = fit.sticky && !typing;
+  useEffect(() => {  // Tab и прокрутка к полю не прячут цель под прилипшей сценой
+    if (!stuck) return;
+    const root = document.documentElement;
+    root.style.scrollPaddingTop = `${STAGE.toolbar + fit.height + 8}px`;
+    return () => {
+      root.style.scrollPaddingTop = '';
+    };
+  }, [stuck, fit.height]);
   const [tab, setTab] = useState<TabId>('style');
   const tabRefs = useRef(new Map<TabId, HTMLButtonElement>());
 
@@ -225,8 +254,13 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
   const pickColor = (key: ColorKey, color: string) => setChoice({ ...choice, colors: { ...choice.colors, [key]: color.toUpperCase() } });
 
   const summary = mountSummary({ variant: choice.variant, font: family(choice.font), speed, ab: ab !== null, ad: adOn });
-  const tabs = editorTabs({ cover: cover !== null, ab: abChoices.length > 0 });
+  const tabs = editorTabs({ cover: cover !== null });
   const current: TabId = tabs.some((t) => t.id === tab) ? tab : 'style'; // вкладки уже нет (пропала обложка) — первая
+  // на вкладке «Обложка» крупное превью — сама обложка: её видно целиком, пока правят кадр и текст
+  const coverView = current === 'cover' && cover !== null;
+  const stage = coverView && cover
+    ? { frameUrl: fileUrl(coverFrames[cover.frame].image), state: coverState, progress: 0 }
+    : { frameUrl, state, progress };
   const keyTab = (e: React.KeyboardEvent<HTMLButtonElement>) => {
     const next = nextTab(tabs, current, e.key);
     if (!next) return;
@@ -242,7 +276,7 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
   );
 
   return (
-    <div className="editor">
+    <div className={`editor${stuck ? ' stuck' : ''}`}>
       <div className="editor-top">
         <TopBar back={{ onClick: onBack, label: 'Вопросы' }} title="Выбери стиль" meta="шаг 4 из 5"
           action={(
@@ -251,19 +285,19 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
               Монтировать
             </button>
           )} />
-        <div className="stage" ref={stageRef}>
+        {error?.at === 'answers' ? <div className="editor-alert" role="alert">{error.text}</div> : null}
+        <div className="stage" style={{ height: fit.height }}>
           <div className="big-host">
-            <PreviewFrame frameUrl={frameUrl} spec={spec} state={state} progress={progress} width={bigW} big onBoxes={(b) => setBoxes(b as LayoutBoxes)} />
-            {ending || zoned ? null : sized.map((m) => m.box ? <InsertHandle key={m.key} label={m.name} box={m.box} at={m.at} scale={scale} onSize={m.resize} onDrag={m.drag} /> : null)}
-            {zoned ? null : movable.map((m) => <DragHandle key={m.name} label={m.label} y={m.y} range={m.range} scale={scale} onMove={m.move} size={m.size} onSize={m.resize} />)}
+            <PreviewFrame frameUrl={stage.frameUrl} spec={spec} state={stage.state} progress={stage.progress} width={bigW} big onBoxes={(b) => setBoxes(b as LayoutBoxes)} />
+            {ending || zoned || coverView ? null : sized.map((m) => m.box ? <InsertHandle key={m.key} label={m.name} box={m.box} at={m.at} scale={scale} onSize={m.resize} onDrag={m.drag} /> : null)}
+            {zoned || coverView ? null : movable.map((m) => <DragHandle key={m.name} label={m.label} y={m.y} range={m.range} scale={scale} onMove={m.move} size={m.size} onSize={m.resize} />)}
           </div>
         </div>
       </div>
 
-      <div className="editor-body">
-        {error?.at === 'answers' ? <div className="err small">{error.text}</div> : null}
+      <div className="editor-body" onFocus={onFieldFocus} onBlur={onFieldBlur}>
         <div className="summary">{summary}</div>
-        {underCaption(boxes?.sub) && !ending && !zoned ? <div className="warn small">Субтитры низко: в Reels их может закрыть подпись к ролику</div> : null}
+        {underCaption(boxes?.sub) && !ending && !zoned && !coverView ? <div className="warn small">Субтитры низко: в Reels их может закрыть подпись к ролику</div> : null}
 
         <div role="tablist" aria-label="Настройки" className="tabs">
           {tabs.map((t) => (
@@ -376,7 +410,7 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
             </>
           ) : null}
 
-          {current === 'cover' && cover ? (
+          {coverView && cover ? (
             <div className="tab-panel" data-cover>
               <div className="cover-frames">
                 {coverFrames.map((f, i) => (
@@ -388,56 +422,59 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
               </div>
               <input type="text" aria-label="Текст обложки" maxLength={COVER.text} value={coverPick?.text ?? cover.text} placeholder={hook ?? styles.cover?.text}
                 onChange={(e) => setCover({ frame: cover.frame, text: e.target.value })} />
-              <div className="cover-preview">
-                <PreviewFrame frameUrl={fileUrl(coverFrames[cover.frame].image)} spec={spec} state={coverState} progress={0} width={STAGE_W.max} />
-              </div>
-              <div className="muted small">В сетке профиля видна середина кадра 3:4 — текст стоит в ней. PNG — на экране «Готово».</div>
+              <div className="muted small">Обложка — на крупном превью. В сетке профиля видна середина кадра 3:4 — текст стоит в ней. PNG — на экране «Готово».</div>
             </div>
           ) : null}
 
-          {current === 'ad' ? (
-            <div className="tab-panel" data-ad>
-              <div className="pills">
-                <button type="button" className="pill" aria-pressed={!adOn} onClick={() => setAd(false)}>Не нужна</button>
-                <button type="button" className="pill" aria-pressed={adOn} onClick={() => setAd(true)}>Нужна</button>
+          {current === 'versions' ? (
+            <>
+              <div className="tab-panel" data-ad>
+                <div className="caps">Версия для рекламы</div>
+                <div className="pills">
+                  <button type="button" className="pill" aria-pressed={!adOn} onClick={() => setAd(false)}>Не нужна</button>
+                  <button type="button" className="pill" aria-pressed={adOn} onClick={() => setAd(true)}>Нужна</button>
+                </div>
+                <div className="muted small">
+                  {adOn ? 'Соберу ещё ролик для рекламы Reels: текст и вставки — выше кнопки и подписи рекламы. Как он выглядит — «Реклама» ниже, на крупном превью.'
+                    : 'В рекламе Reels низ кадра занят кнопкой и подписью — можно собрать отдельную версию, где текст стоит выше.'}
+                </div>
+                {adOn ? (
+                  <div className="seg" role="group" aria-label="Какой ролик на крупном превью">
+                    <button type="button" aria-pressed={!zoned} onClick={() => setAdsView(false)}>Органика</button>
+                    <button type="button" aria-pressed={zoned} onClick={() => setAdsView(true)}>Реклама</button>
+                  </div>
+                ) : null}
               </div>
-              <div className="muted small">
-                {adOn ? 'Соберу ещё ролик для рекламы Reels: текст и вставки — выше кнопки и подписи рекламы. Как он выглядит — «Реклама» ниже, на крупном превью.'
-                  : 'В рекламе Reels низ кадра занят кнопкой и подписью — можно собрать отдельную версию, где текст стоит выше.'}
-              </div>
-              {adOn ? (
-                <div className="seg" role="group" aria-label="Какой ролик на крупном превью">
-                  <button type="button" aria-pressed={!zoned} onClick={() => setAdsView(false)}>Органика</button>
-                  <button type="button" aria-pressed={zoned} onClick={() => setAdsView(true)}>Реклама</button>
+              {abChoices.length ? (
+                <div className="tab-panel">
+                  <div className="caps">Вторая версия для теста</div>
+                  <div className="pills">
+                    <button type="button" className="pill" aria-pressed={!ab} onClick={() => setAb(null)}>Не нужна</button>
+                    {abChoices.includes('teaser') ? <button type="button" className="pill" aria-pressed={ab === 'teaser'} onClick={() => setAb('teaser')}>Без тизера</button> : null}
+                    {abChoices.includes('music') ? <button type="button" className="pill" aria-pressed={ab === 'music'} onClick={() => setAb('music')}>Без музыки</button> : null}
+                  </div>
+                  <div className="muted small">
+                    {ab ? `Соберу два ролика: A — как выбрано, B — ${ab === 'teaser' ? 'без тизера' : 'без музыки'}. Выложи оба и сравни, какой смотрят дольше.`
+                      : 'Можно собрать второй ролик, который отличается одним, — и проверить, какой работает лучше.'}
+                  </div>
                 </div>
               ) : null}
-            </div>
-          ) : null}
-
-          {current === 'ab' ? (
-            <>
-              <div className="pills">
-                <button type="button" className="pill" aria-pressed={!ab} onClick={() => setAb(null)}>Не нужна</button>
-                {abChoices.includes('teaser') ? <button type="button" className="pill" aria-pressed={ab === 'teaser'} onClick={() => setAb('teaser')}>Без тизера</button> : null}
-                {abChoices.includes('music') ? <button type="button" className="pill" aria-pressed={ab === 'music'} onClick={() => setAb('music')}>Без музыки</button> : null}
-              </div>
-              <div className="muted small">
-                {ab ? `Соберу два ролика: A — как выбрано, B — ${ab === 'teaser' ? 'без тизера' : 'без музыки'}. Выложи оба и сравни, какой смотрят дольше.`
-                  : 'Можно собрать второй ролик, который отличается одним, — и проверить, какой работает лучше.'}
-              </div>
             </>
           ) : null}
         </div>
 
-        <div className="card">
+        <form className="card" onSubmit={(e) => {
+          e.preventDefault();
+          if (tweak.trim() && busy === null) void run('restyle', { text: tweak.trim() });
+        }}>
           <label htmlFor="tweak" className="label">Ни один не подходит? Скажи, что поменять</label>
-          <input id="tweak" type="text" maxLength={MAX_NOTE} placeholder="Например: заголовок без плашки" value={tweak} onChange={(e) => setTweak(e.target.value)} />
-          <button type="button" className="btn outline" disabled={!tweak.trim() || busy !== null} onClick={() => void run('restyle', { text: tweak.trim() })}>
+          <input id="tweak" type="text" maxLength={MAX_NOTE} placeholder="Например: заголовок без плашки" enterKeyHint="send" value={tweak} onChange={(e) => setTweak(e.target.value)} />
+          <button type="submit" className="btn outline" disabled={!tweak.trim() || busy !== null}>
             <RefreshIcon />
             Ещё три варианта
           </button>
           {error?.at === 'restyle' ? <div className="err small">{error.text}</div> : null}
-        </div>
+        </form>
       </div>
     </div>
   );

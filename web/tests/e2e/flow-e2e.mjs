@@ -337,6 +337,26 @@ const segments = [
       return b !== null && t !== null && b.width < 270 && b.y >= 0 && t.y + t.height <= 667;
     }, 3000, 'на экране 667 px превью уже, вкладки видны');
     await shot(page, 'previews-short');
+    // ручки считают px кадра по ширине превью: субтитры на 30 px экрана вверх, уголок — вправо на десятую ширины (×1,2)
+    const narrow = await big.boundingBox();
+    const before0 = (await bigSpec()).subtitles;
+    const subHandle = page.getByRole('slider', { name: 'Высота субтитров' });
+    const sh = await subHandle.boundingBox();
+    await page.mouse.move(sh.x + sh.width / 2, sh.y + sh.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(sh.x + sh.width / 2, sh.y + sh.height / 2 - 30, { steps: 4 });
+    await page.mouse.up();
+    const movedY = Math.round((before0.y - (30 * 1080) / narrow.width) / 10) * 10;
+    await until(async () => (await bigSpec()).subtitles.y === movedY, 5000, `субтитры на узком превью: ${movedY}`);
+    const sg = await subHandle.locator('[data-grip]').boundingBox();
+    await page.mouse.move(sg.x + sg.width / 2, sg.y + sg.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(sg.x + sg.width / 2 + narrow.width / 10, sg.y + sg.height / 2, { steps: 5 });
+    await page.mouse.up();
+    const grownNarrow = Math.round((before0.size * 1.2) / 2) * 2;
+    await until(async () => (await bigSpec()).subtitles.size === grownNarrow, 5000, `субтитры крупнее на узком превью: ${grownNarrow}`);
+    await tab('Место').click();
+    await page.getByRole('button', { name: 'Субтитры: как в варианте' }).click();
     await page.setViewportSize({ width: 390, height: 844 });
     await until(async () => (await big.boundingBox())?.width === 270, 3000, 'на экране 844 px превью снова 270 px');
     const b = STYLES.variants[1].spec;
@@ -500,11 +520,10 @@ const segments = [
     check(await page.getByRole('button', { name: '×1.1', exact: true }).getAttribute('aria-pressed') === 'true', 'скорость по умолчанию не ×1.1');
     await page.getByRole('button', { name: '×1.3', exact: true }).click();
     // вторая версия для теста: тизер Павел взял — можно собрать ролик без него; музыки нет — без музыки нельзя
-    await tab('A/B').click();
+    await tab('Версии').click();
     check(await page.getByRole('button', { name: 'Без музыки' }).count() === 0, 'без музыки предложено, хотя трека нет');
     await page.getByRole('button', { name: 'Без тизера' }).click();
     // версия для рекламы: на крупном превью «Реклама» — всё выше кнопки рекламы (низ зоны — 1250)
-    await tab('Реклама').click();
     await page.locator('[data-ad]').getByRole('button', { name: 'Нужна', exact: true }).click();
     await page.getByRole('button', { name: 'Реклама', exact: true }).click();
     const adFrame = page.frameLocator('iframe[data-big]');
@@ -514,17 +533,41 @@ const segments = [
     }, 5000, 'крупное превью в зоне рекламы');
     await shot(page, 'previews-ads');
     await page.getByRole('button', { name: 'Органика', exact: true }).click();
-    // обложка: второй кадр и свой текст; превью рисует её тем же шаблоном
+    // обложка: второй кадр и свой текст; пока открыта её вкладка, крупное превью — обложка (тот же шаблон)
     await tab('Обложка').click();
     const coverCard = page.locator('[data-cover]');
     check(await coverCard.locator('.cover-pick').count() === 3, 'три кадра обложки');
     const coverText = await coverCard.getByLabel('Текст обложки').inputValue();
     check(coverText === 'Как я снимаю reels', `текст обложки — хук, который выбрал Павел: ${coverText}`);
+    const bigState = async () => JSON.parse(await big.getAttribute('data-state'));
+    await until(async () => (await bigState()).cover?.text === 'Как я снимаю reels', 5000, 'обложка на крупном превью');
+    check(await page.getByRole('slider', { name: 'Высота субтитров' }).count() === 0, 'на обложке нет ручек текста');
     await coverCard.getByRole('button', { name: 'Кадр 2' }).click();
     await coverCard.getByLabel('Текст обложки').fill('Чешский за 15 минут');
-    await until(async () => (await coverCard.locator('iframe').getAttribute('src')) !== null, 5000, 'превью обложки');
+    await until(async () => (await bigState()).cover?.text === 'Чешский за 15 минут'
+      && /cover-2\.jpg/.test((await page.locator('.preview.big > img').getAttribute('src')) ?? ''), 5000, 'обложка второго кадра с новым текстом');
+    // тап сразу после ввода: пока в поле печатают, сцена не липнет; когда тап уводит фокус, она прилипает не сразу — тап
+    // по кадру, оказавшемуся там, где встанет сцена, доходит
+    await page.setViewportSize({ width: 375, height: 667 });
+    await coverCard.getByLabel('Текст обложки').focus();
+    await coverCard.getByRole('button', { name: 'Кадр 3' }).evaluate((el) => el.scrollIntoView({ block: 'start' }));
+    await coverCard.getByRole('button', { name: 'Кадр 3' }).click();
+    await until(async () => (await coverCard.getByRole('button', { name: 'Кадр 3' }).getAttribute('aria-pressed')) === 'true', 3000,
+      'тап по кадру сразу после ввода дошёл');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await coverCard.getByRole('button', { name: 'Кадр 2' }).click();
     const go = page.getByRole('button', { name: /^Монтировать: B · Rubik · ×1\.3 · A\/B/ });
     await go.waitFor();
+    // «Монтировать» не прошёл — ошибка видна сразу, даже когда инструменты прокручены под сцену
+    await page.route('**/api/jobs/*/run', (route) => route.fulfill({ status: 409, contentType: 'application/json',
+      body: JSON.stringify({ error: 'Картинка к ответу не догрузилась' }) }), { times: 1 });
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    await go.click();
+    const alert = page.getByRole('alert').filter({ hasText: 'Картинка к ответу не догрузилась' });
+    await alert.waitFor();
+    const ab = await alert.boundingBox();
+    check(ab !== null && ab.y >= 0 && ab.y + ab.height <= 844, `ошибка «Монтировать» не на экране: ${JSON.stringify(ab)}`);
+    await shot(page, 'previews-mount-error');
     const last = await bigSpec();
     await go.click();
     await until(async () => (await fires()).some((f) => f.step === 'render' && f.attempt === 1), 10_000, 'запуск render');

@@ -145,7 +145,7 @@ export default function Job({ id }: { id: string }) {
   if (data && view?.screen === 'questions' && draft && questions && styles && previews) {
     return (
       <Previews jobId={id} styles={styles} questions={questions} draft={draft} brief={data.brief} duration={view.duration} fileUrl={fileUrl} localUrl={localUrl}
-        onBack={() => setStage('questions')} onAct={act} />
+        onBack={() => { setStage('questions'); window.scrollTo(0, 0); }} onAct={act} />
     );
   }
   if (data && view?.screen === 'script' && data.script) {

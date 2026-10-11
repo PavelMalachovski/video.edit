@@ -153,11 +153,14 @@ export default function Result({ view, result, answers, fixes, onAct, notice }: 
           <List title="Не хватило" items={result.missing} />
         </>
       ) : null}
-      <div className="card">
+      <form className="card" onSubmit={(e) => {
+        e.preventDefault();
+        if (text.trim() && !busy) void fix();
+      }}>
         <label htmlFor="fix" className="label">Поправить</label>
         <div className="prompt">
-          <input id="fix" type="text" maxLength={MAX_NOTE} placeholder="Например: логотип чуть левее" value={text} onChange={(e) => setText(e.target.value)} />
-          <button type="button" className="btn" disabled={!text.trim() || busy} onClick={() => void fix()}>Переделать</button>
+          <input id="fix" type="text" maxLength={MAX_NOTE} placeholder="Например: логотип чуть левее" enterKeyHint="send" value={text} onChange={(e) => setText(e.target.value)} />
+          <button type="submit" className="btn" disabled={!text.trim() || busy}>Переделать</button>
         </div>
         {error ? <div className="err small">{error}</div> : null}
         {fixes.length ? <div className="caps">Правки</div> : null}
@@ -165,13 +168,13 @@ export default function Result({ view, result, answers, fixes, onAct, notice }: 
           <ul className="plain fixes">
             {fixes.map((f) => (
               <li key={f.version}>
-                <span className="mono">v{f.version}</span>
+                <span className="mono">версия {f.version}</span>
                 <span>{f.text} <span className="muted small">· {when(f.at)}</span></span>
               </li>
             ))}
           </ul>
         ) : null}
-      </div>
+      </form>
     </>
   );
 }

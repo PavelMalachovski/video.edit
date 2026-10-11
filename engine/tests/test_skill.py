@@ -96,3 +96,10 @@ def test_sizes_pavel_set_stay():
 def test_insert_sizes_pavel_set_reach_the_video():
     render = section("Шаг render")
     assert "insertBoxes" in render and "placed_inserts" in render
+
+
+def test_emoji_are_allowed_as_pictures_but_not_in_subtitles():
+    texts = section("6. Тексты")
+    assert "Эмодзи" in texts and "картинками" in texts and "U+FE0F" in texts
+    assert "В субтитрах\n  эмодзи нет" in texts or "В субтитрах эмодзи нет" in texts
+    assert "убери их (и из своего\n  хука" not in texts  # старое «эмодзи — убери всегда» ушло

@@ -401,3 +401,73 @@ test('every font in fonts.json loads and has Cyrillic', async () => {
     assert.ok(ok, f.id);
   }
 });
+
+// ---------- эмодзи ----------
+
+/** Картинки эмодзи внутри узла: имя файла, загружена ли и рамка. */
+function emojiIn(selector) {
+  return page.evaluate((sel) =>
+    [...document.querySelectorAll(`${sel} img.emo`)].map((img) => ({
+      file: img.src.split('/emoji/')[1],
+      natural: [img.naturalWidth, img.naturalHeight],
+      done: img.complete,
+      alt: img.alt,
+      ...img.getBoundingClientRect().toJSON(),
+    })), selector);
+}
+
+/** Доля «огненных» пикселей (оранжевый и жёлтый, как у 🔥) в прямоугольнике. */
+async function fiery(r) {
+  const data = await pixels(clipOf({ x: r.x, y: r.y, w: r.width, h: r.height }));
+  let hit = 0;
+  for (let k = 0; k < data.length; k += 4) {
+    if (data[k + 3] > 200 && data[k] > 200 && data[k + 1] > 60 && data[k + 1] < 215 && data[k + 2] < 110) hit++;
+  }
+  return hit / (data.length / 4);
+}
+
+test('emoji in the hook are pictures from emoji/, the trailing one goes with the handwritten word', async () => {
+  await render(spec(), { hook: { text: 'Три ошибки 🔥' } });
+  const hook = await page.evaluate(() => ({
+    caps: document.querySelector('#hook .caps').textContent.replace(/ /g, ' '),
+    hand: document.querySelector('#hook .hand').textContent,
+  }));
+  assert.equal(hook.caps, 'ТРИ');
+  assert.equal(hook.hand.trim(), 'ошибки');
+  const [fire, ...rest] = await emojiIn('#hook .hand');
+  assert.equal(rest.length, 0);
+  assert.equal(fire.file, '1f525.png');
+  assert.deepEqual(fire.natural, [136, 128]);
+  assert.equal(fire.alt, '🔥');
+  assert.ok((await fiery(fire)) > 0.1, 'огонь нарисован картинкой');
+  const handSize = await page.evaluate(() => parseFloat(getComputedStyle(document.querySelector('#hook .hand')).fontSize));
+  assert.ok(Math.abs(fire.height / handSize - 128 / 109) < 0.02, `высота эмодзи — как у глифа шрифта: ${fire.height} при ${handSize}`);
+  assert.ok(contains((await boxes()).hook, { x: fire.x, y: fire.y, w: fire.width, h: fire.height }));
+});
+
+test('emoji in caps and in the cta stay where the text is', async () => {
+  await render(spec(), { hook: { text: '🔥 Как я монтирую' } });
+  assert.equal((await emojiIn('#hook .caps')).length, 1);
+  assert.equal((await page.evaluate(() => document.querySelector('#hook .caps').textContent)).replace(/ /g, ' ').trim(), 'КАК Я');
+  assert.equal((await page.evaluate(() => document.querySelector('#hook .hand').textContent)), 'монтирую');
+  await render(spec(), { cta: { lines: ['Пиши в директ 👇'], word: 'План ✅' } });
+  assert.deepEqual((await emojiIn('#cta .caps')).map((e) => e.file), ['1f447.png']);
+  assert.deepEqual((await emojiIn('#cta .hand')).map((e) => e.file), ['2705.png']);
+});
+
+test('everything drawn is inside the reported boxes (emoji)', async () => {
+  for (const mode of ['plate', 'outline', 'shadow']) {
+    for (const text of ['Три ошибки 🔥', '🔥🔥 Огонь', 'Сердце ❤️', '👨‍👩‍👧 семья 🇨🇿']) {
+      await render(spec({ hook: { mode, size: 100 } }), { hook: { text } });
+      const seen = await drawnBox(page, scratch, 64);
+      const b = (await boxes()).hook;
+      assert.ok(contains(b, seen), `${mode} «${text}»: drawn ${JSON.stringify(seen)} outside ${JSON.stringify(b)}`);
+      assert.ok(insideSafe(b), `${mode} «${text}»: ${JSON.stringify(b)}`);
+    }
+  }
+});
+
+test('a text-default sign without FE0F stays a letter, not a picture', async () => {
+  await render(spec(), { hook: { text: 'Цена 100 € ©' } });
+  assert.equal((await emojiIn('#hook')).length, 0);
+});

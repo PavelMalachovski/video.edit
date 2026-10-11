@@ -256,3 +256,29 @@ test('inserts sit under subtitles and the hook', async () => {
   const order = await page.evaluate(() => [...document.querySelectorAll('#frame > div')].map((e) => e.id));
   assert.ok(order.indexOf('inserts') < order.indexOf('sub') && order.indexOf('inserts') < order.indexOf('hook'), order.join(','));
 });
+
+test('emoji in sticker and badge texts are pictures from emoji/, not a system font', async () => {
+  await page.evaluate(() => {
+    window.__drawn = [];
+    const draw = CanvasRenderingContext2D.prototype.drawImage;
+    CanvasRenderingContext2D.prototype.drawImage = function (img, ...rest) {
+      if (img?.src) window.__drawn.push(img.src.split('/').pop());
+      return draw.call(this, img, ...rest);
+    };
+  });
+  try {
+    await render([
+      { kind: 'sticker', title: 'Свет 💡', text: 'Ставь лампу 💙 сбоку', x: 100, y: 300, w: 420, anim: 1 },
+      { kind: 'badge', text: 'Скидка 🔥', x: 100, y: 900, w: 600, anim: 1 },
+    ]);
+    const drawn = await page.evaluate(() => window.__drawn);
+    for (const file of ['1f4a1.png', '1f499.png', '1f525.png']) assert.ok(drawn.includes(file), `${file}: ${drawn}`);
+    const [sticker, badge] = (await boxes()).inserts;
+    assert.ok(sticker.w > 0 && badge.w > 0);
+  } finally {
+    await page.evaluate(() => {
+      delete window.__drawn;
+    });
+    await page.reload();
+  }
+});

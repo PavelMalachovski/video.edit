@@ -11,6 +11,8 @@
 //   sticker — textSize, titleSize, colors; anim — name ("bachata"), scale, titleSize, colors.
 //   colors — 2–3 цвета градиента карточки.
 
+import { fillText, measureText, strokeText } from './emoji.js';
+
 /** Плавное замедление появления: быстро в начале, мягко в конце. */
 export function ease(x) {
   const v = Math.min(1, Math.max(0, Number(x) || 0));
@@ -75,12 +77,13 @@ function fontOf(main, size) {
   return `${main.weight} ${size}px "${main.family}"`;
 }
 
-function wrap(ctx, text, maxW) {
+/** Строки не шире `maxW` (шрифт кегля `size` уже стоит в `ctx.font`; эмодзи — картинки). */
+function wrap(ctx, text, maxW, size) {
   const out = [];
   let line = '';
   for (const word of String(text).split(/\s+/).filter(Boolean)) {
     const next = line ? `${line} ${word}` : word;
-    if (ctx.measureText(next).width > maxW && line) {
+    if (measureText(ctx, next, size) > maxW && line) {
       out.push(line);
       line = word;
     } else line = next;
@@ -133,7 +136,7 @@ function card(ctx, w, h, { colors, title, titleSize, main }, inner) {
     // заголовок крупно, но не шире карточки (по 24 px полей)
     let size = titleSize ?? 58;
     ctx.font = fontOf(main, size);
-    while (size > 16 && ctx.measureText(title).width > w - 48) {
+    while (size > 16 && measureText(ctx, title, size) > w - 48) {
       size -= 1;
       ctx.font = fontOf(main, size);
     }
@@ -141,9 +144,9 @@ function card(ctx, w, h, { colors, title, titleSize, main }, inner) {
     ctx.textBaseline = 'alphabetic';
     ctx.lineWidth = 10;
     ctx.strokeStyle = 'rgba(0, 0, 0, 0.18)';
-    ctx.strokeText(title, w / 2, 82);
+    strokeText(ctx, title, w / 2, 82, size);
     ctx.fillStyle = '#FFFFFF';
-    ctx.fillText(title, w / 2, 82);
+    fillText(ctx, title, w / 2, 82, size);
   }
   ctx.restore();
 }
@@ -152,7 +155,7 @@ function sticker(ins, main) {
   const w = ins.w;
   const size = ins.params?.textSize ?? 44;
   probe.font = fontOf(main, size);
-  const lines = wrap(probe, ins.text ?? '', w - 60);
+  const lines = wrap(probe, ins.text ?? '', w - 60, size);
   const lh = size * 1.2;
   const top = ins.title ? 110 : 30;
   const h = Math.round(top + lines.length * lh + 30);
@@ -162,7 +165,7 @@ function sticker(ins, main) {
     ctx.fillStyle = '#FFFFFF';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    lines.forEach((l, i) => ctx.fillText(l, w / 2, top + i * lh));
+    lines.forEach((l, i) => fillText(ctx, l, w / 2, top + i * lh, size));
   });
   return { node: canvas, w, h, ext: CARD_EXT };
 }
@@ -177,11 +180,11 @@ async function badge(ins, main) {
   // текст — крупно, но так, чтобы плашка уложилась в ширину вставки
   let size = Math.round(height * 0.53);
   probe.font = fontOf(main, size);
-  while (size > 12 && start + probe.measureText(ins.text ?? '').width + 38 > ins.w) {
+  while (size > 12 && start + measureText(probe, ins.text ?? '', size) + 38 > ins.w) {
     size -= 1;
     probe.font = fontOf(main, size);
   }
-  const w = Math.min(ins.w, Math.ceil(start + probe.measureText(ins.text ?? '').width + 38));
+  const w = Math.min(ins.w, Math.ceil(start + measureText(probe, ins.text ?? '', size) + 38));
   const h = height;
   const cols = ins.params?.colors ?? ['#7C4DFF', '#4F46E5', '#3B5BDB'];
   const { canvas, ctx } = canvasFor(w, h);
@@ -214,7 +217,7 @@ async function badge(ins, main) {
   ctx.font = fontOf(main, size);
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillText(ins.text ?? '', start, h / 2 + 3);
+  fillText(ctx, ins.text ?? '', start, h / 2 + 3, size);
   ctx.restore();
   return { node: canvas, w, h, ext: CARD_EXT };
 }

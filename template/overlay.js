@@ -9,8 +9,9 @@
 //
 // Шрифты — из fonts.json рядом с этим файлом. Свои шрифты Павла (assets/fonts) дописывает в fonts.json
 // тот, кто отдаёт шаблон. Шрифта нет в списке — ошибка: подменять его другим нельзя, иначе превью
-// разойдётся с финалом.
+// разойдётся с финалом. Эмодзи в хуке, титре и вставках — картинки (emoji.js), а не буквы шрифта.
 
+import { appendText, emojiImages, emojiOnly, loadEmoji, stripEmoji } from './emoji.js';
 import { drawInserts } from './inserts.js';
 
 const FRAME = { w: 1080, h: 1920 };
@@ -69,10 +70,11 @@ function font(id) {
 const measure = document.createElement('canvas').getContext('2d');
 
 /** Настоящие границы букв текста относительно базовой линии (а не высота строки шрифта): подъём, спуск,
-свесы влево и вправо за ширину набора (у рукописных шрифтов — заметные) и подъём шрифта по метрикам. */
+свесы влево и вправо за ширину набора (у рукописных шрифтов — заметные) и подъём шрифта по метрикам. Эмодзи —
+картинки, их рамки считаются отдельно (`emojiRects`). */
 function ink(f, size, text) {
   measure.font = `${f.weight} ${size}px "${f.family}"`;
-  const m = measure.measureText(text);
+  const m = measure.measureText(stripEmoji(text));
   return {
     ascent: m.actualBoundingBoxAscent,
     descent: m.actualBoundingBoxDescent,
@@ -177,7 +179,7 @@ function lineCount(rects) {
   return new Set(rects.map((r) => Math.round(r.top))).size;
 }
 
-/** Рамки кусков текста узла по строкам — только текст, без рамок блочных детей. */
+/** Рамки кусков текста узла по строкам — текст и картинки эмодзи, без рамок блочных детей. */
 function textRects(node) {
   const rects = [];
   const walk = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
@@ -186,7 +188,12 @@ function textRects(node) {
     range.selectNodeContents(t);
     rects.push(...[...range.getClientRects()].filter((r) => r.width > 0));
   }
-  return rects;
+  return [...rects, ...emojiRects(node)];
+}
+
+/** Рамки картинок эмодзи в узле. */
+function emojiRects(node) {
+  return emojiImages(node).map((img) => img.getBoundingClientRect());
 }
 
 function stroke(node, width, color) {
@@ -279,12 +286,15 @@ function drawSub({ spec, main }, sub) {
 
 // ---------- хук и титр с кодовым словом ----------
 
-/** Хук: все слова, кроме последнего, — строка капсом; последнее — рукописное. */
+/** Хук: все слова, кроме последнего, — строка капсом; последнее — рукописное. Эмодзи в конце идут вместе с ним:
+рукописным становится последнее слово с буквами и всё, что после него. */
 function hookTitle(hook) {
   if (!hook || typeof hook.text !== 'string') return null;
   const words = hook.text.trim().split(/\s+/).filter(Boolean);
   if (words.length === 0) return null;
-  const word = words.pop();
+  let last = words.length - 1;
+  while (last > 0 && emojiOnly(words[last])) last -= 1;
+  const word = words.splice(last).join(' ');
   return { lines: words.length ? [words.join(' ')] : [], word, wrap: 2 };
 }
 
@@ -315,10 +325,10 @@ function drawTitle(id, { spec, main, hand }, title) {
   const plate = el('div', 'plate');
   plate.hidden = mode !== 'plate' || title.lines.length === 0;
   const caps = el('div', 'caps');
-  for (const text of title.lines) caps.append(el('div', 'line', upper(glue(text))));
+  for (const text of title.lines) caps.append(appendText(el('div', 'line'), upper(glue(text))));
   const handBox = el('div', 'hand');
   handBox.hidden = !title.word;
-  const handText = el('span', null, title.word);
+  const handText = appendText(el('span'), title.word);
   handBox.append(handText);
   root.append(plate, caps, handBox);
   const first = caps.firstElementChild;
@@ -365,19 +375,19 @@ function drawTitle(id, { spec, main, hand }, title) {
   if (first) {
     const m = ink(main, px, upper(title.lines.join(' ')));
     const sides = union(textRects(caps));
-    capsInk = {
+    capsInk = union([{
       left: sides.left - m.left,
       right: sides.right + m.right,
       top: capsTop.getBoundingClientRect().top - m.ascent,
       bottom: capsBottom.getBoundingClientRect().top + m.descent,
-    };
+    }, ...emojiRects(caps)]);
   }
   let handInk = null;
   if (title.word) {
     const m = ink(hand, handPx, title.word);
     const r = handText.getBoundingClientRect();
     const base = handMark.getBoundingClientRect().top;
-    handInk = { left: r.left - m.left, right: r.right + m.right, top: base - m.ascent, bottom: base + m.descent };
+    handInk = union([{ left: r.left - m.left, right: r.right + m.right, top: base - m.ascent, bottom: base + m.descent }, ...emojiRects(handText)]);
   }
 
   let capsDy = 0;
@@ -424,8 +434,14 @@ window.renderState = function renderState(spec, state = {}, opts = {}) {
   return run;
 };
 
+/** Тексты состояния, где могут быть эмодзи: хук, титр, тексты вставок. */
+function texts(s) {
+  const cta = s.cta ?? {};
+  return [s.hook?.text, ...(cta.lines ?? []), cta.word, ...(s.inserts ?? []).flatMap((i) => [i.text, i.title])];
+}
+
 async function draw(spec, state, opts) {
-  const [main, hand] = await Promise.all([font(spec.font), font(spec.hand)]);
+  const [main, hand] = await Promise.all([font(spec.font), font(spec.hand), loadEmoji(texts(state ?? {}))]);
   await document.fonts.ready;
   const look = { spec, main, hand };
   const s = state ?? {};

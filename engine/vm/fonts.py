@@ -4,8 +4,9 @@
 `template/fonts.mjs`: id — имя файла без расширения, «-hand» в конце — рукописный, встроенный с тем же id важнее).
 Буквы шрифта — его таблица символов (cmap, fontTools). Буквы текста — сам текст и он же капсом (хук — капсом); в
 счёт идут буквы, цифры, знаки препинания и валют. Невидимые символы (пробелы, U+200B/U+200D, мягкий перенос,
-селекторы вариантов) глифа не требуют, а эмодзи и прочие картинки-символы (♪, 🔥) шрифты Павла не рисуют вовсе —
-это отдельная проблема `check`: их надо убрать из текста.
+селекторы вариантов) глифа не требуют. Эмодзи шаблон рисует картинками (vm/emoji.py) — им шрифт не нужен; прочие
+картинки-символы (♪, ❤ без U+FE0F) не рисует никто — это отдельная проблема `check`: их надо убрать из текста.
+Субтитры — слова, как сказаны: эмодзи в них тоже проблема.
 
 Основной шрифт рисует субтитры, хук, строки титра и тексты вставок; рукописный — последнее слово хука и кодовое
 слово титра. Буквы, которой нет в шрифте, браузер подставит из другого шрифта — превью и ролик разойдутся, — поэтому
@@ -16,6 +17,8 @@ import unicodedata
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
+
+from . import emoji
 
 REPO = Path(__file__).resolve().parents[2]
 TEMPLATE = REPO / "template"
@@ -64,12 +67,13 @@ def _drawn(c: str) -> bool:
 def missing(font: Font, text: str) -> str:
     """Буквы текста (и его капса), которых нет в шрифте, по порядку кодов; пробелы, невидимые и эмодзи — не буквы."""
     have = _cmap(font.path)
+    text = emoji.text_only(text)
     return "".join(sorted(c for c in set(text) | set(text.upper()) if _drawn(c) and ord(c) not in have))
 
 
 def symbols(text: str) -> str:
-    """Эмодзи и картинки-символы текста (♪, 🔥): их не рисует ни один шрифт ролика."""
-    return "".join(sorted({c for c in text if unicodedata.category(c) == "So"}))
+    """Картинки-символы текста, которых нет среди эмодзи-картинок (♪, ❤ без U+FE0F): их не рисует никто."""
+    return "".join(sorted({c for c in emoji.text_only(text) if unicodedata.category(c) == "So"}))
 
 
 def texts(edit: dict) -> tuple[str, str]:
@@ -79,7 +83,12 @@ def texts(edit: dict) -> tuple[str, str]:
     main = [w.get("text", "") for w in edit.get("words") or []]
     main += [hook, *(cta.get("lines") or [])]
     main += [i.get(key) or "" for i in edit.get("inserts") or [] for key in ("title", "text")]
-    hand = [hook.split()[-1] if hook.split() else "", cta.get("word") or ""]
+    # рукописное — последнее слово хука вместе с эмодзи после него (как hookTitle в template/overlay.js)
+    words = hook.split()
+    last = len(words) - 1
+    while last > 0 and emoji.emoji_only(words[last]):
+        last -= 1
+    hand = [" ".join(words[max(last, 0):]), cta.get("word") or ""]
     return "\n".join(main), " ".join(part for part in hand if part)
 
 
@@ -99,7 +108,12 @@ def check(edit: dict, custom: Path | None = None) -> list[str]:
     main_text, hand_text = texts(edit)
     problems = []
     if odd := symbols(f"{main_text}{hand_text}"):
-        problems.append(f"символы {odd} (эмодзи) шрифты ролика не рисуют — убери их из текста и скажи об этом в unsure")
+        plain = [c for c in odd if emoji.text_default(c)]
+        hint = f" ({', '.join(plain)} — эмодзи только с U+FE0F после знака: {', '.join(c + chr(0xFE0F) for c in plain)})" if plain else ""
+        problems.append(f"символы {odd} не рисует ни шрифт ролика, ни эмодзи-картинки — убери их или замени эмодзи{hint}; "
+                        "скажи об этом в unsure")
+    if said := emoji.found(" ".join(w.get("text", "") for w in edit.get("words") or [])):
+        problems.append(f"эмодзи {' '.join(dict.fromkeys(said))} в субтитрах — субтитры только слова, как сказаны: убери их из words")
     for kind, text in (("main", main_text), ("hand", hand_text)):
         font = fonts.get(style.get("font" if kind == "main" else "hand") or "")
         if font is None or not (lack := missing(font, text)):

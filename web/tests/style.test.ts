@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { initialDraft, pick } from '../lib/answers.ts';
 import type { Question, StyleChoice, Styles } from '../lib/jobfiles.ts';
-import { allowedFonts, choiceFor, clampHookSize, insertKey, INSERT_W, loadInsertBoxes, moveBox, placedInserts, resizeBox, saveInsertBoxes, clampHookY, clampSubSize, clampSubY, finalStyle, HOOK_SIZE, HOOK_Y, SUB_SIZE, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES } from '../lib/style.ts';
+import { loadAb, saveAb, allowedFonts, choiceFor, clampHookSize, insertKey, INSERT_W, loadInsertBoxes, moveBox, placedInserts, resizeBox, saveInsertBoxes, clampHookY, clampSubSize, clampSubY, finalStyle, HOOK_SIZE, HOOK_Y, SUB_SIZE, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES } from '../lib/style.ts';
 import { blockedStorage, memoryStorage } from './helpers.ts';
 
 // Общая с движком фикстура: final_style в engine/vm/style.py обязан давать то же самое.
@@ -215,4 +215,17 @@ test('a thesis sticker keeps its text and tone on the preview, moves by its id a
   const one = resolveInserts(sample, [stickers], pick(initialDraft([stickers]), stickers, 's1'), url, () => null);
   assert.deepEqual(one.map((i) => i.key), ['s2'], 'снятый стикер не рисуется');
   assert.deepEqual(resolveInserts(sample, [], initialDraft([]), url, () => null).map((i) => i.key), ['s1', 's2'], 'без вопроса — все');
+});
+
+test('the A/B choice is remembered per job and junk is dropped', () => {
+  const store = memoryStorage();
+  const id = '261011-120000-ab95';
+  assert.equal(loadAb(store, id), null);
+  saveAb(store, id, 'music');
+  assert.equal(loadAb(store, id), 'music');
+  saveAb(store, id, null);
+  assert.equal(loadAb(store, id), null);
+  store.setItem(`vm:ab:${id}`, 'colors');
+  assert.equal(loadAb(store, id), null);
+  assert.equal(loadAb(blockedStorage, id), null);
 });

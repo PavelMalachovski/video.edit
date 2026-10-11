@@ -142,3 +142,10 @@ def test_the_teaser_has_a_rule_a_question_and_a_render_step():
     assert "**Тизер**" in texts and "teaser: {t0, t1, sfx}" in texts and "Хук стоит на тизере" in texts
     assert "`teaser` (choice)" in section("Вопросы (questions.json)")
     assert "тизер: ответ `teaser`" in section("Шаг render")
+
+
+def test_the_second_version_for_an_a_b_test_reaches_the_render_step():
+    assert "`ab` — вторая версия для A/B-теста" in section("Страница")
+    render = section("Шаг render")
+    assert "A/B-тест: `answers.ab` → `edit.json.ab`" in render and "final-b.mp4" in render and "result.json.ab" in render
+    assert "final-v<version>-b.mp4" in section("Шаг fix"), "правка — в обеих версиях"

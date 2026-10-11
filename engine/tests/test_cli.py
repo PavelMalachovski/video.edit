@@ -930,3 +930,59 @@ def test_render_keeps_the_caption_claude_wrote(tmp_path, monkeypatch):
     assert main(["render", str(job.root)]) == 0
     result = job.read("result.json")
     assert result["caption"] == caption and result["done"] == ["вырезал паузы"]
+
+
+# ---------- A/B ----------
+
+
+def test_version_b_is_the_same_edit_without_the_teaser_or_the_music():
+    from vm.render import RenderError, variant_b
+
+    edit = {"keep": [[0, 4]], "teaser": {"t0": 2.0, "t1": 3.0}, "music": {"file": "assets/music/a.mp3", "gainDb": -18}, "ab": "teaser"}
+    assert variant_b(edit) == {**edit, "teaser": None, "ab": None}
+    assert variant_b({**edit, "ab": "music"}) == {**edit, "music": None, "ab": None}
+    with pytest.raises(RenderError, match="тизера нет"):
+        variant_b({**edit, "teaser": None})
+    with pytest.raises(RenderError, match="ab"):
+        variant_b({**edit, "ab": "colors"})
+
+
+def test_render_builds_version_b_too_and_checks_it(tmp_path, monkeypatch):
+    import vm.__main__ as cli
+
+    job = Job(tmp_path / "jobs" / "abc")
+    job.write("edit.json", {"speed": 1.0, "keep": [[0.0, 4.0]], "words": [], "hook": None, "cta": None, "inserts": [], "zooms": [],
+                            "face": {"x": 0.5, "y": 0.3}, "music": {"file": "assets/music/a.mp3", "gainDb": -18}, "hold": 0.0,
+                            "style": STYLE, "ab": "music"})
+    calls = []
+
+    def fake_render(job_, out_dir, name="final", preset="medium", edit=None, work="work/render"):
+        calls.append((name, edit and edit.get("music"), work))
+        (job_.path(work) / "frames").mkdir(parents=True, exist_ok=True)
+        (job_.path(work) / "frames" / "boxes.json").write_text("[]", encoding="utf-8")
+        job_.path("out").mkdir(exist_ok=True)
+        job_.path(f"out/{name}.mp4").write_bytes(b"video")
+        return {"durations": {"source": 4.0, "final": 4.0}, "missing": [], "warnings": [], "voice": {}}
+
+    monkeypatch.setattr(cli, "render", fake_render)
+    monkeypatch.setattr(cli, "_fonts_ok", lambda job: None)
+    monkeypatch.setattr(cli, "check_render", lambda final, edit, boxes, report: [] if edit.get("music") else ["тихо"])
+    monkeypatch.setattr(cli, "control_frames", lambda *a, **k: {"sheet": job.path("qa/qa.png")})
+    assert main(["render", str(job.root), "--version", "2"]) == 0
+    assert calls == [("final-v2", None, "work/render"), ("final-v2-b", None, "work/render-b")]
+    result = job.read("result.json")
+    assert result["ab"] == {"differs": "music", "durations": {"source": 4.0, "final": 4.0}, "qa": {"ok": False, "problems": ["тихо"]}}
+
+
+def test_version_b_without_its_part_fails_before_the_first_render(tmp_path, monkeypatch, capsys):
+    import vm.__main__ as cli
+
+    job = Job(tmp_path / "jobs" / "abc")
+    job.write("edit.json", {"speed": 1.0, "keep": [[0.0, 4.0]], "words": [], "hook": None, "cta": None, "inserts": [], "zooms": [],
+                            "face": {"x": 0.5, "y": 0.3}, "music": None, "hold": 0.0, "style": STYLE, "teaser": None, "ab": "teaser"})
+    calls = []
+    monkeypatch.setattr(cli, "render", lambda *a, **k: calls.append(a))
+    monkeypatch.setattr(cli, "_fonts_ok", lambda job: None)
+    assert main(["render", str(job.root)]) == 1
+    assert calls == [], "ошибка в ab — сразу, а не после сборки первой версии"
+    assert "тизера нет" in capsys.readouterr().err

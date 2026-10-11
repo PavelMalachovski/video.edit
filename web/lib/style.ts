@@ -1,7 +1,7 @@
 // Стиль на экране превью: итоговый StyleSpec по выбору Павла (то же правило, что final_style движка), образец
 // состояния слоя на кадре (субтитры — по правилу build_sub_events), вставки по ответам и запомненный выбор.
 import { chosen, type Draft } from './answers.ts';
-import { ADJUST, ADJUSTABLE, HOOK_SIZE, HOOK_Y, INSERT_W, INSERT_ZONE, inRange, isInsertBox, RESERVED, SUB_SIZE, SUB_Y, type Adjustable, type InsertBox, type Question, type SampleInsert, type StyleChoice, type StyleSpec, type Styles } from './jobfiles.ts';
+import { AB_KINDS, ADJUST, ADJUSTABLE, HOOK_SIZE, HOOK_Y, INSERT_W, INSERT_ZONE, inRange, isInsertBox, RESERVED, SUB_SIZE, SUB_Y, type AbKind, type Adjustable, type InsertBox, type Question, type SampleInsert, type StyleChoice, type StyleSpec, type Styles } from './jobfiles.ts';
 
 export { HOOK_SIZE, HOOK_Y, INSERT_W, SUB_SIZE, SUB_Y };
 export type { InsertBox };
@@ -226,6 +226,28 @@ export function loadSpeed(storage: Storage | null, jobId: string): number {
 export function saveSpeed(storage: Storage | null, jobId: string, speed: number): void {
   try {
     storage?.setItem(speedKey(jobId), String(speed));
+  } catch {
+    // нет хранилища — выбор живёт до перезагрузки
+  }
+}
+
+// ---------- вторая версия для A/B-теста (localStorage['vm:ab:<id>']) ----------
+
+const abKey = (jobId: string): string => `vm:ab:${jobId}`;
+
+export function loadAb(storage: Storage | null, jobId: string): AbKind | null {
+  try {
+    const value = storage?.getItem(abKey(jobId));
+    return (AB_KINDS as readonly (string | null | undefined)[]).includes(value) ? (value as AbKind) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveAb(storage: Storage | null, jobId: string, ab: AbKind | null): void {
+  try {
+    if (ab) storage?.setItem(abKey(jobId), ab);
+    else storage?.removeItem(abKey(jobId));
   } catch {
     // нет хранилища — выбор живёт до перезагрузки
   }

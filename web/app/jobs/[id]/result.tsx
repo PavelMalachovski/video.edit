@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { captionCopy, captionFold, parseCaption, type Caption } from '@/lib/caption.ts';
 import { mmss } from '@/lib/format.ts';
-import type { AnswersFile, FixFile, ResultFile } from '@/lib/jobfiles.ts';
+import { abLabels, type AnswersFile, type FixFile, type ResultFile } from '@/lib/jobfiles.ts';
 import { MAX_NOTE } from '@/lib/jobs.ts';
 import type { JobView } from '@/lib/jobview.ts';
 import type { Act } from './job';
@@ -70,23 +70,45 @@ export default function Result({ view, result, answers, fixes, onAct }: Props) {
     else setText('');
   }
 
+  const b = final.b;
+  const [labelA, labelB] = abLabels(result?.ab?.differs ?? answers?.ab ?? 'teaser');
+
   return (
     <>
       <header className="job-head">
         <h1>Готово</h1>
         <div className="muted">{facts.join(' · ')}</div>
       </header>
-      <div className="big-wrap">
-        <video className="result-video" controls playsInline preload="metadata" src={download(final.mp4)} />
-      </div>
-      <div className="two">
-        <a className="btn" href={download(final.mp4)} download={final.mp4}>Скачать видео</a>
-        {final.srt ? <a className="btn ghost" href={download(final.srt)} download={final.srt}>Субтитры .srt</a> : null}
-      </div>
+      {b ? (
+        <>
+          <div className="two" data-ab>
+            {[{ name: labelA, files: final }, { name: labelB, files: b }].map((v) => (
+              <div key={v.files.mp4} className="ab-video">
+                <div className="caps small">{v.name}</div>
+                <video className="result-video small" controls playsInline preload="metadata" src={download(v.files.mp4)} />
+                <a className="btn" href={download(v.files.mp4)} download={v.files.mp4}>Скачать</a>
+                {v.files.srt ? <a className="btn ghost" href={download(v.files.srt)} download={v.files.srt}>Субтитры .srt</a> : null}
+              </div>
+            ))}
+          </div>
+          <div className="muted small">Выложи оба ролика в разные дни и сравни охваты и досмотры — оставь тот, что лучше.</div>
+        </>
+      ) : (
+        <>
+          <div className="big-wrap">
+            <video className="result-video" controls playsInline preload="metadata" src={download(final.mp4)} />
+          </div>
+          <div className="two">
+            <a className="btn" href={download(final.mp4)} download={final.mp4}>Скачать видео</a>
+            {final.srt ? <a className="btn ghost" href={download(final.srt)} download={final.srt}>Субтитры .srt</a> : null}
+          </div>
+        </>
+      )}
       {caption ? <CaptionCard caption={caption} /> : null}
       {result ? (
         <>
-          {result.qa.ok ? null : <List title="Проверка нашла" items={result.qa.problems} tone="alert" />}
+          {result.qa.ok ? null : <List title={b ? 'Проверка версии A нашла' : 'Проверка нашла'} items={result.qa.problems} tone="alert" />}
+          {b && result.ab && !result.ab.qa.ok ? <List title="Проверка версии B нашла" items={result.ab.qa.problems} tone="alert" /> : null}
           <div className="card">
             <div className="caps small">Что я сделал</div>
             {result.done.length ? <ul className="plain">{result.done.map((line, i) => <li key={i}>{line}</li>)}</ul> : <div className="muted">Claude не оставил итогов.</div>}

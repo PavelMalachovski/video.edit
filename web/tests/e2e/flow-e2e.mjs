@@ -87,6 +87,8 @@ const QUESTIONS = { questions: [
     options: [{ id: 's1', label: '0:12 — «3 ошибки 🔥»' }], default: ['s1'] },
   { id: 'end', type: 'choice', title: 'Финальная карточка', body: 'Последние 2 секунды: призыв, твой ник и логотип.',
     options: [{ id: 'e1', label: '«Подпишись, чтобы не пропустить 👇»' }, { id: 'own', label: 'Свой' }, { id: 'none', label: 'Не надо' }], default: 'e1' },
+  { id: 'teaser', type: 'choice', title: 'Начать с самой сильной фразы?', body: '«Учу по 15 минут в день» звучит на 0:21.',
+    options: [{ id: 'yes', label: 'Да: «Учу по 15 минут в день»' }, { id: 'no', label: 'Нет' }], default: 'yes' },
 ] };
 const FIXTURE = JSON.parse(fs.readFileSync(path.resolve('../engine/tests/fixtures/style-merge.json'), 'utf8'));
 const STYLES = { ...FIXTURE.styles, sample: { ...FIXTURE.styles.sample, inserts: [{ kind: 'image', x: 70, y: 500, w: 250, question: 'logo' }] } };
@@ -236,7 +238,7 @@ const segments = [
     engineValidate('status.json', waiting);
     await session(ctx, { 'questions.json': QUESTIONS, 'styles.json': STYLES, 'frame.png': PNG, 'q-logo.png': PNG, 'status.json': waiting });
     const cards = page.locator('[data-question]');
-    await until(async () => (await cards.count()) === 7, 10_000, 'семь карточек вопросов');
+    await until(async () => (await cards.count()) === 8, 10_000, 'восемь карточек вопросов');
     const go = page.getByRole('button', { name: 'Показать превью' });
     check(await go.isDisabled(), '«Показать превью» включена, хотя brand и logo без ответа');
     await shot(page, 'questions');
@@ -253,7 +255,7 @@ const segments = [
     check(!(await go.isDisabled()), '«Показать превью» выключена после всех ответов');
 
     await page.reload();
-    await until(async () => (await cards.count()) === 7, 10_000, 'карточки после перезагрузки');
+    await until(async () => (await cards.count()) === 8, 10_000, 'карточки после перезагрузки');
     check(await card('hook').getByLabel('Или напиши свой').inputValue() === 'Как я снимаю reels', 'свой хук пропал');
     check(await card('stars').getByRole('button', { name: 'беспл*тно' }).getAttribute('aria-pressed') === 'false', 'снятая звёздочка вернулась');
     check(await card('brand').getByRole('button', { name: 'Copilot' }).getAttribute('aria-pressed') === 'true', 'выбор написания пропал');
@@ -427,7 +429,10 @@ const segments = [
     await shot(page, 'previews-subtitles-moved');
     check(await page.getByRole('button', { name: '×1.1', exact: true }).getAttribute('aria-pressed') === 'true', 'скорость по умолчанию не ×1.1');
     await page.getByRole('button', { name: '×1.3', exact: true }).click();
-    const go = page.getByRole('button', { name: /^Монтировать: B · Rubik · ×1\.3/ });
+    // вторая версия для теста: тизер Павел взял — можно собрать ролик без него; музыки нет — без музыки нельзя
+    check(await page.getByRole('button', { name: 'Без музыки' }).count() === 0, 'без музыки предложено, хотя трека нет');
+    await page.getByRole('button', { name: 'Без тизера' }).click();
+    const go = page.getByRole('button', { name: /^Монтировать: B · Rubik · ×1\.3 · A\/B/ });
     await go.waitFor();
     const last = await bigSpec();
     await go.click();
@@ -444,6 +449,7 @@ const segments = [
     check(isDeepStrictEqual(answers.insertBoxes?.s1, stickerPlaced), `стикер в insertBoxes: ${JSON.stringify(answers.insertBoxes)}`);
     check(isDeepStrictEqual(answers.answers?.stickers, ['s1']), `stickers: ${JSON.stringify(answers.answers?.stickers)}`);
     check(answers.answers?.end === 'e1', `end: ${JSON.stringify(answers.answers?.end)}`);
+    check(answers.ab === 'teaser', `ab: ${JSON.stringify(answers.ab)}`);
     check(answers.style?.subSize === grown - 4 && answers.style?.hookSize === pinched, `размеры: ${answers.style?.subSize}, ${answers.style?.hookSize}`);
     check(isDeepStrictEqual(finalStyle(restyled, answers.style), last), `стиль ответа ${JSON.stringify(answers.style)} ≠ последнему превью`);
   }],
@@ -469,16 +475,26 @@ const segments = [
       missing: ['нет музыки assets/music/lofi.mp3 — ролик без неё'],
       qa: { ok: false, problems: ['хук на лице или ближе 40 px к нему (0,0–1,5 с ролика)'] },
       caption: { text: 'Как я учу чешский по 15 минут в день и почему это работает лучше, чем курсы 🇨🇿\nСохрани, чтобы не потерять', hashtags: ['чешский', 'языки'] },
+      ab: { differs: 'teaser', durations: { source: 102.4, final: 73.8 }, qa: { ok: false, problems: ['субтитры и вставка друг на друге (0:40)'] } },
     };
     engineValidate('result.json', result);
     const v1 = crypto.randomBytes(48 * 1024);
     await asset('final.mp4', v1);
     await asset('final.srt', Buffer.from('1\n00:00:00,000 --> 00:00:01,000\nпривет\n\n'));
+    await asset('final-b.mp4', crypto.randomBytes(44 * 1024));
     await session(ctx, { 'result.json': result, 'status.json': { state: 'rendered', phase: 'Загружаю', message: 'Ролик собран, загружаю', at: iso() },
-      'out/released.json': await released(['final.mp4', 'final.srt']) });
+      'out/released.json': await released(['final.mp4', 'final.srt', 'final-b.mp4']) });
     await page.getByText('Что я сделал').waitFor({ timeout: 7000 });
     check(await page.getByRole('heading', { name: 'Готово' }).count() === 1, 'нет заголовка «Готово»');
     check((await page.textContent('body')).includes('было 1:42 → стало 1:16 · стиль B'), 'нет строки «было → стало · стиль»');
+    // A/B: два ролика с подписями, у каждого своя кнопка
+    const pair = page.locator('[data-ab]');
+    check(await pair.locator('video').count() === 2, 'не два ролика');
+    check((await pair.textContent()).includes('A — с тизером') && (await pair.textContent()).includes('B — без тизера'), 'подписи A и B');
+    check(/name=final-b\.mp4$/.test((await pair.locator('video').nth(1).getAttribute('src')) ?? ''), 'второй ролик — final-b.mp4');
+    const body = await page.textContent('body');
+    check(body.includes('Проверка версии A нашла') && body.includes('Проверка версии B нашла') && body.includes('субтитры и вставка друг на друге'),
+      'проверки обеих версий');
     await shot(page, 'result');
     // подпись к посту: жирное — первые 72 знака, кнопка копирует текст и хэштеги
     const card = page.locator('[data-caption]');

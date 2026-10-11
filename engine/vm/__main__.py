@@ -38,7 +38,7 @@ from .qa import (
     face_box,
     slot_times,
 )
-from .render import _resolve, draw_layer, render
+from .render import _resolve, draw_layer, render, variant_b
 from .style import final_style
 
 PART_SIZE = 95 * 1024 * 1024  # как `split -b 95M`: столько же, сколько MAX_FILE_BYTES
@@ -244,16 +244,30 @@ def _render(args: argparse.Namespace) -> None:
     step = _stepper(job, "rendering", args.status)
     name = "final" if args.version in (None, 1) else f"final-v{args.version}"
     _fonts_ok(job)
+    edit = job.read("edit.json")
+    variant = variant_b(edit) if edit.get("ab") else None  # вторая версия A/B-теста; ошибка в ab — до сборки
     step("Монтирую", "Собираю ролик: нарезка, текст, вставки, звук")
     result = render(job, job.path("out"), name=name, preset=args.preset)
     for done in (f"{name}.mp4", f"{name}.srt"):  # части прошлого push --outputs — от старого ролика
         drop_parts(job.path("out"), done)
     step("Проверяю", "Смотрю контрольные кадры и геометрию")
-    edit = job.read("edit.json")
     final = job.path(f"out/{name}.mp4")
     boxes = json.loads(job.path("work/render/frames/boxes.json").read_text(encoding="utf-8"))
     problems = check_layout(boxes, face_box(edit.get("face")), edit.get("inserts")) + check_render(final, edit, boxes, result)
     frames = control_frames(final, slot_times(boxes), job.path("qa"))
+    second = None
+    if variant:  # без тизера или без музыки, со своим слоем
+        step("Монтирую", "Собираю вторую версию для теста")
+        result_b = render(job, job.path("out"), name=f"{name}-b", preset=args.preset, edit=variant, work="work/render-b")
+        for done in (f"{name}-b.mp4", f"{name}-b.srt"):
+            drop_parts(job.path("out"), done)
+        boxes_b = json.loads(job.path("work/render-b/frames/boxes.json").read_text(encoding="utf-8"))
+        final_b = job.path(f"out/{name}-b.mp4")
+        problems_b = check_layout(boxes_b, face_box(variant.get("face")), variant.get("inserts")) + check_render(final_b, variant, boxes_b, result_b)
+        second = {"differs": edit["ab"], "durations": result_b["durations"], "qa": {"ok": not problems_b, "problems": problems_b}}
+        print(f"{final_b.relative_to(job.root)}: {result_b['durations']['final']:.1f} с — версия B, {'без тизера' if edit['ab'] == 'teaser' else 'без музыки'}")
+        for line in problems_b:
+            print(f"  версия B: {line}")
     previous = job.read("result.json") if job.path("result.json").is_file() else {}
     job.write(
         "result.json",
@@ -264,6 +278,7 @@ def _render(args: argparse.Namespace) -> None:
             "missing": result["missing"],
             "qa": {"ok": not problems, "problems": problems},
             **({"caption": previous["caption"]} if previous.get("caption") else {}),  # подпись к посту — от Claude
+            **({"ab": second} if second else {}),
         },
     )
     print(f"{final.relative_to(job.root)}: {result['durations']['final']:.1f} с (исходник {result['durations']['source']:.1f} с)")

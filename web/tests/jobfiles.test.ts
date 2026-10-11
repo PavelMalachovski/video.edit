@@ -2,9 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  answersFile, appendFix, appendRestyle, buildJobFile, errorStatus, finalNames, parseAnswersBody, parseNote, parseStatus, parseStyles,
+  abLabels, answersFile, appendFix, appendRestyle, buildJobFile, errorStatus, finalNames, parseAnswersBody, parseNote, parseResult, parseStatus, parseStyles,
   QUESTION_TYPES, queuedStatus, STATES, wantedVersion, type Manifest, type Question,
-  SAMPLE_INSERT_KINDS,
+  AB_KINDS, SAMPLE_INSERT_KINDS,
 } from '../lib/jobfiles.ts';
 import { STEPS } from '../lib/routine.ts';
 
@@ -208,4 +208,37 @@ test('parseStyles takes the end card sample and refuses a broken one', () => {
   assert.deepEqual(parseStyles({ ...fx, sample: { ...fx.sample, end } })?.sample.end, end);
   assert.equal(parseStyles({ ...fx, sample: { ...fx.sample, end: { lines: [] } } }), null);
   assert.equal(parseStyles({ ...fx, sample: { ...fx.sample, end: { lines: ['a'], logo: 5 } } }), null);
+});
+
+test('A/B: the answers take ab — teaser or music — and version B has its own file names', () => {
+  assert.deepEqual(finalNames(1, 'b'), { mp4: 'final-b.mp4', srt: 'final-b.srt' });
+  assert.deepEqual(finalNames(3, 'b'), { mp4: 'final-v3-b.mp4', srt: 'final-v3-b.srt' });
+  for (const ab of ['teaser', 'music'] as const) {
+    const p = parseAnswersBody({ answers: {}, style: STYLE, ab }, QS);
+    assert.ok(!('error' in p) && p.ab === ab, JSON.stringify(p));
+    if (!('error' in p)) {
+      const job = buildJobFile({ job: '261010-070509-abcd', name: 'a', size: 1, type: 'video/mp4', lastModified: 1, parts: 1, chunkSize: 4 }, NOW);
+      assert.equal(answersFile(p, job).ab, ab);
+    }
+  }
+  assert.ok('error' in parseAnswersBody({ answers: {}, style: STYLE, ab: 'colors' }, QS));
+  const none = parseAnswersBody({ answers: {}, style: STYLE }, QS);
+  assert.ok(!('error' in none) && none.ab === undefined);
+});
+
+test('A/B: result.json ab — what version B differs in and its check; a broken ab is dropped, the rest stays', () => {
+  const result = { durations: { source: 80.2, final: 71 }, done: [], unsure: [], missing: [], qa: { ok: true, problems: [] } };
+  const ab = { differs: 'teaser', durations: { source: 80.2, final: 68.5 }, qa: { ok: false, problems: ['хук на лице'] } };
+  assert.deepEqual(parseResult({ ...result, ab })?.ab, ab);
+  assert.equal(parseResult(result)?.ab, undefined);
+  for (const bad of [{ ...ab, differs: 'hook' }, { ...ab, qa: { ok: 'no', problems: [] } }, { ...ab, durations: null }, 'teaser']) {
+    const parsed = parseResult({ ...result, ab: bad });
+    assert.ok(parsed && parsed.ab === undefined, JSON.stringify(bad));
+  }
+  assert.deepEqual(schema('result.json').properties.ab.properties.differs.enum, [...AB_KINDS]);
+});
+
+test('A/B: labels follow what version B was built without', () => {
+  assert.deepEqual(abLabels('teaser'), ['A — с тизером', 'B — без тизера']);
+  assert.deepEqual(abLabels('music'), ['A — с музыкой', 'B — без музыки']);
 });

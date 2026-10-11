@@ -211,3 +211,12 @@ test('malformed session files read as missing', () => withFake(async ({ fake, gh
   assert.equal(f?.result, null);
   assert.equal(deriveView(release(), f, T0).screen, 'error');
 }));
+
+test('an A/B job shows version B next to A once both are delivered', () => {
+  const v = deriveView(release(), files({ status: status('rendered'), released: delivered('final.mp4', 'final.srt', 'final-b.mp4', 'final-b.srt') }), T0);
+  assert.deepEqual(v.final, { mp4: 'final.mp4', srt: 'final.srt', b: { mp4: 'final-b.mp4', srt: 'final-b.srt' } });
+  const fix = { fixes: [{ text: 'логотип левее', at: new Date(T0).toISOString(), version: 2 }] };
+  const v2 = deriveView(release(), files({ fix, status: status('rendered'), released: delivered('final.mp4', 'final-b.mp4', 'final-v2.mp4', 'final-v2-b.mp4') }), T0);
+  assert.deepEqual(v2.final, { mp4: 'final-v2.mp4', srt: null, b: { mp4: 'final-v2-b.mp4', srt: null } });
+  assert.equal(v2.previous, 'final.mp4');
+});

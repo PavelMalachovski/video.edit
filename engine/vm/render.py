@@ -58,6 +58,7 @@ TO_709 = "scale=out_color_matrix=bt709:out_range=tv"
 AAC_PRIMING = 1024
 IMAGES = {".png", ".jpg", ".jpeg", ".webp"}  # картинка держится всё окно перебивки; GIF крутится по кругу
 TEXTUAL = ("sticker", "text")  # вставки из одного текста: картинка им не нужна
+AB = ("teaser", "music")  # чем вторая версия A/B-теста отличается от первой: без тизера или без музыки
 LOOPED = {".gif"}
 
 
@@ -94,9 +95,21 @@ class Layer:
     warnings: list[str]
 
 
-def draw_layer(job: Job) -> Layer:
-    """edit.json (по схеме) → шкала по исходнику → кадры слоя в work/render/frames."""
-    edit = job.read("edit.json")
+def variant_b(edit: dict) -> dict:
+    """Вторая версия A/B-теста (`edit.ab`): та же, но без тизера или без музыки."""
+    kind = edit.get("ab")
+    if kind not in AB:
+        raise RenderError(f"edit.json: ab — {' или '.join(AB)}, а не {kind!r}")
+    if not edit.get(kind):
+        what = "тизера" if kind == "teaser" else "музыки"
+        raise RenderError(f"edit.json: ab = {kind}, а {what} нет — версия B вышла бы такой же: убери ab")
+    return {**edit, kind: None, "ab": None}
+
+
+def draw_layer(job: Job, edit: dict | None = None, work: str = "work/render") -> Layer:
+    """edit.json (по схеме; `edit` — вместо него, например версия B) → шкала по исходнику → кадры слоя в
+    `<work>/frames`."""
+    edit = job.read("edit.json") if edit is None else edit
     validate("edit.json", edit)  # файл пишет Claude: ошибка называет поле, а не падает KeyError где-то в графе
     waiting = [ins["question"] for ins in edit["inserts"] if ins.get("question") and not ins.get("src") and ins["kind"] not in TEXTUAL]
     if waiting:
@@ -112,16 +125,18 @@ def draw_layer(job: Job) -> Layer:
     beyond = (timeline(edit).duration - tl.duration) * edit["speed"]
     if beyond > 0.1:
         warnings.append(f"keep заходит за конец исходника ({info.duration:.1f} с): {beyond:.1f} с отрезков отброшено")
-    frames = _layer(job, edit, tl, job.path("work/render"))
+    frames = _layer(job, edit, tl, job.path(work))
     boxes = json.loads((frames.parent / "boxes.json").read_text(encoding="utf-8"))
     return Layer(edit, info, tl, frames, boxes, warnings)
 
 
-def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium") -> dict:
+def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium", edit: dict | None = None,
+           work: str = "work/render") -> dict:
     """Пишет `out_dir/<name>.mp4` и `out_dir/<name>.srt` (без речи `.srt` нет: пустой ассет GitHub не примет и не
     отдаст ролик). → `{durations, missing, warnings, music, voice}`; `missing` Павел читает на странице — по-русски;
-    `voice` — громкость исходника и было ли шумоподавление (тихая запись)."""
-    drawn = draw_layer(job)
+    `voice` — громкость исходника и было ли шумоподавление (тихая запись). `edit` — вместо edit.json (версия B
+    A/B-теста), `work` — папка её слоя."""
+    drawn = draw_layer(job, edit, work)
     edit, info, tl, layer = drawn.edit, drawn.info, drawn.tl, drawn.frames
     source = job.path("source.mp4")
     missing: list[str] = []

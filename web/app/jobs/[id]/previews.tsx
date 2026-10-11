@@ -3,14 +3,14 @@
 // шрифт и цвета меняются сразу, хук и субтитры двигаются по крупному превью выше-ниже, вставки — куда угодно; размер
 // у всех — щипком двумя пальцами или уголком ⤢. «Ещё три варианта» — шаг restyle; «Монтировать» — ответы, стиль и шаг render.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { buildAnswers, previewEnd, previewHook, type Draft } from '@/lib/answers.ts';
+import { abOptions, buildAnswers, previewEnd, previewHook, type Draft } from '@/lib/answers.ts';
 import { storage } from '@/lib/client.ts';
 import { mmss } from '@/lib/format.ts';
-import { ADJUSTABLE, type Adjustable, type Question, type StyleChoice, type Styles } from '@/lib/jobfiles.ts';
+import { ADJUSTABLE, type AbKind, type Adjustable, type Question, type StyleChoice, type Styles } from '@/lib/jobfiles.ts';
 import { MAX_NOTE } from '@/lib/jobs.ts';
 import {
-  allowedFonts, choiceFor, clampTo, finalStyle, HOOK_SIZE, HOOK_Y, INSERT_W, insertKey, loadChoice, loadInsertBoxes, loadSpeed, moveBox,
-  resizeBox, resolveInserts, sampleState, saveChoice, saveInsertBoxes, saveSpeed, type InsertBox,
+  allowedFonts, choiceFor, clampTo, finalStyle, HOOK_SIZE, HOOK_Y, INSERT_W, insertKey, loadAb, loadChoice, loadInsertBoxes, loadSpeed, moveBox,
+  resizeBox, resolveInserts, sampleState, saveAb, saveChoice, saveInsertBoxes, saveSpeed, type InsertBox,
   SPEEDS, SUB_SIZE, SUB_Y, SWATCHES,
 } from '@/lib/style.ts';
 import PreviewFrame from '../../preview-frame';
@@ -61,6 +61,15 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
   const setSpeed = (s: number) => {
     setSpeedState(s);
     saveSpeed(storage(), jobId, s);
+  };
+
+  // вторая версия для A/B-теста: без тизера или без музыки — что из этого есть в ответах
+  const [abPick, setAbPick] = useState<AbKind | null>(() => loadAb(storage(), jobId));
+  const abChoices = useMemo(() => abOptions(questions, draft), [questions, draft]);
+  const ab = abPick && abChoices.includes(abPick) ? abPick : null;
+  const setAb = (x: AbKind | null) => {
+    setAbPick(x);
+    saveAb(storage(), jobId, x);
   };
 
   const [fonts, setFonts] = useState<FontEntry[]>([]);
@@ -124,7 +133,7 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
     const claims = Object.fromEntries(Object.entries(uploads).map(([qid, u]) => [qid, { asset: u.asset, name: u.name, size: u.size, type: u.type, parts: u.parts }]));
     const keys = new Set((styles.sample.inserts ?? []).map(insertKey));
     const placed = Object.fromEntries(Object.entries(insertBoxes).filter(([k]) => keys.has(k))); // только вставки этого превью
-    void run('answers', { answers, uploads: claims, style: choice, speed, ...(Object.keys(placed).length ? { insertBoxes: placed } : {}) });
+    void run('answers', { answers, uploads: claims, style: choice, speed, ...(Object.keys(placed).length ? { insertBoxes: placed } : {}), ...(ab ? { ab } : {}) });
   }
 
   const pickFont = (kind: 'font' | 'hand', id: string) => setChoice({ ...choice, [kind]: id });
@@ -270,6 +279,21 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
         <div className="muted small">Голос не меняет тон; музыка не ускоряется.</div>
       </div>
 
+      {abChoices.length ? (
+        <div className="card">
+          <div className="caps small">Вторая версия для теста</div>
+          <div className="pills">
+            <button type="button" className="pill" aria-pressed={!ab} onClick={() => setAb(null)}>Не нужна</button>
+            {abChoices.includes('teaser') ? <button type="button" className="pill" aria-pressed={ab === 'teaser'} onClick={() => setAb('teaser')}>Без тизера</button> : null}
+            {abChoices.includes('music') ? <button type="button" className="pill" aria-pressed={ab === 'music'} onClick={() => setAb('music')}>Без музыки</button> : null}
+          </div>
+          <div className="muted small">
+            {ab ? `Соберу два ролика: A — как выбрано, B — ${ab === 'teaser' ? 'без тизера' : 'без музыки'}. Выложи оба и сравни, какой смотрят дольше.`
+              : 'Можно собрать второй ролик, который отличается одним, — и проверить, какой работает лучше.'}
+          </div>
+        </div>
+      ) : null}
+
       <div className="card">
         <label htmlFor="tweak" className="label">Ни один не подходит? Скажи, что поменять</label>
         <input id="tweak" type="text" maxLength={MAX_NOTE} placeholder="Например: заголовок без плашки" value={tweak} onChange={(e) => setTweak(e.target.value)} />
@@ -280,7 +304,7 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
       </div>
 
       <button type="button" className="btn" disabled={busy !== null} onClick={mount}>
-        Монтировать: {choice.variant} · {family(choice.font)} · ×{speed.toFixed(1)}
+        Монтировать: {choice.variant} · {family(choice.font)} · ×{speed.toFixed(1)}{ab ? ' · A/B' : ''}
       </button>
       {error?.at === 'answers' ? <div className="err small">{error.text}</div> : null}
     </>

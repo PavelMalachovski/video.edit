@@ -14,7 +14,7 @@ import pytest
 
 from vm.job import Job
 from vm.media import mp4_boxes
-from vm.render import RenderError, _ffmpeg, _sounds, render, timeline
+from vm.render import RenderError, _ffmpeg, _sounds, render, timeline, variant_b
 
 pytestmark = [
     pytest.mark.slow,
@@ -206,13 +206,30 @@ def test_teaser_plays_its_phrase_first_then_the_video_from_the_start(tmp_path, s
     raw = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(final), "-map", "0:a", "-ac", "1", "-ar", "48000",
                           "-f", "f32le", "-"], check=True, capture_output=True).stdout
     pcm = np.abs(np.frombuffer(raw, np.float32))
-    loud = lambda t: float(pcm[int((t - 0.1) * 48000):int((t + 0.1) * 48000)].mean())  # noqa: E731
+    loud = lambda t: float(pcm[int((t - 0.1) * 48000):int((t + 0.1) * 48000)].mean())
     assert loud(0.25) > 4 * loud(0.75), "тизер: звучит фраза 2,0–2,5 с исходника, потом пауза"
     assert loud(1.25) > 4 * loud(1.75), "дальше ролик с начала"
     src = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", "2.1", "-i", str(sources["short"]), "-frames:v", "1",
                           "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], check=True, capture_output=True).stdout
     source = np.frombuffer(src, np.uint8).reshape(1920, 1080, 3).astype(int)
     assert np.abs(frame(final, 0.1).astype(int)[300:1200] - source[300:1200]).mean() < 12, "первый кадр — из тизера"
+
+
+def test_version_b_is_rendered_without_the_teaser_beside_version_a(tmp_path, sources):
+    """A/B-тест: версия B — тот же монтаж без тизера, со своим слоем (work/render-b); слой и ролик A остаются."""
+    job = make_job(tmp_path, sources["short"], keep=[[0.0, 4.0]], teaser={"t0": 2.0, "t1": 3.0, "sfx": None}, ab="teaser")
+    a = render(job, job.path("out"), preset="ultrafast")
+    b = render(job, job.path("out"), name="final-b", preset="ultrafast", edit=variant_b(job.read("edit.json")), work="work/render-b")
+    assert a["durations"]["final"] == pytest.approx(5.0, abs=0.01) and b["durations"]["final"] == pytest.approx(4.0, abs=0.01)
+    assert float(probe(job.path("out/final.mp4"))["format"]["duration"]) == pytest.approx(5.0, abs=0.05)
+    assert float(probe(job.path("out/final-b.mp4"))["format"]["duration"]) == pytest.approx(4.0, abs=0.05)
+    ends = [max(e["t1"] for e in json.loads(job.path(f"{work}/frames/boxes.json").read_text(encoding="utf-8")))
+            for work in ("work/render", "work/render-b")]
+    assert ends == pytest.approx([5.0, 4.0], abs=0.04), "у каждой версии свой слой"
+    src = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", "0.1", "-i", str(sources["short"]), "-frames:v", "1",
+                          "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], check=True, capture_output=True).stdout
+    source = np.frombuffer(src, np.uint8).reshape(1920, 1080, 3).astype(int)
+    assert np.abs(frame(job.path("out/final-b.mp4"), 0.1).astype(int)[300:1200] - source[300:1200]).mean() < 12, "B — с начала"
 
 
 def test_teaser_sound_plays_at_the_seam(tmp_path):

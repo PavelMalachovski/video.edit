@@ -38,7 +38,8 @@ export type JobView = {
   attempt: number;
   sessionUrl: string | null;
   version: number;
-  final: { mp4: string; srt: string | null } | null;
+  /** Готовый ролик; `b` — вторая версия A/B-теста, если она тоже доставлена. */
+  final: { mp4: string; srt: string | null; b?: { mp4: string; srt: string | null } } | null;
   previous: string | null;
 };
 export type Action = 'start' | 'answers' | 'restyle' | 'fix' | 'retry' | 'back' | 'delete';
@@ -167,7 +168,9 @@ export function deriveView(release: Release, files: JobFiles | null, now: number
   }
   const names = finalNames(version);
   if (delivered.includes(names.mp4)) {
-    return { ...view, screen: 'result', final: { mp4: names.mp4, srt: delivered.includes(names.srt) ? names.srt : null } };
+    const b = finalNames(version, 'b');
+    const second = delivered.includes(b.mp4) ? { b: { mp4: b.mp4, srt: delivered.includes(b.srt) ? b.srt : null } } : {};
+    return { ...view, screen: 'result', final: { mp4: names.mp4, srt: delivered.includes(names.srt) ? names.srt : null, ...second } };
   }
   const status = files.status;
   if (!status) {

@@ -185,12 +185,17 @@ export function buildJobFile(m: Manifest, now: Date): JobFile {
 
 // ---------- answers.json ----------
 
+/** Вторая версия для A/B-теста: чем она отличается от первой — без тизера или без музыки. */
+export const AB_KINDS = ['teaser', 'music'] as const;
+export type AbKind = (typeof AB_KINDS)[number];
 export type AnswersFile = {
   answers: Record<string, string | string[]>; style: StyleChoice; speed?: number; insertBoxes?: Record<string, InsertBox>; uploads?: Record<string, string>; brief?: string;
+  ab?: AbKind;
 };
 export type UploadClaim = { asset: string; name: string; size: number; type: string; parts: number };
 export type ParsedAnswers = {
   answers: Record<string, string | string[]>; style: StyleChoice; speed?: number; insertBoxes?: Record<string, InsertBox>; uploads: Record<string, UploadClaim>;
+  ab?: AbKind;
 };
 /** Ширина вставки, которую Павел может выбрать на превью, px кадра (ширина безопасной зоны — 830). */
 export const INSERT_W = { min: 80, max: 830 };
@@ -265,6 +270,8 @@ export function parseAnswersBody(body: unknown, qs: Question[]): ParsedAnswers |
   if (speed !== undefined && !(isNum(speed) && speed >= SPEED_RANGE.min && speed <= SPEED_RANGE.max)) {
     return { error: `speed: нужно число от ${SPEED_RANGE.min} до ${SPEED_RANGE.max}` };
   }
+  const ab = body.ab;
+  if (ab !== undefined && !(AB_KINDS as readonly unknown[]).includes(ab)) return { error: `ab: ${AB_KINDS.join(' или ')}` };
   const uploads: Record<string, UploadClaim> = {};
   const claims = body.uploads === undefined ? {} : body.uploads;
   if (!isObject(claims)) return { error: 'uploads: нужен объект' };
@@ -281,6 +288,7 @@ export function parseAnswersBody(body: unknown, qs: Question[]): ParsedAnswers |
     answers, style, uploads,
     ...(speed === undefined ? {} : { speed: Math.round(speed * 100) / 100 }),
     ...(boxes === undefined ? {} : { insertBoxes: boxes as Record<string, InsertBox> }),
+    ...(ab === undefined ? {} : { ab: ab as AbKind }),
   };
 }
 
@@ -290,6 +298,7 @@ export function answersFile(p: ParsedAnswers, job: JobFile): AnswersFile {
     style: p.style,
     ...(p.speed === undefined ? {} : { speed: p.speed }),
     ...(p.insertBoxes === undefined ? {} : { insertBoxes: p.insertBoxes }),
+    ...(p.ab === undefined ? {} : { ab: p.ab }),
     uploads: Object.fromEntries(Object.entries(p.uploads).map(([qid, c]) => [qid, `in/uploads/${c.asset}`])),
     brief: job.brief,
   };
@@ -320,29 +329,45 @@ export function appendFix(prev: FixFile | null, text: string, now: Date): FixFil
 
 export const wantedVersion = (fix: FixFile | null): number => 1 + (fix?.fixes.length ?? 0);
 
-export function finalNames(v: number): { mp4: string; srt: string } {
-  const base = v <= 1 ? 'final' : `final-v${v}`;
+/** Имена ролика версии `v` (правка 2 → final-v2); `variant` 'b' — вторая версия A/B-теста: final-b, final-v2-b. */
+export function finalNames(v: number, variant?: 'b'): { mp4: string; srt: string } {
+  const base = `${v <= 1 ? 'final' : `final-v${v}`}${variant ? `-${variant}` : ''}`;
   return { mp4: `${base}.mp4`, srt: `${base}.srt` };
 }
 
 // ---------- out/released.json и result.json ----------
 
 export type Released = { release_id: number; assets: { name: string; id: number; size: number }[]; at: string };
+type Durations = { source: number; final: number };
+type Qa = { ok: boolean; problems: string[] };
+/** Вторая версия A/B-теста: её собирает и проверяет `vm render` (чем отличается, длительности, проверка). */
+export type AbResult = { differs: AbKind; durations: Durations; qa: Qa };
 export type ResultFile = {
-  durations: { source: number; final: number };
+  durations: Durations;
   done: string[];
   unsure: string[];
   missing: string[];
-  qa: { ok: boolean; problems: string[] };
+  qa: Qa;
   caption?: unknown; // подпись к посту — проверяет parseCaption (lib/caption.ts)
+  ab?: AbResult;
 };
 
-/** result.json (его дописывает и сессия) → итоги; не та форма — null: экран «Готово» покажет ролик без итогов. */
+const isDurations = (d: unknown): d is Durations => isObject(d) && isNum(d.source) && isNum(d.final);
+const isQa = (qa: unknown): qa is Qa => isObject(qa) && typeof qa.ok === 'boolean' && Array.isArray(qa.problems) && qa.problems.every(isStr);
+
+/** result.json (его дописывает и сессия) → итоги; не та форма — null: экран «Готово» покажет ролик без итогов.
+ *  Не та форма у `ab` — его нет, остальное остаётся. */
 export function parseResult(raw: unknown): ResultFile | null {
-  if (!isObject(raw) || !isObject(raw.durations) || !isNum(raw.durations.source) || !isNum(raw.durations.final)) return null;
+  if (!isObject(raw) || !isDurations(raw.durations)) return null;
   const lists = ['done', 'unsure', 'missing'].every((k) => Array.isArray(raw[k]) && (raw[k] as unknown[]).every(isStr));
-  const qa = raw.qa;
-  if (!lists || !isObject(qa) || typeof qa.ok !== 'boolean' || !Array.isArray(qa.problems) || !qa.problems.every(isStr)) return null;
-  return raw as ResultFile;
+  if (!lists || !isQa(raw.qa)) return null;
+  const { ab, ...rest } = raw;
+  const ok = isObject(ab) && (AB_KINDS as readonly unknown[]).includes(ab.differs) && isDurations(ab.durations) && isQa(ab.qa);
+  return { ...(rest as Omit<ResultFile, 'ab'>), ...(ok ? { ab: ab as AbResult } : {}) };
+}
+
+/** Подписи двух роликов на экране «Готово»: без чего собрана версия B. */
+export function abLabels(differs: AbKind): [string, string] {
+  return differs === 'music' ? ['A — с музыкой', 'B — без музыки'] : ['A — с тизером', 'B — без тизера'];
 }
 

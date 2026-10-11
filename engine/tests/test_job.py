@@ -457,6 +457,26 @@ def test_edit_takes_a_teaser(job):
         job.write("edit.json", edit)
 
 
+def test_a_b_test_is_without_the_teaser_or_without_the_music(job):
+    edit = make_edit()
+    for ab in ("teaser", "music", None):
+        job.write("edit.json", {**edit, "ab": ab})
+    with pytest.raises(ValueError, match=r"  ab: "):
+        job.write("edit.json", {**edit, "ab": "colors"})
+    answers = {"answers": {}, "style": {"variant": "A", "font": "Gilroy", "hand": "caveat",
+                                         "colors": {"text": "#FFFFFF", "accent": "#FFD23F", "bar": "#FFD23F"}}}  # fmt: skip
+    job.write("answers.json", {**answers, "ab": "music"})
+    with pytest.raises(ValueError, match=r"  ab: "):
+        job.write("answers.json", {**answers, "ab": "hook"})
+    result = {"durations": {"source": 80.2, "final": 71.0}, "done": [], "unsure": [], "missing": [], "qa": {"ok": True, "problems": []}}
+    second = {"differs": "teaser", "durations": {"source": 80.2, "final": 68.5}, "qa": {"ok": False, "problems": ["тихо"]}}
+    job.write("result.json", {**result, "ab": second})
+    with pytest.raises(ValueError, match=r"  ab\.differs: "):
+        job.write("result.json", {**result, "ab": {**second, "differs": "hook"}})
+    with pytest.raises(ValueError, match=r"  ab\.qa\.ok: "):
+        job.write("result.json", {**result, "ab": {**second, "qa": {"ok": "yes", "problems": []}}})
+
+
 def test_edit_rejects_unknown_insert_kind(job):
     edit = make_edit()
     edit["inserts"][0]["kind"] = "gif"

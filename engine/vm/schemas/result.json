@@ -37,6 +37,16 @@
         "hashtags": { "type": "array", "maxItems": 30, "items": { "type": "string", "pattern": "^[^\\s#]{1,60}$" } }
       }
     },
+    "ab": {
+      "description": "Вторая версия A/B-теста (её собирает vm render, если в edit.json есть ab): чем отличается, длительности и проверка.",
+      "type": "object",
+      "required": ["differs", "durations", "qa"],
+      "properties": {
+        "differs": { "enum": ["teaser", "music"] },
+        "durations": { "$ref": "#/properties/durations" },
+        "qa": { "$ref": "#/properties/qa" }
+      }
+    },
     "qa": {
       "type": "object",
       "required": ["ok", "problems"],

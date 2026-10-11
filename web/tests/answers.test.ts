@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildAnswers, initialDraft, loadDraft, pick, pictureAsset, previewEnd, previewHook, saveDraft, type LocalUpload } from '../lib/answers.ts';
+import { abOptions, buildAnswers, initialDraft, loadDraft, pick, pictureAsset, previewEnd, previewHook, saveDraft, type LocalUpload } from '../lib/answers.ts';
 import type { Question } from '../lib/jobfiles.ts';
 import { blockedStorage, memoryStorage } from './helpers.ts';
 
@@ -124,4 +124,15 @@ test('previewEnd: the call from the end question, the handle and the logo from t
   assert.deepEqual(previewEnd([], d, sample), sample, 'вопроса нет — карточка образца');
   assert.equal(previewEnd([], d, undefined), null);
   assert.deepEqual(previewEnd([end], d, undefined), { lines: ['Подпишись, чтобы не пропустить 👇'] }, 'без бренда — только призыв');
+});
+
+test('abOptions: a version without the teaser if Pavel took it, without music if he chose a track', () => {
+  const teaser = { id: 'teaser', type: 'choice' as const, title: 'Тизер', options: [{ id: 'yes', label: 'Да' }, { id: 'no', label: 'Нет' }], default: 'yes' };
+  const music = { id: 'music', type: 'choice' as const, title: 'Музыка', options: [{ id: 'lofi', label: 'Lo-fi' }, { id: 'none', label: 'Без музыки' }] };
+  const qs = [teaser, music];
+  const d = initialDraft(qs);
+  assert.deepEqual(abOptions(qs, d), ['teaser']);
+  assert.deepEqual(abOptions(qs, pick(d, music, 'lofi')), ['teaser', 'music']);
+  assert.deepEqual(abOptions(qs, pick(pick(d, teaser, 'no'), music, 'none')), []);
+  assert.deepEqual(abOptions([], initialDraft([])), []);
 });

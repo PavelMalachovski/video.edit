@@ -135,3 +135,67 @@ test('parseStyles takes the fonts that have every letter of the video, or none',
     assert.equal(parseStyles({ ...styles, fonts: bad }), null, JSON.stringify(bad));
   }
 });
+
+test('speed from 1.0 to 1.5 goes into answers.json; without it — the rule (1.1)', () => {
+  const job = buildJobFile({ job: '261010-070509-abcd', name: 'a', size: 1, type: 'video/mp4', lastModified: 1, parts: 1, chunkSize: 4, brief: '' }, NOW);
+  for (const speed of [1, 1.2, 1.5]) {
+    const p = parseAnswersBody({ answers: { hook: 'h1' }, style: STYLE, speed }, QS);
+    assert.ok(!('error' in p), JSON.stringify(p));
+    assert.equal(answersFile(p, job).speed, speed);
+  }
+  const none = parseAnswersBody({ answers: { hook: 'h1' }, style: STYLE }, QS);
+  assert.ok(!('error' in none) && !('speed' in answersFile(none, job)), 'no choice — no speed in the file');
+  for (const speed of [0.9, 1.6, '1.2', Number.NaN, null]) {
+    assert.ok('error' in parseAnswersBody({ answers: { hook: 'h1' }, style: STYLE, speed }, QS), String(speed));
+  }
+  const { properties } = schema('answers.json');
+  assert.deepEqual([properties.speed.minimum, properties.speed.maximum], [1, 1.5]);
+});
+
+test('answers keep where Pavel dragged the subtitles; outside the safe zone — refused', () => {
+  const p = parseAnswersBody({ answers: { hook: 'h1' }, style: { ...STYLE, subY: 1100 } }, QS);
+  assert.ok(!('error' in p) && p.style.subY === 1100, JSON.stringify(p));
+  const plain = parseAnswersBody({ answers: { hook: 'h1' }, style: STYLE }, QS);
+  assert.ok(!('error' in plain) && !('subY' in plain.style));
+  for (const subY of [100, 1500, '1100', Number.NaN]) {
+    assert.ok('error' in parseAnswersBody({ answers: { hook: 'h1' }, style: { ...STYLE, subY } }, QS), String(subY));
+  }
+  const { properties } = schema('answers.json').properties.style;
+  assert.deepEqual([properties.subY.minimum, properties.subY.maximum], [240, 1440]);
+});
+
+test('answers keep where Pavel dragged the hook; outside the safe zone — refused', () => {
+  const p = parseAnswersBody({ answers: { hook: 'h1' }, style: { ...STYLE, hookY: 600 } }, QS);
+  assert.ok(!('error' in p) && p.style.hookY === 600, JSON.stringify(p));
+  for (const hookY of [150, 1400, '600', Number.NaN]) {
+    assert.ok('error' in parseAnswersBody({ answers: { hook: 'h1' }, style: { ...STYLE, hookY } }, QS), String(hookY));
+  }
+  const { properties } = schema('answers.json').properties.style;
+  assert.deepEqual([properties.hookY.minimum, properties.hookY.maximum], [200, 1330]);
+});
+
+test('answers keep the sizes Pavel set; out of range — refused', () => {
+  const p = parseAnswersBody({ answers: { hook: 'h1' }, style: { ...STYLE, subSize: 80, hookSize: 100 } }, QS);
+  assert.ok(!('error' in p) && p.style.subSize === 80 && p.style.hookSize === 100, JSON.stringify(p));
+  for (const bad of [{ subSize: 30 }, { subSize: 120 }, { hookSize: 40 }, { hookSize: 130 }, { hookSize: '80' }]) {
+    assert.ok('error' in parseAnswersBody({ answers: { hook: 'h1' }, style: { ...STYLE, ...bad } }, QS), JSON.stringify(bad));
+  }
+  const { properties } = schema('answers.json').properties.style;
+  assert.deepEqual([properties.subSize.minimum, properties.subSize.maximum, properties.hookSize.minimum, properties.hookSize.maximum], [40, 110, 48, 120]);
+});
+
+test('answers keep insert boxes Pavel set; out of the safe zone or junk — refused', () => {
+  const job = buildJobFile({ job: '261010-070509-abcd', name: 'a', size: 1, type: 'video/mp4', lastModified: 1, parts: 1, chunkSize: 4, brief: '' }, NOW);
+  const box = { x: 60, y: 420, w: 330 };
+  const p = parseAnswersBody({ answers: { hook: 'h1' }, style: STYLE, insertBoxes: { 'insert-1': box } }, QS);
+  assert.ok(!('error' in p), JSON.stringify(p));
+  assert.deepEqual(answersFile(p, job).insertBoxes, { 'insert-1': box });
+  const none = parseAnswersBody({ answers: { hook: 'h1' }, style: STYLE }, QS);
+  assert.ok(!('error' in none) && !('insertBoxes' in answersFile(none, job)));
+  const bad = [{ a: { x: 60, y: 420 } }, { a: { ...box, x: 20 } }, { a: { ...box, y: 60 } }, { a: { ...box, w: 900 } }, { a: 330 }, { '': box }, [box]];
+  for (const insertBoxes of bad) {
+    assert.ok('error' in parseAnswersBody({ answers: { hook: 'h1' }, style: STYLE, insertBoxes }, QS), JSON.stringify(insertBoxes));
+  }
+  const props = schema('answers.json').properties.insertBoxes.additionalProperties.properties;
+  assert.deepEqual([props.x.minimum, props.x.maximum, props.y.minimum, props.y.maximum, props.w.minimum, props.w.maximum], [60, 810, 120, 1490, 80, 830]);
+});

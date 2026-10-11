@@ -21,6 +21,30 @@
         "variant": { "enum": ["A", "B", "C"] },
         "font": { "type": "string", "minLength": 1 },
         "hand": { "type": "string", "minLength": 1 },
+        "subSize": {
+          "description": "Размер субтитров, который Павел выбрал на превью, px; нет — как в варианте.",
+          "type": "number",
+          "minimum": 40,
+          "maximum": 110
+        },
+        "hookSize": {
+          "description": "Размер хука (строки капсом), который Павел выбрал на превью, px; нет — как в варианте.",
+          "type": "number",
+          "minimum": 48,
+          "maximum": 120
+        },
+        "hookY": {
+          "description": "Куда Павел перетащил хук на превью: центр строки капсом, px кадра (титр — на той же высоте); нет — как в варианте.",
+          "type": "number",
+          "minimum": 200,
+          "maximum": 1330
+        },
+        "subY": {
+          "description": "Куда Павел перетащил субтитры на превью: центр блока, px кадра; нет — как в варианте.",
+          "type": "number",
+          "minimum": 240,
+          "maximum": 1440
+        },
         "colors": {
           "type": "object",
           "required": ["text", "accent", "bar"],
@@ -31,6 +55,27 @@
           }
         }
       }
+    },
+    "insertBoxes": {
+      "description": "Место и ширина вставок, которые Павел выбрал на превью (перетащил, растянул): ключ — question вставки, иначе её src; x, y — левый верхний угол, w — ширина, px кадра (vm.style.placed_inserts).",
+      "type": "object",
+      "propertyNames": { "minLength": 1 },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["x", "y", "w"],
+        "additionalProperties": false,
+        "properties": {
+          "x": { "type": "number", "minimum": 60, "maximum": 810 },
+          "y": { "type": "number", "minimum": 120, "maximum": 1490 },
+          "w": { "type": "number", "minimum": 80, "maximum": 830 }
+        }
+      }
+    },
+    "speed": {
+      "description": "Ускорение ролика, выбранное Павлом на экране превью (×1.0–×1.5); нет — по правилам (1.1).",
+      "type": "number",
+      "minimum": 1,
+      "maximum": 1.5
     },
     "uploads": {
       "description": "Загруженные Павлом картинки по id вопросов, путь от папки задачи.",

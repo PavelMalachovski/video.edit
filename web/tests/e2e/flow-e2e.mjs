@@ -263,7 +263,10 @@ const segments = [
     // ролик на румынском: в «ț» нет у Russo One и Marck Script — страница их не предлагает (styles.fonts от vm fonts)
     const restyled = {
       ...STYLES,
-      sample: { ...STYLES.sample, hook: 'Cum învăț limbi', words: ['Vă', 'mulțumesc', 'pentru', 'întrebare'], spoken: 1 },
+      sample: {
+        ...STYLES.sample, hook: 'Cum învăț limbi', words: ['Vă', 'mulțumesc', 'pentru', 'întrebare'], spoken: 1,
+        inserts: [...STYLES.sample.inserts, { kind: 'image', src: 'q-logo.png', x: 600, y: 900, w: 250 }], // вставка из ТЗ: её размер меняет Павел
+      },
       variants: STYLES.variants.map((v) => ({ ...v, label: `${v.label} — без плашки` })),
       fonts: { main: ['montserrat', 'unbounded', 'rubik', 'oswald', 'comfortaa'], hand: ['caveat', 'bad-script'] },
     };
@@ -279,7 +282,89 @@ const segments = [
 
     await page.getByRole('button', { name: /^B · / }).click();
     await page.getByRole('button', { name: 'Rubik', exact: true }).click();
-    const go = page.getByRole('button', { name: /^Монтировать: B · Rubik/ });
+    // субтитры тянутся по крупному превью: 50 px экрана при ширине 270 — это 200 px кадра
+    const variantY = restyled.variants[1].spec.subtitles.y;
+    const handle = page.getByRole('slider', { name: 'Высота субтитров' });
+    await handle.scrollIntoViewIfNeeded();
+    const box = await handle.boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 - 25, { steps: 4 });
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 - 50, { steps: 4 });
+    await page.mouse.up();
+    await until(async () => (await bigSpec()).subtitles.y === variantY - 200, 5000, `субтитры перетащены на ${variantY - 200}`);
+    await page.getByRole('button', { name: 'Субтитры ниже', exact: true }).click();
+    await until(async () => (await bigSpec()).subtitles.y === variantY - 180, 5000, 'кнопка «Ниже» — на 20 px');
+    // хук — так же: 30 px экрана вниз — это 120 px кадра
+    const hookY = restyled.variants[1].spec.hook.y ?? 400;
+    const hookHandle = page.getByRole('slider', { name: 'Высота хука' });
+    await hookHandle.scrollIntoViewIfNeeded(); // после кнопок страница прокручена ниже превью
+    const hookBox = await hookHandle.boundingBox();
+    await page.mouse.move(hookBox.x + hookBox.width / 2, hookBox.y + hookBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(hookBox.x + hookBox.width / 2, hookBox.y + hookBox.height / 2 + 30, { steps: 6 });
+    await page.mouse.up();
+    await until(async () => (await bigSpec()).hook.y === hookY + 120, 5000, `хук перетащен на ${hookY + 120}`);
+    // размер: мышкой — уголок ⤢ субтитров вправо на 27 px (×1,2); на телефоне — щипок двумя пальцами по хуку (×1,5)
+    const subSize = restyled.variants[1].spec.subtitles.size;
+    const hookSize = restyled.variants[1].spec.hook.size;
+    const grip = page.getByRole('slider', { name: 'Высота субтитров' }).locator('[data-grip]');
+    await grip.scrollIntoViewIfNeeded();
+    const g = await grip.boundingBox();
+    await page.mouse.move(g.x + g.width / 2, g.y + g.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(g.x + g.width / 2 + 27, g.y + g.height / 2, { steps: 5 });
+    await page.mouse.up();
+    const grown = Math.round((subSize * 1.2) / 2) * 2;
+    await until(async () => (await bigSpec()).subtitles.size === grown, 5000, `субтитры крупнее: ${grown}`);
+    await hookHandle.scrollIntoViewIfNeeded();
+    await hookHandle.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const y = r.top + r.height / 2;
+      const fire = (type, pointerId, x) => el.dispatchEvent(new PointerEvent(type, { pointerId, clientX: x, clientY: y, bubbles: true, pointerType: 'touch' }));
+      fire('pointerdown', 11, r.left + 100);
+      fire('pointerdown', 12, r.left + 140);
+      fire('pointermove', 12, r.left + 150);
+      fire('pointermove', 12, r.left + 160);
+      fire('pointerup', 12, r.left + 160);
+      fire('pointerup', 11, r.left + 100);
+    });
+    const pinched = Math.round((hookSize * 1.5) / 2) * 2;
+    await until(async () => (await bigSpec()).hook.size === pinched, 5000, `хук крупнее щипком: ${pinched}`);
+    await page.getByRole('button', { name: 'Субтитры меньше', exact: true }).click();
+    await until(async () => (await bigSpec()).subtitles.size === grown - 4, 5000, 'кнопка «Меньше» — на 4 px');
+    // вставка из ТЗ (картинка из ответа после перезагрузки уже не видна): уголок ⤢ вправо на 27 px — ×1,2; «больше» — +20 px
+    const insertW = restyled.sample.inserts[1].w;
+    const bigInsert = async () => JSON.parse(await big.getAttribute('data-state')).inserts.find((i) => i.key === 'q-logo.png');
+    const insertGrip = page.getByRole('slider', { name: 'Вставка 1' }).locator('[data-grip]');
+    await insertGrip.scrollIntoViewIfNeeded();
+    const ig = await insertGrip.boundingBox();
+    await page.mouse.move(ig.x + ig.width / 2, ig.y + ig.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(ig.x + ig.width / 2 + 27, ig.y + ig.height / 2, { steps: 5 });
+    await page.mouse.up();
+    const wider = Math.round((insertW * 1.2) / 10) * 10;
+    await until(async () => (await bigInsert()).w === wider, 5000, `вставка шире: ${wider}`);
+    await page.getByRole('button', { name: 'Вставка 1 больше', exact: true }).click();
+    await until(async () => (await bigInsert()).w === wider + 20, 5000, 'кнопка «больше» у вставки — на 20 px');
+    check((await bigInsert()).x >= 60, `вставка вышла из безопасной зоны: x ${(await bigInsert()).x}`);
+    // перетаскивание: за середину рамки на 40 px влево и 60 px вверх — это 160 и 240 px кадра
+    const before = await bigInsert();
+    const frameBox = await page.getByRole('slider', { name: 'Вставка 1' }).boundingBox();
+    await page.mouse.move(frameBox.x + frameBox.width / 2, frameBox.y + frameBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(frameBox.x + frameBox.width / 2 - 20, frameBox.y + frameBox.height / 2 - 30, { steps: 4 });
+    await page.mouse.move(frameBox.x + frameBox.width / 2 - 40, frameBox.y + frameBox.height / 2 - 60, { steps: 4 });
+    await page.mouse.up();
+    const placed = { x: before.x - 160, y: before.y - 240, w: before.w };
+    await until(async () => { const i = await bigInsert(); return i.x === placed.x && i.y === placed.y && i.w === placed.w; }, 5000,
+      `вставка перетащена в ${JSON.stringify(placed)}`);
+    await shot(page, 'previews-insert-moved');
+    await shot(page, 'previews-resized');
+    await shot(page, 'previews-subtitles-moved');
+    check(await page.getByRole('button', { name: '×1.1', exact: true }).getAttribute('aria-pressed') === 'true', 'скорость по умолчанию не ×1.1');
+    await page.getByRole('button', { name: '×1.3', exact: true }).click();
+    const go = page.getByRole('button', { name: /^Монтировать: B · Rubik · ×1\.3/ });
     await go.waitFor();
     const last = await bigSpec();
     await go.click();
@@ -289,6 +374,11 @@ const segments = [
     check(answers.uploads?.logo === 'in/uploads/upload-q-logo.png', `uploads: ${JSON.stringify(answers.uploads)}`);
     check(answers.answers?.['hook.own'] === 'Как я снимаю reels', `hook.own: ${answers.answers?.['hook.own']}`);
     check(answers.brief === 'ХУК: Как я учу чешский', `brief: ${answers.brief}`);
+    check(answers.speed === 1.3, `speed: ${answers.speed}`);
+    check(answers.style?.subY === variantY - 180, `style.subY: ${answers.style?.subY}`);
+    check(answers.style?.hookY === hookY + 120, `style.hookY: ${answers.style?.hookY}`);
+    check(isDeepStrictEqual(answers.insertBoxes?.['q-logo.png'], placed), `insertBoxes: ${JSON.stringify(answers.insertBoxes)}`);
+    check(answers.style?.subSize === grown - 4 && answers.style?.hookSize === pinched, `размеры: ${answers.style?.subSize}, ${answers.style?.hookSize}`);
     check(isDeepStrictEqual(finalStyle(restyled, answers.style), last), `стиль ответа ${JSON.stringify(answers.style)} ≠ последнему превью`);
   }],
 

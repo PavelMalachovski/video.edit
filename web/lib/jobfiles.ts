@@ -95,7 +95,27 @@ export type Styles = {
   /** Шрифты, в которых есть все буквы ролика (`vm fonts`); нет поля — годятся все. */
   fonts?: { main: string[]; hand: string[] };
 };
-export type StyleChoice = { variant: 'A' | 'B' | 'C'; font: string; hand: string; colors: { text: string; accent: string; bar: string } };
+/** Выбор Павла на превью; `subY` и `hookY` — куда он перетащил субтитры (центр блока) и хук (центр строки капсом),
+ *  px кадра; `subSize` и `hookSize` — их размер, px; нет — как в варианте (пределы — ADJUST). */
+export type StyleChoice = {
+  variant: 'A' | 'B' | 'C'; font: string; hand: string; colors: { text: string; accent: string; bar: string }; subY?: number; hookY?: number; subSize?: number; hookSize?: number;
+};
+/** Где могут стоять субтитры (центр блока): блок не выходит из безопасной зоны 120–1530 px. */
+export const SUB_Y = { min: 240, max: 1440 };
+/** Где может стоять хук (центр строки капсом): его рамка — от y − 75 до y + 200 — не выходит из безопасной зоны. */
+export const HOOK_Y = { min: 200, max: 1330 };
+export const SUB_SIZE = { min: 40, max: 110 };
+export const HOOK_SIZE = { min: 48, max: 120 };
+/** Что Павел настраивает на превью: поле выбора → часть и поле StyleSpec, пределы и шаг (то же — ADJUSTED в engine/vm/style.py). */
+export const ADJUST = {
+  subY: { part: 'subtitles', field: 'y', range: SUB_Y, step: 10 },
+  hookY: { part: 'hook', field: 'y', range: HOOK_Y, step: 10 },
+  subSize: { part: 'subtitles', field: 'size', range: SUB_SIZE, step: 2 },
+  hookSize: { part: 'hook', field: 'size', range: HOOK_SIZE, step: 2 },
+} as const;
+export type Adjustable = keyof typeof ADJUST;
+export const ADJUSTABLE = Object.keys(ADJUST) as Adjustable[];
+export const inRange = (key: Adjustable, x: unknown): x is number => isNum(x) && x >= ADJUST[key].range.min && x <= ADJUST[key].range.max;
 
 function isSpec(s: unknown): s is StyleSpec {
   if (!isObject(s) || !isFontId(s.font) || !isFontId(s.hand) || !isObject(s.colors)) return false;
@@ -154,9 +174,25 @@ export function buildJobFile(m: Manifest, now: Date): JobFile {
 
 // ---------- answers.json ----------
 
-export type AnswersFile = { answers: Record<string, string | string[]>; style: StyleChoice; uploads?: Record<string, string>; brief?: string };
+export type AnswersFile = {
+  answers: Record<string, string | string[]>; style: StyleChoice; speed?: number; insertBoxes?: Record<string, InsertBox>; uploads?: Record<string, string>; brief?: string;
+};
 export type UploadClaim = { asset: string; name: string; size: number; type: string; parts: number };
-export type ParsedAnswers = { answers: Record<string, string | string[]>; style: StyleChoice; uploads: Record<string, UploadClaim> };
+export type ParsedAnswers = {
+  answers: Record<string, string | string[]>; style: StyleChoice; speed?: number; insertBoxes?: Record<string, InsertBox>; uploads: Record<string, UploadClaim>;
+};
+/** Ширина вставки, которую Павел может выбрать на превью, px кадра (ширина безопасной зоны — 830). */
+export const INSERT_W = { min: 80, max: 830 };
+/** Безопасная зона для вставок, px кадра (как в движке и шаблоне). */
+export const INSERT_ZONE = { x0: 60, x1: 890, y0: 120, y1: 1530 };
+/** Рамка вставки, которую Павел выбрал на превью: левый верхний угол и ширина, px кадра. */
+export type InsertBox = { x: number; y: number; w: number };
+export const isInsertBox = (b: unknown): b is InsertBox => isObject(b) && Object.keys(b).length === 3
+  && isNum(b.x) && b.x >= INSERT_ZONE.x0 && b.x <= INSERT_ZONE.x1 - INSERT_W.min
+  && isNum(b.y) && b.y >= INSERT_ZONE.y0 && b.y <= INSERT_ZONE.y1 - 40
+  && isNum(b.w) && b.w >= INSERT_W.min && b.w <= INSERT_W.max;
+/** Ускорение, которое Павел может выбрать (по правилам — 1.1). */
+export const SPEED_RANGE = { min: 1, max: 1.5 };
 
 const COLOR = /^#[0-9A-Fa-f]{6}$/;
 const isStr = (x: unknown): x is string => typeof x === 'string';
@@ -173,7 +209,17 @@ function parseStyle(raw: unknown): StyleChoice | string {
   if (!isObject(colors) || !['text', 'accent', 'bar'].every((k) => typeof colors[k] === 'string' && COLOR.test(colors[k] as string))) {
     return 'style.colors: нужны #RRGGBB для text, accent, bar';
   }
-  return { variant, font, hand, colors: { text: colors.text as string, accent: colors.accent as string, bar: colors.bar as string } };
+  const adjusted: Partial<Record<Adjustable, number>> = {};
+  for (const key of ADJUSTABLE) {
+    const x = raw[key];
+    if (x === undefined) continue;
+    if (!inRange(key, x)) return `style.${key}: от ${ADJUST[key].range.min} до ${ADJUST[key].range.max}`;
+    adjusted[key] = x;
+  }
+  return {
+    variant, font, hand, colors: { text: colors.text as string, accent: colors.accent as string, bar: colors.bar as string },
+    ...adjusted,
+  };
 }
 
 function parseClaim(raw: unknown): UploadClaim | null {
@@ -199,6 +245,15 @@ export function parseAnswersBody(body: unknown, qs: Question[]): ParsedAnswers |
   }
   const style = parseStyle(body.style);
   if (typeof style === 'string') return { error: style };
+  const boxes = body.insertBoxes;
+  if (boxes !== undefined && !(isObject(boxes) && !Array.isArray(boxes)
+    && Object.entries(boxes).every(([k, b]) => k !== '' && k.length <= 500 && isInsertBox(b)))) {
+    return { error: 'insertBoxes: рамка вставки {x, y, w} внутри безопасной зоны' };
+  }
+  const speed = body.speed;
+  if (speed !== undefined && !(isNum(speed) && speed >= SPEED_RANGE.min && speed <= SPEED_RANGE.max)) {
+    return { error: `speed: нужно число от ${SPEED_RANGE.min} до ${SPEED_RANGE.max}` };
+  }
   const uploads: Record<string, UploadClaim> = {};
   const claims = body.uploads === undefined ? {} : body.uploads;
   if (!isObject(claims)) return { error: 'uploads: нужен объект' };
@@ -211,13 +266,19 @@ export function parseAnswersBody(body: unknown, qs: Question[]): ParsedAnswers |
   for (const [qid, value] of Object.entries(answers)) {
     if (value === RESERVED.upload && !uploads[qid]) return { error: `${qid}: выбрано «загрузить свою», а картинки нет` };
   }
-  return { answers, style, uploads };
+  return {
+    answers, style, uploads,
+    ...(speed === undefined ? {} : { speed: Math.round(speed * 100) / 100 }),
+    ...(boxes === undefined ? {} : { insertBoxes: boxes as Record<string, InsertBox> }),
+  };
 }
 
 export function answersFile(p: ParsedAnswers, job: JobFile): AnswersFile {
   return {
     answers: p.answers,
     style: p.style,
+    ...(p.speed === undefined ? {} : { speed: p.speed }),
+    ...(p.insertBoxes === undefined ? {} : { insertBoxes: p.insertBoxes }),
     uploads: Object.fromEntries(Object.entries(p.uploads).map(([qid, c]) => [qid, `in/uploads/${c.asset}`])),
     brief: job.brief,
   };

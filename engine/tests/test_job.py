@@ -553,6 +553,16 @@ def test_answers_roundtrip_and_variant_enum(job):
     job.write("answers.json", minimal)  # uploads и brief необязательны
 
 
+def test_answers_take_a_speed_from_1_to_1_5(job):
+    answers = {"answers": {}, "style": {"variant": "A", "font": "Gilroy", "hand": "caveat",
+                                         "colors": {"text": "#FFFFFF", "accent": "#FFD23F", "bar": "#FFD23F"}}}  # fmt: skip
+    for speed in (1, 1.3, 1.5):
+        job.write("answers.json", {**answers, "speed": speed})
+    for speed in (0.9, 1.6, "1.2"):
+        with pytest.raises(ValueError, match="speed"):
+            job.write("answers.json", {**answers, "speed": speed})
+
+
 def test_result_roundtrip_and_required_fields(job):
     result = {
         "durations": {"source": 80.2, "final": 71.0},

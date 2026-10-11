@@ -6,10 +6,14 @@ import { useEffect, useRef, useState } from 'react';
 import type { StyleSpec } from '@/lib/jobfiles.ts';
 import type { OverlayState } from '@/lib/style.ts';
 
-type OverlayWindow = Window & { renderState?: (spec: StyleSpec, state: OverlayState, opts: { bar: { progress: number } }) => Promise<void> };
-type Props = { frameUrl: string; spec: StyleSpec; state: OverlayState; progress: number; width: number; big?: boolean };
+type OverlayWindow = Window & {
+  renderState?: (spec: StyleSpec, state: OverlayState, opts: { bar: { progress: number } }) => Promise<void>;
+  layoutBoxes?: () => unknown;
+};
+/** `onBoxes` — рамки нарисованного (window.layoutBoxes шаблона, px кадра) после каждой отрисовки: по ним ручки на превью. */
+type Props = { frameUrl: string; spec: StyleSpec; state: OverlayState; progress: number; width: number; big?: boolean; onBoxes?: (boxes: unknown) => void };
 
-export default function PreviewFrame({ frameUrl, spec, state, progress, width, big = false }: Props) {
+export default function PreviewFrame({ frameUrl, spec, state, progress, width, big = false, onBoxes }: Props) {
   const ref = useRef<HTMLIFrameElement>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState('');
@@ -24,13 +28,17 @@ export default function PreviewFrame({ frameUrl, spec, state, progress, width, b
     if (!ready || !win?.renderState) return;
     let live = true;
     win.renderState(spec, state, { bar: { progress } }).then(
-      () => live && setError(''),
+      () => {
+        if (!live) return;
+        setError('');
+        onBoxes?.(win.layoutBoxes?.());
+      },
       (e: unknown) => live && setError(e instanceof Error ? e.message : String(e)),
     );
     return () => {
       live = false;
     };
-  }, [ready, spec, state, progress]);
+  }, [ready, spec, state, progress]); // onBoxes — не повод перерисовывать: новая функция на каждый рендер
 
   return (
     <div className={`preview${big ? ' big' : ''}`} style={{ width, height: Math.round((width * 1920) / 1080) }}>

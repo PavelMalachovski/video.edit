@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { errorResponse } from '@/lib/http.ts';
 import { listAllAssets, uploadAsset } from '@/lib/github.ts';
 import type { UploadClaim } from '@/lib/jobfiles.ts';
-import { CHUNK_SIZE, checkInsert, checkTotal, isJobId, isUploadFile, MAX_BRIEF, MAX_INSERTS, verifyParts } from '@/lib/jobs.ts';
+import { CHUNK_SIZE, checkInsert, checkTotal, checkVoice, isJobId, isVoiceFile, MAX_BRIEF, MAX_INSERTS, verifyParts } from '@/lib/jobs.ts';
 import { gh } from '@/lib/env.ts';
 
 export const maxDuration = 60;
@@ -11,8 +11,8 @@ type Done = { releaseId: number; name: string; size: number; type: string; lastM
   userAgent?: string; startedAt?: number; finishedAt?: number; retries?: number;
   brief?: string; duration?: number | null; uploads?: UploadClaim[] };
 
-// Проверка: все куски исходника и вставок на месте и размеры совпадают → manifest.json в черновик
-// (с ТЗ, длительностью и списком вставок — из него страница соберёт job.json при запуске анализа).
+// Проверка: все куски исходника, вставок и озвучки на месте и размеры совпадают → manifest.json в черновик
+// (с ТЗ, длительностью и списком вставок и озвучки — из него страница соберёт job.json при запуске анализа).
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
@@ -21,14 +21,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const brief = typeof d.brief === 'string' ? d.brief.trim() : '';
     if (brief.length > MAX_BRIEF) return NextResponse.json({ error: `ТЗ длиннее ${MAX_BRIEF} знаков` }, { status: 413 });
     const uploads = Array.isArray(d.uploads) ? d.uploads : [];
-    if (uploads.length > MAX_INSERTS) return NextResponse.json({ error: `Вставок больше ${MAX_INSERTS}` }, { status: 413 });
+    if (uploads.length > MAX_INSERTS + 1) return NextResponse.json({ error: `Вставок больше ${MAX_INSERTS}` }, { status: 413 });
+    const isInsert = (asset: string) => /^upload-i\d{1,2}\.[a-z0-9]{1,5}$/.test(asset);
     for (const u of uploads) {
-      if (!u || typeof u.asset !== 'string' || !isUploadFile(u.asset) || !u.asset.startsWith('upload-i')) {
+      if (!u || typeof u.asset !== 'string' || !(isInsert(u.asset) || isVoiceFile(u.asset))) {
         return NextResponse.json({ error: 'bad upload' }, { status: 400 });
       }
-      const why = checkInsert({ name: String(u.name), size: Number(u.size), type: String(u.type) });
+      const file = { name: String(u.name), size: Number(u.size), type: String(u.type) };
+      const why = isVoiceFile(u.asset) ? checkVoice(file) : checkInsert(file);
       if (why) return NextResponse.json({ error: why }, { status: 413 });
     }
+    if (uploads.filter((u) => isInsert(u.asset)).length > MAX_INSERTS) return NextResponse.json({ error: `Вставок больше ${MAX_INSERTS}` }, { status: 413 });
+    if (uploads.filter((u) => isVoiceFile(u.asset)).length > 1) return NextResponse.json({ error: 'Озвучка — одна запись' }, { status: 400 });
     const total = checkTotal(d.size, uploads.map((u) => u.size));
     if (total) return NextResponse.json({ error: total }, { status: 413 });
 

@@ -31,7 +31,13 @@ def test_subtitles_stay_where_the_variant_has_them_unless_pavel_moved_them():
     assert final_style(FIXTURE["styles"], answers)["subtitles"]["y"] == variant["spec"]["subtitles"]["y"]
 
 
-@pytest.mark.parametrize("sub_y", [100, 1500, "1200"])
+def test_pavel_may_put_the_subtitles_low_down_to_just_above_the_time_bar(tmp_path):
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    job.write("answers.json", {**FIXTURE["answers"], "style": {**FIXTURE["answers"]["style"], "subY": 1760}})
+
+
+@pytest.mark.parametrize("sub_y", [100, 1780, "1200"])
 def test_a_subtitle_place_outside_the_safe_zone_is_refused(tmp_path, sub_y):
     job = Job(tmp_path / "jobs" / "abc")
     job.root.mkdir(parents=True)

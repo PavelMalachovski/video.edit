@@ -76,21 +76,27 @@ def symbols(text: str) -> str:
     return "".join(sorted({c for c in emoji.text_only(text) if unicodedata.category(c) == "So"}))
 
 
-def texts(edit: dict) -> tuple[str, str]:
-    """Текст ролика из edit.json: (что рисует основной шрифт, что — рукописный)."""
-    hook = (edit.get("hook") or {}).get("text") or ""
-    cta = edit.get("cta") or {}
-    main = [w.get("text", "") for w in edit.get("words") or []]
-    main += [hook, *(cta.get("lines") or [])]
-    main += [i.get(key) or "" for i in edit.get("inserts") or [] for key in ("title", "text")]
-    card = edit.get("end") or {}
-    main += [*(card.get("lines") or []), card.get("handle") or ""]  # финальная карточка — основным шрифтом
-    # рукописное — последнее слово хука вместе с эмодзи после него (как hookTitle в template/overlay.js)
-    words = hook.split()
+def _hand_word(title: str) -> str:
+    """Рукописная часть хука (и обложки): последнее слово вместе с эмодзи после него — как hookTitle в
+    template/overlay.js."""
+    words = title.split()
     last = len(words) - 1
     while last > 0 and emoji.emoji_only(words[last]):
         last -= 1
-    hand = [" ".join(words[max(last, 0):]), cta.get("word") or ""]
+    return " ".join(words[max(last, 0):])
+
+
+def texts(edit: dict) -> tuple[str, str]:
+    """Текст ролика и обложки из edit.json: (что рисует основной шрифт, что — рукописный)."""
+    hook = (edit.get("hook") or {}).get("text") or ""
+    cover = (edit.get("cover") or {}).get("text") or ""  # обложка — тот же хук другим текстом
+    cta = edit.get("cta") or {}
+    main = [w.get("text", "") for w in edit.get("words") or []]
+    main += [hook, cover, *(cta.get("lines") or [])]
+    main += [i.get(key) or "" for i in edit.get("inserts") or [] for key in ("title", "text")]
+    card = edit.get("end") or {}
+    main += [*(card.get("lines") or []), card.get("handle") or ""]  # финальная карточка — основным шрифтом
+    hand = [_hand_word(hook), cta.get("word") or "", _hand_word(cover)]
     return "\n".join(main), " ".join(part for part in hand if part)
 
 

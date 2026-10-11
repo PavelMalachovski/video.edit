@@ -267,3 +267,13 @@ test('script.json is read with the other session files', () => withFake(async ({
   });
   assert.deepEqual((await readJobFiles(gh, ID, head))?.script, SCRIPT);
 }));
+
+test('the cover of the version is shown once it is delivered', () => {
+  const v = deriveView(release(), files({ status: status('rendered'), released: delivered('final.mp4', 'final-cover.png') }), T0);
+  assert.deepEqual(v.final, { mp4: 'final.mp4', srt: null, cover: 'final-cover.png' });
+});
+
+test('the ads version is shown once it is delivered', () => {
+  const v = deriveView(release(), files({ status: status('rendered'), released: delivered('final.mp4', 'final-ad.mp4', 'final-ad.srt') }), T0);
+  assert.deepEqual(v.final, { mp4: 'final.mp4', srt: null, ad: { mp4: 'final-ad.mp4', srt: 'final-ad.srt' } });
+});

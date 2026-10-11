@@ -34,7 +34,8 @@
       "required": ["text", "hashtags"],
       "properties": {
         "text": { "type": "string", "minLength": 1, "maxLength": 2200 },
-        "hashtags": { "type": "array", "maxItems": 30, "items": { "type": "string", "pattern": "^[^\\s#]{1,60}$" } }
+        "hashtags": { "type": "array", "maxItems": 30, "items": { "type": "string", "pattern": "^[^\\s#]{1,60}$" } },
+        "ad": { "description": "Основной текст рекламы (если есть версия для рекламы): до 72 знаков — столько видно до обрезки.", "type": "string", "minLength": 1, "maxLength": 72 }
       }
     },
     "checklist": {
@@ -48,6 +49,15 @@
           "title": { "type": "string", "minLength": 1 },
           "ok": { "type": "boolean" }
         }
+      }
+    },
+    "ad": {
+      "description": "Версия для рекламы Reels (её собирает vm render, если в edit.json есть ad): длительности и проверка по зоне рекламы.",
+      "type": "object",
+      "required": ["durations", "qa"],
+      "properties": {
+        "durations": { "$ref": "#/properties/durations" },
+        "qa": { "$ref": "#/properties/qa" }
       }
     },
     "ab": {

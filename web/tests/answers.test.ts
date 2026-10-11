@@ -138,4 +138,8 @@ test('abOptions: a version without the teaser if Pavel took it, without music if
   assert.deepEqual(abOptions(qs, pick(d, music, 'lofi')), ['teaser', 'music']);
   assert.deepEqual(abOptions(qs, pick(pick(d, teaser, 'no'), music, 'none')), []);
   assert.deepEqual(abOptions([], initialDraft([])), []);
+  // музыка из ТЗ («МУЗЫКА: lofi») — вопроса нет, но и без неё версию собрать можно
+  assert.deepEqual(abOptions([teaser], initialDraft([teaser]), 'ХУК: Как я учу\nмузыка: lofi'), ['teaser', 'music']);
+  assert.deepEqual(abOptions([teaser], initialDraft([teaser]), 'ХУК: Как я учу'), ['teaser']);
+  assert.deepEqual(abOptions(qs, pick(d, music, 'none'), 'МУЗЫКА: lofi'), ['teaser'], 'ответ на вопрос важнее ТЗ');
 });

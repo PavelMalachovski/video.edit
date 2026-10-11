@@ -22,6 +22,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       review: f?.review ?? null,
       script: f?.script ?? null,
       scriptRequest: f?.job?.script ?? null,
+      brief: f?.job?.brief ?? '',
       answers: f?.answers ?? null,
       result: f?.result ?? null,
       fixes: f?.fix?.fixes ?? [],

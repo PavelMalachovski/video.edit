@@ -27,8 +27,9 @@ def test_zoom_before_the_first_step_and_without_steps_is_1():
     assert zoom_at([{"t": 5.0, "level": 1.06}], WHOLE, 0.0) == 1.0
 
 
-def test_zoom_clamped_to_1_08():
-    assert zoom_at([{"t": 1.0, "level": 1.2}], WHOLE, 5.0) == pytest.approx(1.08)
+def test_zoom_goes_twice_as_close_up_to_1_16():
+    assert zoom_at([{"t": 1.0, "level": 1.14}], WHOLE, 5.0) == pytest.approx(1.14)
+    assert zoom_at([{"t": 1.0, "level": 1.3}], WHOLE, 5.0) == pytest.approx(1.16)
     assert zoom_at([{"t": 1.0, "level": 0.9}], WHOLE, 5.0) == 1.0
 
 

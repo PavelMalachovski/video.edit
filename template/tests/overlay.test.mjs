@@ -13,6 +13,7 @@ import { cmapCovers, contains, drawnBox } from './helpers.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const SAFE = { x0: 60, x1: 890, y0: 120, y1: 1530 };
+const SUBS_Y1 = 1820; // докуда Павел может опустить субтитры: над шкалой времени (ниже 1530 их может закрыть подпись Reels)
 
 const SPEC = {
   font: 'montserrat',
@@ -108,13 +109,18 @@ function insideSafe(b) {
   return b.x >= SAFE.x0 && b.x + b.w <= SAFE.x1 && b.y >= SAFE.y0 && b.y + b.h <= SAFE.y1;
 }
 
+/** Рамка субтитров: по ширине и сверху — безопасная зона, снизу — до SUBS_Y1. */
+function insideSubs(b) {
+  return b.x >= SAFE.x0 && b.x + b.w <= SAFE.x1 && b.y >= SAFE.y0 && b.y + b.h <= SUBS_Y1;
+}
+
 test('subtitle box inside safe zone for 6 long words', async () => {
   const words = Array(6).fill('достопримечательности');
   for (const mode of ['accumulate', 'karaoke', 'plate']) {
     await render(spec({ sub: { mode, size: 72, y: 1480 } }), { sub: { words, active: 2, visible: mode === 'accumulate' ? 3 : 6 } });
     const b = (await boxes()).sub;
     assert.ok(b, mode);
-    assert.ok(insideSafe(b), `${mode}: ${JSON.stringify(b)}`);
+    assert.ok(insideSubs(b), `${mode}: ${JSON.stringify(b)}`);
   }
 });
 
@@ -326,15 +332,21 @@ test('plate subtitles keep their size and layout whatever word is active', async
   assert.equal(new Set(looks[0].words.map(([, y]) => Math.round(y))).size, 2, 'the group takes two lines at full size');
 });
 
-test('subtitle box never crosses the safe zone, wherever y points', async () => {
+test('subtitle box stays between the top of the safe zone and just above the time bar, wherever y points', async () => {
   const words = Array(6).fill('достопримечательности');
   for (const mode of ['karaoke', 'plate', 'accumulate']) {
-    for (const y of [130, 160, 200, 1400, 1430, 1460, 1491, 1500, 1520, 1530]) {
+    for (const y of [130, 160, 200, 1400, 1530, 1700, 1760, 1800, 1900]) {
       await render(spec({ sub: { mode, size: 72, y } }), { sub: { words, active: 1, visible: 6 } });
       const b = (await boxes()).sub;
-      assert.ok(insideSafe(b), `${mode} y=${y}: ${JSON.stringify(b)}`);
+      assert.ok(insideSubs(b), `${mode} y=${y}: ${JSON.stringify(b)}`);
     }
   }
+});
+
+test('Pavel may put the subtitles low: below the Reels safe zone, down to just above the time bar', async () => {
+  await render(spec({ sub: { size: 64, y: 1760 } }), { sub: { words: ['Это', 'мои', 'субтитры'], active: 1, visible: 3 } });
+  const b = (await boxes()).sub;
+  assert.ok(b.y + b.h > SAFE.y1 + 150 && b.y + b.h <= SUBS_Y1, JSON.stringify(b));
 });
 
 test('everything drawn is inside the reported boxes (subtitles)', async () => {
@@ -565,4 +577,47 @@ test('a long call to action wraps instead of shrinking', async () => {
   assert.ok(call.width <= 700 + 1, `ширина ${call.width}`);
   assert.ok(call.height > 2 * call.size, `в несколько строк: ${call.height}`);
   assert.ok(insideSafe((await boxes()).end));
+});
+
+test('a very long handle shrinks to stay in the safe zone', async () => {
+  await render(spec({ font: 'unbounded' }), { end: { lines: ['Сохрани ✅'], handle: '@pavel.malakhouski.video.edit.cz', t: 1 } });
+  const size = await page.evaluate(() => parseFloat(getComputedStyle(document.querySelector('#end .handle')).fontSize));
+  assert.ok(size < 54, `кегль ника ${size}`);
+  assert.ok(insideSafe((await boxes()).end), JSON.stringify((await boxes()).end));
+});
+
+// ---------- обложка ----------
+
+test('the cover puts the hook in big letters in the middle of the profile grid crop', async () => {
+  await render(spec(), { cover: { text: 'Как я учу чешский' } });
+  const b = await boxes();
+  assert.ok(b.cover && !b.hook, JSON.stringify(b));
+  const middle = b.cover.x + b.cover.w / 2;
+  assert.ok(Math.abs(middle - 540) <= 12, `по центру кадра: ${middle}`);
+  assert.ok(b.cover.x >= 60 && b.cover.x + b.cover.w <= 1020 && b.cover.y >= 240 && b.cover.y + b.cover.h <= 1680, JSON.stringify(b.cover));
+  const size = await page.evaluate(() => parseFloat(getComputedStyle(document.querySelector('#hook .caps')).fontSize));
+  assert.ok(size > SPEC.hook.size, `крупнее хука: ${size}`);
+  assert.ok(await page.evaluate(() => document.querySelector('#bar')?.hidden !== false || !document.querySelector('#bar')?.children.length), 'без шкалы');
+});
+
+// ---------- зона рекламы ----------
+
+const ADS = { x0: 60, x1: 890, y0: 270, y1: 1250 }; // Reels Ads: сверху 14 %, снизу 35 % — под кнопку и подпись
+
+test('in the ads zone subtitles, a low sticker and the end card move up above the ad button', async () => {
+  const state = {
+    sub: { words: ['Это', 'мои', 'субтитры'], active: 1, visible: 3 },
+    inserts: [{ kind: 'text', text: '3 ошибки 🔥', x: 120, y: 1300, w: 420, anim: 1 }],
+  };
+  await render(spec({ sub: { y: 1400 } }), state);
+  const organic = await boxes();
+  assert.ok(organic.sub.y + organic.sub.h > ADS.y1, 'без зоны рекламы субтитры внизу');
+  await render(spec({ sub: { y: 1400 } }), { ...state, zone: 'ads' });
+  const ads = await boxes();
+  for (const b of [ads.sub, ...ads.inserts]) {
+    assert.ok(b.y >= ADS.y0 && b.y + b.h <= ADS.y1, JSON.stringify(b));
+  }
+  await render(spec(), { end: { lines: ['Сохрани ✅'], handle: '@pavel', t: 1 }, inserts: [], zone: 'ads' });
+  const card = (await boxes()).end;
+  assert.ok(card.y >= ADS.y0 && card.y + card.h <= ADS.y1, JSON.stringify(card));
 });

@@ -313,3 +313,10 @@ def test_with_a_teaser_the_hook_stays_over_the_whole_teaser_and_inserts_keep_the
     assert "hook" in at(events, 1.9) and "hook" not in at(events, 2.05), "хук — весь тизер, до 2 с"
     assert at(events, 2.6).get("inserts") and not at(events, 2.4).get("inserts"), "вставка — на своей фразе после тизера"
     assert events[-1]["t1"] == pytest.approx(12.0)
+
+
+def test_the_ads_version_draws_every_frame_in_the_ads_zone():
+    tl = Timeline([(0.0, 4.0)], 1.0)
+    events = build_overlay_events(make_edit(zone="ads", hold=0.5, end={"seconds": 1.0, "lines": ["Сохрани"]}), tl)
+    assert events and all(e["state"].get("zone") == "ads" for e in events)
+    assert all("zone" not in e["state"] for e in build_overlay_events(make_edit(), tl)), "обычный ролик — без зоны"

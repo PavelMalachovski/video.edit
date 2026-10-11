@@ -118,13 +118,14 @@ const card = (lines: string[], s?: SampleEnd): EndCard => ({ ...(s?.handle ? { h
 
 /** Чем может отличаться вторая версия A/B-теста: тизером — если Павел согласился на него (вопрос `teaser`, ответ
  *  `yes`), музыкой — если выбрал трек (вопрос `music`, ответ не `none`). */
-export function abOptions(qs: Question[], d: Draft): AbKind[] {
+export function abOptions(qs: Question[], d: Draft, brief = ''): AbKind[] {
   const out: AbKind[] = [];
   const teaser = qs.find((q) => q.id === 'teaser');
   if (teaser && chosen(teaser, d) === 'yes') out.push('teaser');
   const music = qs.find((q) => q.id === 'music');
   const track = music ? chosen(music, d) : undefined;
-  if (track && track !== RESERVED.none) out.push('music');
+  // трек — ответом на вопрос, а без вопроса — строкой «МУЗЫКА:» в ТЗ (тогда Claude вопрос не задаёт)
+  if (music ? track && track !== RESERVED.none : /^\s*музыка\s*:/imu.test(brief)) out.push('music');
   return out;
 }
 

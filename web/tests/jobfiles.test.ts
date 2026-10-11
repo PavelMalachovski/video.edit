@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { isDeepStrictEqual } from 'node:util';
 import {
-  abLabels, answersFile, appendFix, appendRestyle, buildJobFile, errorStatus, finalNames, isFinalName, parseAnswersBody, parseNote, parseResult, parseStatus, parseStyles,
+  abLabels, answersFile, appendFix, appendRestyle, buildJobFile, coverName, errorStatus, finalNames, isFinalName, parseAnswersBody, parseNote, parseResult, parseStatus, parseStyles,
   QUESTION_TYPES, queuedStatus, STATES, wantedVersion, type Manifest, type Question,
   AB_KINDS, CHECK_IDS, parseReview, REVIEW_IDS, SAMPLE_INSERT_KINDS,
 } from '../lib/jobfiles.ts';
@@ -59,6 +60,15 @@ test('buildJobFile takes brief, duration and uploads from the manifest', () => {
   assert.deepEqual(job.runs, []);
   assert.equal(job.createdAt, NOW.toISOString());
   assert.equal(buildJobFile({ ...m, brief: undefined, duration: undefined, uploads: undefined }, NOW).duration, null);
+});
+
+test('a voiceover goes into job.json uploads as audio', () => {
+  const job = buildJobFile({
+    job: '261010-070509-abcd', name: 'IMG_1.MOV', size: 100, type: 'video/quicktime', lastModified: 1, parts: 1, chunkSize: 4,
+    uploads: [{ asset: 'upload-i1.png', name: 'logo.png', size: 3, type: 'image/png', parts: 1 },
+              { asset: 'upload-voice.m4a', name: 'Запись.m4a', size: 9, type: '', parts: 1 }],
+  }, NOW);
+  assert.deepEqual(job.uploads.map((u) => [u.file, u.kind]), [['in/uploads/upload-i1.png', 'image'], ['in/uploads/upload-voice.m4a', 'audio']]);
 });
 
 const QS: Question[] = [
@@ -159,11 +169,13 @@ test('answers keep where Pavel dragged the subtitles; outside the safe zone — 
   assert.ok(!('error' in p) && p.style.subY === 1100, JSON.stringify(p));
   const plain = parseAnswersBody({ answers: { hook: 'h1' }, style: STYLE }, QS);
   assert.ok(!('error' in plain) && !('subY' in plain.style));
-  for (const subY of [100, 1500, '1100', Number.NaN]) {
+  const low = parseAnswersBody({ answers: { hook: 'h1' }, style: { ...STYLE, subY: 1760 } }, QS);
+  assert.ok(!('error' in low) && low.style.subY === 1760, 'субтитры можно опустить почти до низа кадра');
+  for (const subY of [100, 1780, '1100', Number.NaN]) {
     assert.ok('error' in parseAnswersBody({ answers: { hook: 'h1' }, style: { ...STYLE, subY } }, QS), String(subY));
   }
   const { properties } = schema('answers.json').properties.style;
-  assert.deepEqual([properties.subY.minimum, properties.subY.maximum], [240, 1440]);
+  assert.deepEqual([properties.subY.minimum, properties.subY.maximum], [240, 1760]);
 });
 
 test('answers keep where Pavel dragged the hook; outside the safe zone — refused', () => {
@@ -244,6 +256,7 @@ test('A/B: result.json ab — what version B differs in and its check; a broken 
 test('A/B: labels follow what version B was built without', () => {
   assert.deepEqual(abLabels('teaser'), ['A — с тизером', 'B — без тизера']);
   assert.deepEqual(abLabels('music'), ['A — с музыкой', 'B — без музыки']);
+  assert.deepEqual(abLabels(null), ['A', 'B'], 'не знаем, чем отличается, — без догадок');
 });
 
 test('review.json: points of the guide, ok or warn, with a note; a broken file reads as no review', () => {
@@ -280,4 +293,47 @@ test('download takes every name finalNames gives — version B too — and nothi
   for (const bad of ['final-c.mp4', 'final-b-v2.mp4', 'final.mov', '../final.mp4', 'final-v1234.mp4', 'released.json', '']) {
     assert.equal(isFinalName(bad), false, bad);
   }
+});
+
+test('cover: styles offer up to three frames and a text; the answer picks a frame and may change the text', () => {
+  const fx = JSON.parse(readFileSync(new URL('../../engine/tests/fixtures/style-merge.json', import.meta.url), 'utf8')).styles;
+  const cover = { frames: [{ t: 1.2, image: 'cover-1.jpg' }, { t: 7.5, image: 'cover-2.jpg' }], text: 'Как я учу чешский' };
+  assert.deepEqual(parseStyles({ ...fx, cover })?.cover, cover);
+  const broken = parseStyles({ ...fx, cover: { frames: [], text: 'x' } });
+  assert.ok(broken && broken.cover === undefined, 'кривая обложка — без обложки, а не без стилей');
+  for (const ok of [{ frame: 1, text: '  Как я учу  ' }]) {
+    const p = parseAnswersBody({ answers: {}, style: STYLE, cover: ok }, QS);
+    assert.ok(!('error' in p) && isDeepStrictEqual(p.cover, { frame: 1, text: 'Как я учу' }), JSON.stringify(p));
+    if (!('error' in p)) {
+      const job = buildJobFile({ job: '261010-070509-abcd', name: 'a', size: 1, type: 'video/mp4', lastModified: 1, parts: 1, chunkSize: 4 }, NOW);
+      assert.deepEqual(answersFile(p, job).cover, { frame: 1, text: 'Как я учу' });
+    }
+  }
+  for (const bad of [{ frame: 3, text: 'x' }, { frame: 0, text: ' ' }, { frame: 0, text: 'x'.repeat(81) }, 'x']) {
+    assert.ok('error' in parseAnswersBody({ answers: {}, style: STYLE, cover: bad }, QS), JSON.stringify(bad));
+  }
+  assert.deepEqual(schema('answers.json').properties.cover.properties.frame.maximum, 2);
+  assert.equal(coverName(1), 'final-cover.png');
+  assert.equal(coverName(3), 'final-v3-cover.png');
+  for (const name of ['final-cover.png', 'final-v3-cover.png']) assert.ok(isFinalName(name), name);
+  for (const name of ['final-b-cover.png', 'cover.png', 'final-cover.jpg']) assert.equal(isFinalName(name), false, name);
+});
+
+test('ads version: the answers ask for it, it has its own file names and its check in result.json', () => {
+  const p = parseAnswersBody({ answers: {}, style: STYLE, ad: true }, QS);
+  assert.ok(!('error' in p) && p.ad === true, JSON.stringify(p));
+  if (!('error' in p)) {
+    const job = buildJobFile({ job: '261010-070509-abcd', name: 'a', size: 1, type: 'video/mp4', lastModified: 1, parts: 1, chunkSize: 4 }, NOW);
+    assert.equal(answersFile(p, job).ad, true);
+  }
+  assert.ok('error' in parseAnswersBody({ answers: {}, style: STYLE, ad: 'yes' }, QS));
+  const none = parseAnswersBody({ answers: {}, style: STYLE, ad: false }, QS);
+  assert.ok(!('error' in none) && none.ad === undefined, 'false — как нет');
+  assert.deepEqual(finalNames(2, 'ad'), { mp4: 'final-v2-ad.mp4', srt: 'final-v2-ad.srt' });
+  for (const name of ['final-ad.mp4', 'final-v2-ad.srt']) assert.ok(isFinalName(name), name);
+  assert.equal(isFinalName('final-b-ad.mp4'), false);
+  const result = { durations: { source: 80.2, final: 71 }, done: [], unsure: [], missing: [], qa: { ok: true, problems: [] } };
+  const ad = { durations: { source: 80.2, final: 71 }, qa: { ok: false, problems: ['вставка 1 вне безопасной зоны'] } };
+  assert.deepEqual(parseResult({ ...result, ad })?.ad, ad);
+  assert.equal(parseResult({ ...result, ad: { qa: 1 } })?.ad, undefined);
 });

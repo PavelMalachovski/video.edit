@@ -68,3 +68,5 @@
   `engine/tests/fixtures/emoji-runs.json`; картинки и список — `template/emoji/` (собирает `python3 -m vm.emoji`).
 - Сценарий до съёмки: схема `engine/vm/schemas/script.json` и `web/lib/script.ts` (типы; ТЗ «Снять по сценарию» —
   строки `ХУК:`, `ТЕЗИСЫ:`, `ПРИЗЫВ:`, `ЯЗЫК:`, их понимает SKILL.md).
+- Озвучка: ассет `upload-voice.*` и `kind: "audio"` в `job.json.uploads` — `web/lib/jobs.ts` (`voiceAssetName`,
+  `isVoiceFile`) и `web/lib/jobfiles.ts` (`buildJobFile`); их читает `engine/vm/prepare.py` (`_voice`).

@@ -16,8 +16,12 @@ from pathlib import Path
 
 from .media import MediaError, extract_frame, mp4_boxes, probe
 from .timeline import Timeline
+from .zoom import MAX_LEVEL
 
-SAFE = {"x0": 60, "x1": 890, "y0": 120, "y1": 1530}
+# безопасная зона; `subs_y1` — докуда Павел может опустить субтитры: над шкалой времени (ниже `y1` их может закрыть
+# подпись Reels — это его выбор, как в шаблоне); в зоне рекламы субтитры — как всё остальное
+SAFE = {"x0": 60, "x1": 890, "y0": 120, "y1": 1530, "subs_y1": 1820}
+ADS_SAFE = {"x0": 60, "x1": 890, "y0": 270, "y1": 1250}  # реклама Reels: снизу 35 % и сверху 14 % заняты (как в шаблоне)
 FACE_GAP = 40
 SUB_GAP = 20
 FACE_W, FACE_H = 0.30, 0.22  # рамка лица по умолчанию, доли кадра: Claude надёжно даёт только точку
@@ -40,13 +44,20 @@ CHECKS = {  # строки чек-листа на экране «Готово»;
 }
 
 
-def face_box(face: dict | None) -> dict | None:
-    """Рамка лица в px кадра по `edit.face` (доли): центр x, y; без w/h — 0,30 × 0,22 кадра."""
+def face_box(face: dict | None, zoom: float = 1.0) -> dict | None:
+    """Рамка лица в px кадра по `edit.face` (доли): центр x, y; без w/h — 0,30 × 0,22 кадра. `zoom` — приближение:
+    зум держит точку лица на месте, и лицо крупнее во столько же раз."""
     if not face:
         return None
-    w = round(W * face.get("w", FACE_W))
-    h = round(H * face.get("h", FACE_H))
+    w = round(W * face.get("w", FACE_W) * zoom)
+    h = round(H * face.get("h", FACE_H) * zoom)
     return {"x": round(W * face["x"] - w / 2), "y": round(H * face["y"] - h / 2), "w": w, "h": h}
+
+
+def face_of(edit: dict) -> dict | None:
+    """Рамка лица для проверок ролика по edit.json: такая, каким лицо становится при самом сильном зуме ролика."""
+    levels = [min(MAX_LEVEL, max(1.0, float(z["level"]))) for z in edit.get("zooms") or []]
+    return face_box(edit.get("face"), zoom=max(levels, default=1.0))
 
 
 def _gap(a: dict, b: dict) -> float:
@@ -60,8 +71,8 @@ def _overlap(a: dict, b: dict) -> bool:
     return a["x"] < b["x"] + b["w"] and b["x"] < a["x"] + a["w"] and a["y"] < b["y"] + b["h"] and b["y"] < a["y"] + a["h"]
 
 
-def _outside(b: dict) -> bool:
-    return b["x"] < SAFE["x0"] or b["x"] + b["w"] > SAFE["x1"] or b["y"] < SAFE["y0"] or b["y"] + b["h"] > SAFE["y1"]
+def _outside(b: dict, safe: dict = SAFE) -> bool:
+    return b["x"] < safe["x0"] or b["x"] + b["w"] > safe["x1"] or b["y"] < safe["y0"] or b["y"] + b["h"] > safe["y1"]
 
 
 def _sec(t: float) -> str:
@@ -89,9 +100,10 @@ def _runs(spans: list[tuple[float, float]]) -> list[tuple[float, float]]:
     return runs
 
 
-def check_layout(boxes_by_event: list[dict], face: dict | None, inserts: list[dict] | None = None) -> list[str]:
+def check_layout(boxes_by_event: list[dict], face: dict | None, inserts: list[dict] | None = None, safe: dict = SAFE) -> list[str]:
     """Проблемы геометрии: каждая — одной строкой с первым местом в ролике, где она есть (время финала), и числом
-    таких мест. `face` — рамка лица в px (`face_box`); `inserts` — edit.inserts, для подписей вставок."""
+    таких мест. `face` — рамка лица в px (`face_box`); `inserts` — edit.inserts, для подписей вставок; `safe` —
+    безопасная зона (для версии под рекламу — ADS_SAFE)."""
     found: dict[str, list[tuple[float, float]]] = {}
 
     def problem(text: str, e: dict) -> None:
@@ -101,10 +113,10 @@ def check_layout(boxes_by_event: list[dict], face: dict | None, inserts: list[di
         boxes = e.get("boxes") or {}
         texts = [(key, boxes[key]) for key in ("sub", "hook", "cta") if boxes.get(key)]
         shown = [(_insert_name(b, inserts), b) for b in boxes.get("inserts") or []]
-        if boxes.get("end") and _outside(boxes["end"]):  # карточка — на затемнённом кадре: лицо закрывать можно
+        if boxes.get("end") and _outside(boxes["end"], safe):  # карточка — на затемнённом кадре: лицо закрывать можно
             problem(f"{NAMES['end']} вне безопасной зоны", e)
         for key, b in texts:
-            if _outside(b):
+            if _outside(b, {**safe, "y1": safe.get("subs_y1", safe["y1"])} if key == "sub" else safe):
                 problem(f"{NAMES[key]} вне безопасной зоны", e)
             if face and key != "sub" and _gap(b, face) < FACE_GAP:
                 problem(f"{NAMES[key]} на лице или ближе {FACE_GAP} px к нему", e)
@@ -113,7 +125,7 @@ def check_layout(boxes_by_event: list[dict], face: dict | None, inserts: list[di
                 problem(f"{NAMES[ka]} и {NAMES[kb]} пересекаются", e)
         sub = boxes.get("sub")
         for name, b in shown:
-            if _outside(b):
+            if _outside(b, safe):
                 problem(f"{name} вне безопасной зоны", e)
             if face and _gap(b, face) < FACE_GAP:
                 problem(f"{name} на лице или ближе {FACE_GAP} px к нему", e)

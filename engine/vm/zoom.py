@@ -1,7 +1,8 @@
 """Зумы по смыслу: ступени приближения исходника во времени финала.
 
 `edit.zooms` — `[{t, level}]`: с момента `t` (время исходника) приближение плавно переходит к `level` за 0,45 с
-(smoothstep `3x² − 2x³`). До первой ступени — 1.0; уровни обрезаются до `[1.0, 1.08]`. Новая ступень посреди
+(smoothstep `3x² − 2x³`). До первой ступени — 1.0; уровни обрезаются до `[1.0, 1.16]` (Павел попросил вдвое ближе,
+чем было: 1.08). Новая ступень посреди
 перехода начинается с того уровня, который уже был, — без скачка. Зумятся только кадры исходника: субтитры,
 хук и шкала накладываются после.
 
@@ -12,14 +13,18 @@
 zoompan не переносит метки цвета — их ставит кодирование финала (BT.709). (`scale` с размером на каждом кадре +
 `crop` с `x=fx*(iw-1080)` не работает: `iw`/`ih` в выражениях crop фиксируются при настройке фильтра, и окно
 стоит в углу.)
+
+Толчок зума перехода на смене сцены (`punches` — стыки, время финала) — множитель поверх ступеней:
+`1 + PUNCH·(1 − |t − стык|/HALF)²` в окне ±HALF вокруг стыка (`transitions`), вне окна — 1.
 """
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 
 from .timeline import Timeline
+from .transitions import HALF, PUNCH
 
 TRANS = 0.45  # с — длина перехода
 MIN_LEVEL = 1.0
-MAX_LEVEL = 1.08
+MAX_LEVEL = 1.16
 MAX_STEPS = 90  # вложенных if в выражении ffmpeg больше ~95 не разбирает
 
 
@@ -56,9 +61,14 @@ def _level(steps: list[tuple[float, float, float]], t: float, trans: float) -> f
     return level
 
 
-def zoom_at(zooms: list[dict], tl: Timeline, t_final: float, trans: float = TRANS) -> float:
-    """Приближение в момент `t_final` финала."""
-    return _level(_steps(zooms, tl, trans), t_final, trans)
+def _punch(t: float, punches: Sequence[float]) -> float:
+    """Множитель толчков зума переходов в момент `t` финала."""
+    return 1 + sum(PUNCH * (1 - abs(t - p) / HALF) ** 2 for p in punches if abs(t - p) < HALF)
+
+
+def zoom_at(zooms: list[dict], tl: Timeline, t_final: float, trans: float = TRANS, punches: Sequence[float] = ()) -> float:
+    """Приближение в момент `t_final` финала (с толчками переходов на стыках `punches`)."""
+    return _level(_steps(zooms, tl, trans), t_final, trans) * _punch(t_final, punches)
 
 
 def _num(v: float) -> str:
@@ -80,14 +90,25 @@ def _expression(steps: list[tuple[float, float, float]], trans: float, t: str = 
     return f"if(lt({t},{_num(steps[0][0])}),1,{expr})"
 
 
-def zoom_filter(zooms: list[dict], tl: Timeline, face: dict, W: int = 1080, H: int = 1920, fps: int = 30) -> str:
-    """Фильтр ffmpeg: приближение по `zooms` с якорем в точке лица `face` (доли кадра); без зумов — `null`."""
+def _punches(punches: Sequence[float], t: str = "it") -> str:
+    """Множитель толчков как выражение ffmpeg: сумма горбов в окнах стыков."""
+    bumps = [f"if(lt(abs({t}-{_num(p)}),{_num(HALF)}),{_num(PUNCH)}*pow(1-abs({t}-{_num(p)})/{_num(HALF)},2),0)" for p in punches]
+    return f"(1+{'+'.join(bumps)})"
+
+
+def zoom_filter(zooms: list[dict], tl: Timeline, face: dict, W: int = 1080, H: int = 1920, fps: int = 30,
+                punches: Sequence[float] = ()) -> str:
+    """Фильтр ffmpeg: приближение по `zooms` с якорем в точке лица `face` (доли кадра) и толчки переходов на стыках
+    `punches` (время финала); без зумов и толчков — `null`."""
     steps = [s for s in _steps(zooms, tl, TRANS) if s[0] < tl.duration]
-    if not steps or all(source == target == MIN_LEVEL for _, source, target in steps):
+    flat = not steps or all(source == target == MIN_LEVEL for _, source, target in steps)
+    if flat and not punches:
         return "null"
     if len(steps) > MAX_STEPS:
         raise ValueError(f"слишком много зумов: {len(steps)} (не больше {MAX_STEPS})")
-    z = _expression(steps, TRANS)
+    z = "1" if flat else _expression(steps, TRANS)
+    if punches:
+        z = f"({z})*{_punches(punches)}"
     fx = min(1.0, max(0.0, float(face.get("x", 0.5))))
     fy = min(1.0, max(0.0, float(face.get("y", 0.5))))
     # окно iw/zoom × ih/zoom; его левый верхний угол сдвинут так, чтобы точка лица осталась на месте

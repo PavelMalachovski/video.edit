@@ -174,9 +174,15 @@ export function buildJobFile(m: Manifest, now: Date): JobFile {
 
 // ---------- answers.json ----------
 
-export type AnswersFile = { answers: Record<string, string | string[]>; style: StyleChoice; speed?: number; uploads?: Record<string, string>; brief?: string };
+export type AnswersFile = {
+  answers: Record<string, string | string[]>; style: StyleChoice; speed?: number; insertSizes?: Record<string, number>; uploads?: Record<string, string>; brief?: string;
+};
 export type UploadClaim = { asset: string; name: string; size: number; type: string; parts: number };
-export type ParsedAnswers = { answers: Record<string, string | string[]>; style: StyleChoice; speed?: number; uploads: Record<string, UploadClaim> };
+export type ParsedAnswers = {
+  answers: Record<string, string | string[]>; style: StyleChoice; speed?: number; insertSizes?: Record<string, number>; uploads: Record<string, UploadClaim>;
+};
+/** Ширина вставки, которую Павел может выбрать на превью, px кадра (ширина безопасной зоны — 830). */
+export const INSERT_W = { min: 80, max: 830 };
 /** Ускорение, которое Павел может выбрать (по правилам — 1.1). */
 export const SPEED_RANGE = { min: 1, max: 1.5 };
 
@@ -231,6 +237,11 @@ export function parseAnswersBody(body: unknown, qs: Question[]): ParsedAnswers |
   }
   const style = parseStyle(body.style);
   if (typeof style === 'string') return { error: style };
+  const sizes = body.insertSizes;
+  if (sizes !== undefined && !(isObject(sizes) && !Array.isArray(sizes)
+    && Object.entries(sizes).every(([k, w]) => k !== '' && k.length <= 500 && isNum(w) && w >= INSERT_W.min && w <= INSERT_W.max))) {
+    return { error: `insertSizes: ширина вставки от ${INSERT_W.min} до ${INSERT_W.max}` };
+  }
   const speed = body.speed;
   if (speed !== undefined && !(isNum(speed) && speed >= SPEED_RANGE.min && speed <= SPEED_RANGE.max)) {
     return { error: `speed: нужно число от ${SPEED_RANGE.min} до ${SPEED_RANGE.max}` };
@@ -247,7 +258,11 @@ export function parseAnswersBody(body: unknown, qs: Question[]): ParsedAnswers |
   for (const [qid, value] of Object.entries(answers)) {
     if (value === RESERVED.upload && !uploads[qid]) return { error: `${qid}: выбрано «загрузить свою», а картинки нет` };
   }
-  return { answers, style, uploads, ...(speed === undefined ? {} : { speed: Math.round(speed * 100) / 100 }) };
+  return {
+    answers, style, uploads,
+    ...(speed === undefined ? {} : { speed: Math.round(speed * 100) / 100 }),
+    ...(sizes === undefined ? {} : { insertSizes: sizes as Record<string, number> }),
+  };
 }
 
 export function answersFile(p: ParsedAnswers, job: JobFile): AnswersFile {
@@ -255,6 +270,7 @@ export function answersFile(p: ParsedAnswers, job: JobFile): AnswersFile {
     answers: p.answers,
     style: p.style,
     ...(p.speed === undefined ? {} : { speed: p.speed }),
+    ...(p.insertSizes === undefined ? {} : { insertSizes: p.insertSizes }),
     uploads: Object.fromEntries(Object.entries(p.uploads).map(([qid, c]) => [qid, `in/uploads/${c.asset}`])),
     brief: job.brief,
   };

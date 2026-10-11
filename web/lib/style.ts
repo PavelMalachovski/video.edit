@@ -1,15 +1,16 @@
 // Стиль на экране превью: итоговый StyleSpec по выбору Павла (то же правило, что final_style движка), образец
 // состояния слоя на кадре (субтитры — по правилу build_sub_events), вставки по ответам и запомненный выбор.
 import { chosen, type Draft } from './answers.ts';
-import { ADJUST, ADJUSTABLE, HOOK_SIZE, HOOK_Y, inRange, RESERVED, SUB_SIZE, SUB_Y, type Adjustable, type Question, type SampleInsert, type StyleChoice, type StyleSpec, type Styles } from './jobfiles.ts';
+import { ADJUST, ADJUSTABLE, HOOK_SIZE, HOOK_Y, INSERT_W, inRange, RESERVED, SUB_SIZE, SUB_Y, type Adjustable, type Question, type SampleInsert, type StyleChoice, type StyleSpec, type Styles } from './jobfiles.ts';
 
-export { HOOK_SIZE, HOOK_Y, SUB_SIZE, SUB_Y };
+export { HOOK_SIZE, HOOK_Y, INSERT_W, SUB_SIZE, SUB_Y };
 
 /** Состояние слоя для window.renderState шаблона (template/overlay.js, inserts.js). */
 export type SubState = { words: string[]; active: number; visible: number };
 export type InsertState = {
   kind: SampleInsert['kind']; src?: string; text?: string; title?: string; x: number; y: number; w: number; anim: number; t: number;
   params?: Record<string, unknown>;
+  key?: string; // ключ для размера Павла (insertKey); шаблон его не читает
 };
 export type OverlayState = { sub?: SubState; hook?: { text: string }; cta?: { lines: string[]; word: string }; inserts: InsertState[] };
 
@@ -112,10 +113,11 @@ export function sampleState(spec: StyleSpec, sample: Styles['sample'], hook: str
  * вставка без вопроса — как есть. Все — уже появились (`anim` 1).
  */
 export function resolveInserts(sample: Styles['sample'], qs: Question[], d: Draft, urlFor: (path: string) => string,
-  localUrl: (qid: string) => string | null): InsertState[] {
+  localUrl: (qid: string) => string | null, sizes: Record<string, number> = {}): InsertState[] {
   const out: InsertState[] = [];
-  for (const s of sample.inserts ?? []) {
-    const base: InsertState = { kind: s.kind, x: s.x, y: s.y, w: s.w, anim: 1, t: 0 };
+  for (const s of sizedInserts(sample.inserts ?? [], sizes)) {
+    const key = insertKey(s);
+    const base: InsertState = { kind: s.kind, x: s.x, y: s.y, w: s.w, anim: 1, t: 0, ...(key ? { key } : {}) };
     if (s.text !== undefined) base.text = s.text;
     if (s.title !== undefined) base.title = s.title;
     if (!s.question) {
@@ -134,6 +136,50 @@ export function resolveInserts(sample: Styles['sample'], qs: Question[], d: Draf
     if (image) out.push({ ...base, src: urlFor(image) });
   }
   return out;
+}
+
+// ---------- размер вставок (localStorage['vm:inserts:<id>']) ----------
+
+const SAFE_X = { x0: 60, x1: 890 }; // безопасная зона по горизонтали, px кадра (как в движке и шаблоне)
+
+/** Ключ вставки для размера Павла: её question («добавь сюда»), иначе src; ни того ни другого — null. */
+export function insertKey(s: { question?: string; src?: string }): string | null {
+  return s.question || s.src || null;
+}
+
+/** Ширина вставки при перетаскивании: внутри INSERT_W, шагом 10 px. */
+export const clampInsertW = (w: number): number => Math.min(INSERT_W.max, Math.max(INSERT_W.min, Math.round(w / 10) * 10));
+
+/** Вставки с шириной, которую выбрал Павел: центр по горизонтали и верх остаются, вставка не выходит из безопасной
+ *  зоны. То же правило — sized_inserts в engine/vm/style.py (общая фикстура engine/tests/fixtures/insert-sizes.json). */
+export function sizedInserts<T extends { x?: number; w?: number; question?: string; src?: string }>(list: T[], sizes: Record<string, number>): T[] {
+  return list.map((s) => {
+    const key = insertKey(s);
+    const w = key ? sizes[key] : undefined;
+    if (w === undefined || s.x === undefined || s.w === undefined) return { ...s };
+    const x = Math.min(Math.max(s.x + (s.w - w) / 2, SAFE_X.x0), SAFE_X.x1 - w);
+    return { ...s, x: Math.round(x), w };
+  });
+}
+
+const insertsKey = (jobId: string): string => `vm:inserts:${jobId}`;
+
+export function loadInsertSizes(storage: Storage | null, jobId: string): Record<string, number> {
+  try {
+    const raw = JSON.parse(storage?.getItem(insertsKey(jobId)) ?? '{}') as unknown;
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {};
+    return Object.fromEntries(Object.entries(raw).filter(([k, w]) => k !== '' && typeof w === 'number' && w >= INSERT_W.min && w <= INSERT_W.max));
+  } catch {
+    return {};
+  }
+}
+
+export function saveInsertSizes(storage: Storage | null, jobId: string, sizes: Record<string, number>): void {
+  try {
+    storage?.setItem(insertsKey(jobId), JSON.stringify(sizes));
+  } catch {
+    // нет хранилища — размеры живут до перезагрузки
+  }
 }
 
 // ---------- скорость ролика (localStorage['vm:speed:<id>']) ----------

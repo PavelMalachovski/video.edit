@@ -56,6 +56,12 @@
         }
       }
     },
+    "insertSizes": {
+      "description": "Ширина вставок, которую Павел выбрал на превью, px кадра: ключ — question вставки, иначе её src (vm.style.sized_inserts).",
+      "type": "object",
+      "propertyNames": { "minLength": 1 },
+      "additionalProperties": { "type": "number", "minimum": 80, "maximum": 830 }
+    },
     "speed": {
       "description": "Ускорение ролика, выбранное Павлом на экране превью (×1.0–×1.5); нет — по правилам (1.1).",
       "type": "number",

@@ -1,0 +1,16 @@
+{
+  "about": "Размер вставок, который Павел выбрал на превью: ключ — question вставки, иначе src; центр по горизонтали и верх остаются, вставка не выходит из безопасной зоны (x 60–890). Общая фикстура: engine/vm/style.py (sized_inserts) и web/lib/style.ts (sizedInserts).",
+  "inserts": [
+    {"kind": "image", "question": "insert-1", "x": 70, "y": 500, "w": 250, "t0": 1, "t1": 3},
+    {"kind": "image", "src": "in/uploads/upload-i1.png", "x": 600, "y": 900, "w": 280, "t0": 4, "t1": 6},
+    {"kind": "sticker", "title": "Важно", "text": "каждый день", "x": 300, "y": 1100, "w": 380, "t0": 7, "t1": 9},
+    {"kind": "image", "question": "insert-2", "x": 400, "y": 300, "w": 200, "t0": 10, "t1": 12}
+  ],
+  "sizes": {"insert-1": 330, "in/uploads/upload-i1.png": 400, "insert-2": 160, "nobody": 500},
+  "expected": [
+    {"kind": "image", "question": "insert-1", "x": 60, "y": 500, "w": 330, "t0": 1, "t1": 3},
+    {"kind": "image", "src": "in/uploads/upload-i1.png", "x": 490, "y": 900, "w": 400, "t0": 4, "t1": 6},
+    {"kind": "sticker", "title": "Важно", "text": "каждый день", "x": 300, "y": 1100, "w": 380, "t0": 7, "t1": 9},
+    {"kind": "image", "question": "insert-2", "x": 420, "y": 300, "w": 160, "t0": 10, "t1": 12}
+  ]
+}

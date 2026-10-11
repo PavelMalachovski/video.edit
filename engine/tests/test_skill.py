@@ -91,3 +91,8 @@ def test_a_hook_pavel_dragged_stays_where_he_put_it():
 def test_sizes_pavel_set_stay():
     render = section("Шаг render")
     assert "subSize" in render and "hookSize" in render
+
+
+def test_insert_sizes_pavel_set_reach_the_video():
+    render = section("Шаг render")
+    assert "insertSizes" in render and "sized_inserts" in render

@@ -51,8 +51,11 @@
 
 ## Меняются только вместе
 - Превью = финал: всё, что видно на превью, рисует `template/`.
-- Итоговый стиль: `engine/vm/style.py` (`final_style`) и `web/lib/style.ts` (`finalStyle`), общая фикстура
+- Итоговый стиль: `engine/vm/style.py` (`final_style`, `ADJUSTED`) и `web/lib/style.ts` (`finalStyle`) с
+  `web/lib/jobfiles.ts` (`ADJUST` — что Павел двигает и в каких пределах), общая фикстура
   `engine/tests/fixtures/style-merge.json`.
+- Размер вставок Павла: `engine/vm/style.py` (`sized_inserts`) и `web/lib/style.ts` (`sizedInserts`), общая фикстура
+  `engine/tests/fixtures/insert-sizes.json`.
 - Группы субтитров: `engine/vm/subs.py` (`build_sub_events`) и `web/lib/style.ts` (`sampleState`).
 - Файлы задачи: схемы `engine/vm/schemas/*.json` и типы `web/lib/jobfiles.ts`; кто какой файл пишет — SKILL.md,
   часть 2 («Файлы задачи», «Страница»).

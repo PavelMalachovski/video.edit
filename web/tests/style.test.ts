@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { initialDraft, pick } from '../lib/answers.ts';
 import type { Question, StyleChoice, Styles } from '../lib/jobfiles.ts';
-import { allowedFonts, choiceFor, clampHookSize, clampHookY, clampSubSize, clampSubY, finalStyle, HOOK_SIZE, HOOK_Y, SUB_SIZE, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES } from '../lib/style.ts';
+import { allowedFonts, choiceFor, clampInsertW, clampHookSize, insertKey, INSERT_W, loadInsertSizes, saveInsertSizes, sizedInserts, clampHookY, clampSubSize, clampSubY, finalStyle, HOOK_SIZE, HOOK_Y, SUB_SIZE, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES } from '../lib/style.ts';
 import { blockedStorage, memoryStorage } from './helpers.ts';
 
 // Общая с движком фикстура: final_style в engine/vm/style.py обязан давать то же самое.
@@ -49,13 +49,13 @@ test('question inserts follow the answer', () => {
   const at = (id: string | null, local: string | null = null) =>
     resolveInserts(sample, qs, id ? pick(initialDraft(qs), q, id) : initialDraft(qs), url, () => local);
   const fixed = [
-    { kind: 'image', src: '/file?path=in/uploads/upload-i1.png', x: 600, y: 700, w: 300, anim: 1, t: 0 },
+    { kind: 'image', src: '/file?path=in/uploads/upload-i1.png', x: 600, y: 700, w: 300, anim: 1, t: 0, key: 'in/uploads/upload-i1.png' },
     { kind: 'sticker', title: 'Важно', text: 'каждый день', x: 600, y: 900, w: 380, anim: 1, t: 0 },
   ];
   assert.deepEqual(at('none'), fixed);
   assert.deepEqual(at(null), fixed, 'nothing picked — no insert yet');
   assert.deepEqual(at('sticker'), fixed, 'a variant without a picture is decided at render');
-  assert.deepEqual(at('logo-a')[0], { kind: 'image', src: '/file?path=../../assets/logos/logo.png', x: 70, y: 500, w: 250, anim: 1, t: 0 });
+  assert.deepEqual(at('logo-a')[0], { kind: 'image', src: '/file?path=../../assets/logos/logo.png', x: 70, y: 500, w: 250, anim: 1, t: 0, key: 'logo' });
   assert.deepEqual(at('upload'), fixed, 'after a reload the picked file is gone');
   assert.equal(at('upload', 'blob:mine')[0].src, 'blob:mine');
 });
@@ -162,4 +162,33 @@ test('sizes: Pavel makes the hook and subtitles bigger or smaller, within limits
   assert.deepEqual([loadChoice(store, id, STYLES).subSize, loadChoice(store, id, STYLES).hookSize], [80, 100]);
   saveChoice(store, id, STYLES, { ...plain, hookSize: 300 });
   assert.deepEqual(loadChoice(store, id, STYLES), choiceFor(STYLES, 'A'), 'a size out of range is not taken back');
+});
+
+test('insert sizes follow the shared engine fixture', () => {
+  const fx = JSON.parse(fs.readFileSync(new URL('../../engine/tests/fixtures/insert-sizes.json', import.meta.url), 'utf8'));
+  assert.deepEqual(sizedInserts(fx.inserts, fx.sizes), fx.expected);
+  assert.deepEqual(sizedInserts(fx.inserts, {}), fx.inserts);
+  assert.equal(insertKey({ question: 'insert-1', src: 'x.png' }), 'insert-1');
+  assert.equal(insertKey({ src: 'x.png' }), 'x.png');
+  assert.equal(insertKey({}), null, 'a sticker without question or src has no key: it is not resized');
+  assert.equal(clampInsertW(5), INSERT_W.min);
+  assert.equal(clampInsertW(1000), INSERT_W.max);
+  assert.equal(clampInsertW(333), 330);
+});
+
+test('preview inserts are drawn with the sizes Pavel set', () => {
+  const sample = { words: [], spoken: 0, inserts: [{ kind: 'image' as const, src: 'a.png', x: 600, y: 900, w: 280 }] };
+  const [ins] = resolveInserts(sample, [], initialDraft([]), (p) => `/f/${p}`, () => null, { 'a.png': 400 });
+  assert.deepEqual([ins.x, ins.w, ins.key], [490, 400, 'a.png']);
+});
+
+test('insert sizes are remembered per job; junk is dropped', () => {
+  const store = memoryStorage();
+  const id = '261010-120000-ab96';
+  assert.deepEqual(loadInsertSizes(store, id), {});
+  saveInsertSizes(store, id, { 'insert-1': 330 });
+  assert.deepEqual(loadInsertSizes(store, id), { 'insert-1': 330 });
+  store.setItem(`vm:inserts:${id}`, JSON.stringify({ 'insert-1': 5000, ok: 200, bad: 'x' }));
+  assert.deepEqual(loadInsertSizes(store, id), { ok: 200 });
+  assert.deepEqual(loadInsertSizes(blockedStorage, id), {});
 });

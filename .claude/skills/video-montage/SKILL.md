@@ -324,6 +324,10 @@ description: Монтаж вертикальных роликов Павла в 
    - хук: вариант, свой текст (`answers["hook.own"]`) или `none` → `hook: null`;
    - кодовое слово и имена — выбранное написание; звёздочки — в текст слов из `stars`;
    - музыка: `{"file": "assets/music/<трек>", "gainDb": -18}` или `null`;
+   - размер вставок, который Павел выбрал на превью (`answers.insertSizes`, ключ — `question` вставки или её
+     `src`): `edit["inserts"] = sized_inserts(edit["inserts"], answers.get("insertSizes", {}))` (`from vm.style import
+     sized_inserts`) — пока у вставок «добавь сюда» ещё есть `question`; центр и верх остаются, как на превью. Мешает
+     субтитрам или лицу (`vm check`) — оставь размер Павла и скажи в `unsure`;
    - вставки «добавь сюда» (с `question`): место и время в черновике уже стоят — не меняй их; по ответу на этот
      вопрос — `src` выбранной картинки (путь из `image` варианта), `upload` → `src` = `answers.uploads["<id>"]`,
      стикер → `kind: "sticker"` и `text`, `none` — убери вставку. Вставку с `question` без `src` `vm check` не

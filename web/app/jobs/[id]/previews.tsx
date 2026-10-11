@@ -1,7 +1,7 @@
 'use client';
 // Экран «3 · Три превью»: три варианта стиля на настоящем кадре и крупное превью выбора Павла — всё рисует шаблон слоя;
-// шрифт и цвета меняются сразу, хук и субтитры двигаются по крупному превью выше-ниже и меняют размер (щипком или уголком). «Ещё три варианта» — шаг
-// restyle; «Монтировать» — ответы, стиль и шаг render.
+// шрифт и цвета меняются сразу, хук и субтитры двигаются по крупному превью выше-ниже и меняют размер, вставки — размер
+// (щипком двумя пальцами или уголком ⤢). «Ещё три варианта» — шаг restyle; «Монтировать» — ответы, стиль и шаг render.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { buildAnswers, previewHook, type Draft } from '@/lib/answers.ts';
 import { storage } from '@/lib/client.ts';
@@ -9,7 +9,8 @@ import { mmss } from '@/lib/format.ts';
 import { ADJUSTABLE, type Adjustable, type Question, type StyleChoice, type Styles } from '@/lib/jobfiles.ts';
 import { MAX_NOTE } from '@/lib/jobs.ts';
 import {
-  allowedFonts, choiceFor, clampTo, finalStyle, HOOK_SIZE, HOOK_Y, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed,
+  allowedFonts, choiceFor, clampInsertW, clampTo, finalStyle, HOOK_SIZE, HOOK_Y, INSERT_W, insertKey, loadChoice, loadInsertSizes, loadSpeed,
+  resolveInserts, sampleState, saveChoice, saveInsertSizes, saveSpeed,
   SPEEDS, SUB_SIZE, SUB_Y, SWATCHES,
 } from '@/lib/style.ts';
 import PreviewFrame from '../../preview-frame';
@@ -35,6 +36,10 @@ const SCALE = BIG / 1080;
 const STEP = 20; // px кадра на нажатие «Выше» / «Ниже» и стрелку
 const SIZE_STEP = 4; // px размера на нажатие «Меньше» / «Больше»
 const GROW = BIG / 2; // уголок ⤢: на сколько px экрана потянуть вправо, чтобы размер вырос вдвое
+const INSERT_STEP = 20; // px ширины вставки на нажатие «A−» / «A+»
+
+type Box = { x: number; y: number; w: number; h: number };
+type LayoutBoxes = { inserts?: Box[] };
 const HOOK_DEFAULT = 400; // центр хука, если в стиле не задан (template/overlay.js, HOOK_Y)
 
 const ROWS: { key: ColorKey; title: string; own: string }[] = [
@@ -78,7 +83,14 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
   }, []);
 
   const hook = useMemo(() => previewHook(questions, draft, styles.sample.hook), [questions, draft, styles]);
-  const inserts = useMemo(() => resolveInserts(styles.sample, questions, draft, fileUrl, localUrl), [styles, questions, draft, fileUrl, localUrl]);
+  const [insertSizes, setInsertSizesState] = useState<Record<string, number>>(() => loadInsertSizes(storage(), jobId));
+  const setInsertSizes = (next: Record<string, number>) => {
+    setInsertSizesState(next);
+    saveInsertSizes(storage(), jobId, next);
+  };
+  const inserts = useMemo(() => resolveInserts(styles.sample, questions, draft, fileUrl, localUrl, insertSizes),
+    [styles, questions, draft, fileUrl, localUrl, insertSizes]);
+  const [boxes, setBoxes] = useState<LayoutBoxes | null>(null); // рамки крупного превью от шаблона: по ним ручки вставок
   const thumbs = useMemo(() => styles.variants.map((v) => ({ v, state: sampleState(v.spec, styles.sample, hook, inserts) })), [styles, hook, inserts]);
   const spec = useMemo(() => finalStyle(styles, choice), [styles, choice]);
   const state = useMemo(() => sampleState(spec, styles.sample, hook, inserts), [spec, styles, hook, inserts]);
@@ -103,7 +115,9 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
     const { answers, uploads, missing } = buildAnswers(questions, draft);
     if (missing.length) return setError({ at: 'answers', text: 'Не на все вопросы есть ответ — вернитесь к вопросам' });
     const claims = Object.fromEntries(Object.entries(uploads).map(([qid, u]) => [qid, { asset: u.asset, name: u.name, size: u.size, type: u.type, parts: u.parts }]));
-    void run('answers', { answers, uploads: claims, style: choice, speed });
+    const keys = new Set((styles.sample.inserts ?? []).map(insertKey));
+    const sizes = Object.fromEntries(Object.entries(insertSizes).filter(([k]) => keys.has(k))); // только вставки этого превью
+    void run('answers', { answers, uploads: claims, style: choice, speed, ...(Object.keys(sizes).length ? { insertSizes: sizes } : {}) });
   }
 
   const pickFont = (kind: 'font' | 'hand', id: string) => setChoice({ ...choice, [kind]: id });
@@ -126,6 +140,17 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
     changed: choice.hookY !== undefined || choice.hookSize !== undefined, reset: reset('hookY', 'hookSize'),
   };
   const movable = state.hook ? [hookPart, subs] : [subs]; // хук настраивается, когда он есть на превью
+  // вставки на крупном превью, у которых есть ключ (question или src): размер — щипком, уголком и кнопками
+  const sized = state.inserts.flatMap((ins, i) => {
+    if (!ins.key) return [];
+    const key = ins.key;
+    const n = state.inserts.slice(0, i + 1).filter((x) => x.key).length;
+    return [{
+      key, name: `Вставка ${n}`, label: `Ширина вставки ${n}`, w: ins.w, box: boxes?.inserts?.[i] ?? null, changed: key in insertSizes,
+      resize: (w: number) => setInsertSizes({ ...insertSizes, [key]: clampInsertW(w) }),
+      reset: () => setInsertSizes(Object.fromEntries(Object.entries(insertSizes).filter(([k]) => k !== key))),
+    }];
+  });
   const pickColor = (key: ColorKey, color: string) => setChoice({ ...choice, colors: { ...choice.colors, [key]: color.toUpperCase() } });
 
   return (
@@ -151,12 +176,13 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
 
       <div className="big-wrap">
         <div className="big-host">
-          <PreviewFrame frameUrl={frameUrl} spec={spec} state={state} progress={progress} width={BIG} big />
+          <PreviewFrame frameUrl={frameUrl} spec={spec} state={state} progress={progress} width={BIG} big onBoxes={(b) => setBoxes(b as LayoutBoxes)} />
+          {sized.map((m) => m.box ? <InsertHandle key={m.key} label={m.label} box={m.box} w={m.w} onSize={m.resize} /> : null)}
           {movable.map((m) => <DragHandle key={m.name} label={m.label} y={m.y} range={m.range} onMove={m.move} size={m.size} onSize={m.resize} />)}
         </div>
       </div>
       <div className="sub-move">
-        <span className="muted small">Хук и субтитры тянутся на превью выше или ниже; размер — щипком двумя пальцами или уголком ⤢</span>
+        <span className="muted small">Хук и субтитры тянутся на превью выше или ниже; размер хука, субтитров и вставок — щипком двумя пальцами или уголком ⤢</span>
         {movable.map((m) => (
           <div key={m.name} className="sub-move-row">
             <span className="small">{m.name}</span>
@@ -165,6 +191,14 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
             <button type="button" className="pill" aria-label={`${m.name} меньше`} disabled={m.size <= m.sizes.min} onClick={() => m.resize(m.size - SIZE_STEP)}>A−</button>
             <button type="button" className="pill" aria-label={`${m.name} больше`} disabled={m.size >= m.sizes.max} onClick={() => m.resize(m.size + SIZE_STEP)}>A+</button>
             {m.changed ? <button type="button" className="link" aria-label={`${m.name}: как в варианте`} onClick={m.reset}>Как было</button> : null}
+          </div>
+        ))}
+        {sized.map((m) => (
+          <div key={m.key} className="sub-move-row">
+            <span className="small">{m.name}</span>
+            <button type="button" className="pill" aria-label={`${m.name} меньше`} disabled={m.w <= INSERT_W.min} onClick={() => m.resize(m.w - INSERT_STEP)}>A−</button>
+            <button type="button" className="pill" aria-label={`${m.name} больше`} disabled={m.w >= INSERT_W.max} onClick={() => m.resize(m.w + INSERT_STEP)}>A+</button>
+            {m.changed ? <button type="button" className="link" aria-label={`${m.name}: как было`} onClick={m.reset}>Как было</button> : null}
           </div>
         ))}
       </div>
@@ -241,9 +275,9 @@ type Gesture =
   | { kind: 'grow'; from: number; size: number }
   | { kind: 'pinch'; span: number; size: number };
 
-/** Ручка на крупном превью — полоса на высоте `y` (px кадра). Один палец или мышь — двигает выше-ниже; два пальца —
- *  щипок меняет размер; уголок ⤢ мышкой вправо-влево — тоже размер; стрелки — выше-ниже по STEP. */
-function DragHandle({ label, y, range, onMove, size, onSize }: HandleProps) {
+/** Жесты ручки: один палец или мышь — `onMove` (если он есть); два пальца — щипок, `onSize`; уголок `[data-grip]`
+ *  мышкой вправо-влево — тоже `onSize`. Палец убран — жест закончен: оставшийся палец ручку не дёргает. */
+function useGestures(size: number, onSize: (size: number) => void, move?: { y: number; onMove: (y: number) => void }) {
   const points = useRef(new Map<number, number>()); // пальцы на ручке: id → x
   const gesture = useRef<Gesture | null>(null);
   const span = () => {
@@ -252,42 +286,69 @@ function DragHandle({ label, y, range, onMove, size, onSize }: HandleProps) {
   };
   const end = (id: number) => {
     points.current.delete(id);
-    gesture.current = null; // палец убран — жест закончен: оставшийся палец не дёргает ручку
+    gesture.current = null;
   };
+  return {
+    onPointerDown: (e: React.PointerEvent<HTMLElement>) => {
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        // указатель уже ушёл — жест всё равно ловим
+      }
+      points.current.set(e.pointerId, e.clientX);
+      const g = gesture.current;
+      if (points.current.size >= 2) {
+        if (g?.kind === 'move') move?.onMove(g.y); // первый палец уже сдвинул ручку — щипок только про размер
+        gesture.current = { kind: 'pinch', span: Math.max(1, span()), size };
+      } else if ((e.target as HTMLElement).closest('[data-grip]')) {
+        gesture.current = { kind: 'grow', from: e.clientX, size };
+      } else if (move) {
+        gesture.current = { kind: 'move', from: e.clientY, y: move.y };
+      }
+    },
+    onPointerMove: (e: React.PointerEvent<HTMLElement>) => {
+      if (points.current.has(e.pointerId)) points.current.set(e.pointerId, e.clientX);
+      const g = gesture.current;
+      if (g?.kind === 'move') move?.onMove(g.y + (e.clientY - g.from) / SCALE);
+      else if (g?.kind === 'grow') onSize(g.size * (1 + (e.clientX - g.from) / GROW));
+      else if (g?.kind === 'pinch' && points.current.size >= 2) onSize((g.size * span()) / g.span);
+    },
+    onPointerUp: (e: React.PointerEvent<HTMLElement>) => end(e.pointerId),
+    onPointerCancel: (e: React.PointerEvent<HTMLElement>) => end(e.pointerId),
+  };
+}
+
+/** Ручка текста на крупном превью — полоса на высоте `y` (px кадра): двигает выше-ниже и меняет размер; стрелки — по STEP. */
+function DragHandle({ label, y, range, onMove, size, onSize }: HandleProps) {
+  const gestures = useGestures(size, onSize, { y, onMove });
   return (
     <div className="sub-handle" role="slider" tabIndex={0} aria-label={label} aria-orientation="vertical"
       aria-valuemin={range.min} aria-valuemax={range.max} aria-valuenow={y} title={`${label}: потяни выше или ниже; размер — щипком или уголком`}
-      style={{ top: y * SCALE }}
-      onPointerDown={(e) => {
-        try {
-          e.currentTarget.setPointerCapture(e.pointerId);
-        } catch {
-          // указатель уже ушёл — жест всё равно ловим
-        }
-        points.current.set(e.pointerId, e.clientX);
-        const g = gesture.current;
-        if (points.current.size >= 2) {
-          if (g?.kind === 'move') onMove(g.y); // первый палец уже сдвинул ручку — щипок только про размер
-          gesture.current = { kind: 'pinch', span: Math.max(1, span()), size };
-        } else if ((e.target as HTMLElement).closest('[data-grip]')) {
-          gesture.current = { kind: 'grow', from: e.clientX, size };
-        } else {
-          gesture.current = { kind: 'move', from: e.clientY, y };
-        }
-      }}
-      onPointerMove={(e) => {
-        if (points.current.has(e.pointerId)) points.current.set(e.pointerId, e.clientX);
-        const g = gesture.current;
-        if (g?.kind === 'move') onMove(g.y + (e.clientY - g.from) / SCALE);
-        else if (g?.kind === 'grow') onSize(g.size * (1 + (e.clientX - g.from) / GROW));
-        else if (g?.kind === 'pinch' && points.current.size >= 2) onSize((g.size * span()) / g.span);
-      }}
-      onPointerUp={(e) => end(e.pointerId)}
-      onPointerCancel={(e) => end(e.pointerId)}
+      style={{ top: y * SCALE }} {...gestures}
       onKeyDown={(e) => {
         if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
         e.preventDefault();
         onMove(y + (e.key === 'ArrowUp' ? -STEP : STEP));
+      }}>
+      <span className="size-grip" data-grip aria-hidden="true">⤢</span>
+    </div>
+  );
+}
+
+type InsertHandleProps = { label: string; box: Box; w: number; onSize: (w: number) => void };
+
+/** Ручка вставки — рамка по её месту на крупном превью (от шаблона): щипок или уголок меняют ширину; стрелки — по
+ *  INSERT_STEP. Место вставки задаёт монтаж, здесь — только размер. */
+function InsertHandle({ label, box, w, onSize }: InsertHandleProps) {
+  const gestures = useGestures(w, onSize);
+  return (
+    <div className="insert-handle" role="slider" tabIndex={0} aria-label={label} aria-valuemin={INSERT_W.min} aria-valuemax={INSERT_W.max}
+      aria-valuenow={w} title={`${label}: размер — щипком или уголком`}
+      style={{ left: box.x * SCALE, top: box.y * SCALE, width: box.w * SCALE, height: box.h * SCALE }} {...gestures}
+      onKeyDown={(e) => {
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+        e.preventDefault();
+        onSize(w + (e.key === 'ArrowRight' ? INSERT_STEP : -INSERT_STEP));
       }}>
       <span className="size-grip" data-grip aria-hidden="true">⤢</span>
     </div>

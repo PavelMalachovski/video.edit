@@ -183,3 +183,17 @@ test('answers keep the sizes Pavel set; out of range — refused', () => {
   const { properties } = schema('answers.json').properties.style;
   assert.deepEqual([properties.subSize.minimum, properties.subSize.maximum, properties.hookSize.minimum, properties.hookSize.maximum], [40, 110, 48, 120]);
 });
+
+test('answers keep insert sizes Pavel set; out of range or junk — refused', () => {
+  const job = buildJobFile({ job: '261010-070509-abcd', name: 'a', size: 1, type: 'video/mp4', lastModified: 1, parts: 1, chunkSize: 4, brief: '' }, NOW);
+  const p = parseAnswersBody({ answers: { hook: 'h1' }, style: STYLE, insertSizes: { 'insert-1': 330 } }, QS);
+  assert.ok(!('error' in p), JSON.stringify(p));
+  assert.deepEqual(answersFile(p, job).insertSizes, { 'insert-1': 330 });
+  const none = parseAnswersBody({ answers: { hook: 'h1' }, style: STYLE }, QS);
+  assert.ok(!('error' in none) && !('insertSizes' in answersFile(none, job)));
+  for (const insertSizes of [{ a: 60 }, { a: 900 }, { a: '300' }, { '': 300 }, [300]]) {
+    assert.ok('error' in parseAnswersBody({ answers: { hook: 'h1' }, style: STYLE, insertSizes }, QS), JSON.stringify(insertSizes));
+  }
+  const prop = schema('answers.json').properties.insertSizes.additionalProperties;
+  assert.deepEqual([prop.minimum, prop.maximum], [80, 830]);
+});

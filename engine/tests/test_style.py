@@ -66,3 +66,24 @@ def test_a_size_out_of_range_is_refused(tmp_path, key, size):
     job.root.mkdir(parents=True)
     with pytest.raises(ValueError, match=key):
         job.write("answers.json", {**FIXTURE["answers"], "style": {**FIXTURE["answers"]["style"], key: size}})
+
+
+# ---------- размер вставок ----------
+
+SIZES = json.loads((Path(__file__).parent / "fixtures" / "insert-sizes.json").read_text(encoding="utf-8"))
+
+
+def test_insert_sizes_match_the_shared_fixture():
+    from vm.style import sized_inserts
+
+    assert sized_inserts(SIZES["inserts"], SIZES["sizes"]) == SIZES["expected"]
+    assert sized_inserts(SIZES["inserts"], {}) == SIZES["inserts"]
+
+
+def test_answers_take_insert_sizes_within_the_safe_zone(tmp_path):
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    job.write("answers.json", {**FIXTURE["answers"], "insertSizes": {"insert-1": 330, "assets/library/a.png": 80}})
+    for bad in ({"insert-1": 60}, {"insert-1": 900}, {"insert-1": "300"}):
+        with pytest.raises(ValueError, match="insertSizes"):
+            job.write("answers.json", {**FIXTURE["answers"], "insertSizes": bad})

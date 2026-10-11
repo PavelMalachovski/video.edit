@@ -1,3 +1,4 @@
+import { ConfigError } from './env.ts';
 import { isRateLimited } from './github.ts';
 import { RoutineError } from './routine.ts';
 
@@ -7,7 +8,8 @@ import { RoutineError } from './routine.ts';
 export function errorResponse(e: unknown): Response {
   if (isRateLimited(e)) return Response.json({ error: 'GitHub просит подождать', retryAfter: e.retryAfter }, { status: 429 });
   if (e instanceof RoutineError) return Response.json({ error: e.message }, { status: 502 });
+  if (e instanceof ConfigError) return Response.json({ error: e.message }, { status: 500 });
   const raw = e instanceof Error ? e.message : String(e);
   const error = raw.replace(/(Bearer|token)\s+\S+/gi, '$1 ***').replace(/gh[pousr]_\w+|github_pat_\w+/g, '***').slice(0, 800);
-  return Response.json({ error }, { status: /^env \w+ is not set/.test(raw) ? 500 : 502 });
+  return Response.json({ error }, { status: 502 });
 }

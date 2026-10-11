@@ -6,19 +6,19 @@ import { useCallback, useEffect, useState } from 'react';
 import { errorText, message } from '@/lib/client.ts';
 import { mmss } from '@/lib/format.ts';
 import type { JobView, Screen } from '@/lib/jobview.ts';
-import { TrashIcon } from './icons';
+import { DocIcon, FilmIcon, TrashIcon } from './icons';
 
 /** Событие окна: список задач изменился (загрузка создала новую) — перечитать. */
 export const JOBS_CHANGED = 'vm:jobs-changed';
 
-type Row = { jobId: string; title: string; createdAt: string; duration: number | null; screen: Screen; phase: string | null; stuck: JobView['stuck'] };
+type Row = { jobId: string; kind: JobView['kind']; title: string; createdAt: string; duration: number | null; screen: Screen; phase: string | null; stuck: JobView['stuck'] };
 type Tone = 'grey' | 'yellow' | 'green' | 'red';
 
-function badge(r: Row): { text: string; tone: Tone } {
+function badge(r: Row): { text: string; tone: Tone; live?: boolean } {
   switch (r.screen) {
     case 'uploading': return { text: 'Загрузка не закончена', tone: 'grey' };
     case 'not_started': return { text: 'Не запущено', tone: 'grey' };
-    case 'working': return r.stuck ? { text: `${r.phase ?? 'Работаю'}… завис?`, tone: 'yellow' } : { text: `${r.phase ?? 'Работаю'}…`, tone: 'grey' };
+    case 'working': return r.stuck ? { text: `${r.phase ?? 'Работаю'}… завис?`, tone: 'yellow' } : { text: `${r.phase ?? 'Работаю'}…`, tone: 'grey', live: true };
     case 'questions': return { text: 'Ждёт ответов', tone: 'yellow' };
     case 'result': return { text: 'Готово', tone: 'green' };
     case 'script': return { text: 'Сценарий готов', tone: 'green' };
@@ -80,19 +80,25 @@ export default function JobsList() {
 
   return (
     <section className="list">
-      <h2 className="caps">Мои видео</h2>
+      <div className="list-head">
+        <h2>Мои видео</h2>
+        {rows?.length ? <span className="count">{rows.length}</span> : null}
+      </div>
       {error ? <div className="muted small">{error}</div> : null}
       {rows === null ? (error ? null : <div className="muted">Загружаю список…</div>) : rows.length === 0 ? <div className="muted">Пока пусто — загрузите первое видео.</div> : rows.map((r) => {
         const b = badge(r);
         return (
-          <div key={r.jobId} className="job" data-job={r.jobId}>
+          <div key={r.jobId} className="job" data-job={r.jobId} data-kind={r.kind}>
             <div className="job-row">
               <Link href={`/jobs/${r.jobId}`} className="job-link">
+                <span className="job-icon">{r.kind === 'script' ? <DocIcon /> : <FilmIcon />}</span>
                 <span className="job-name">
                   <b>{r.title}</b>
-                  {r.duration ? <span className="muted small">{mmss(r.duration)}</span> : null}
+                  <span className="job-meta">
+                    <span className={`badge ${b.tone}${b.live ? ' live' : ''}`}>{b.text}</span>
+                    {r.duration ? <span className="mono muted small">{mmss(r.duration)}</span> : null}
+                  </span>
                 </span>
-                <span className={`badge ${b.tone}`}>{b.text}</span>
               </Link>
               <button type="button" className="icon" aria-label={`Удалить ${r.title}`} disabled={deleting === r.jobId} onClick={() => void remove(r)}>
                 <TrashIcon />

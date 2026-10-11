@@ -53,7 +53,7 @@ export async function GET() {
       const files = head ? await readJobFiles(g, id, head, 'list') : null;
       const release = files?.job?.runs.length ? r : { ...r, assets: await listAllAssets(g, r.id) };
       const v = deriveView(release, files, Date.now());
-      return { jobId: id, title: v.title, createdAt: v.createdAt, duration: v.duration, screen: v.screen, phase: v.status?.phase ?? null, stuck: v.stuck };
+      return { jobId: id, kind: v.kind, title: v.title, createdAt: v.createdAt, duration: v.duration, screen: v.screen, phase: v.status?.phase ?? null, stuck: v.stuck };
     });
     rows.sort((a, b) => ORDER[a.screen] - ORDER[b.screen] || b.createdAt.localeCompare(a.createdAt));
     return NextResponse.json(rows);

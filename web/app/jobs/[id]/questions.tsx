@@ -130,7 +130,7 @@ function QuestionCard({ q, n, draft, onDraft, need, fileUrl, localUrl, loading, 
 
   return (
     <section className={`card question${need ? ' need' : ''}`} data-question={q.id}>
-      <div className="caps">{n} · {q.title}</div>
+      <div className="q-head"><span className="q-num">{String(n).padStart(2, '0')}</span><span className="q-title">{q.title}</span></div>
       <div className={q.image ? 'q-row' : undefined}>
         {q.image ? <img className="q-image" src={fileUrl(q.image)} alt="" /> : null}
         {q.body ? <div className="q-body">{q.body}</div> : null}

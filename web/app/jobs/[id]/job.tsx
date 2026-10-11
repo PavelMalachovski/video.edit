@@ -1,7 +1,6 @@
 'use client';
 // Страница задачи: опрос GET /api/jobs/<id> (5 с; GitHub просит подождать — дольше), пока вкладка видна; шапка,
 // полоса шагов и экран по view.screen.
-import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buildAnswers, loadDraft, saveDraft, type Draft } from '@/lib/answers.ts';
 import { errorText, message, post, storage } from '@/lib/client.ts';
@@ -9,6 +8,7 @@ import { mmss } from '@/lib/format.ts';
 import { stepIndex, type Action, type JobData } from '@/lib/jobview.ts';
 import { nextDelay } from '@/lib/poll.ts';
 import { Steps } from '../../steps';
+import { TopBar } from '../../top-bar';
 import Phases from './phases';
 import Previews from './previews';
 import Questions, { type ChangeDraft } from './questions';
@@ -127,50 +127,37 @@ export default function Job({ id }: { id: string }) {
   if (missing) {
     return (
       <>
-        <Link href="/" className="back">← Мои видео</Link>
+        <TopBar back={{ href: '/', label: 'Мои видео' }} title="Задача не найдена" />
         <div className="card">Задача не найдена — её удалили или ссылка неверная.</div>
       </>
     );
   }
   const view = data?.view;
+  const notices = (
+    <>
+      {wait !== null ? <div className="muted small">GitHub просит подождать, обновлю через {wait} с</div> : null}
+      {trouble ? <div className="muted small">{trouble}</div> : null}
+    </>
+  );
   // после «Ещё три варианта» вопросы уже отвечены — сразу превью; «← Вопросы» и «Показать превью» решают сами
   const answered = questions && draft ? buildAnswers(questions, draft).missing.length === 0 : false;
   const previews = stage === 'previews' || (stage === 'auto' && view?.step === 'restyle' && answered);
   if (data && view?.screen === 'questions' && draft && questions && styles && previews) {
     return (
-      <>
-        <Steps current={3} />
-        <Previews jobId={id} styles={styles} questions={questions} draft={draft} brief={data.brief} duration={view.duration} fileUrl={fileUrl} localUrl={localUrl}
-          onBack={() => setStage('questions')} onAct={act} />
-      </>
+      <Previews jobId={id} styles={styles} questions={questions} draft={draft} brief={data.brief} duration={view.duration} fileUrl={fileUrl} localUrl={localUrl}
+        onBack={() => setStage('questions')} onAct={act} />
     );
   }
   if (data && view?.screen === 'script' && data.script) {
-    return (
-      <>
-        <Link href="/" className="back">← Мои видео</Link>
-        <ScriptView title={view.title} script={data.script} request={data.scriptRequest} />
-      </>
-    );
+    return <ScriptView title={view.title} script={data.script} request={data.scriptRequest} />;
   }
   if (data && view?.screen === 'result') {
-    return (
-      <>
-        <Link href="/" className="back">← Мои видео</Link>
-        {wait !== null ? <div className="muted small">GitHub просит подождать, обновлю через {wait} с</div> : null}
-        <Result view={view} result={data.result} answers={data.answers} fixes={data.fixes} onAct={act} />
-      </>
-    );
+    return <Result view={view} result={data.result} answers={data.answers} fixes={data.fixes} onAct={act} notice={notices} />;
   }
   return (
     <>
-      <Link href="/" className="back">← Мои видео</Link>
-      <header className="job-head">
-        <h1>{view?.title ?? 'Загружаю…'}</h1>
-        {view?.duration ? <div className="muted">{mmss(view.duration)}</div> : null}
-      </header>
-      {wait !== null ? <div className="muted small">GitHub просит подождать, обновлю через {wait} с</div> : null}
-      {trouble ? <div className="muted small">{trouble}</div> : null}
+      <TopBar back={{ href: '/', label: 'Мои видео' }} title={view?.title ?? 'Загружаю…'} meta={view?.duration ? mmss(view.duration) : null} />
+      {notices}
       {view && view.kind === 'video' ? <Steps current={stepIndex(view)} /> : null}
       {!data || !view ? null : view.screen === 'questions' ? (
         questions && draft ? (

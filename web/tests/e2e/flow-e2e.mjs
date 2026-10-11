@@ -163,7 +163,7 @@ const segments = [
     await page.reload();
     check(await page.inputValue('#handle') === '@pavel.malakhouski', 'бренд не прочитался после перезагрузки');
     await page.getByRole('img', { name: 'Логотип' }).waitFor();
-    await page.getByRole('link', { name: '← Мои видео' }).click();
+    await page.getByRole('link', { name: 'Мои видео' }).click();
     await page.waitForURL(`${APP}/`);
   }],
 
@@ -308,13 +308,27 @@ const segments = [
 
   ['previews', async (ctx) => {
     const { page } = ctx;
-    await until(async () => (await page.locator('iframe[data-spec]').count()) === 5, 10_000, 'три миниатюры, крупное превью и обложка');
+    // редактор: над вкладками — крупное превью, на вкладке «Стиль» — три миниатюры; обложка — на своей вкладке
+    await until(async () => (await page.locator('iframe[data-spec]').count()) === 4, 10_000, 'три миниатюры и крупное превью');
+    const tab = (name) => page.getByRole('tab', { name, exact: true });
+    check(await tab('Стиль').getAttribute('aria-selected') === 'true', 'первая вкладка — не «Стиль»');
     const big = page.locator('iframe[data-big]');
     const bigSpec = async () => JSON.parse(await big.getAttribute('data-spec'));
     await page.getByRole('button', { name: /^B · / }).click();
+    await tab('Шрифт').click();
     await page.getByRole('button', { name: 'Rubik', exact: true }).click();
     await page.getByRole('button', { name: 'Marck Script', exact: true }).click();
+    await tab('Шрифт').focus();
+    await page.keyboard.press('ArrowRight'); // стрелки ходят по вкладкам
+    check(await tab('Цвет').getAttribute('aria-selected') === 'true', 'стрелка вправо не открыла «Цвет»');
     await page.getByLabel('Своя подсветка').fill('#00aaff');
+    // превью на виду: прокрутили к низу — сцена с крупным превью осталась вверху экрана
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    await until(async () => {
+      const b = await big.boundingBox();
+      return b !== null && b.y >= 0 && b.y + b.height <= 844 && await page.evaluate(() => window.scrollY > 0);
+    }, 3000, 'крупное превью на экране после прокрутки вниз');
+    await page.evaluate(() => window.scrollTo(0, 0));
     const b = STYLES.variants[1].spec;
     const want = finalStyle(STYLES, { variant: 'B', font: 'rubik', hand: 'marck-script', colors: { text: b.colors.text, accent: '#00AAFF', bar: b.colors.bar } });
     await until(async () => isDeepStrictEqual(await bigSpec(), want), 5000, `spec крупного превью = finalStyle ${JSON.stringify(want)}`);
@@ -356,6 +370,7 @@ const segments = [
     await session(ctx, { 'styles.json': restyled, 'status.json': { state: 'waiting_answers', phase: 'Ждёт ответов', message: 'Три новых стиля', at: new Date().toISOString(), needs: 'answers' } });
     await page.getByRole('button', { name: /^A · .*без плашки/ }).waitFor({ timeout: 10_000 });
     check(await page.getByRole('button', { name: /^A · / }).getAttribute('aria-pressed') === 'true', 'после restyle выбор не сброшен к A');
+    await tab('Шрифт').click();
     await page.getByRole('button', { name: 'Montserrat', exact: true }).waitFor();
     for (const lacking of ['Russo One', 'Marck Script']) {
       check(await page.getByRole('button', { name: lacking, exact: true }).count() === 0, `${lacking} без «ț» предложен Павлу`);
@@ -363,6 +378,7 @@ const segments = [
     await shot(page, 'previews-romanian');
 
     // финальная карточка: призыв — из ответа на вопрос end, ник и логотип — из образца (бренд Павла)
+    await tab('Стиль').click();
     await page.getByRole('button', { name: 'Финальная карточка' }).click();
     await until(async () => JSON.parse(await big.getAttribute('data-state')).end?.lines?.[0] === 'Подпишись, чтобы не пропустить 👇', 5000, 'карточка на превью');
     const cardState = JSON.parse(await big.getAttribute('data-state')).end;
@@ -373,7 +389,9 @@ const segments = [
     await page.getByRole('slider', { name: 'Высота субтитров' }).waitFor();
 
     await page.getByRole('button', { name: /^B · / }).click();
+    await tab('Шрифт').click();
     await page.getByRole('button', { name: 'Rubik', exact: true }).click();
+    await tab('Место').click(); // кнопки сдвига и размера — на вкладке «Место»
     // субтитры тянутся по крупному превью: 50 px экрана при ширине 270 — это 200 px кадра
     const variantY = restyled.variants[1].spec.subtitles.y;
     const handle = page.getByRole('slider', { name: 'Высота субтитров' });
@@ -468,12 +486,15 @@ const segments = [
     await shot(page, 'previews-insert-moved');
     await shot(page, 'previews-resized');
     await shot(page, 'previews-subtitles-moved');
+    await tab('Скорость').click();
     check(await page.getByRole('button', { name: '×1.1', exact: true }).getAttribute('aria-pressed') === 'true', 'скорость по умолчанию не ×1.1');
     await page.getByRole('button', { name: '×1.3', exact: true }).click();
     // вторая версия для теста: тизер Павел взял — можно собрать ролик без него; музыки нет — без музыки нельзя
+    await tab('A/B').click();
     check(await page.getByRole('button', { name: 'Без музыки' }).count() === 0, 'без музыки предложено, хотя трека нет');
     await page.getByRole('button', { name: 'Без тизера' }).click();
     // версия для рекламы: на крупном превью «Реклама» — всё выше кнопки рекламы (низ зоны — 1250)
+    await tab('Реклама').click();
     await page.locator('[data-ad]').getByRole('button', { name: 'Нужна', exact: true }).click();
     await page.getByRole('button', { name: 'Реклама', exact: true }).click();
     const adFrame = page.frameLocator('iframe[data-big]');
@@ -484,6 +505,7 @@ const segments = [
     await shot(page, 'previews-ads');
     await page.getByRole('button', { name: 'Органика', exact: true }).click();
     // обложка: второй кадр и свой текст; превью рисует её тем же шаблоном
+    await tab('Обложка').click();
     const coverCard = page.locator('[data-cover]');
     check(await coverCard.locator('.cover-pick').count() === 3, 'три кадра обложки');
     const coverText = await coverCard.getByLabel('Текст обложки').inputValue();
@@ -667,6 +689,7 @@ const segments = [
     check(brief === 'ХУК: Какой вы ученик: зубрила или болтун?\nТЕЗИСЫ: Слова — списком; Без повторов\nПРИЗЫВ: Пиши «план» в комментариях\nЯЗЫК: чешский',
       `ТЗ по сценарию: ${JSON.stringify(brief)}`);
     await page.locator(`[data-job="${ctx.jobId}"]`).getByText('Сценарий готов').waitFor();
+    check(await page.locator(`[data-job="${ctx.jobId}"]`).getAttribute('data-kind') === 'script', 'в списке сценарий не отмечен своим видом');
     await page.reload();
     check(await page.inputValue('#brief') === '', 'ТЗ сценария подставилось второй раз');
   }],

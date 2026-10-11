@@ -13,7 +13,7 @@ import {
 } from '@/lib/uploader.ts';
 import { keepScreenOn } from '@/lib/wakelock.ts';
 import { takeNextBrief } from '@/lib/script.ts';
-import { CloseIcon, MicIcon, PlayIcon, PlusIcon, UploadIcon } from './icons';
+import { CloseIcon, FilmIcon, ImageIcon, MicIcon, PlayIcon, PlusIcon, UploadIcon } from './icons';
 import { JOBS_CHANGED } from './jobs-list';
 
 const BRIEF_HINT = 'ХУК: Как я учу чешский\nКОДОВОЕ СЛОВО: чешский\nМУЗЫКА: lofi\nКогда говорю «приложение» — покажи логотип\nНа «вот так это выглядит» — фуллскрин демо';
@@ -282,86 +282,93 @@ export default function Uploader() {
         </div>
       ) : null}
 
-      <label className={`pick${busy ? ' off' : ''}`}>
-        <span className="pick-icon"><UploadIcon /></span>
-        <span className="pick-title">{source ? 'Выбрать другое видео' : 'Выбрать видео'}</span>
-        <span className="pick-hint">Из галереи телефона, до 3 ГБ.</span>
-        <input id="source" type="file" accept="video/*,.mov,.mp4" disabled={busy} hidden
-          onChange={(e) => { void pickSource(e.target.files?.[0] ?? null); e.target.value = ''; }} />
-      </label>
-
-      {source ? (
-        <div className="card">
-          <div className="row baseline">
-            <b className="name">{source.name}</b>
-            <span className="muted small">{bytes(source.size)}{typeof duration === 'number' ? ` · ${mmss(duration)}` : ''}</span>
-          </div>
-          {measuring ? <div className="muted small">Смотрю видео…</div> : null}
-          {long ? <div className="warn">Ролик длиннее 5 минут — монтаж может не уложиться.</div> : null}
-          {sourceError ? <div className="err">{sourceError}</div> : null}
-          {totalError ? <div className="err">{totalError}</div> : null}
-          {busy || phase === 'failed' ? (
-            <>
-              <div className="bar"><div style={{ width: `${pct}%` }} /></div>
-              <div className="row muted small">
-                <span>{phase === 'completing' ? 'Проверяю…' : phase === 'launching' ? 'Запускаю Claude…' : phase === 'failed' ? 'Загрузка остановилась' : 'Загружаю в GitHub…'}</span>
-                <span>{pct}%</span>
-              </div>
-              {phase === 'uploading' ? <div className="muted small">Не закрывайте страницу до конца загрузки.</div> : null}
-            </>
-          ) : null}
+      <section className="card" aria-labelledby="new-project">
+        <div className="panel-head">
+          <h2 id="new-project">Новый проект</h2>
+          <span className="mono muted small">до 3 ГБ</span>
         </div>
-      ) : null}
+        <label className={`pick${busy ? ' off' : ''}`}>
+          <span className="pick-icon"><PlusIcon size={26} /></span>
+          <span className="pick-title">{source ? 'Выбрать другое видео' : 'Выбрать видео'}</span>
+          <span className="pick-hint">из галереи телефона</span>
+          <input id="source" type="file" accept="video/*,.mov,.mp4" disabled={busy} hidden
+            onChange={(e) => { void pickSource(e.target.files?.[0] ?? null); e.target.value = ''; }} />
+        </label>
+        {source ? (
+          <div className="media">
+            <div className="media-row">
+              <span className="media-icon"><FilmIcon /></span>
+              <div className="grow media-name">
+                <b className="name">{source.name}</b>
+                <span className="mono muted small">{bytes(source.size)}{typeof duration === 'number' ? ` · ${mmss(duration)}` : ''}</span>
+              </div>
+            </div>
+            {measuring ? <div className="muted small">Смотрю видео…</div> : null}
+            {long ? <div className="warn small">Ролик длиннее 5 минут — монтаж может не уложиться.</div> : null}
+            {sourceError ? <div className="err small">{sourceError}</div> : null}
+            {totalError ? <div className="err small">{totalError}</div> : null}
+            {busy || phase === 'failed' ? (
+              <>
+                <div className="bar"><div style={{ width: `${pct}%` }} /></div>
+                <div className="row muted small">
+                  <span>{phase === 'completing' ? 'Проверяю…' : phase === 'launching' ? 'Запускаю Claude…' : phase === 'failed' ? 'Загрузка остановилась' : 'Загружаю в GitHub…'}</span>
+                  <span className="mono">{pct}%</span>
+                </div>
+                {phase === 'uploading' ? <div className="muted small">Не закрывайте страницу до конца загрузки.</div> : null}
+              </>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
 
-      <div className="card">
-        <label htmlFor="brief" className="label">ТЗ <span className="muted">— необязательно</span></label>
-        <textarea id="brief" rows={5} maxLength={MAX_BRIEF} placeholder={BRIEF_HINT} value={brief} onChange={(e) => changeBrief(e.target.value)} />
-        <label className={`btn ghost${busy ? ' off' : ''}`}>
-          <PlusIcon />
-          Вставки для этого ролика
+      <section className="card">
+        <label htmlFor="brief" className="label">ТЗ <span className="muted">· необязательно</span></label>
+        <textarea id="brief" className="mono" rows={5} maxLength={MAX_BRIEF} placeholder={BRIEF_HINT} value={brief} onChange={(e) => changeBrief(e.target.value)} />
+      </section>
+
+      <div className="tools">
+        <label className={`tool${busy ? ' off' : ''}`}>
+          <span className="tool-icon"><ImageIcon /></span>
+          <span className="grow">Вставки</span>
+          <span className="tool-plus"><PlusIcon size={16} /></span>
           <input id="inserts" type="file" multiple accept={INSERT_TYPES.join(',')} disabled={busy} hidden
             onChange={(e) => { addInserts(e.target.files); e.target.value = ''; }} />
         </label>
-        {inserts.length ? (
-          <ul className="files">
-            {inserts.map((f, k) => (
-              <li key={`${f.name}:${f.size}:${f.lastModified}`}>
-                <Thumb file={f} />
-                <span className="grow">{f.name}</span>
-                <button type="button" className="icon" aria-label={`Убрать ${f.name}`} disabled={busy}
-                  onClick={() => setInserts(inserts.filter((_, i) => i !== k))}>
-                  <CloseIcon />
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-        {insertError ? <div className="err pre">{insertError}</div> : null}
-      </div>
-
-      <div className="card">
-        <div className="label">Озвучка <span className="muted">— необязательно</span></div>
-        <div className="muted small">Своя запись голоса с диктофона — пойдёт вместо звука видео. M4A, MP3, WAV или AAC, до 200 МБ.</div>
-        <label className={`btn ghost${busy ? ' off' : ''}`}>
-          <PlusIcon />
-          {voice ? 'Выбрать другую запись' : 'Добавить озвучку'}
+        <label className={`tool${busy ? ' off' : ''}`}>
+          <span className="tool-icon"><MicIcon size={20} /></span>
+          <span className="grow">Озвучка</span>
+          <span className="tool-plus"><PlusIcon size={16} /></span>
           <input id="voice" type="file" accept={['audio/*', ...VOICE_EXT.map((e) => `.${e}`)].join(',')} disabled={busy} hidden
             onChange={(e) => { pickVoice(e.target.files?.[0] ?? null); e.target.value = ''; }} />
         </label>
-        {voice ? (
-          <ul className="files">
+      </div>
+      {inserts.length || voice ? (
+        <ul className="files">
+          {inserts.map((f, k) => (
+            <li key={`${f.name}:${f.size}:${f.lastModified}`}>
+              <Thumb file={f} />
+              <span className="grow">{f.name}</span>
+              <button type="button" className="icon" aria-label={`Убрать ${f.name}`} disabled={busy}
+                onClick={() => setInserts(inserts.filter((_, i) => i !== k))}>
+                <CloseIcon />
+              </button>
+            </li>
+          ))}
+          {voice ? (
             <li>
               <span className="thumb"><MicIcon /></span>
               <span className="grow">{voice.name}</span>
-              <span className="muted small">{bytes(voice.size)}</span>
+              <span className="mono muted small">{bytes(voice.size)}</span>
               <button type="button" className="icon" aria-label={`Убрать ${voice.name}`} disabled={busy} onClick={() => setVoice(null)}>
                 <CloseIcon />
               </button>
             </li>
-          </ul>
-        ) : null}
-        {voiceError ? <div className="err">{voiceError}</div> : null}
-      </div>
+          ) : null}
+        </ul>
+      ) : null}
+      {insertError ? <div className="err small pre">{insertError}</div> : null}
+      {voiceError ? <div className="err small">{voiceError}</div> : null}
+      <div className="muted small">Вставки — логотипы, скрины и демо для этого ролика. Озвучка — своя запись голоса вместо звука видео: M4A, MP3, WAV или AAC до 200 МБ.</div>
 
       {error ? <div className="err">{error}</div> : null}
       {phase === 'launch_failed' && launched.current ? (
@@ -372,6 +379,7 @@ export default function Uploader() {
         <button type="button" className="btn" disabled={!canStart} onClick={() => void resume()}>Продолжить загрузку</button>
       ) : (
         <button type="button" className="btn" disabled={!canStart} onClick={() => void startNew()}>
+          <UploadIcon size={20} />
           {busy ? 'Загружаю…' : 'Загрузить'}
         </button>
       )}

@@ -18,15 +18,17 @@ type Logo = { kind: 'saved'; url: string } | { kind: 'new'; url: string; type: s
 
 const MAX_LOGO = 2 * 1024 * 1024;
 const LOGO_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
-// стиль A из правил монтажа (SKILL.md, раздел 2): бренд меняет в нём шрифты и цвета
+// стиль A из правил монтажа (SKILL.md, раздел 2 — стиль эталона): бренд меняет в нём шрифты и цвета
 const STYLE_A: StyleSpec = {
-  font: 'montserrat', hand: 'caveat',
-  colors: { text: '#FFFFFF', accent: '#FFD23F', bar: '#FFD23F', plate: '#111111', outline: '#000000' },
-  subtitles: { mode: 'karaoke', words: 3, size: 64, y: 1300 },
-  hook: { mode: 'plate', size: 72, y: 400 },
-  bar: { pos: 'bottom', height: 14 },
+  font: 'forum', hand: 'caveat',
+  colors: { text: '#FFFFFF', accent: '#EDE4C1', bar: '#EDE4C1', plate: '#111111', outline: '#000000' },
+  subtitles: { mode: 'soft', words: 3, size: 64, y: 1440 },
+  hook: { mode: 'accent', size: 108, y: 420 },
+  bar: { pos: 'bottom', height: 6 },
 };
-const SAMPLE: OverlayState = { hook: { text: 'Так выглядит мой бренд 🔥' }, sub: { words: ['Это', 'мои', 'субтитры'], active: 1, visible: 3 }, inserts: [] };
+const SAMPLE: OverlayState = {
+  hook: { text: 'так выглядит мой бренд' }, sub: { words: ['это', 'мои', 'субтитры'], active: 0, visible: 3, lines: [3] }, inserts: [],
+};
 const BACKDROP = `data:image/svg+xml,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">'
   + '<stop offset="0" stop-color="#4B5563"/><stop offset="1" stop-color="#1F2937"/></linearGradient></defs>'

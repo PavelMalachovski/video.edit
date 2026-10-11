@@ -102,3 +102,28 @@ img.emo {
 #bar {
   position: absolute;
 }
+
+/* Стиль эталона: субтитры soft — строки блока по одной на строку, без переноса; строки акцентов и хука accent
+   стоят каждая сама по себе (место считает overlay.js), курсор печатной машинки — полоска рядом с буквой. */
+.slines {
+  position: absolute;
+  text-align: center;
+  font-kerning: normal;
+  font-synthesis: none;
+}
+
+.sline {
+  display: block;
+  white-space: nowrap;
+}
+
+.aline {
+  position: absolute;
+  white-space: nowrap;
+  font-kerning: normal;
+  font-synthesis: none;
+}
+
+.aline .cursor {
+  position: absolute;
+}

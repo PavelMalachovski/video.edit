@@ -315,8 +315,143 @@ def test_with_a_teaser_the_hook_stays_over_the_whole_teaser_and_inserts_keep_the
     assert events[-1]["t1"] == pytest.approx(12.0)
 
 
+# ---------- стиль эталона: субтитры soft, хук accent, акцентные фразы ----------
+
+SOFT_STYLE = {
+    **STYLE,
+    "font": "forum",
+    "subtitles": {"mode": "soft", "words": 3, "size": 64, "y": 1440},
+    "hook": {"mode": "accent", "size": 100, "y": 420},
+}
+
+SIX = words((1.0, 1.2, "Я"), (1.3, 1.5, "покупаю"), (1.6, 1.8, "вещи,"), (1.9, 2.1, "чтобы"), (2.2, 2.4, "выглядеть"),
+            (2.5, 2.7, "плохо."))
+
+
+def frame_states(events, t0, t1):
+    """Состояния кадров с t0 по t1 (секунды финала) — по одному на кадр."""
+    return [at(events, (f + 0.5) / FPS) for f in range(round(t0 * FPS), round(t1 * FPS))]
+
+
+def test_soft_subtitles_carry_their_lines_and_the_newest_line_slides_in():
+    edit = make_edit(words=SIX, style=SOFT_STYLE)
+    events = build_overlay_events(edit, timeline(edit))
+    texts = [w["text"] for w in SIX]
+    first = frame_states(events, 1.0, 1.2)
+    assert first[0]["sub"] == {"words": texts, "active": 0, "visible": 3, "lines": [3, 3], "t": pytest.approx(FRAME)}
+    assert [s["sub"].get("t") for s in first[:5]] == pytest.approx([FRAME, 2 * FRAME, 3 * FRAME, 4 * FRAME, None])
+    second = at(events, 1.9 + FRAME / 2)["sub"]
+    assert second["visible"] == 6 and second["t"] == pytest.approx(FRAME)
+    assert "t" not in at(events, 2.5)["sub"], "строка появилась — дальше кадры одинаковые и склеиваются"
+
+
+def test_hook_in_accent_mode_comes_out_of_blur_frame_by_frame():
+    edit = make_edit(words=SIX, style=SOFT_STYLE, hook={"text": "я покупаю вещи", "until": 2.0})
+    events = build_overlay_events(edit, timeline(edit))
+    hooks = [s["hook"] for s in frame_states(events, 0.0, 0.5)]
+    assert hooks[0] == {"text": "я покупаю вещи", "t": pytest.approx(FRAME)}
+    assert hooks[7]["t"] == pytest.approx(8 * FRAME)
+    assert "t" not in hooks[8] and hooks[8] == {"text": "я покупаю вещи"}
+
+
+def test_plate_hook_has_no_animation_time():
+    edit = make_edit(hook={"text": "Как я монтирую", "until": 2.5})
+    assert at(build_overlay_events(edit, timeline(edit)), 0.01)["hook"] == {"text": "Как я монтирую"}
+
+
+def accent(t0, t1, *lines, **extra):
+    return {"t0": t0, "t1": t1, "lines": [{"text": text} for text in lines], "x": 480, "y": 900, **extra}
+
+
+def test_accent_shows_its_words_instead_of_subtitles():
+    edit = make_edit(words=SIX, style=SOFT_STYLE, accents=[accent(1.9, 2.4, "чтобы", "выглядеть")])
+    events = build_overlay_events(edit, timeline(edit))
+    during = at(events, 2.2)
+    assert "sub" not in during, "пока акцент на экране, мелких субтитров нет"
+    assert during["accent"]["lines"] == [{"text": "чтобы"}, {"text": "выглядеть"}]
+    assert (during["accent"]["x"], during["accent"]["y"]) == (480, 900)
+    shown = {w for e in events for w in e["state"].get("sub", {}).get("words", [])}
+    assert "чтобы" not in shown and "выглядеть" not in shown, "слова акцента в субтитры не идут"
+    assert at(events, 2.55)["sub"]["words"] == ["плохо."]
+    assert at(events, 1.7)["sub"]["words"] == ["Я", "покупаю", "вещи,"]
+
+
+def test_accent_lines_appear_with_their_words():
+    edit = make_edit(words=SIX, style=SOFT_STYLE, accents=[accent(1.9, 2.4, "чтобы", "Выглядеть!")])
+    events = build_overlay_events(edit, timeline(edit))
+    states = frame_states(events, 1.9, 2.4)
+    assert states[0]["accent"]["ages"] == [pytest.approx(FRAME), None], "вторая строка ждёт своего слова"
+    line2 = round((2.2 - 1.9) * FPS)
+    assert states[line2 - 1]["accent"]["ages"][1] is None
+    assert states[line2]["accent"]["ages"][1] == pytest.approx(FRAME), "строка появилась со словом «выглядеть»"
+    assert states[0]["accent"]["anim"] == "blur" and states[0]["accent"]["out"] == "fade"
+
+
+def test_accent_line_without_its_word_appears_with_the_line_before():
+    edit = make_edit(words=SIX, style=SOFT_STYLE, accents=[accent(1.9, 2.4, "чтобы", "некрасиво")])
+    events = build_overlay_events(edit, timeline(edit))
+    assert at(events, 1.9 + FRAME / 2)["accent"]["ages"] == [pytest.approx(FRAME), pytest.approx(FRAME)]
+
+
+def test_accent_animation_ends_and_frames_merge():
+    edit = make_edit(words=SIX, style=SOFT_STYLE, accents=[accent(1.0, 1.8, "я покупаю вещи")])
+    events = build_overlay_events(edit, timeline(edit))
+    ages = [s["accent"]["ages"][0] for s in frame_states(events, 1.0, 1.6)]
+    moving = [a for a in ages if a < 1]
+    assert 7 <= len(moving) <= 9, f"появление из размытия — кадр за кадром ({len(moving)} кадров)"
+    assert len({a for a in ages if a >= 1}) == 1, "потом строка стоит — кадры одинаковые"
+
+
+def test_typewriter_accent_ticks_until_the_line_is_typed():
+    edit = make_edit(words=SIX, style=SOFT_STYLE, accents=[accent(1.0, 1.8, "я покупаю вещи", anim="type")])
+    events = build_overlay_events(edit, timeline(edit))
+    ages = [s["accent"]["ages"][0] for s in frame_states(events, 1.0, 2.0) if "accent" in s]
+    typing = [a for a in ages if a < 5]
+    assert len(typing) >= round((len("я покупаю вещи") / 30 + 0.25) * FPS), "печать и курсор — кадр за кадром"
+
+
+def test_accent_leaves_before_the_next_subtitle_or_a_beat_after_its_phrase():
+    edit = make_edit(words=SIX, style=SOFT_STYLE, accents=[accent(1.9, 2.4, "чтобы выглядеть")])
+    events = build_overlay_events(edit, timeline(edit))
+    assert "accent" in at(events, 2.45) and "accent" not in at(events, 2.5 + FRAME / 2), "до субтитров «плохо»"
+    leaving = [s["accent"]["leave"] for s in frame_states(events, 2.3, 2.5) if "leave" in s.get("accent", {})]
+    assert leaving == pytest.approx([0.25, 0.5, 0.75, 1.0]), "уход — растворение за 4 кадра"
+    alone = make_edit(words=SIX[:4], style=SOFT_STYLE, accents=[accent(1.9, 2.1, "чтобы", out="cut")])
+    events = build_overlay_events(alone, timeline(alone))
+    assert "accent" in at(events, 2.35) and "accent" not in at(events, 2.42), "без субтитров следом — ещё 0,3 с"
+    assert not any("leave" in e["state"].get("accent", {}) for e in events), "out: cut — без ухода"
+
+
+def test_accent_follows_the_cuts_and_the_speed():
+    edit = make_edit(words=SIX, style=SOFT_STYLE, keep=[[0.0, 1.0], [1.5, 10.0]], speed=1.25,
+                     accents=[accent(1.9, 2.4, "чтобы", "выглядеть")])
+    tl = timeline(edit)
+    events = build_overlay_events(edit, tl)
+    start = tl.to_final_snap(1.9)
+    assert "accent" in at(events, start + FRAME / 2) and "accent" not in at(events, start - FRAME)
+    second = round(tl.to_final_snap(2.2) * FPS)
+    assert at(events, (second + 0.5) / FPS)["accent"]["ages"][1] == pytest.approx(FRAME)
+
+
+def test_accent_words_are_kept_in_the_srt():
+    from vm.subs import to_srt
+
+    edit = make_edit(words=SIX, style=SOFT_STYLE, accents=[accent(1.9, 2.4, "чтобы выглядеть")])
+    srt = to_srt([Word(w["t0"], w["t1"], w["text"]) for w in edit["words"]], timeline(edit))
+    assert "чтобы выглядеть" in srt
+
+
 def test_the_ads_version_draws_every_frame_in_the_ads_zone():
     tl = Timeline([(0.0, 4.0)], 1.0)
     events = build_overlay_events(make_edit(zone="ads", hold=0.5, end={"seconds": 1.0, "lines": ["Сохрани"]}), tl)
     assert events and all(e["state"].get("zone") == "ads" for e in events)
     assert all("zone" not in e["state"] for e in build_overlay_events(make_edit(), tl)), "обычный ролик — без зоны"
+
+
+def test_an_accent_on_the_last_frame_stays_whole_on_the_freeze_frame():
+    edit = make_edit(words=SIX, style=SOFT_STYLE, keep=[[0.0, 2.45]], hold=1.0, accents=[accent(1.9, 2.4, "чтобы выглядеть")])
+    tl = timeline(edit)
+    events = build_overlay_events(edit, tl)
+    for t in (tl.duration - FRAME / 2, tl.duration + 0.5, tl.duration + 0.95):
+        state = at(events, t)
+        assert "accent" in state and "leave" not in state["accent"], f"{t}: на стоп-кадре акцент остаётся, как был"

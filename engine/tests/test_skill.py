@@ -51,7 +51,7 @@ def test_the_rules_work_in_the_language_of_the_video():
     assert "только русская" not in frame and "language.json" in frame
     texts = section("6. Тексты")
     assert "Parakeet" in texts and "языке ролика" in texts  # звёздочки и слова — на языке ролика
-    assert "vm fonts" in section("2. Стиль A — домашний стиль Павла")
+    assert "vm fonts" in section("2. Стиль A — стиль эталона")
 
 
 def test_the_service_part_knows_the_language_and_the_fonts():
@@ -106,7 +106,7 @@ def test_emoji_are_allowed_as_pictures_but_not_in_subtitles():
 
 
 def test_style_a_follows_pavels_brand():
-    style = section("2. Стиль A — домашний стиль Павла")
+    style = section("2. Стиль A — стиль эталона")
     assert "job.json.brand" in style and "vm fonts" in style
     page = section("Страница")
     assert "brand" in page and "in/brand/logo.png" in page and "hashtags" in page
@@ -115,7 +115,7 @@ def test_style_a_follows_pavels_brand():
 
 def test_thesis_stickers_have_rules_a_question_and_a_render_step():
     inserts = section("7. Вставки")
-    assert "`text` — стикер-тезис" in inserts and "`id`" in inserts and "2–5 на ролик" in inserts
+    assert "`text` — стикер-тезис" in inserts and "`id`" in inserts and "только если их просит ТЗ" in inserts
     assert "`stickers` (multi)" in section("Вопросы (questions.json)")
     assert "стикеры-тезисы" in section("Шаг render") and "`stickers`" in section("Шаг render")
     assert "стикеры-тезисы" in section("Страница")
@@ -198,7 +198,7 @@ def test_the_ads_version_reaches_the_render_step():
 
 
 def test_transitions_go_only_on_scene_changes_and_are_decided_in_analyze():
-    rules = section("4. Зумы и переходы")
+    rules = section("4. Зумы")
     assert "только на смене сцены" in rules and "не чаще раза в 3 с" in rules and "`joins`" in rules
     for kind in ("flash", "zoom", "blur"):
         assert f"`{kind}`" in rules, kind
@@ -231,7 +231,55 @@ def test_restyle_keeps_the_cover_fonts_and_sample():
 
 
 def test_zooms_are_twice_as_close_and_pavel_may_put_the_subtitles_low():
-    zooms = section("4. Зумы и переходы")
+    zooms = section("4. Зумы")
     assert "1.00 / 1.08 / 1.10 / 1.14, максимум 1.16" in zooms
-    style = section("2. Стиль A — домашний стиль Павла")
+    style = section("2. Стиль A — стиль эталона")
     assert "до 1760" in style and "подпись Reels" in style
+
+
+# ---------- стиль эталона (abramova.mp4, решения Павла 11.10.2026) ----------
+
+
+def test_the_reference_style_is_style_a_and_the_yellow_style_is_c():
+    style = section("2. Стиль A — стиль эталона")
+    for must in ('"font": "forum"', '"mode": "soft"', '"mode": "accent"', "#EDE4C1", '"height": 6', "Стиль C", '"mode": "karaoke"'):
+        assert must in style, must
+    styles = section("Стили (styles.json)")
+    assert "**A** — стиль эталона" in styles and "**C** — прежний домашний стиль" in styles
+
+
+def test_accent_phrases_have_rules_a_draft_and_a_render_step():
+    texts = section("6. Тексты")
+    assert "**Акцентные фразы**" in texts and "`accents:" in texts and "в субтитры не идут" in texts
+    analyze = section("Шаг analyze")
+    assert '"accents": accents' in analyze and '"looks": looks' in analyze and '"over": 0' in analyze
+    assert "акцентные фразы" in section("Шаг render")
+
+
+def test_black_and_white_pieces_have_a_rule_and_a_question():
+    zooms = section("4. Зумы")
+    assert "**Ч/б-куски**" in zooms and '"bw"' in zooms
+    assert "`bw` (multi)" in section("Вопросы (questions.json)")
+    assert "`bw`" in section("Шаг render")
+
+
+def test_shot_changes_and_push_ins_replace_the_jump_of_a_cut():
+    zooms = section("4. Зумы")
+    assert "**Смены крупности**" in zooms and "over: 0" in zooms and "1.30" in zooms and "**Медленный наезд**" in zooms
+
+
+def test_cutting_is_tight_by_default_and_soft_on_request():
+    cut = section("3. Скорость и резка")
+    assert "плотная" in cut and "0,26 с" in cut and "0,16 с" in cut
+    questions = section("Вопросы (questions.json)")
+    assert "`soft`" in questions and "мягче" in questions
+    assert "**SOFT" in section("Шаг render") and "**SOFT" in section("Шаг analyze")
+
+
+def test_a_soft_cut_redoes_the_cutting_with_the_slips_of_the_draft():
+    """Ответ `cut: soft` пересчитывает резку в шаге render — вырезки оговорок берутся из черновика, иначе VAD вернёт
+    фальстарт в ролик."""
+    analyze = section("Шаг analyze")
+    assert '"cuts": [list(c) for c in cut]' in analyze
+    render = section("Шаг render")
+    assert 'extra_cuts=edit.get("cuts") or []' in render and "**SOFT" in render

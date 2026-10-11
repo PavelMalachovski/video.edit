@@ -344,8 +344,74 @@ def test_edit_rejects_unknown_subtitle_mode(job):
     with pytest.raises(ValueError, match=r"style\.subtitles\.mode"):
         job.write("edit.json", edit)
 
-    for mode in ("karaoke", "plate", "word", "accumulate"):
+    for mode in ("karaoke", "plate", "word", "accumulate", "soft"):
         edit["style"]["subtitles"]["mode"] = mode
+        job.write("edit.json", edit)
+
+
+def test_style_of_the_reference_has_soft_subtitles_and_an_accent_hook(job):
+    edit = make_edit()
+    edit["style"] = {**make_style(), "font": "forum", "subtitles": {"mode": "soft", "words": 3, "size": 64, "y": 1440},
+                     "hook": {"mode": "accent", "size": 108, "y": 420}, "bar": {"pos": "bottom", "height": 6}}
+    job.write("edit.json", edit)
+    edit["style"]["hook"]["mode"] = "script"
+    with pytest.raises(ValueError, match=r"style\.hook\.mode"):
+        job.write("edit.json", edit)
+
+
+def test_edit_takes_accent_phrases(job):
+    edit = make_edit()
+    edit["accents"] = [
+        {"t0": 35.2, "t1": 37.0, "lines": [{"text": "это 5 всадник"}, {"text": "апокалипсиса", "size": "small", "color": "accent"}],
+         "x": 470, "y": 1100, "anim": "type", "out": "zoom"},
+        {"t0": 40.0, "t1": 41.0, "lines": [{"text": "самосаботаж", "size": "big"}], "x": 500, "y": 900},
+    ]
+    job.write("edit.json", edit)
+    assert job.read("edit.json")["accents"] == edit["accents"]
+    for bad, field in (
+        ({"lines": []}, "lines"),
+        ({"lines": [{"text": "a"}, {"text": "b"}, {"text": "c"}, {"text": "d"}]}, "lines"),
+        ({"lines": [{"text": ""}]}, "text"),
+        ({"lines": [{"text": "a", "size": "huge"}]}, "size"),
+        ({"lines": [{"text": "a", "color": "red"}]}, "color"),
+        ({"anim": "bounce"}, "anim"),
+        ({"out": "spin"}, "out"),
+    ):
+        broken = copy.deepcopy(edit)
+        broken["accents"][1].update(bad)
+        with pytest.raises(ValueError, match=rf"accents\[1\]\S*{field}"):
+            job.write("edit.json", broken)
+    broken = copy.deepcopy(edit)
+    del broken["accents"][1]["x"]
+    with pytest.raises(ValueError, match=r"accents\[1\]"):
+        job.write("edit.json", broken)
+
+
+def test_edit_takes_black_and_white_pieces(job):
+    edit = make_edit()
+    edit["looks"] = [{"t0": 2.0, "t1": 4.5, "look": "bw"}]
+    job.write("edit.json", edit)
+    edit["looks"] = [{"t0": 2.0, "t1": 4.5, "look": "sepia"}]
+    with pytest.raises(ValueError, match=r"looks\[0\]\.look"):
+        job.write("edit.json", edit)
+
+
+def test_the_draft_keeps_its_cut_out_slips(job):
+    """Вырезки оговорок черновика: шаг render режет их и при другой резке пауз (ответ «мягко»)."""
+    edit = make_edit()
+    edit["cuts"] = [[2.0, 2.5], [7.1, 7.6]]
+    job.write("edit.json", edit)
+    edit["cuts"] = [[2.0]]
+    with pytest.raises(ValueError, match=r"cuts\[0\]"):
+        job.write("edit.json", edit)
+
+
+def test_zoom_steps_take_the_length_of_their_change(job):
+    edit = make_edit()
+    edit["zooms"] = [{"t": 1.0, "level": 1.25, "over": 0}, {"t": 3.0, "level": 1.15, "over": 4.5}, {"t": 9.0, "level": 1.0}]
+    job.write("edit.json", edit)
+    edit["zooms"][0]["over"] = -1
+    with pytest.raises(ValueError, match=r"zooms\[0\]\.over"):
         job.write("edit.json", edit)
 
 

@@ -87,15 +87,20 @@ def _hand_word(title: str) -> str:
 
 
 def texts(edit: dict) -> tuple[str, str]:
-    """Текст ролика и обложки из edit.json: (что рисует основной шрифт, что — рукописный)."""
+    """Текст ролика и обложки из edit.json: (что рисует основной шрифт, что — рукописный). Акцентные фразы — основным;
+    в режиме хука `accent` (стиль эталона) хук, обложку и кодовое слово тоже рисует основной, рукописного нет."""
     hook = (edit.get("hook") or {}).get("text") or ""
     cover = (edit.get("cover") or {}).get("text") or ""  # обложка — тот же хук другим текстом
     cta = edit.get("cta") or {}
+    accent_mode = ((edit.get("style") or {}).get("hook") or {}).get("mode") == "accent"
     main = [w.get("text", "") for w in edit.get("words") or []]
     main += [hook, cover, *(cta.get("lines") or [])]
     main += [i.get(key) or "" for i in edit.get("inserts") or [] for key in ("title", "text")]
+    main += [line.get("text") or "" for a in edit.get("accents") or [] for line in a.get("lines") or []]
     card = edit.get("end") or {}
     main += [*(card.get("lines") or []), card.get("handle") or ""]  # финальная карточка — основным шрифтом
+    if accent_mode:
+        return "\n".join([*main, cta.get("word") or ""]), ""
     hand = [_hand_word(hook), cta.get("word") or "", _hand_word(cover)]
     return "\n".join(main), " ".join(part for part in hand if part)
 

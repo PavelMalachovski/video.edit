@@ -401,7 +401,7 @@ test('every font in fonts.json loads and has Cyrillic', async () => {
   const fonts = await page.evaluate(async () => (await fetch('fonts.json')).json());
   const main = fonts.filter((f) => f.kind === 'main').map((f) => f.id);
   const hand = fonts.filter((f) => f.kind === 'hand').map((f) => f.id);
-  assert.deepEqual(main, ['montserrat', 'unbounded', 'rubik', 'oswald', 'russo-one', 'comfortaa']);
+  assert.deepEqual(main, ['forum', 'montserrat', 'unbounded', 'rubik', 'oswald', 'russo-one', 'comfortaa']);
   assert.deepEqual(hand, ['caveat', 'marck-script', 'bad-script']);
   for (const f of fonts) {
     const s = f.kind === 'main' ? spec({ font: f.id }) : spec({ hand: f.id });

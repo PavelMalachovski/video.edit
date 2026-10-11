@@ -36,6 +36,17 @@ test('sampleState groups subtitles like the engine', () => {
   assert.equal(sampleState(spec('karaoke'), { words: [], spoken: 0 }, null, []).sub, undefined);
 });
 
+test('sampleState shows a soft block like the engine: up to two lines of N words, the whole block on the frame', () => {
+  const base = STYLES.variants[0].spec;
+  const soft = (words = 3) => ({ ...base, subtitles: { ...base.subtitles, mode: 'soft' as const, words } });
+  const seven = ['w0', 'w1', 'w2', 'w3', 'w4', 'w5', 'w6'];
+  // фраза 7 слов, блок до 6: блоки [3] и [4] → второй блок — две строки по 2
+  // opens — блок начинает предложение (как у движка): второй блок фразы — нет, его первое слово шаблон не трогает
+  assert.deepEqual(sampleState(soft(), { words: seven, spoken: 5 }, null, []).sub, { words: ['w3', 'w4', 'w5', 'w6'], active: 0, visible: 4, lines: [2, 2], opens: false });
+  assert.deepEqual(sampleState(soft(), { words: seven, spoken: 1 }, null, []).sub, { words: ['w0', 'w1', 'w2'], active: 0, visible: 3, lines: [3], opens: true });
+  assert.deepEqual(sampleState(soft(2), { words: ['Да.', 'Ну', 'вот', 'так'], spoken: 2 }, null, []).sub, { words: ['Ну', 'вот', 'так'], active: 0, visible: 3, lines: [1, 2], opens: true });
+});
+
 test('question inserts follow the answer', () => {
   const qs: Question[] = [{ id: 'logo', type: 'insert', title: 'Вставка', options: [
     { id: 'logo-a', label: 'Логотип', image: '../../assets/logos/logo.png' }, { id: 'sticker', label: 'Стикер' }, { id: 'upload', label: 'Своя' }, { id: 'none', label: 'Не надо' }] }];
@@ -76,9 +87,9 @@ test('saved choice resets after a restyle', () => {
 });
 
 test('swatches are #RRGGBB', () => {
-  assert.deepEqual(SWATCHES.accent.map((s) => s.color), ['#FFD23F', '#7CF2B0', '#FF5C8A', '#5CC8FF', '#B892FF']);
+  assert.deepEqual(SWATCHES.accent.map((s) => s.color), ['#EDE4C1', '#FFD23F', '#7CF2B0', '#FF5C8A', '#5CC8FF', '#B892FF']);
   assert.deepEqual(SWATCHES.text.map((s) => s.color), ['#FFFFFF', '#FFF1C2', '#DDF7FF']);
-  assert.deepEqual(SWATCHES.bar.map((s) => s.color), ['#FFD23F', '#FFFFFF', '#7CF2B0', '#FF5C8A']);
+  assert.deepEqual(SWATCHES.bar.map((s) => s.color), ['#EDE4C1', '#FFD23F', '#FFFFFF', '#7CF2B0', '#FF5C8A']);
   for (const list of Object.values(SWATCHES)) for (const s of list) assert.match(s.color, /^#[0-9A-F]{6}$/), assert.ok(s.name);
 });
 

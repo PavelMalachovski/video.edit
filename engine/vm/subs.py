@@ -17,8 +17,19 @@
 
 Тизер (`tl.teaser`): слова его фразы звучат в начале ролика и ещё раз на своём месте — субтитры тоже. Слова тизера —
 отдельная фраза в самом начале, их показ не заходит за конец тизера.
+
+Режим `soft` (стиль эталона): блок — кусок фразы до 2 × N слов, разложенный на 1–2 ровные строки не длиннее N слов
+(`lines` — сколько слов в каждой); событие — на каждую строку, с начала её первого слова: `visible` — слова блока по
+конец этой строки, `active` — её первое слово. `opens` — блок начинает предложение: перед его первым словом в речи
+конец предложения (`.?!…`, считая и слова акцента, и вырезанные) или это первое слово ролика или тизера. Шаблон
+пишет такое слово со строчной, а первое слово блока посреди предложения (имя) — как в `words`. Это правило повторяет
+превью в web/ (`sampleState`).
+
+`hidden` — промежутки исходника, слова которых показывает акцентная фраза (`edit.accents`): на своём месте они в
+субтитры не идут, и фраза на них рвётся; в тизере их копии остаются.
 """
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass
 from itertools import zip_longest
 
@@ -31,8 +42,9 @@ PHRASE_ENDS = (".", "?", "!", "…")  # слово, кончающееся та�
 CLOSING = "»\"')]"  # закрывающие кавычки и скобки: после знака конца фразы они не мешают
 HOLD_WITHIN = 0.6  # следующий показ начнётся раньше, чем через столько после конца слова, — текущий держится до него, с
 LINGER = 0.3  # иначе показ гаснет через столько после конца слова, с
-MAX_GROUP = 6  # самая большая группа в karaoke и plate (`n_words`), слов
+MAX_GROUP = 6  # самая большая группа в karaoke и plate (`n_words`), слов; в soft — слов в строке
 ACCUMULATE_BLOCK = 6  # самый большой блок в accumulate, слов
+SOFT_LINES = 2  # строк в блоке soft
 
 
 @dataclass(frozen=True)
@@ -44,23 +56,37 @@ class _Spoken:
     t0: float
     t1: float
     lead: bool = False
+    fresh: bool = False  # перед словом — скрытые слова акцента: с него начинается новая фраза
+    opens: bool = False  # слово начинает предложение (раздел о soft вверху)
 
 
-def build_sub_events(words: list[Word], tl: Timeline, mode: str, n_words: int) -> list[dict]:
+def build_sub_events(words: list[Word], tl: Timeline, mode: str, n_words: int,
+                     hidden: Iterable[tuple[float, float]] = ()) -> list[dict]:
     """События субтитров во времени финала: `{t0, t1, words, active, visible}` — по порядку, без наложений.
 
     По событию на каждое слово: `words` — слова его группы, `active` — номер говоримого слова в ней, `visible` — сколько
     слов группы видно. `karaoke` и `plate`: группа до `n_words` слов (1–6), видна вся (`visible = len(words)`).
     `accumulate`: группа до 6 слов, видно столько, сколько уже сказано (`visible = active + 1`); `n_words` не нужен.
-    `word`: одно слово. Группы не выходят за фразу. Слово с вырезанной серединой пропускается; событие, которому не
-    досталось времени (два слова с одним началом, слово на последнем мгновении), отбрасывается. Время — секунды финала,
-    с точностью до микросекунды и не за его концом.
-    Неизвестный режим и `n_words` вне 1–6 для karaoke и plate — `ValueError`. Нет слов — `[]`."""
+    `word`: одно слово. `soft`: событие на строку блока, `lines` — слов в строках (раздел о soft вверху). Группы не
+    выходят за фразу. Слово с вырезанной серединой пропускается; слово в промежутке `hidden` — тоже (и рвёт фразу);
+    событие, которому не досталось времени (два слова с одним началом, слово на последнем мгновении), отбрасывается.
+    Время — секунды финала, с точностью до микросекунды и не за его концом.
+    Неизвестный режим и `n_words` вне 1–6 для karaoke, plate и soft — `ValueError`. Нет слов — `[]`."""
     size = _group_size(mode, n_words)
     events, spans, limits = [], [], []  # событие без времени, время слова и предел показа — в одном порядке
-    for phrase in _phrases(_spoken(words, tl)):
+    for phrase in _phrases(_spoken(words, tl, list(hidden))):
         for block in _balanced(phrase, size):
             texts = [item.word.text for item in block]
+            if mode == "soft":
+                lines, start = _line_counts(len(block), n_words), 0
+                for n in lines:
+                    line = block[start : start + n]
+                    events.append({"words": texts, "active": start, "visible": start + n, "lines": lines,
+                                   "opens": block[0].opens})
+                    spans.append((line[0].t0, line[-1].t1))
+                    limits.append(tl.teaser_duration if line[0].lead else tl.duration)
+                    start += n
+                continue
             for i, item in enumerate(block):
                 visible = i + 1 if mode == "accumulate" else len(block)
                 events.append({"words": texts, "active": i, "visible": visible})
@@ -90,31 +116,52 @@ def to_srt(words: list[Word], tl: Timeline, max_words: int = 7) -> str:
 
 def _group_size(mode: str, n_words: int) -> int:
     """Наибольшее число слов в группе режима. Неизвестный режим и негодный `n_words` — `ValueError`."""
-    if mode in ("karaoke", "plate"):
+    if mode in ("karaoke", "plate", "soft"):
         if not 1 <= n_words <= MAX_GROUP:  # так отсеивается и NaN
             raise ValueError(f"n_words must be from 1 to {MAX_GROUP}, got {n_words!r}")
-        return n_words
+        return SOFT_LINES * n_words if mode == "soft" else n_words
     if mode == "accumulate":
         return ACCUMULATE_BLOCK
     if mode == "word":
         return 1
-    raise ValueError(f"unknown subtitle mode {mode!r}: expected karaoke, plate, word or accumulate")
+    raise ValueError(f"unknown subtitle mode {mode!r}: expected karaoke, plate, word, accumulate or soft")
 
 
-def _spoken(words: list[Word], tl: Timeline) -> list[_Spoken]:
-    """Слова, оставшиеся в финале, по началу в исходнике (при равном — как в `words`); слова тизера — копиями впереди."""
+def _line_counts(total: int, per: int) -> list[int]:
+    """Слов в строках блока soft: `ceil(total / per)` ровных строк."""
+    count = math.ceil(total / per)
+    return [(k + 1) * total // count - k * total // count for k in range(count)]
+
+
+def _spoken(words: list[Word], tl: Timeline, hidden: list[tuple[float, float]] = ()) -> list[_Spoken]:
+    """Слова, оставшиеся в финале, по началу в исходнике (при равном — как в `words`); слова тизера — копиями впереди.
+    Слова в промежутках `hidden` на своём месте пропускаются, следующее за ними начинает фразу."""
     spoken, lead = [], []
     teaser = tl.teaser
+    gap = False
+    previous = None  # прошлое слово речи: конец предложения виден и по скрытым и вырезанным словам
     for word in sorted(words, key=lambda w: w.t0):
+        after_end = previous is None or _ends_sentence(previous)
+        previous = word.text
         middle = (word.t0 + max(word.t1, word.t0)) / 2
         if teaser and teaser[0] <= middle <= teaser[1]:
             t0 = tl.teaser_final(max(word.t0, teaser[0]))
-            lead.append(_Spoken(word, t0, max(t0, tl.teaser_final(min(max(word.t1, word.t0), teaser[1]))), lead=True))
+            t1 = max(t0, tl.teaser_final(min(max(word.t1, word.t0), teaser[1])))
+            lead.append(_Spoken(word, t0, t1, lead=True, opens=not lead or after_end))
+        if any(a <= middle <= b for a, b in hidden):
+            gap = True
+            continue
         if tl.to_final(middle) is None:
             continue  # середина вырезана или лежит за концом ролика
         t0 = tl.to_final_snap(word.t0)
-        spoken.append(_Spoken(word, t0, max(t0, tl.to_final_snap(word.t1))))
+        spoken.append(_Spoken(word, t0, max(t0, tl.to_final_snap(word.t1)), fresh=gap, opens=not spoken or after_end))
+        gap = False
     return lead + spoken
+
+
+def _ends_sentence(text: str) -> bool:
+    """Слово кончается знаком конца фразы (закрывающие кавычки и скобки после знака не в счёт)."""
+    return text.rstrip(CLOSING).endswith(PHRASE_ENDS)
 
 
 def _phrases(spoken: list[_Spoken]) -> list[list[_Spoken]]:
@@ -129,10 +176,9 @@ def _phrases(spoken: list[_Spoken]) -> list[list[_Spoken]]:
 
 
 def _starts_phrase(previous: _Spoken, item: _Spoken) -> bool:
-    """Начинается ли с `item` новая фраза: `previous` кончился знаком конца фразы, до `item` пауза длиннее 0,35 с или
-    кончился тизер."""
-    ended = previous.word.text.rstrip(CLOSING).endswith(PHRASE_ENDS)
-    return ended or previous.lead != item.lead or item.word.t0 - previous.word.t1 > PHRASE_PAUSE + EPS
+    """Начинается ли с `item` новая фраза: `previous` кончился знаком конца фразы, до `item` пауза длиннее 0,35 с,
+    между ними — слова акцента (`hidden`) или кончился тизер."""
+    return _ends_sentence(previous.word.text) or item.fresh or previous.lead != item.lead or item.word.t0 - previous.word.t1 > PHRASE_PAUSE + EPS
 
 
 def _balanced(items: list[_Spoken], size: int) -> list[list[_Spoken]]:

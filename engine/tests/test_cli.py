@@ -1253,7 +1253,7 @@ def test_render_makes_the_ads_version_in_the_ads_zone_and_drops_an_old_one(tmp_p
         return plain(job_, out_dir, name=name, preset=preset, edit=edit, work=work)
 
     monkeypatch.setattr(cli, "render", render)
-    monkeypatch.setattr(cli, "check_layout", lambda boxes, face, inserts=None, safe=SAFE: zones.append(safe) or [])
+    monkeypatch.setattr(cli, "check_layout", lambda boxes, face, inserts=None, safe=SAFE, zoom=None: zones.append(safe) or [])
     assert main(["render", str(job.root)]) == 0
     assert seen == [("final", None, "work/render"), ("final-ad", "ads", "work/render-ad")]
     assert zones == [SAFE, ADS_SAFE]

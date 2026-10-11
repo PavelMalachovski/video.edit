@@ -58,11 +58,13 @@ def test_matte_frames_are_the_frames_the_cut_takes():
 
 
 def count_video(path, seconds: float = 3.0):
-    """Кадр n исходника — серый 2n в RGB без потерь (до 127 кадров): по маске видно, какой кадр в неё попал."""
+    """Кадр n исходника — серый 2n в RGB без потерь (до 127 кадров): по маске видно, какой кадр в неё попал. Со звуком
+    AAC, как source.mp4 после `vm prepare`: с ним ffmpeg при перемотке повторял первый кадр."""
     subprocess.run(
         ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
-         f"color=c=black:s=64x112:r=30:d={seconds}", "-vf", "format=rgb24,geq=r='2*N':g='2*N':b='2*N'",
-         "-c:v", "libx264rgb", "-qp", "0", "-pix_fmt", "rgb24", "-video_track_timescale", "15360", str(path)],
+         f"color=c=black:s=64x112:r=30:d={seconds}", "-f", "lavfi", "-i", f"sine=f=440:r=48000:d={seconds}",
+         "-vf", "format=rgb24,geq=r='2*N':g='2*N':b='2*N'", "-c:v", "libx264rgb", "-qp", "0", "-pix_fmt", "rgb24",
+         "-c:a", "aac", "-shortest", "-video_track_timescale", "15360", str(path)],
         check=True,
     )
     return path
@@ -103,6 +105,18 @@ def test_mattes_follow_the_cut_order_with_a_warm_up_before_each_piece(tmp_path):
 
 
 @needs_ffmpeg
+def test_the_frame_matte_is_for_the_very_frame_of_the_picture(tmp_path):
+    """Картинка к вопросу берёт кадр по `-ss` с точностью до мс (`media.extract_frame`): 50/30 с → 1,667 → кадр 51.
+    Маска — того же кадра, иначе на движении — кайма."""
+    from vm.media import extract_frame
+
+    source = count_video(tmp_path / "count.mp4")
+    picture = np.asarray(Image.open(extract_frame(source, 50 / 30, tmp_path / "f.png")).convert("L")).mean()
+    mask = np.asarray(Image.open(matte.frame_matte(source, 50 / 30, tmp_path / "m.png", predict=Mean())).convert("L")).mean()
+    assert round(picture / 2) == round(mask / 2) == 51
+
+
+@needs_ffmpeg
 def test_a_frame_matte_for_the_question_picture_warms_up_on_the_frames_before(tmp_path):
     source = count_video(tmp_path / "count.mp4")
     model = Mean()
@@ -133,6 +147,45 @@ def test_pieces_already_matted_are_not_matted_again(tmp_path, monkeypatch):
     assert path_a != path_b
     assert [round(v / 2) for v in read_gray(path_b, 32, 56).mean(axis=(1, 2))] == [*range(30), *range(45, 66)]
     assert [round(v / 2) for v in read_gray(path_a, 32, 56).mean(axis=(1, 2))] == [*range(48, 60), *range(30), *range(45, 66)]
+
+
+def test_the_model_path_comes_from_matte_model_or_the_cache(monkeypatch, tmp_path):
+    monkeypatch.delenv("MATTE_MODEL", raising=False)
+    monkeypatch.setenv("VM_CACHE", str(tmp_path))
+    assert matte.model_path() == tmp_path / matte.MODEL
+    monkeypatch.setenv("MATTE_MODEL", str(tmp_path / "other.onnx"))
+    assert matte.model_path() == tmp_path / "other.onnx"
+
+
+def test_a_missing_or_broken_model_is_named_not_thrown(monkeypatch, tmp_path):
+    monkeypatch.setenv("MATTE_MODEL", str(tmp_path / "nope.onnx"))
+    assert "нет модели" in matte.unavailable()
+    broken = tmp_path / "broken.onnx"
+    broken.write_bytes(b"not a model")
+    monkeypatch.setenv("MATTE_MODEL", str(broken))
+    assert "не открывается" in matte.unavailable()
+
+
+class Boom(Exception):
+    """Как InvalidProtobuf onnxruntime: не RuntimeError."""
+
+
+@needs_ffmpeg
+def test_a_failing_matte_leaves_the_video_undimmed_with_a_note(tmp_path, monkeypatch):
+    from vm.job import Job
+    from vm.render import _matte
+
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    count_video(job.path("source.mp4"))
+    monkeypatch.setattr(matte, "unavailable", lambda: None)
+
+    def fail(*args, **kwargs):
+        raise Boom("модель сломалась")
+
+    monkeypatch.setattr(matte, "write_mattes", fail)
+    path, note = _matte(job, Timeline([(0.0, 1.0)], 1.0))
+    assert path is None and note.startswith("затемнение фона: не получилось") and "модель сломалась" in note
 
 
 needs_model = pytest.mark.skipif(not matte.model_path().is_file(), reason="нет модели RobustVideoMatting (setup/cloud-setup.sh)")

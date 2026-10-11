@@ -785,6 +785,22 @@ def test_preview_without_the_matting_model_says_what_is_missing(tmp_path, monkey
     assert "нет модели" in capsys.readouterr().err
 
 
+@needs_ffmpeg
+def test_preview_with_a_failing_matte_is_a_clear_error(tmp_path, monkeypatch, capsys):
+    class Boom(Exception):
+        pass
+
+    def fail(*args, **kwargs):
+        raise Boom("модель сломалась")
+
+    monkeypatch.setattr("vm.matte.unavailable", lambda: None)
+    monkeypatch.setattr("vm.matte.frame_matte", fail)
+    job = Job(tmp_path / "jobs" / "abc")
+    make_source(job.path("source.mp4"), 2)
+    assert main(["preview", str(job.root), "--at", "1.0", "--out", "q-dim-30.png", "--dim", "0.3"]) == 1
+    assert "затемнение фона: модель сломалась" in capsys.readouterr().err
+
+
 def test_summary_warns_when_gigaam_heard_much_less_than_whisper():
     from vm.asr import Word
     from vm.prepare import _coverage

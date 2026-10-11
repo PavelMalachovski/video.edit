@@ -218,8 +218,13 @@ def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium",
     if float(edit.get("dim") or 0) > 0:  # фон темнее по маске человека — сразу после склейки, кадр в кадр с ней
         mask, note = _matte(job, tl)
         if mask:
-            chains.append(dim_filter("[vc]", f"[{_count(inputs)}:v]", float(edit["dim"]), info.width, info.height, "[vcd]"))
-            inputs += ["-i", str(mask)]
+            # время кадров маски — ровно по номеру (контейнер хранит его в мс); склейка добита копией последнего кадра,
+            # иначе maskedmerge отдал бы конец потока со временем последнего кадра и fps=30 его выкинул; лишнее — обрезка
+            frames = sum(b - a for a, b in segment_frames(tl))
+            chains.append("[vc]tpad=stop=1:stop_mode=clone[vcp]")
+            chains.append(dim_filter("[vcp]", f"[{_count(inputs)}:v]", float(edit["dim"]), info.width, info.height, "[vcm]"))
+            chains.append(f"[vcm]trim=end_frame={frames}[vcd]")
+            inputs += ["-r", str(FPS), "-i", str(mask)]
             video = "[vcd]"
         else:
             missing.append(note)
@@ -324,8 +329,13 @@ def render_cover(job: Job, edit: dict, out: Path) -> dict:
     part = out.with_name(f".{out.name}")
     inputs, frame = ["-ss", f"{t:.3f}", "-i", str(source), "-i", str(work / "frames" / drawn["frame"])], "[0:v]"
     dim = float(edit.get("dim") or 0)
+    mask = None
     if dim > 0 and not matte.unavailable():  # фон темнее, как в ролике; без модели — как есть (о ней скажет рендер)
-        mask = matte.frame_matte(source, t, work / "matte.png")
+        try:
+            mask = matte.frame_matte(source, t, work / "matte.png")
+        except Exception:  # noqa: BLE001 — обложка без затемнения лучше, чем никакой; причину скажет рендер ролика
+            mask = None
+    if mask:
         inputs += ["-i", str(mask)]
         frame = f"{dim_filter('[0:v]', '[2:v]', dim, info.width, info.height, '[dimmed]')};[dimmed]"
     _ffmpeg([*inputs, "-filter_complex",
@@ -353,12 +363,15 @@ def _matte(job: Job, tl: Timeline) -> tuple[Path | None, str | None]:
     if todo := [(a, b) for (a, b), part in zip(plan, parts, strict=True) if not part.is_file()]:
         frames = sum(b - a for a, b in todo)
         print(f"затемнение фона: маска на {frames} кадров (~{max(1, round(frames * 0.09 / 60))} мин)", flush=True)
-    for (a, b), part in zip(plan, parts, strict=True):
-        if not part.is_file():
-            matte.write_mattes(source, [(a, b)], part)
     whole = folder / f"{key.hexdigest()[:12]}-{hashlib.sha1(json.dumps(plan).encode()).hexdigest()[:12]}.mkv"
-    if not whole.is_file():
-        matte.join(parts, whole)
+    try:
+        for (a, b), part in zip(plan, parts, strict=True):
+            if not part.is_file():
+                matte.write_mattes(source, [(a, b)], part)
+        if not whole.is_file():
+            matte.join(parts, whole)
+    except Exception as err:  # noqa: BLE001 — и исключения onnxruntime: ролик без затемнения лучше, чем никакого
+        return None, f"затемнение фона: не получилось ({str(err)[:200]}) — ролик без него"
     return whole, None
 
 

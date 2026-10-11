@@ -641,12 +641,42 @@ def test_dim_darkens_the_background_and_keeps_the_person(tmp_path, sources, fake
         assert 0.6 < dr / pr < 0.8, ("фон темнее примерно на 30 %", t, pr, dr)
 
 
+def frames_in(path) -> int:
+    return int(subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0", "-count_frames", "-show_entries", "stream=nb_read_frames",
+         "-of", "csv=p=0", str(path)],
+        check=True, capture_output=True, text=True,
+    ).stdout)
+
+
+@pytest.mark.parametrize(("speed", "hold"), [(1.0, 0.0), (1.1, 0.5)])
+def test_dim_keeps_every_frame_of_the_video(tmp_path, sources, fake_matte, speed, hold):
+    """С затемнением столько же кадров, сколько без него: последний кадр склейки не теряется."""
+    keep = [[0.0, 2.0], [3.0, 4.0]]
+    plain = make_job(tmp_path / "a", sources["vertical"], keep=keep, speed=speed, hold=hold)
+    dimmed = make_job(tmp_path / "b", sources["vertical"], keep=keep, speed=speed, hold=hold, dim=0.3)
+    render(plain, plain.path("out"), preset="ultrafast")
+    render(dimmed, dimmed.path("out"), preset="ultrafast")
+    assert frames_in(dimmed.path("out/final.mp4")) == frames_in(plain.path("out/final.mp4"))
+
+
 def test_without_the_matting_model_the_video_goes_without_dimming_and_says_so(tmp_path, sources, monkeypatch):
     monkeypatch.setattr("vm.matte.unavailable", lambda: "нет модели rvm_mobilenetv3_fp32.onnx (setup/cloud-setup.sh)")
     job = make_job(tmp_path, sources["short"], keep=[[0.0, 2.0]], dim=0.3)
     report = render(job, job.path("out"), preset="ultrafast")
     assert job.path("out/final.mp4").is_file()
     assert any(m.startswith("затемнение фона: нет модели") for m in report["missing"]), report["missing"]
+
+
+def test_a_failing_matte_leaves_the_cover_undimmed(tmp_path, sources, monkeypatch):
+    def fail(*args, **kwargs):
+        raise ValueError("модель сломалась")
+
+    monkeypatch.setattr("vm.matte.unavailable", lambda: None)
+    monkeypatch.setattr("vm.matte.frame_matte", fail)
+    job = make_job(tmp_path, sources["short"], cover={"t": 1.2, "text": "Как я учу"}, dim=0.3)
+    render_cover(job, job.read("edit.json"), job.path("out/c.png"))
+    assert job.path("out/c.png").is_file()
 
 
 def test_the_cover_is_dimmed_like_the_video(tmp_path, sources, fake_matte):

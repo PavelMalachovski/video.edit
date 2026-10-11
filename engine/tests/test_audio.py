@@ -209,6 +209,39 @@ def test_music_without_a_gain_sits_14_db_under_the_voice(tmp_path):
     assert loudness_of(out, 1.0, 4.0) == pytest.approx(-14 - 14, abs=1.0)
 
 
+def test_only_the_part_of_the_track_in_the_video_is_measured(tmp_path):
+    """Тихое начало трека и громкий конец: ролик на 6 с — выравнивается по тихому началу, которое в нём и звучит."""
+    voice = bursts(tmp_path / "voice.wav", 3000, 6, "lt(t,0)")
+    music = synth(tmp_path / "music.wav", f"sine=f=440:r={RATE},volume='if(lt(t,8),0.5,8)':eval=frame", 20)
+    out, _, _, _ = mix(tmp_path, voice, speed=1.0, final_dur=6.0, music={"file": str(music), "gainDb": -18}, sfx=[])
+    assert loudness_of(out, 1.0, 4.0) == pytest.approx(-14 - 18, abs=1.0)
+
+
+def test_an_mp3_with_cover_art_is_leveled_too(tmp_path):
+    voice = bursts(tmp_path / "voice.wav", 3000, 6, "lt(t,0)")
+    art = tmp_path / "art.png"
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=64x64:d=1",
+                    "-frames:v", "1", str(art)], check=True)
+    music = tmp_path / "music.mp3"
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", f"sine=f=440:r={RATE},volume=8",
+         "-i", str(art), "-t", "10", "-map", "0:a", "-map", "1:v", "-c:a", "libmp3lame", "-c:v", "png",
+         "-disposition:v", "attached_pic", str(music)],
+        check=True,
+    )
+    out, _, _, warnings = mix(tmp_path, voice, speed=1.0, final_dur=6.0, music={"file": str(music), "gainDb": -18}, sfx=[])
+    assert warnings == []
+    assert loudness_of(out, 1.0, 4.0) == pytest.approx(-14 - 18, abs=1.0)
+
+
+def test_music_that_cannot_be_measured_is_a_warning(tmp_path, monkeypatch):
+    monkeypatch.setattr("vm.audio._loudness", lambda *args: None)
+    voice = bursts(tmp_path / "voice.wav", 3000, 4, "lt(t,0)")
+    music = synth(tmp_path / "music.wav", f"sine=f=440:r={RATE},volume=8", 10)
+    _, _, _, warnings = mix(tmp_path, voice, speed=1.0, final_dur=4.0, music={"file": str(music), "gainDb": -18}, sfx=[])
+    assert any("не измерилась" in w for w in warnings), warnings
+
+
 def test_a_near_silent_track_is_not_pumped_up(tmp_path):
     """Почти тишина (−60 LUFS) не поднимается до голоса: подъём не больше 12 дБ — иначе поднялся бы и шум."""
     voice = bursts(tmp_path / "voice.wav", 3000, 6, "lt(t,0)")

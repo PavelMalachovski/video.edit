@@ -57,8 +57,13 @@ export function backStatus(step: Step, now: Date): Status {
 
 export const QUESTION_TYPES = ['choice', 'text', 'word', 'insert', 'multi'] as const;
 export type QuestionType = (typeof QUESTION_TYPES)[number];
+/** Как показать варианты: `frames` — картинки вариантов — кадры видео, крупно 9:16 с подписью (вопрос «Фон»). */
+export const QUESTION_LAYOUTS = ['frames'] as const;
+export type QuestionLayout = (typeof QUESTION_LAYOUTS)[number];
 export type Option = { id: string; label: string; image?: string };
-export type Question = { id: string; type: QuestionType; title: string; body?: string; options?: Option[]; default?: string | string[]; image?: string };
+export type Question = {
+  id: string; type: QuestionType; title: string; body?: string; options?: Option[]; default?: string | string[]; image?: string; layout?: QuestionLayout;
+};
 
 /** Зарезервированные id: вопрос `hook` (его ответ — хук превью); варианты «свой текст», «своя картинка», «не надо». */
 export const RESERVED = { hook: 'hook', end: 'end', own: 'own', upload: 'upload', none: 'none' } as const;
@@ -74,6 +79,7 @@ export function parseQuestions(raw: unknown): Question[] | null {
     if ((q.body !== undefined && !isStr(q.body)) || (q.image !== undefined && !isStr(q.image))) return null;
     if (q.options !== undefined && !(Array.isArray(q.options) && q.options.every(optionOk))) return null;
     if (q.default !== undefined && !isStr(q.default) && !(Array.isArray(q.default) && q.default.every(isStr))) return null;
+    if (q.layout !== undefined && !QUESTION_LAYOUTS.includes(q.layout as QuestionLayout)) return null;
   }
   return list as Question[];
 }

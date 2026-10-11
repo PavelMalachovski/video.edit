@@ -125,7 +125,10 @@ def _preview(args: argparse.Namespace) -> None:
     if args.dim:  # фон темнее — по маске человека этого кадра, как в ролике с edit.dim
         if reason := matte.unavailable():
             raise RuntimeError(f"затемнение фона: {reason}")
-        mask = matte.frame_matte(source, args.at, job.path("work/preview-matte.png"))
+        try:
+            mask = matte.frame_matte(source, args.at, job.path("work/preview-matte.png"))
+        except Exception as err:  # и исключения onnxruntime — понятной строкой, а не трассировкой
+            raise RuntimeError(f"затемнение фона: {err}") from err
     path = extract_frame(source, args.at, job.path(args.out), mark=args.mark, fill=True, mask=mask, dim=args.dim)
     what = "для превью (styles.json: frameTime)" if args.out == "frame.png" else "— картинка для вопроса"
     print(f"{path.relative_to(job.root)} — кадр {args.at:g} с {what}" + (f", фон темнее на {args.dim:.0%}" if args.dim else ""))

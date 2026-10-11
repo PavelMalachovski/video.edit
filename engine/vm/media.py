@@ -427,8 +427,9 @@ def dim_filter(video: str, mask: str, amount: float, width: int, height: int, ou
     k = f"{1 - amount:.4f}"
     cw, ch = (width + 1) // 2, (height + 1) // 2
     return (
-        f"{mask}scale={width}:{height}:flags=bicubic,format=gray,split=3[dimy][dimu][dimv];"
-        f"[dimu]scale={cw}:{ch}[dimu2];[dimv]scale={cw}:{ch}[dimv2];[dimy][dimu2][dimv2]mergeplanes=0x001020:yuv420p[dimmask];"
+        f"{mask}format=gray,split=3[dimy0][dimu0][dimv0];[dimy0]scale={width}:{height}:flags=bicubic[dimy];"
+        f"[dimu0]scale={cw}:{ch}:flags=bicubic[dimu];[dimv0]scale={cw}:{ch}:flags=bicubic[dimv];"
+        f"[dimy][dimu][dimv]mergeplanes=0x001020:yuv420p[dimmask];"
         f"{video}format=yuv420p,split[dima][dimb];"
         f"[dima]lutyuv=y='16+(val-16)*{k}':u='128+(val-128)*{k}':v='128+(val-128)*{k}'[dimd];"
         f"[dimd][dimb][dimmask]maskedmerge{out}"

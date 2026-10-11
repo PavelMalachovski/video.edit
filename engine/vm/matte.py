@@ -21,7 +21,6 @@ from functools import cache
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
 
 from .media import FPS, probe
 
@@ -39,13 +38,19 @@ def model_path() -> Path:
 
 
 def unavailable() -> str | None:
-    """Почему маску не посчитать (по-русски, для Павла), или None — можно."""
+    """Почему маску не посчитать (по-русски, для Павла), или None — можно. Модель пробно открывается: битый файл —
+    причина, а не исключение посреди рендера."""
     try:
         import onnxruntime  # noqa: F401 — тяжёлый импорт, только проверка
     except ImportError:
         return "нет onnxruntime (setup/cloud-setup.sh)"
-    if not model_path().is_file():
+    path = model_path()
+    if not path.is_file():
         return f"нет модели {MODEL} (setup/cloud-setup.sh)"
+    try:
+        _session(str(path))
+    except Exception as err:  # noqa: BLE001 — onnxruntime бросает свои исключения (InvalidProtobuf и др.)
+        return f"модель {path.name} не открывается ({str(err)[:120]})"
     return None
 
 
@@ -78,11 +83,14 @@ def matte_size(width: int, height: int) -> tuple[int, int]:
 
 def _frames(source: Path, first: int, count: int, size: tuple[int, int]) -> Iterator[np.ndarray]:
     """`count` кадров исходника с номера `first` (RGB, размер `size`). Начало — посередине перед кадром: кадр
-    `first` (его время `first`/30) берётся, предыдущий — нет, как `trim=start_frame` склейки."""
+    `first` (его время `first`/30) берётся, предыдущий — нет, как `trim=start_frame` склейки. Кадры — как есть, без
+    добивки: со звуком AAC (как в source.mp4) перемотка давала видео начало чуть позже нуля, и выход с постоянной
+    частотой повторял первый кадр — маска отставала на кадр."""
     w, h = size
     proc = subprocess.Popen(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", f"{max(0.0, (first - 0.5) / FPS):.6f}", "-i", str(source),
-         "-frames:v", str(count), "-vf", f"scale={w}:{h}", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-ss", f"{max(0.0, (first - 0.5) / FPS):.6f}",
+         "-i", str(source), "-an", "-frames:v", str(count), "-vf", f"scale={w}:{h}", "-fps_mode", "passthrough",
+         "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
         stdout=subprocess.PIPE,
     )
     frame = w * h * 3
@@ -103,9 +111,9 @@ def write_mattes(source: Path, plan: list[tuple[int, int]], out: Path, predict: 
     out = Path(out)
     part = out.with_name(f".{out.stem}.part{out.suffix}")
     writer = subprocess.Popen(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "gray", "-s", f"{w}x{h}",
-         "-r", str(FPS), "-i", "-", "-c:v", "ffv1", str(part)],
-        stdin=subprocess.PIPE,
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "rawvideo", "-pix_fmt", "gray",
+         "-s", f"{w}x{h}", "-r", str(FPS), "-i", "-", "-c:v", "ffv1", str(part)],
+        stdin=subprocess.PIPE, stderr=subprocess.PIPE,
     )
     empty = np.zeros((h, w), np.uint8)
     try:
@@ -118,12 +126,20 @@ def write_mattes(source: Path, plan: list[tuple[int, int]], out: Path, predict: 
                     written += 1
             for _ in range(f1 - f0 - written):
                 writer.stdin.write(empty.tobytes())
-    finally:
         writer.stdin.close()
+    except BrokenPipeError:  # ffmpeg-писатель умер — причина в его выводе ниже
+        pass
+    finally:
+        if not writer.stdin.closed:
+            try:
+                writer.stdin.close()
+            except BrokenPipeError:
+                pass
         code = writer.wait()
     if code != 0:
         part.unlink(missing_ok=True)
-        raise RuntimeError(f"маска затемнения фона не записалась (ffmpeg, код {code})")
+        err = writer.stderr.read().decode(errors="replace")[-300:]
+        raise RuntimeError(f"маска затемнения фона не записалась (ffmpeg, код {code}): {err}")
     os.replace(part, out)
     return out
 
@@ -137,13 +153,14 @@ def join(parts: list[Path], out: Path) -> Path:
     part = out.with_name(f".{out.stem}.part{out.suffix}")
     try:
         subprocess.run(
-            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(listing),
-             "-vf", f"setpts=N/{FPS}/TB", "-r", str(FPS), "-c:v", "ffv1", str(part)],
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "concat", "-safe", "0", "-i",
+             str(listing), "-vf", f"setpts=N/{FPS}/TB", "-r", str(FPS), "-c:v", "ffv1", str(part)],
             check=True, capture_output=True, timeout=600,
         )
-    except subprocess.CalledProcessError as err:
+    except subprocess.SubprocessError as err:  # и ошибка ffmpeg, и TimeoutExpired
         part.unlink(missing_ok=True)
-        raise RuntimeError(f"маска затемнения фона не склеилась: {err.stderr.decode(errors='replace')[-300:]}") from None
+        detail = (getattr(err, "stderr", None) or b"").decode(errors="replace")[-300:] or str(err)
+        raise RuntimeError(f"маска затемнения фона не склеилась: {detail}") from None
     finally:
         listing.unlink(missing_ok=True)
     os.replace(part, out)
@@ -151,17 +168,19 @@ def join(parts: list[Path], out: Path) -> Path:
 
 
 def frame_matte(source: Path, t: float, out: Path, predict: Predict | None = None) -> Path:
-    """Маска кадра в момент `t` (первого, что начинается в `t` или сразу после, — как `media.extract_frame`) → `out`
-    (серая PNG вдвое меньше кадра). Модель разгоняется на `WARMUP` кадрах перед ним."""
+    """Маска кадра в момент `t` → `out` (серая PNG вдвое меньше кадра): того же кадра, что берёт `media.extract_frame`
+    (`-ss` с точностью до мс — первый кадр не раньше этого времени). Модель разгоняется на `WARMUP` кадрах перед ним."""
     predict = predict or _rvm()
     info = probe(source)
     size = matte_size(info.width, info.height)
-    n = math.ceil(t * FPS - 1e-6)
+    n = math.ceil(float(f"{t:.3f}") * FPS - 1e-6)
     start, state, mask = max(0, n - WARMUP), None, None
     for rgb in _frames(source, start, n - start + 1, size):
         mask, state = predict(rgb, state)
     if mask is None:
         raise RuntimeError(f"нет кадра {t:g} с в {source}")
+    from PIL import Image  # noqa: I001 — только для картинки маски: остальным командам vm Pillow не нужен
+
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     Image.fromarray(mask).save(out)

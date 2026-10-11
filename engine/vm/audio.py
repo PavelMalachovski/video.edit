@@ -65,7 +65,7 @@ def _loudness(path: Path, channels: int, seconds: float) -> float | None:
     меряется или тишина — None."""
     try:
         err = subprocess.run(
-            ["ffmpeg", "-hide_banner", "-nostats", "-t", _num(seconds), "-i", str(path), "-map", "0:a:0",
+            ["ffmpeg", "-hide_banner", "-nostats", "-nostdin", "-t", _num(seconds), "-i", str(path), "-map", "0:a:0",
              "-af", f"{_source(channels)},ebur128", "-f", "null", "-"],
             check=True, capture_output=True, text=True, timeout=120,
         ).stderr
@@ -136,6 +136,8 @@ def audio_graph(
             inputs += ["-stream_loop", str(loops), "-i", str(path)]
             fade = min(FADE_OUT, final_dur)
             level = _loudness(path, channels, min(final_dur, length))
+            if level is None:
+                warn(f"громкость музыки {path.name} не измерилась — трек без выравнивания к голосу")
             gain = float(music.get("gainDb", -14)) + (min(MUSIC_BOOST, VOICE_LUFS - level) if level is not None else 0.0)
             chains.append("[a_vo]asplit=2[a_vmix][a_vsc]")
             chains.append(

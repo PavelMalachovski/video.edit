@@ -39,10 +39,10 @@ fi
 say "ffmpeg: $(ffmpeg -hide_banner -version 2>/dev/null | head -1 | cut -d' ' -f3)"
 
 # 2. Python-зависимости движка.
-if ! python3 -c "import sherpa_onnx, soundfile, numpy, jsonschema, fontTools, pytest, onnxruntime" 2>/dev/null; then
-  say "pip: sherpa-onnx soundfile numpy jsonschema fonttools pytest onnxruntime"
-  python3 -m pip install -q --break-system-packages sherpa-onnx soundfile numpy jsonschema fonttools pytest onnxruntime >/dev/null 2>&1 \
-    || python3 -m pip install -q sherpa-onnx soundfile numpy jsonschema fonttools pytest onnxruntime >/dev/null 2>&1 \
+if ! python3 -c "import sherpa_onnx, soundfile, numpy, jsonschema, fontTools, pytest, onnxruntime, PIL" 2>/dev/null; then
+  say "pip: sherpa-onnx soundfile numpy jsonschema fonttools pytest onnxruntime pillow"
+  python3 -m pip install -q --break-system-packages sherpa-onnx soundfile numpy jsonschema fonttools pytest onnxruntime pillow >/dev/null 2>&1 \
+    || python3 -m pip install -q sherpa-onnx soundfile numpy jsonschema fonttools pytest onnxruntime pillow >/dev/null 2>&1 \
     || { say "НЕ удалось поставить Python-пакеты"; fail=1; }
 fi
 
@@ -61,7 +61,7 @@ if [ "${VM_PARAKEET:-1}" != "0" ]; then fetch "$PARAKEET" & pids+=($!); fi
 if ! echo "$MATTE_SHA256  $CACHE/$MATTE" | sha256sum -c --status 2>/dev/null; then
   curl -sSL --retry 3 -o "$CACHE/$MATTE.part" "$MATTE_URL" \
     && echo "$MATTE_SHA256  $CACHE/$MATTE.part" | sha256sum -c --status && mv "$CACHE/$MATTE.part" "$CACHE/$MATTE" \
-    || { rm -f "$CACHE/$MATTE.part"; say "модель маски не скачалась — затемнение фона недоступно"; fail=1; }
+    || { rm -f "$CACHE/$MATTE.part"; say "модель маски не скачалась — затемнение фона недоступно (монтаж идёт без него)"; }
 fi
 for p in "${pids[@]}"; do wait "$p" || { say "модель не скачалась"; fail=1; }; done
 say "модели: $(du -sh "$CACHE" 2>/dev/null | cut -f1)"

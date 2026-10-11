@@ -298,5 +298,5 @@ def test_the_background_is_dimmed_on_pavels_answer():
     rules = section("4. Зумы, крупность, ч/б и переходы")
     assert "Затемнение фона" in rules and "`dim`" in rules
     questions = section("Вопросы (questions.json)")
-    assert "`dim` (choice)" in questions and "--dim 0.3" in questions and "`default` — `30`" in questions
+    assert "`dim` (choice, `layout: \"frames\"`)" in questions and "--dim 0.3" in questions and "`default` — `30`" in questions
     assert "`edit.dim`" in section("Шаг render")

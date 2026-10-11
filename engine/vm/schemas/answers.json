@@ -71,6 +71,15 @@
         }
       }
     },
+    "cover": {
+      "description": "Обложка, которую Павел выбрал на превью: номер кадра в styles.json cover.frames (с 0) и текст.",
+      "type": "object",
+      "required": ["frame", "text"],
+      "properties": {
+        "frame": { "type": "integer", "minimum": 0, "maximum": 2 },
+        "text": { "type": "string", "minLength": 1, "maxLength": 80 }
+      }
+    },
     "ab": {
       "description": "Вторая версия для A/B-теста, выбранная Павлом на экране превью: без тизера (teaser) или без музыки (music); нет — один ролик.",
       "enum": ["teaser", "music"]

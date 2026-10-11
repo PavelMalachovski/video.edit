@@ -60,6 +60,7 @@ TO_709 = "scale=out_color_matrix=bt709:out_range=tv"
 AAC_PRIMING = 1024
 IMAGES = {".png", ".jpg", ".jpeg", ".webp"}  # картинка держится всё окно перебивки; GIF крутится по кругу
 TEXTUAL = ("sticker", "text")  # вставки из одного текста: картинка им не нужна
+COVER_ZONE = {"x0": 60, "x1": 1020, "y0": 240, "y1": 1680}  # что видно в сетке профиля: кадр 3:4 по центру
 TEASER = (1.0, 5.0)  # с — длина фразы тизера (правило — 1,5–4 с, с запасом на границы слов)
 AB = ("teaser", "music")  # чем вторая версия A/B-теста отличается от первой: без тизера или без музыки
 LOOPED = {".gif"}
@@ -252,9 +253,16 @@ def _layer(job: Job, edit: dict, tl: Timeline, work: Path) -> Path:
         return frames / "frames.ffconcat"
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
+    _draw(job, events, edit["style"], work)
+    done.write_text(key, encoding="utf-8")
+    return frames / "frames.ffconcat"
+
+
+def _draw(job: Job, events: list[dict], style: dict, work: Path) -> None:
+    """Состояния слоя `events` → PNG, frames.ffconcat и boxes.json в `<work>/frames` (template/render-frames.mjs)."""
     (work / "events.json").write_text(json.dumps(events, ensure_ascii=False), encoding="utf-8")
-    (work / "spec.json").write_text(json.dumps(edit["style"], ensure_ascii=False), encoding="utf-8")
-    cmd = ["node", str(TEMPLATE / "render-frames.mjs"), str(work / "events.json"), str(work / "spec.json"), str(frames),
+    (work / "spec.json").write_text(json.dumps(style, ensure_ascii=False), encoding="utf-8")
+    cmd = ["node", str(TEMPLATE / "render-frames.mjs"), str(work / "events.json"), str(work / "spec.json"), str(work / "frames"),
            "--root", str(job.root), "--root", str(REPO)]
     if FONTS.is_dir():
         cmd += ["--fonts", str(FONTS)]
@@ -266,8 +274,27 @@ def _layer(job: Job, edit: dict, tl: Timeline, work: Path) -> Path:
         raise RenderError("нет node: слой рисует Chromium через Node 22 — запустите setup/cloud-setup.sh") from None
     if proc.returncode != 0:
         raise RenderError(f"слой не нарисован (код {proc.returncode}): {proc.stderr.strip()[-2000:]}")
-    done.write_text(key, encoding="utf-8")
-    return frames / "frames.ffconcat"
+
+
+def render_cover(job: Job, edit: dict, out: Path) -> dict:
+    """Обложка `out` (PNG 1080×1920): кадр исходника в `edit.cover.t` с цветом финала и хук крупно (шаблон, состояние
+    `cover`). → `{box}` — рамка текста, px кадра."""
+    cover = edit["cover"]
+    work = job.path("work/cover")
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir(parents=True)
+    _draw(job, [{"t0": 0.0, "t1": 1 / FPS, "state": {"cover": {"text": cover["text"]}}}], edit["style"], work)
+    drawn = json.loads((work / "frames" / "boxes.json").read_text(encoding="utf-8"))[0]
+    source = job.path("source.mp4")
+    t = min(max(0.0, float(cover["t"])), max(0.0, probe(source).duration - 1 / FPS))
+    out = Path(out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    part = out.with_name(f".{out.name}")
+    _ffmpeg(["-ss", f"{t:.3f}", "-i", str(source), "-i", str(work / "frames" / drawn["frame"]), "-filter_complex",
+             f"[0:v]{COLOR},scale=in_color_matrix=bt709:in_range=tv,format=rgba[bg];[bg][1:v]overlay=0:0,format=rgb24",
+             "-frames:v", "1", "-f", "image2", "-c:v", "png", str(part)], timeout=120)
+    os.replace(part, out)
+    return {"box": (drawn.get("boxes") or {}).get("cover")}
 
 
 def _cut(tl: Timeline, has_audio: bool) -> list[str]:

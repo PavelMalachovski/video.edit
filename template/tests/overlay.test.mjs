@@ -573,3 +573,17 @@ test('a very long handle shrinks to stay in the safe zone', async () => {
   assert.ok(size < 54, `кегль ника ${size}`);
   assert.ok(insideSafe((await boxes()).end), JSON.stringify((await boxes()).end));
 });
+
+// ---------- обложка ----------
+
+test('the cover puts the hook in big letters in the middle of the profile grid crop', async () => {
+  await render(spec(), { cover: { text: 'Как я учу чешский' } });
+  const b = await boxes();
+  assert.ok(b.cover && !b.hook, JSON.stringify(b));
+  const middle = b.cover.x + b.cover.w / 2;
+  assert.ok(Math.abs(middle - 540) <= 12, `по центру кадра: ${middle}`);
+  assert.ok(b.cover.x >= 60 && b.cover.x + b.cover.w <= 1020 && b.cover.y >= 240 && b.cover.y + b.cover.h <= 1680, JSON.stringify(b.cover));
+  const size = await page.evaluate(() => parseFloat(getComputedStyle(document.querySelector('#hook .caps')).fontSize));
+  assert.ok(size > SPEC.hook.size, `крупнее хука: ${size}`);
+  assert.ok(await page.evaluate(() => document.querySelector('#bar')?.hidden !== false || !document.querySelector('#bar')?.children.length), 'без шкалы');
+});

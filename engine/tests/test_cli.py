@@ -1146,3 +1146,38 @@ def test_render_without_ab_drops_an_old_version_b(tmp_path, monkeypatch):
     _fake_outputs(monkeypatch, cli, job)
     assert main(["render", str(job.root)]) == 0
     assert sorted(p.name for p in job.path("out").iterdir()) == ["final.mp4"]
+
+
+def test_render_makes_the_cover_next_to_the_video_and_drops_an_old_one(tmp_path, monkeypatch):
+    import vm.__main__ as cli
+
+    job = Job(tmp_path / "jobs" / "abc")
+    job.write("edit.json", {**EDIT_4S, "cover": {"t": 1.0, "text": "Как я учу"}})
+    _fake_outputs(monkeypatch, cli, job)
+    made = []
+
+    def fake_cover(job_, edit, out):
+        made.append(out.name)
+        out.write_bytes(b"png")
+        return {"box": {"x": 100, "y": 100, "w": 900, "h": 300}}  # верх — выше того, что видно в сетке профиля
+
+    monkeypatch.setattr(cli, "render_cover", fake_cover)
+    assert main(["render", str(job.root), "--version", "2"]) == 0
+    assert made == ["final-v2-cover.png"]
+    assert any("обложк" in p for p in job.read("result.json")["qa"]["problems"])
+    job.write("edit.json", EDIT_4S)
+    assert main(["render", str(job.root), "--version", "2"]) == 0
+    assert not job.path("out/final-v2-cover.png").exists(), "обложки в этот раз нет — старая не от этого ролика"
+
+
+def test_validate_finds_a_missing_cover_frame(tmp_path, capsys):
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    job.path("frame.png").write_bytes(b"png")
+    styles = {"frame": "frame.png", "frameTime": 1.0, "sample": {"words": ["раз"], "spoken": 0}, "variants": variants(),
+              "cover": {"frames": [{"t": 1.0, "image": "cover-1.jpg"}], "text": "Как я учу"}}
+    job.path("styles.json").write_text(json.dumps(styles), encoding="utf-8")
+    assert main(["validate", str(job.root)]) == 1
+    assert "cover-1.jpg" in capsys.readouterr().err
+    job.path("cover-1.jpg").write_bytes(b"jpg")
+    assert main(["validate", str(job.root)]) == 0

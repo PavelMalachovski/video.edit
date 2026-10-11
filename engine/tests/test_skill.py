@@ -183,3 +183,9 @@ def test_a_brief_from_a_script_feeds_the_stickers_and_the_end_card():
 def test_the_teaser_starts_a_little_before_its_word_and_keeps_hook_until_for_version_b():
     texts = section("6. Тексты")
     assert "на 0,1 с раньше первого слова" in texts and "по нему идёт версия B" in texts
+
+
+def test_the_cover_has_frames_in_analyze_and_a_render_step():
+    assert "cover-1.jpg" in section("Шаг analyze") and "`cover`" in section("Стили (styles.json)")
+    render = section("Шаг render")
+    assert "обложка: `answers.cover`" in render and "-cover.png" in render

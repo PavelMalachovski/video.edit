@@ -104,6 +104,13 @@ export default function Result({ view, result, answers, fixes, onAct }: Props) {
           </div>
         </>
       )}
+      {final.cover ? (
+        <div className="card" data-cover-result>
+          <div className="caps small">Обложка</div>
+          <img className="cover-img" src={download(final.cover)} alt="Обложка ролика" />
+          <a className="btn ghost" href={download(final.cover)} download={final.cover}>Скачать обложку</a>
+        </div>
+      ) : null}
       {caption ? <CaptionCard caption={caption} /> : null}
       {result?.checklist ? <Checklist items={result.checklist} caption={Boolean(caption)} /> : null}
       {result ? (

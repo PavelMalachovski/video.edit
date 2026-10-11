@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { isDeepStrictEqual } from 'node:util';
 import {
-  abLabels, answersFile, appendFix, appendRestyle, buildJobFile, errorStatus, finalNames, isFinalName, parseAnswersBody, parseNote, parseResult, parseStatus, parseStyles,
+  abLabels, answersFile, appendFix, appendRestyle, buildJobFile, coverName, errorStatus, finalNames, isFinalName, parseAnswersBody, parseNote, parseResult, parseStatus, parseStyles,
   QUESTION_TYPES, queuedStatus, STATES, wantedVersion, type Manifest, type Question,
   AB_KINDS, CHECK_IDS, parseReview, REVIEW_IDS, SAMPLE_INSERT_KINDS,
 } from '../lib/jobfiles.ts';
@@ -281,4 +282,28 @@ test('download takes every name finalNames gives — version B too — and nothi
   for (const bad of ['final-c.mp4', 'final-b-v2.mp4', 'final.mov', '../final.mp4', 'final-v1234.mp4', 'released.json', '']) {
     assert.equal(isFinalName(bad), false, bad);
   }
+});
+
+test('cover: styles offer up to three frames and a text; the answer picks a frame and may change the text', () => {
+  const fx = JSON.parse(readFileSync(new URL('../../engine/tests/fixtures/style-merge.json', import.meta.url), 'utf8')).styles;
+  const cover = { frames: [{ t: 1.2, image: 'cover-1.jpg' }, { t: 7.5, image: 'cover-2.jpg' }], text: 'Как я учу чешский' };
+  assert.deepEqual(parseStyles({ ...fx, cover })?.cover, cover);
+  const broken = parseStyles({ ...fx, cover: { frames: [], text: 'x' } });
+  assert.ok(broken && broken.cover === undefined, 'кривая обложка — без обложки, а не без стилей');
+  for (const ok of [{ frame: 1, text: '  Как я учу  ' }]) {
+    const p = parseAnswersBody({ answers: {}, style: STYLE, cover: ok }, QS);
+    assert.ok(!('error' in p) && isDeepStrictEqual(p.cover, { frame: 1, text: 'Как я учу' }), JSON.stringify(p));
+    if (!('error' in p)) {
+      const job = buildJobFile({ job: '261010-070509-abcd', name: 'a', size: 1, type: 'video/mp4', lastModified: 1, parts: 1, chunkSize: 4 }, NOW);
+      assert.deepEqual(answersFile(p, job).cover, { frame: 1, text: 'Как я учу' });
+    }
+  }
+  for (const bad of [{ frame: 3, text: 'x' }, { frame: 0, text: ' ' }, { frame: 0, text: 'x'.repeat(81) }, 'x']) {
+    assert.ok('error' in parseAnswersBody({ answers: {}, style: STYLE, cover: bad }, QS), JSON.stringify(bad));
+  }
+  assert.deepEqual(schema('answers.json').properties.cover.properties.frame.maximum, 2);
+  assert.equal(coverName(1), 'final-cover.png');
+  assert.equal(coverName(3), 'final-v3-cover.png');
+  for (const name of ['final-cover.png', 'final-v3-cover.png']) assert.ok(isFinalName(name), name);
+  for (const name of ['final-b-cover.png', 'cover.png', 'final-cover.jpg']) assert.equal(isFinalName(name), false, name);
 });

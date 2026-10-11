@@ -1,7 +1,7 @@
 // Стиль на экране превью: итоговый StyleSpec по выбору Павла (то же правило, что final_style движка), образец
 // состояния слоя на кадре (субтитры — по правилу build_sub_events), вставки по ответам и запомненный выбор.
 import { chosen, type Draft } from './answers.ts';
-import { AB_KINDS, ADJUST, ADJUSTABLE, HOOK_SIZE, HOOK_Y, INSERT_W, INSERT_ZONE, inRange, isInsertBox, RESERVED, SUB_SIZE, SUB_Y, type AbKind, type Adjustable, type InsertBox, type Question, type SampleInsert, type StyleChoice, type StyleSpec, type Styles } from './jobfiles.ts';
+import { AB_KINDS, ADJUST, isCoverChoice, type CoverChoice, ADJUSTABLE, HOOK_SIZE, HOOK_Y, INSERT_W, INSERT_ZONE, inRange, isInsertBox, RESERVED, SUB_SIZE, SUB_Y, type AbKind, type Adjustable, type InsertBox, type Question, type SampleInsert, type StyleChoice, type StyleSpec, type Styles } from './jobfiles.ts';
 
 export { HOOK_SIZE, HOOK_Y, INSERT_W, SUB_SIZE, SUB_Y };
 export type { InsertBox };
@@ -14,7 +14,10 @@ export type InsertState = {
   key?: string; // ключ для рамки Павла (insertKey); шаблон его не читает
 };
 export type EndState = { lines: string[]; handle?: string; logo?: string; t: number }; // финальная карточка (t — с от её начала)
-export type OverlayState = { sub?: SubState; hook?: { text: string }; cta?: { lines: string[]; word: string }; inserts: InsertState[]; end?: EndState };
+export type OverlayState = {
+  sub?: SubState; hook?: { text: string }; cta?: { lines: string[]; word: string }; inserts: InsertState[]; end?: EndState;
+  cover?: { text: string }; // обложка: хук крупно по центру кадра
+};
 
 type Variant = StyleChoice['variant'];
 
@@ -226,6 +229,28 @@ export function loadSpeed(storage: Storage | null, jobId: string): number {
 export function saveSpeed(storage: Storage | null, jobId: string, speed: number): void {
   try {
     storage?.setItem(speedKey(jobId), String(speed));
+  } catch {
+    // нет хранилища — выбор живёт до перезагрузки
+  }
+}
+
+// ---------- обложка (localStorage['vm:cover:<id>']) ----------
+
+const coverKey = (jobId: string): string => `vm:cover:${jobId}`;
+
+export function loadCover(storage: Storage | null, jobId: string): CoverChoice | null {
+  try {
+    const raw = storage?.getItem(coverKey(jobId));
+    const value: unknown = raw ? JSON.parse(raw) : null;
+    return isCoverChoice(value) ? { frame: value.frame, text: value.text } : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveCover(storage: Storage | null, jobId: string, cover: CoverChoice): void {
+  try {
+    storage?.setItem(coverKey(jobId), JSON.stringify(cover));
   } catch {
     // нет хранилища — выбор живёт до перезагрузки
   }

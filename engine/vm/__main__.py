@@ -39,7 +39,7 @@ from .qa import (
     face_box,
     slot_times,
 )
-from .render import _resolve, draw_layer, render, variant_b
+from .render import COVER_ZONE, _resolve, draw_layer, render, render_cover, variant_b
 from .style import final_style
 
 SERVICE = ("own", "none", "upload")  # служебные варианты вопросов: их подписи — интерфейс страницы
@@ -143,6 +143,8 @@ def _files(job: Job, name: str, data: dict, unchecked: set[str] | None = None) -
                     need(f"questions[{i}].options[{k}].image", option["image"])
     elif name == "styles.json":
         need("frame", data["frame"])
+        for i, f in enumerate((data.get("cover") or {}).get("frames") or []):  # кадры обложки — vm preview
+            need(f"cover.frames[{i}].image", f["image"])
     elif name == "edit.json":
         for i, ins in enumerate(data["inserts"]):
             for key in ("src", "sfx"):
@@ -280,6 +282,13 @@ def _render(args: argparse.Namespace) -> None:
     problems = check_layout(boxes, face_box(edit.get("face")), edit.get("inserts")) + check_render(final, edit, boxes, result)
     frames = control_frames(final, slot_times(boxes), job.path("qa"))
     checks = checklist(final, boxes, result)  # по гайду — для экрана «Готово»
+    cover = job.path(f"out/{name}-cover.png")
+    if edit.get("cover"):  # обложка для сетки профиля: кадр исходника и хук крупно
+        step("Монтирую", "Рисую обложку")
+        problems += _cover_problems(render_cover(job, result.get("edit", edit), cover))
+        print(f"обложка: {cover.relative_to(job.root)}")
+    else:
+        _drop_outputs(job, f"{name}-cover")
     summary = {
         "durations": result["durations"],
         "done": previous.get("done", []),
@@ -321,6 +330,17 @@ def _render(args: argparse.Namespace) -> None:
     print("проверка: " + ("всё в порядке" if not problems else "проблемы:"))
     for line in problems:
         print(f"  - {line}")
+
+
+def _cover_problems(report: dict) -> list[str]:
+    """Текст обложки — в том, что видно в сетке профиля (кадр 3:4 по центру)."""
+    b = report.get("box")
+    if not b:
+        return ["обложка: текста на ней нет"]
+    z = COVER_ZONE
+    if b["x"] < z["x0"] or b["x"] + b["w"] > z["x1"] or b["y"] < z["y0"] or b["y"] + b["h"] > z["y1"]:
+        return ["обложка: текст выходит за то, что видно в сетке профиля (кадр 3:4 по центру) — короче хук"]
+    return []
 
 
 def _drop_outputs(job: Job, base: str) -> None:

@@ -343,7 +343,8 @@ function titleLook(mode, size) {
   return { pad: { x: 20, y: 20 }, hand: 20 };
 }
 
-function drawTitle(id, { spec, main, hand }, title) {
+/** Хук или титр; `area` — по чему центровать строки: безопасная зона (по умолчанию) или весь кадр (обложка). */
+function drawTitle(id, { spec, main, hand }, title, area = { cx: CX, width: WIDTH }) {
   const root = layer(id);
   if (!title) return null;
   root.hidden = false;
@@ -377,10 +378,10 @@ function drawTitle(id, { spec, main, hand }, title) {
   const setSize = (s) => {
     px = s;
     look = titleLook(mode, s);
-    const capsWidth = WIDTH - 2 * look.pad.x;
-    const handWidth = WIDTH - 2 * look.hand;
-    Object.assign(caps.style, { fontSize: `${s}px`, left: `${CX - capsWidth / 2}px`, width: `${capsWidth}px`, top: '0px' });
-    Object.assign(handBox.style, { fontSize: `${s * HAND}px`, left: `${CX - handWidth / 2}px`, width: `${handWidth}px`, top: '0px' });
+    const capsWidth = area.width - 2 * look.pad.x;
+    const handWidth = area.width - 2 * look.hand;
+    Object.assign(caps.style, { fontSize: `${s}px`, left: `${area.cx - capsWidth / 2}px`, width: `${capsWidth}px`, top: '0px' });
+    Object.assign(handBox.style, { fontSize: `${s * HAND}px`, left: `${area.cx - handWidth / 2}px`, width: `${handWidth}px`, top: '0px' });
     stroke(caps, look.outline ?? 0, c.outline);
     stroke(handBox, look.outline ?? 0, c.outline);
     return { capsWidth, handWidth };
@@ -436,6 +437,18 @@ function drawTitle(id, { spec, main, hand }, title) {
   handBox.style.top = `${handDy + dy}px`;
   if (!plate.hidden) place(plate, shift(capsOuter, dy), { background: c.plate, borderRadius: `${Math.round(0.2 * px)}px` });
   return box(shift(outer, dy));
+}
+
+// ---------- обложка ----------
+
+// Обложка для сетки профиля: хук крупно (кегль 132, как у хука — капс и рукописное последнее слово) в середине того, что
+// видно в сетке, — кадр 3:4 по центру (y 240–1680); строки — по центру всего кадра, справа кнопок на обложке нет.
+const COVER = { y: 960, size: 132, cx: FRAME.w / 2, width: FRAME.w - 120 };
+
+function drawCover({ spec, main, hand }, cover) {
+  if (!cover?.text) return null;
+  const look = { spec: { ...spec, hook: { ...spec.hook, y: COVER.y, size: COVER.size } }, main, hand };
+  return drawTitle('hook', look, hookTitle(cover), { cx: COVER.cx, width: COVER.width });
 }
 
 // ---------- финальная карточка ----------
@@ -571,7 +584,7 @@ window.renderState = function renderState(spec, state = {}, opts = {}) {
 /** Тексты состояния, где могут быть эмодзи: хук, титр, тексты вставок. */
 function texts(s) {
   const cta = s.cta ?? {};
-  return [s.hook?.text, ...(cta.lines ?? []), cta.word, ...(s.inserts ?? []).flatMap((i) => [i.text, i.title]), ...(s.end?.lines ?? [])];
+  return [s.hook?.text, s.cover?.text, ...(cta.lines ?? []), cta.word, ...(s.inserts ?? []).flatMap((i) => [i.text, i.title]), ...(s.end?.lines ?? [])];
 }
 
 async function draw(spec, state, opts) {
@@ -583,8 +596,10 @@ async function draw(spec, state, opts) {
   const boxes = { inserts: await drawInserts(document.getElementById('inserts'), s.inserts ?? [], look) };
   const sub = drawSub(look, s.sub);
   if (sub) boxes.sub = sub;
-  const hook = drawTitle('hook', look, hookTitle(s.hook));
+  const hook = s.cover ? null : drawTitle('hook', look, hookTitle(s.hook));
   if (hook) boxes.hook = hook;
+  const cover = s.cover ? drawCover(look, s.cover) : null;
+  if (cover) boxes.cover = cover;
   const cta = drawTitle('cta', look, ctaTitle(s.cta));
   if (cta) boxes.cta = cta;
   const card = drawEnd(look, s.end, s.end?.logo ? await logoImage(s.end.logo) : null);

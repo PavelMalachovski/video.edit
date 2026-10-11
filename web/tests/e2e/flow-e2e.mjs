@@ -116,7 +116,8 @@ const SCRIPT = {
   caption: { text: 'Три ошибки в чешском 🇨🇿', hashtags: ['чешский', 'языки'] },
 };
 const FIXTURE = JSON.parse(fs.readFileSync(path.resolve('../engine/tests/fixtures/style-merge.json'), 'utf8'));
-const STYLES = { ...FIXTURE.styles, sample: { ...FIXTURE.styles.sample, inserts: [{ kind: 'image', x: 70, y: 500, w: 250, question: 'logo' }] } };
+const STYLES = { ...FIXTURE.styles, sample: { ...FIXTURE.styles.sample, inserts: [{ kind: 'image', x: 70, y: 500, w: 250, question: 'logo' }] },
+  cover: { frames: [{ t: 1.2, image: 'cover-1.jpg' }, { t: 7.5, image: 'cover-2.jpg' }, { t: 21, image: 'cover-3.jpg' }], text: 'Как я учу чешский' } };
 
 /** Снимок экрана в папку E2E_SHOTS (если задана) — посмотреть вёрстку глазами. */
 async function shot(page, name) {
@@ -262,7 +263,7 @@ const segments = [
     engineValidate('review.json', REVIEW);
     const waiting = { state: 'waiting_answers', phase: 'Ждёт ответов', message: 'Ответь на вопросы и выбери стиль', at: new Date().toISOString(), needs: 'answers' };
     engineValidate('status.json', waiting);
-    await session(ctx, { 'questions.json': QUESTIONS, 'styles.json': STYLES, 'review.json': REVIEW, 'frame.png': PNG, 'q-logo.png': PNG, 'status.json': waiting });
+    await session(ctx, { 'questions.json': QUESTIONS, 'styles.json': STYLES, 'review.json': REVIEW, 'frame.png': PNG, 'q-logo.png': PNG, 'cover-1.jpg': PNG, 'cover-2.jpg': PNG, 'cover-3.jpg': PNG, 'status.json': waiting });
     const cards = page.locator('[data-question]');
     await until(async () => (await cards.count()) === 8, 10_000, 'восемь карточек вопросов');
     const go = page.getByRole('button', { name: 'Показать превью' });
@@ -299,7 +300,7 @@ const segments = [
 
   ['previews', async (ctx) => {
     const { page } = ctx;
-    await until(async () => (await page.locator('iframe[data-spec]').count()) === 4, 10_000, 'три миниатюры и крупное превью');
+    await until(async () => (await page.locator('iframe[data-spec]').count()) === 5, 10_000, 'три миниатюры, крупное превью и обложка');
     const big = page.locator('iframe[data-big]');
     const bigSpec = async () => JSON.parse(await big.getAttribute('data-spec'));
     await page.getByRole('button', { name: /^B · / }).click();
@@ -464,6 +465,12 @@ const segments = [
     // вторая версия для теста: тизер Павел взял — можно собрать ролик без него; музыки нет — без музыки нельзя
     check(await page.getByRole('button', { name: 'Без музыки' }).count() === 0, 'без музыки предложено, хотя трека нет');
     await page.getByRole('button', { name: 'Без тизера' }).click();
+    // обложка: второй кадр и свой текст; превью рисует её тем же шаблоном
+    const coverCard = page.locator('[data-cover]');
+    check(await coverCard.locator('.cover-pick').count() === 3, 'три кадра обложки');
+    await coverCard.getByRole('button', { name: 'Кадр 2' }).click();
+    await coverCard.getByLabel('Текст обложки').fill('Чешский за 15 минут');
+    await until(async () => (await coverCard.locator('iframe').getAttribute('src')) !== null, 5000, 'превью обложки');
     const go = page.getByRole('button', { name: /^Монтировать: B · Rubik · ×1\.3 · A\/B/ });
     await go.waitFor();
     const last = await bigSpec();
@@ -482,6 +489,7 @@ const segments = [
     check(isDeepStrictEqual(answers.answers?.stickers, ['s1']), `stickers: ${JSON.stringify(answers.answers?.stickers)}`);
     check(answers.answers?.end === 'e1', `end: ${JSON.stringify(answers.answers?.end)}`);
     check(answers.ab === 'teaser', `ab: ${JSON.stringify(answers.ab)}`);
+    check(isDeepStrictEqual(answers.cover, { frame: 1, text: 'Чешский за 15 минут' }), `cover: ${JSON.stringify(answers.cover)}`);
     check(answers.style?.subSize === grown - 4 && answers.style?.hookSize === pinched, `размеры: ${answers.style?.subSize}, ${answers.style?.hookSize}`);
     check(isDeepStrictEqual(finalStyle(restyled, answers.style), last), `стиль ответа ${JSON.stringify(answers.style)} ≠ последнему превью`);
   }],
@@ -521,8 +529,9 @@ const segments = [
     await asset('final.srt', Buffer.from('1\n00:00:00,000 --> 00:00:01,000\nпривет\n\n'));
     const vB = crypto.randomBytes(44 * 1024);
     await asset('final-b.mp4', vB);
+    await asset('final-cover.png', PNG);
     await session(ctx, { 'result.json': result, 'status.json': { state: 'rendered', phase: 'Загружаю', message: 'Ролик собран, загружаю', at: iso() },
-      'out/released.json': await released(['final.mp4', 'final.srt', 'final-b.mp4']) });
+      'out/released.json': await released(['final.mp4', 'final.srt', 'final-b.mp4', 'final-cover.png']) });
     await page.getByText('Что я сделал').waitFor({ timeout: 7000 });
     check(await page.getByRole('heading', { name: 'Готово' }).count() === 1, 'нет заголовка «Готово»');
     check((await page.textContent('body')).includes('было 1:42 → стало 1:16 · стиль B'), 'нет строки «было → стало · стиль»');
@@ -552,6 +561,10 @@ const segments = [
     check(got.status() === 302 && /\/__blob\/\d+$/.test(got.headers().location ?? ''), `скачивание: ${got.status()} ${got.headers().location}`);
     const bytes = Buffer.from(await (await fetch(got.headers().location)).arrayBuffer());
     check(bytes.equals(v1), 'скачанный ролик не совпал байт в байт');
+    const coverImg = page.locator('[data-cover-result] img');
+    check(/name=final-cover\.png$/.test((await coverImg.getAttribute('src')) ?? ''), 'обложка на «Готово»');
+    const coverGot = await page.request.get(`${APP}/api/jobs/${ctx.jobId}/download?name=final-cover.png`, { maxRedirects: 0 });
+    check(coverGot.status() === 302, `скачивание обложки: ${coverGot.status()}`);
     const second = await page.request.get(`${APP}/api/jobs/${ctx.jobId}/download?name=final-b.mp4`, { maxRedirects: 0 });
     check(second.status() === 302, `скачивание версии B: ${second.status()}`);
     check(Buffer.from(await (await fetch(second.headers().location)).arrayBuffer()).equals(vB), 'версия B скачалась не та');

@@ -99,6 +99,15 @@
       "type": "number",
       "minimum": 0
     },
+    "cover": {
+      "description": "Обложка для сетки профиля: кадр исходника в t (с) и текст — хук крупно. vm render пишет out/<имя>-cover.png. null или нет поля — без обложки.",
+      "type": ["object", "null"],
+      "required": ["t", "text"],
+      "properties": {
+        "t": { "type": "number", "minimum": 0 },
+        "text": { "type": "string", "minLength": 1, "maxLength": 80 }
+      }
+    },
     "ab": {
       "description": "Вторая версия для A/B-теста (ответ Павла answers.ab): vm render соберёт ещё ролик <имя>-b без тизера (teaser) или без музыки (music). null или нет поля — один ролик.",
       "enum": ["teaser", "music", null]

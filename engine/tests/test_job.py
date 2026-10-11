@@ -539,6 +539,21 @@ def test_styles_sample_end_card_takes_an_empty_brand(job):
     job.write("styles.json", styles)
 
 
+def test_cover_frames_in_styles_the_choice_in_answers_and_the_frame_in_edit(job):
+    styles = json.loads((Path(__file__).parent / "fixtures" / "style-merge.json").read_text(encoding="utf-8"))["styles"]
+    job.write("styles.json", {**styles, "cover": {"frames": [{"t": 1.2, "image": "cover-1.jpg"}], "text": "Как я учу"}})
+    with pytest.raises(ValueError, match=r"  cover\.frames: "):
+        job.write("styles.json", {**styles, "cover": {"frames": [], "text": "Как я учу"}})
+    answers = {"answers": {}, "style": {"variant": "A", "font": "Gilroy", "hand": "caveat",
+                                         "colors": {"text": "#FFFFFF", "accent": "#FFD23F", "bar": "#FFD23F"}}}  # fmt: skip
+    job.write("answers.json", {**answers, "cover": {"frame": 2, "text": "Как я учу"}})
+    with pytest.raises(ValueError, match=r"  cover\.frame: "):
+        job.write("answers.json", {**answers, "cover": {"frame": 3, "text": "x"}})
+    job.write("edit.json", {**make_edit(), "cover": {"t": 7.5, "text": "Как я учу"}})
+    with pytest.raises(ValueError, match=r"  cover\.text: "):
+        job.write("edit.json", {**make_edit(), "cover": {"t": 7.5, "text": ""}})
+
+
 def test_edit_rejects_unknown_insert_kind(job):
     edit = make_edit()
     edit["inserts"][0]["kind"] = "gif"

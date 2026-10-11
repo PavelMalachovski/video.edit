@@ -14,7 +14,16 @@ import pytest
 
 from vm.job import Job
 from vm.media import mp4_boxes
-from vm.render import RenderError, _ffmpeg, _sounds, render, timeline, variant_b
+from vm.render import (
+    COVER_ZONE,
+    RenderError,
+    _ffmpeg,
+    _sounds,
+    render,
+    render_cover,
+    timeline,
+    variant_b,
+)
 
 pytestmark = [
     pytest.mark.slow,
@@ -527,3 +536,20 @@ def test_quiet_recording_is_denoised_and_reported(tmp_path, sources, monkeypatch
     monkeypatch.setattr(rendering, "loudness", lambda path: -21.0)
     result = render(job, job.path("out"), preset="ultrafast")
     assert result["voice"] == {"lufs": -21.0, "denoise": False}
+
+
+# ---------- обложка ----------
+
+
+def test_cover_is_the_source_frame_with_the_hook_in_big_letters(tmp_path, sources):
+    job = make_job(tmp_path, sources["short"], cover={"t": 1.2, "text": "Как я учу чешский"})
+    out = job.path("out/final-cover.png")
+    report = render_cover(job, job.read("edit.json"), out)
+    picture = frame(out, 0)  # PNG читается как один кадр
+    assert picture.shape == (1920, 1080, 3)
+    b = report["box"]
+    assert COVER_ZONE["x0"] <= b["x"] and b["x"] + b["w"] <= COVER_ZONE["x1"] and COVER_ZONE["y0"] <= b["y"] <= b["y"] + b["h"] <= COVER_ZONE["y1"]
+    source = frame(job.path("source.mp4"), 1.2).astype(int)
+    text = (slice(b["y"], b["y"] + b["h"]), slice(b["x"], b["x"] + b["w"]))
+    assert np.abs(picture.astype(int)[text] - source[text]).mean() > 20, "на кадре — текст обложки"
+    assert np.abs(picture.astype(int)[1750:1900, 100:1000] - source[1750:1900, 100:1000]).mean() < 12, "ниже — кадр исходника"

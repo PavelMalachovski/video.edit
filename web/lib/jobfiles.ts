@@ -101,7 +101,15 @@ export type Styles = {
   variants: { id: 'A' | 'B' | 'C'; label: string; spec: StyleSpec }[];
   /** Шрифты, в которых есть все буквы ролика (`vm fonts`); нет поля — годятся все. */
   fonts?: { main: string[]; hand: string[] };
+  /** Обложка: до трёх кадров исходника (`t` — с, `image` — картинка от папки задачи) и текст — хук. */
+  cover?: { frames: { t: number; image: string }[]; text: string };
 };
+/** Обложка: кадров на выбор и длина текста (как в схемах styles.json и answers.json). */
+export const COVER = { frames: 3, text: 80 };
+/** Выбор обложки на превью: какой кадр (номер в styles.cover.frames) и текст. */
+export type CoverChoice = { frame: number; text: string };
+export const isCoverChoice = (c: unknown): c is CoverChoice => isObject(c) && Number.isInteger(c.frame) && (c.frame as number) >= 0
+  && (c.frame as number) < COVER.frames && isStr(c.text) && c.text.trim() !== '' && c.text.trim().length <= COVER.text;
 /** Выбор Павла на превью; `subY` и `hookY` — куда он перетащил субтитры (центр блока) и хук (центр строки капсом),
  *  px кадра; `subSize` и `hookSize` — их размер, px; нет — как в варианте (пределы — ADJUST). */
 export type StyleChoice = {
@@ -152,7 +160,11 @@ export function parseStyles(raw: unknown): Styles | null {
   if (raw.fonts !== undefined && !(isObject(raw.fonts) && ids(raw.fonts.main) && ids(raw.fonts.hand))) return null;
   const v = raw.variants;
   if (!Array.isArray(v) || v.length !== 3 || !v.every((x, k) => isObject(x) && x.id === 'ABC'[k] && isStr(x.label) && isSpec(x.spec))) return null;
-  return raw as Styles;
+  const { cover, ...rest } = raw;
+  const coverOk = isObject(cover) && Array.isArray(cover.frames) && cover.frames.length >= 1 && cover.frames.length <= COVER.frames
+    && cover.frames.every((f) => isObject(f) && isNum(f.t) && f.t >= 0 && isStr(f.image) && f.image !== '')
+    && isStr(cover.text) && cover.text !== '' && cover.text.length <= COVER.text;
+  return { ...rest, ...(coverOk ? { cover } : {}) } as Styles;  // кривая обложка — превью без неё, а не без стилей
 }
 
 // ---------- manifest.json и job.json ----------
@@ -194,11 +206,13 @@ export type AbKind = (typeof AB_KINDS)[number];
 export type AnswersFile = {
   answers: Record<string, string | string[]>; style: StyleChoice; speed?: number; insertBoxes?: Record<string, InsertBox>; uploads?: Record<string, string>; brief?: string;
   ab?: AbKind;
+  cover?: CoverChoice;
 };
 export type UploadClaim = { asset: string; name: string; size: number; type: string; parts: number };
 export type ParsedAnswers = {
   answers: Record<string, string | string[]>; style: StyleChoice; speed?: number; insertBoxes?: Record<string, InsertBox>; uploads: Record<string, UploadClaim>;
   ab?: AbKind;
+  cover?: CoverChoice;
 };
 /** Ширина вставки, которую Павел может выбрать на превью, px кадра (ширина безопасной зоны — 830). */
 export const INSERT_W = { min: 80, max: 830 };
@@ -275,6 +289,8 @@ export function parseAnswersBody(body: unknown, qs: Question[]): ParsedAnswers |
   }
   const ab = body.ab;
   if (ab !== undefined && !(AB_KINDS as readonly unknown[]).includes(ab)) return { error: `ab: ${AB_KINDS.join(' или ')}` };
+  const cover = body.cover;
+  if (cover !== undefined && !isCoverChoice(cover)) return { error: `cover: кадр 1–${COVER.frames} и текст до ${COVER.text} знаков` };
   const uploads: Record<string, UploadClaim> = {};
   const claims = body.uploads === undefined ? {} : body.uploads;
   if (!isObject(claims)) return { error: 'uploads: нужен объект' };
@@ -292,6 +308,7 @@ export function parseAnswersBody(body: unknown, qs: Question[]): ParsedAnswers |
     ...(speed === undefined ? {} : { speed: Math.round(speed * 100) / 100 }),
     ...(boxes === undefined ? {} : { insertBoxes: boxes as Record<string, InsertBox> }),
     ...(ab === undefined ? {} : { ab: ab as AbKind }),
+    ...(cover === undefined ? {} : { cover: { frame: cover.frame, text: cover.text.trim() } }),
   };
 }
 
@@ -302,6 +319,7 @@ export function answersFile(p: ParsedAnswers, job: JobFile): AnswersFile {
     ...(p.speed === undefined ? {} : { speed: p.speed }),
     ...(p.insertBoxes === undefined ? {} : { insertBoxes: p.insertBoxes }),
     ...(p.ab === undefined ? {} : { ab: p.ab }),
+    ...(p.cover === undefined ? {} : { cover: p.cover }),
     uploads: Object.fromEntries(Object.entries(p.uploads).map(([qid, c]) => [qid, `in/uploads/${c.asset}`])),
     brief: job.brief,
   };
@@ -338,8 +356,11 @@ export function finalNames(v: number, variant?: 'b'): { mp4: string; srt: string
   return { mp4: `${base}.mp4`, srt: `${base}.srt` };
 }
 
-/** Имя, которое можно скачать со страницы: всё, что даёт finalNames, и ничего больше. */
-export const isFinalName = (name: string): boolean => /^final(-v\d{1,3})?(-b)?\.(mp4|srt)$/.test(name);
+/** Обложка версии `v`: final-cover.png, final-v2-cover.png. */
+export const coverName = (v: number): string => `${v <= 1 ? 'final' : `final-v${v}`}-cover.png`;
+
+/** Имя, которое можно скачать со страницы: всё, что дают finalNames и coverName, и ничего больше. */
+export const isFinalName = (name: string): boolean => /^final(-v\d{1,3})?((-b)?\.(mp4|srt)|-cover\.png)$/.test(name);
 
 // ---------- out/released.json и result.json ----------
 

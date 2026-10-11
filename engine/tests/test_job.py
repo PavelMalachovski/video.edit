@@ -406,6 +406,16 @@ def test_the_draft_keeps_its_cut_out_slips(job):
         job.write("edit.json", edit)
 
 
+def test_edit_takes_a_dimmed_background(job):
+    edit = make_edit()
+    edit["dim"] = 0.3
+    job.write("edit.json", edit)
+    for wrong in (1.2, -0.1, "30%"):
+        edit["dim"] = wrong
+        with pytest.raises(ValueError, match="dim"):
+            job.write("edit.json", edit)
+
+
 def test_zoom_steps_take_the_length_of_their_change(job):
     edit = make_edit()
     edit["zooms"] = [{"t": 1.0, "level": 1.25, "over": 0}, {"t": 3.0, "level": 1.15, "over": 4.5}, {"t": 9.0, "level": 1.0}]

@@ -137,6 +137,15 @@ function QuestionCard({ q, n, draft, onDraft, need, fileUrl, localUrl, loading, 
       </div>
       {q.type === 'text' ? (
         <input type="text" aria-label={q.title} value={draft.texts[q.id] ?? ''} onChange={(e) => setText(e.target.value, false)} />
+      ) : q.layout === 'frames' ? (
+        <div className="frame-picks">
+          {pills.map((o) => (
+            <button key={o.id} type="button" className="frame-pick" aria-pressed={picked.includes(o.id)} onClick={() => onDraft((d) => pick(d, q, o.id))}>
+              {o.image ? <img src={fileUrl(o.image)} alt="" /> : <span className="frame-blank" />}
+              <span className="frame-label">{o.label}</span>
+            </button>
+          ))}
+        </div>
       ) : (
         <div className="pills">
           {pills.map((o) => (

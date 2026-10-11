@@ -89,6 +89,9 @@ const QUESTIONS = { questions: [
     options: [{ id: 'e1', label: '«Подпишись, чтобы не пропустить 👇»' }, { id: 'own', label: 'Свой' }, { id: 'none', label: 'Не надо' }], default: 'e1' },
   { id: 'teaser', type: 'choice', title: 'Начать с самой сильной фразы?', body: '«Учу по 15 минут в день» звучит на 0:21.',
     options: [{ id: 'yes', label: 'Да: «Учу по 15 минут в день»' }, { id: 'no', label: 'Нет' }], default: 'yes' },
+  { id: 'dim', type: 'choice', title: 'Затемнить фон?', layout: 'frames', default: '30',
+    options: [{ id: 'none', label: 'Как есть', image: 'q-dim-none.jpg' }, { id: '30', label: 'Темнее на 30 %', image: 'q-dim-30.jpg' },
+      { id: '50', label: 'Темнее на 50 %', image: 'q-dim-50.jpg' }] },
 ] };
 const REVIEW = { items: [
   { id: 'hook', title: 'Мысль в первые 2 с', status: 'warn', note: 'Мысль звучит на 0:21 — предлагаю начать с неё (вопрос «тизер»)' },
@@ -271,9 +274,18 @@ const segments = [
     engineValidate('review.json', REVIEW);
     const waiting = { state: 'waiting_answers', phase: 'Ждёт ответов', message: 'Ответь на вопросы и выбери стиль', at: new Date().toISOString(), needs: 'answers' };
     engineValidate('status.json', waiting);
-    await session(ctx, { 'questions.json': QUESTIONS, 'styles.json': STYLES, 'review.json': REVIEW, 'frame.png': PNG, 'q-logo.png': PNG, 'cover-1.jpg': PNG, 'cover-2.jpg': PNG, 'cover-3.jpg': PNG, 'status.json': waiting });
+    await session(ctx, { 'questions.json': QUESTIONS, 'styles.json': STYLES, 'review.json': REVIEW, 'frame.png': PNG, 'q-logo.png': PNG, 'cover-1.jpg': PNG, 'cover-2.jpg': PNG, 'cover-3.jpg': PNG,
+      'q-dim-none.jpg': PNG, 'q-dim-30.jpg': PNG, 'q-dim-50.jpg': PNG, 'status.json': waiting });
     const cards = page.locator('[data-question]');
-    await until(async () => (await cards.count()) === 8, 10_000, 'восемь карточек вопросов');
+    await until(async () => (await cards.count()) === 9, 10_000, 'девять карточек вопросов');
+    // «Фон»: варианты — кадры видео крупно (9:16), а не значки в кнопке — иначе разницу не увидеть
+    const frames = page.locator('[data-question="dim"] .frame-pick');
+    check(await frames.count() === 3, 'у вопроса «Фон» три кадра-варианта');
+    const tile = await frames.first().locator('img').boundingBox();
+    check(tile && tile.width >= 90 && Math.abs(tile.height / tile.width - 16 / 9) < 0.05, `кадр варианта крупный и 9:16: ${JSON.stringify(tile)}`);
+    check(await frames.nth(1).getAttribute('aria-pressed') === 'true', 'по умолчанию — темнее на 30 %');
+    await frames.nth(2).click();
+    check(await frames.nth(2).getAttribute('aria-pressed') === 'true' && await frames.nth(1).getAttribute('aria-pressed') === 'false', 'выбор кадра');
     const go = page.getByRole('button', { name: 'Показать превью' });
     check(await go.isDisabled(), '«Показать превью» включена, хотя brand и logo без ответа');
     // разбор по гайду — над вопросами: что хорошо и что поправить
@@ -296,7 +308,7 @@ const segments = [
     check(!(await go.isDisabled()), '«Показать превью» выключена после всех ответов');
 
     await page.reload();
-    await until(async () => (await cards.count()) === 8, 10_000, 'карточки после перезагрузки');
+    await until(async () => (await cards.count()) === 9, 10_000, 'карточки после перезагрузки');
     check(await card('hook').getByLabel('Или напиши свой').inputValue() === 'Как я снимаю reels', 'свой хук пропал');
     check(await card('stars').getByRole('button', { name: 'беспл*тно' }).getAttribute('aria-pressed') === 'false', 'снятая звёздочка вернулась');
     check(await card('brand').getByRole('button', { name: 'Copilot' }).getAttribute('aria-pressed') === 'true', 'выбор написания пропал');
@@ -590,6 +602,7 @@ const segments = [
     check(answers.ab === 'teaser', `ab: ${JSON.stringify(answers.ab)}`);
     check(isDeepStrictEqual(answers.cover, { frame: 1, text: 'Чешский за 15 минут' }), `cover: ${JSON.stringify(answers.cover)}`);
     check(answers.ad === true, `ad: ${JSON.stringify(answers.ad)}`);
+    check(answers.answers?.dim === '50', `dim: ${JSON.stringify(answers.answers?.dim)}`);
     check(answers.style?.subSize === grown - 4 && answers.style?.hookSize === pinched, `размеры: ${answers.style?.subSize}, ${answers.style?.hookSize}`);
     check(isDeepStrictEqual(finalStyle(restyled, answers.style), last), `стиль ответа ${JSON.stringify(answers.style)} ≠ последнему превью`);
   }],

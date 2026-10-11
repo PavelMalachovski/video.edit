@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 import {
   abLabels, answersFile, appendFix, appendRestyle, buildJobFile, coverName, errorStatus, finalNames, isFinalName, parseAnswersBody, parseNote, parseResult, parseStatus, parseStyles,
-  QUESTION_TYPES, queuedStatus, STATES, wantedVersion, type Manifest, type Question,
+  parseQuestions, QUESTION_LAYOUTS, QUESTION_TYPES, queuedStatus, STATES, wantedVersion, type Manifest, type Question,
   AB_KINDS, CHECK_IDS, parseReview, REVIEW_IDS, SAMPLE_INSERT_KINDS,
 } from '../lib/jobfiles.ts';
 import { STEPS } from '../lib/routine.ts';
@@ -17,6 +17,14 @@ test('states and question types match the engine schemas', () => {
   assert.deepEqual([...QUESTION_TYPES], schema('questions.json').properties.questions.items.properties.type.enum);
   assert.deepEqual([...SAMPLE_INSERT_KINDS], schema('styles.json').properties.sample.properties.inserts.items.properties.kind.enum);
   assert.deepEqual(schema('answers.json').required, ['answers', 'style']);
+});
+
+test('a question may show its picture options as big frames of the video', () => {
+  assert.deepEqual([...QUESTION_LAYOUTS], schema('questions.json').properties.questions.items.properties.layout.enum);
+  const dim = { id: 'dim', type: 'choice', title: 'Затемнить фон?', layout: 'frames', default: '30',
+    options: [{ id: 'none', label: 'Как есть', image: 'q-dim-none.jpg' }, { id: '30', label: 'Темнее на 30 %', image: 'q-dim-30.jpg' }] };
+  assert.deepEqual(parseQuestions({ questions: [dim] }), [dim]);
+  assert.equal(parseQuestions({ questions: [{ ...dim, layout: 'big' }] }), null);
 });
 
 test('queuedStatus is valid for every step', () => {

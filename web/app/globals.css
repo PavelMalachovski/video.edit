@@ -171,6 +171,15 @@ input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); 
 .pill[aria-pressed=true], .pill.on { background: var(--accent); color: var(--ink); }
 .pill.mono { font-family: var(--mono); }
 .pill img { width: 26px; height: 26px; border-radius: 6px; object-fit: cover; background: #fff; }
+/* варианты — кадры видео (layout: frames): крупно 9:16, подпись под кадром — разницу между ними видно */
+.frame-picks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.frame-pick { padding: 0; border: 2px solid transparent; border-radius: 10px; overflow: hidden; background: var(--panel-2); color: var(--text);
+  font: inherit; cursor: pointer; display: flex; flex-direction: column; }
+.frame-pick:hover { background: var(--line); }
+.frame-pick[aria-pressed=true] { border-color: var(--accent); }
+.frame-pick img, .frame-blank { width: 100%; aspect-ratio: 9 / 16; object-fit: cover; display: block; background: var(--stage); }
+.frame-label { padding: 8px 6px; font-size: 14px; font-weight: 600; text-align: center; line-height: 1.25; }
+.frame-pick[aria-pressed=true] .frame-label { background: var(--accent); color: var(--ink); font-weight: 700; }
 .own { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
 .own input.on { border-color: var(--accent); }
 .upload-row { display: flex; align-items: center; gap: 10px; font-size: 14px; }

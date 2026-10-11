@@ -758,6 +758,49 @@ def test_preview_makes_a_marked_picture_for_a_question(tmp_path):
         main(["preview", str(job.root), "--at", "1.0", "--out", "../escape.png"])
 
 
+@needs_ffmpeg
+def test_preview_shows_the_background_dimmed_for_the_question(tmp_path, monkeypatch):
+    """Картинка к вопросу «Фон»: тот же кадр, фон темнее на долю `--dim` по маске человека."""
+    def left_person(rgb, state):
+        mask = np.zeros(rgb.shape[:2], np.uint8)
+        mask[:, : rgb.shape[1] // 2] = 255
+        return mask, state
+
+    monkeypatch.setattr("vm.matte.unavailable", lambda: None)
+    monkeypatch.setattr("vm.matte._rvm", lambda: left_person)
+    job = Job(tmp_path / "jobs" / "abc")
+    make_source(job.path("source.mp4"), 3)
+    assert main(["preview", str(job.root), "--at", "1.0", "--out", "q-dim-none.png"]) == 0
+    assert main(["preview", str(job.root), "--at", "1.0", "--out", "q-dim-30.png", "--dim", "0.3"]) == 0
+    plain, dimmed = pixels(job.path("q-dim-none.png")).astype(float), pixels(job.path("q-dim-30.png")).astype(float)
+    assert abs(plain[:, :400].mean() - dimmed[:, :400].mean()) < 3, "человек как был"
+    assert 0.6 < dimmed[:, 700:].mean() / plain[:, 700:].mean() < 0.8, "фон темнее на 30 %"
+
+
+def test_preview_without_the_matting_model_says_what_is_missing(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr("vm.matte.unavailable", lambda: "нет модели rvm_mobilenetv3_fp32.onnx (setup/cloud-setup.sh)")
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    assert main(["preview", str(job.root), "--at", "1.0", "--out", "q-dim-30.png", "--dim", "0.3"]) == 1
+    assert "нет модели" in capsys.readouterr().err
+
+
+@needs_ffmpeg
+def test_preview_with_a_failing_matte_is_a_clear_error(tmp_path, monkeypatch, capsys):
+    class Boom(Exception):
+        pass
+
+    def fail(*args, **kwargs):
+        raise Boom("модель сломалась")
+
+    monkeypatch.setattr("vm.matte.unavailable", lambda: None)
+    monkeypatch.setattr("vm.matte.frame_matte", fail)
+    job = Job(tmp_path / "jobs" / "abc")
+    make_source(job.path("source.mp4"), 2)
+    assert main(["preview", str(job.root), "--at", "1.0", "--out", "q-dim-30.png", "--dim", "0.3"]) == 1
+    assert "затемнение фона: модель сломалась" in capsys.readouterr().err
+
+
 def test_summary_warns_when_gigaam_heard_much_less_than_whisper():
     from vm.asr import Word
     from vm.prepare import _coverage

@@ -606,6 +606,90 @@ def test_cover_is_the_source_frame_with_the_hook_in_big_letters(tmp_path, source
     assert np.abs(picture.astype(int)[1750:1900, 100:1000] - source[1750:1900, 100:1000]).mean() < 12, "ниже — кадр исходника"
 
 
+# ---------- затемнение фона ----------
+
+
+def left_person(rgb, state):
+    """Подмена модели маски: «человек» — левая половина кадра."""
+    mask = np.zeros(rgb.shape[:2], np.uint8)
+    mask[:, : rgb.shape[1] // 2] = 255
+    return mask, state
+
+
+@pytest.fixture
+def fake_matte(monkeypatch):
+    monkeypatch.setattr("vm.matte.unavailable", lambda: None)
+    monkeypatch.setattr("vm.matte._rvm", lambda: left_person)
+
+
+def halves(picture: np.ndarray) -> tuple[float, float]:
+    """Средняя яркость слева и справа, вдали от границы маски и без шкалы внизу."""
+    rows = slice(200, 1700)
+    return picture[rows, :400].astype(float).mean(), picture[rows, 700:].astype(float).mean()
+
+
+def test_dim_darkens_the_background_and_keeps_the_person(tmp_path, sources, fake_matte):
+    keep = [[0.0, 2.0], [3.0, 5.0]]
+    plain = make_job(tmp_path / "a", sources["vertical"], keep=keep)
+    dimmed = make_job(tmp_path / "b", sources["vertical"], keep=keep, dim=0.3)
+    render(plain, plain.path("out"), preset="ultrafast")
+    report = render(dimmed, dimmed.path("out"), preset="ultrafast")
+    assert not any("затемнение" in m for m in report["missing"])
+    for t in (0.5, 2.5):  # до и после склейки
+        (pl, pr), (dl, dr) = halves(frame(plain.path("out/final.mp4"), t)), halves(frame(dimmed.path("out/final.mp4"), t))
+        assert abs(dl - pl) < 3, ("человек как был", t, pl, dl)
+        assert 0.6 < dr / pr < 0.8, ("фон темнее примерно на 30 %", t, pr, dr)
+
+
+def frames_in(path) -> int:
+    return int(subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0", "-count_frames", "-show_entries", "stream=nb_read_frames",
+         "-of", "csv=p=0", str(path)],
+        check=True, capture_output=True, text=True,
+    ).stdout)
+
+
+@pytest.mark.parametrize(("speed", "hold"), [(1.0, 0.0), (1.1, 0.5)])
+def test_dim_keeps_every_frame_of_the_video(tmp_path, sources, fake_matte, speed, hold):
+    """С затемнением столько же кадров, сколько без него: последний кадр склейки не теряется."""
+    keep = [[0.0, 2.0], [3.0, 4.0]]
+    plain = make_job(tmp_path / "a", sources["vertical"], keep=keep, speed=speed, hold=hold)
+    dimmed = make_job(tmp_path / "b", sources["vertical"], keep=keep, speed=speed, hold=hold, dim=0.3)
+    render(plain, plain.path("out"), preset="ultrafast")
+    render(dimmed, dimmed.path("out"), preset="ultrafast")
+    assert frames_in(dimmed.path("out/final.mp4")) == frames_in(plain.path("out/final.mp4"))
+
+
+def test_without_the_matting_model_the_video_goes_without_dimming_and_says_so(tmp_path, sources, monkeypatch):
+    monkeypatch.setattr("vm.matte.unavailable", lambda: "нет модели rvm_mobilenetv3_fp32.onnx (setup/cloud-setup.sh)")
+    job = make_job(tmp_path, sources["short"], keep=[[0.0, 2.0]], dim=0.3)
+    report = render(job, job.path("out"), preset="ultrafast")
+    assert job.path("out/final.mp4").is_file()
+    assert any(m.startswith("затемнение фона: нет модели") for m in report["missing"]), report["missing"]
+
+
+def test_a_failing_matte_leaves_the_cover_undimmed(tmp_path, sources, monkeypatch):
+    def fail(*args, **kwargs):
+        raise ValueError("модель сломалась")
+
+    monkeypatch.setattr("vm.matte.unavailable", lambda: None)
+    monkeypatch.setattr("vm.matte.frame_matte", fail)
+    job = make_job(tmp_path, sources["short"], cover={"t": 1.2, "text": "Как я учу"}, dim=0.3)
+    render_cover(job, job.read("edit.json"), job.path("out/c.png"))
+    assert job.path("out/c.png").is_file()
+
+
+def test_the_cover_is_dimmed_like_the_video(tmp_path, sources, fake_matte):
+    job = make_job(tmp_path, sources["short"], cover={"t": 1.2, "text": "Как я учу"}, dim=0.3)
+    plain = make_job(tmp_path / "plain", sources["short"], cover={"t": 1.2, "text": "Как я учу"})
+    render_cover(job, job.read("edit.json"), job.path("out/c.png"))
+    render_cover(plain, plain.read("edit.json"), plain.path("out/c.png"))
+    below = slice(1750, 1900)  # ниже текста обложки — кадр исходника
+    a, b = frame(plain.path("out/c.png"), 0)[below].astype(float), frame(job.path("out/c.png"), 0)[below].astype(float)
+    assert abs(a[:, :400].mean() - b[:, :400].mean()) < 3
+    assert 0.6 < b[:, 700:].mean() / a[:, 700:].mean() < 0.8
+
+
 # ---------- версия для рекламы ----------
 
 

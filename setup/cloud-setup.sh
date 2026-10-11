@@ -5,7 +5,9 @@
 #   PARAKEET_MODEL=<папка модели Parakeet TDT v3>  (слова с временем на 25 европейских языках, кроме русского)
 #   ASR_REF=whisper-turbo      ASR_REF_MODEL=<папка модели Whisper turbo>  (сплошной текст для правки и язык ролика)
 #   VAD_MODEL=<silero_vad.onnx>
-# Модели — из релизов k2-fsa/sherpa-onnx на GitHub (huggingface.co из облака закрыт).
+#   MATTE_MODEL=<rvm_mobilenetv3_fp32.onnx>  (маска человека для затемнения фона, onnxruntime)
+# Модели — из релизов k2-fsa/sherpa-onnx на GitHub (huggingface.co из облака закрыт); маска — RobustVideoMatting
+# (релиз PeterL1n/RobustVideoMatting на GitHub, сверяется по sha256).
 # Пропустить Whisper (экономит ~1 ГБ и ~2 мин на холодном старте): VM_WHISPER_REF=0 — тогда язык ролика не
 # определяется (русский, если в ТЗ нет «ЯЗЫК:»), а языки без Parakeet не монтируются.
 # Пропустить Parakeet (~490 МБ): VM_PARAKEET=0 — тогда монтируются только русские ролики и языки через Whisper.
@@ -16,6 +18,9 @@ REL="https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models"
 GIGAAM="sherpa-onnx-nemo-transducer-giga-am-v2-russian-2025-04-19"
 WHISPER="sherpa-onnx-whisper-turbo"
 PARAKEET="sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
+MATTE="rvm_mobilenetv3_fp32.onnx"
+MATTE_URL="https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/$MATTE"
+MATTE_SHA256="88d4531297118f595bf2fd60f6f566aec2e559393802d1f436c380f0cbbd2828"
 SUDO=""; [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null && SUDO="sudo"
 say() { printf '[setup %3ss] %s\n' "$SECONDS" "$*"; }
 fail=0
@@ -34,10 +39,10 @@ fi
 say "ffmpeg: $(ffmpeg -hide_banner -version 2>/dev/null | head -1 | cut -d' ' -f3)"
 
 # 2. Python-зависимости движка.
-if ! python3 -c "import sherpa_onnx, soundfile, numpy, jsonschema, fontTools, pytest" 2>/dev/null; then
-  say "pip: sherpa-onnx soundfile numpy jsonschema fonttools pytest"
-  python3 -m pip install -q --break-system-packages sherpa-onnx soundfile numpy jsonschema fonttools pytest >/dev/null 2>&1 \
-    || python3 -m pip install -q sherpa-onnx soundfile numpy jsonschema fonttools pytest >/dev/null 2>&1 \
+if ! python3 -c "import sherpa_onnx, soundfile, numpy, jsonschema, fontTools, pytest, onnxruntime, PIL" 2>/dev/null; then
+  say "pip: sherpa-onnx soundfile numpy jsonschema fonttools pytest onnxruntime pillow"
+  python3 -m pip install -q --break-system-packages sherpa-onnx soundfile numpy jsonschema fonttools pytest onnxruntime pillow >/dev/null 2>&1 \
+    || python3 -m pip install -q sherpa-onnx soundfile numpy jsonschema fonttools pytest onnxruntime pillow >/dev/null 2>&1 \
     || { say "НЕ удалось поставить Python-пакеты"; fail=1; }
 fi
 
@@ -53,6 +58,11 @@ fetch "$GIGAAM" & pids+=($!)
 if [ "${VM_WHISPER_REF:-1}" != "0" ]; then fetch "$WHISPER" & pids+=($!); fi
 if [ "${VM_PARAKEET:-1}" != "0" ]; then fetch "$PARAKEET" & pids+=($!); fi
 [ -s "$CACHE/silero_vad.onnx" ] || curl -sSL --retry 3 -o "$CACHE/silero_vad.onnx" "$REL/silero_vad.onnx"
+if ! echo "$MATTE_SHA256  $CACHE/$MATTE" | sha256sum -c --status 2>/dev/null; then
+  curl -sSL --retry 3 -o "$CACHE/$MATTE.part" "$MATTE_URL" \
+    && echo "$MATTE_SHA256  $CACHE/$MATTE.part" | sha256sum -c --status && mv "$CACHE/$MATTE.part" "$CACHE/$MATTE" \
+    || { rm -f "$CACHE/$MATTE.part"; say "модель маски не скачалась — затемнение фона недоступно (монтаж идёт без него)"; }
+fi
 for p in "${pids[@]}"; do wait "$p" || { say "модель не скачалась"; fail=1; }; done
 say "модели: $(du -sh "$CACHE" 2>/dev/null | cut -f1)"
 
@@ -77,4 +87,5 @@ echo "ASR_MODEL=$CACHE/$GIGAAM"
 if [ -d "$CACHE/$PARAKEET" ]; then echo "PARAKEET_MODEL=$CACHE/$PARAKEET"; else echo "PARAKEET_MODEL=none"; fi
 if [ -d "$CACHE/$WHISPER" ]; then echo "ASR_REF=whisper-turbo"; echo "ASR_REF_MODEL=$CACHE/$WHISPER"; else echo "ASR_REF=none"; fi
 echo "VAD_MODEL=$CACHE/silero_vad.onnx"
+if [ -s "$CACHE/$MATTE" ]; then echo "MATTE_MODEL=$CACHE/$MATTE"; else echo "MATTE_MODEL=none"; fi
 exit $fail

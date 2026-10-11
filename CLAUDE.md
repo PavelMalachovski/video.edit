@@ -65,6 +65,8 @@
   `engine/vm/fonts.py` (`catalog`).
 - Шрифты со всеми буквами ролика: `styles.json.fonts` (вывод `vm fonts`) и `web/lib/style.ts` (`allowedFonts`).
 - Языки: `engine/vm/lang.py` (коды, названия, чем распознавать) и `setup/cloud-setup.sh` (какие модели ставятся).
+- Затемнение фона: `engine/vm/matte.py` (`MODEL`) и `setup/cloud-setup.sh` (откуда ставится модель, её sha256); маска
+  идёт кадр в кадр со склейкой — `segment_frames` в `engine/vm/render.py`, общий с `_cut`.
 - Бренд Павла: поля и проверка — `web/lib/brand.ts`, как их берёт монтаж — SKILL.md (стиль A, `job.json.brand`).
 - Эмодзи: правило деления текста — `engine/vm/emoji.py` (`runs`) и `template/emoji.js` (`emojiRuns`), общая фикстура
   `engine/tests/fixtures/emoji-runs.json`; картинки и список — `template/emoji/` (собирает `python3 -m vm.emoji`).

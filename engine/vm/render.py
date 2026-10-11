@@ -26,6 +26,7 @@
 Рабочие файлы — в `work/render/` задачи (в git не попадают); в `out_dir` — только ролик и субтитры, и появляются
 они там только целиком.
 """
+import hashlib
 import json
 import math
 import os
@@ -34,11 +35,20 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import beats, transitions
+from . import beats, matte, transitions
 from .asr import Word
 from .audio import MIN_MUSIC, QUIET_LUFS, audio_graph
 from .job import Job, validate
-from .media import FILL, HDR_TO_SDR, MediaError, Probe, cut_frame, loudness, probe
+from .media import (
+    FILL,
+    HDR_TO_SDR,
+    MediaError,
+    Probe,
+    cut_frame,
+    dim_filter,
+    loudness,
+    probe,
+)
 from .overlay import FPS, build_overlay_events, insert_spans
 from .subs import to_srt
 from .timeline import TO_CUT, Timeline
@@ -204,7 +214,21 @@ def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium",
 
     inputs = ["-i", str(source), "-f", "concat", "-safe", "0", "-i", str(layer)]
     chains = _cut(tl, info.has_audio)
-    picture, more, skipped = _picture(job, edit, tl, info, _count(inputs), hold, missing, warnings)
+    video = "[vc]"
+    if float(edit.get("dim") or 0) > 0:  # фон темнее по маске человека — сразу после склейки, кадр в кадр с ней
+        mask, note = _matte(job, tl)
+        if mask:
+            # время кадров маски — ровно по номеру (контейнер хранит его в мс); склейка добита копией последнего кадра,
+            # иначе maskedmerge отдал бы конец потока со временем последнего кадра и fps=30 его выкинул; лишнее — обрезка
+            frames = sum(b - a for a, b in segment_frames(tl))
+            chains.append("[vc]tpad=stop=1:stop_mode=clone[vcp]")
+            chains.append(dim_filter("[vcp]", f"[{_count(inputs)}:v]", float(edit["dim"]), info.width, info.height, "[vcm]"))
+            chains.append(f"[vcm]trim=end_frame={frames}[vcd]")
+            inputs += ["-r", str(FPS), "-i", str(mask)]
+            video = "[vcd]"
+        else:
+            missing.append(note)
+    picture, more, skipped = _picture(job, edit, tl, info, _count(inputs), hold, missing, warnings, video)
     inputs += more
     chains += picture
     chains += _layers(edit["style"], tl)
@@ -303,13 +327,58 @@ def render_cover(job: Job, edit: dict, out: Path) -> dict:
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     part = out.with_name(f".{out.name}")
-    _ffmpeg(["-ss", f"{t:.3f}", "-i", str(source), "-i", str(work / "frames" / drawn["frame"]), "-filter_complex",
-             (f"[0:v]{COLOR}{fill},scale=in_color_matrix=bt709:in_range=tv,format=rgba[bg];"
+    inputs, frame = ["-ss", f"{t:.3f}", "-i", str(source), "-i", str(work / "frames" / drawn["frame"])], "[0:v]"
+    dim = float(edit.get("dim") or 0)
+    mask = None
+    if dim > 0 and not matte.unavailable():  # фон темнее, как в ролике; без модели — как есть (о ней скажет рендер)
+        try:
+            mask = matte.frame_matte(source, t, work / "matte.png")
+        except Exception:  # noqa: BLE001 — обложка без затемнения лучше, чем никакой; причину скажет рендер ролика
+            mask = None
+    if mask:
+        inputs += ["-i", str(mask)]
+        frame = f"{dim_filter('[0:v]', '[2:v]', dim, info.width, info.height, '[dimmed]')};[dimmed]"
+    _ffmpeg([*inputs, "-filter_complex",
+             (f"{frame}{COLOR}{fill},scale=in_color_matrix=bt709:in_range=tv,format=rgba[bg];"
               "[bg][1:v]overlay=0:0:format=rgb,format=rgb24"),
              "-frames:v", "1", "-f", "image2", "-c:v", "png", str(part)], timeout=120)
     os.replace(part, out)
     made = probe(out)
     return {"box": (drawn.get("boxes") or {}).get("cover"), "size": [made.width, made.height]}
+
+
+def _matte(job: Job, tl: Timeline) -> tuple[Path | None, str | None]:
+    """Маска человека для затемнения фона, кадр в кадр со склейкой. Хранится по отрезкам в `work/matte/` (ключ —
+    исходник и модель, затем кадры отрезка): версия B без тизера и правка, не тронувшая отрезок, берут готовое.
+    Посчитать нельзя — (None, что сказать Павлу)."""
+    if reason := matte.unavailable():
+        return None, f"затемнение фона: {reason} — ролик без него"
+    source = job.path("source.mp4")
+    plan = segment_frames(tl)
+    stat = source.stat()
+    key = hashlib.sha1(json.dumps([stat.st_size, stat.st_mtime_ns, matte.MODEL, matte.WARMUP, matte.RATIO]).encode())
+    folder = job.path("work/matte")
+    folder.mkdir(parents=True, exist_ok=True)
+    parts = [folder / f"{key.hexdigest()[:12]}-{a}-{b}.mkv" for a, b in plan]
+    if todo := [(a, b) for (a, b), part in zip(plan, parts, strict=True) if not part.is_file()]:
+        frames = sum(b - a for a, b in todo)
+        print(f"затемнение фона: маска на {frames} кадров (~{max(1, round(frames * 0.09 / 60))} мин)", flush=True)
+    whole = folder / f"{key.hexdigest()[:12]}-{hashlib.sha1(json.dumps(plan).encode()).hexdigest()[:12]}.mkv"
+    try:
+        for (a, b), part in zip(plan, parts, strict=True):
+            if not part.is_file():
+                matte.write_mattes(source, [(a, b)], part)
+        if not whole.is_file():
+            matte.join(parts, whole)
+    except Exception as err:  # noqa: BLE001 — и исключения onnxruntime: ролик без затемнения лучше, чем никакого
+        return None, f"затемнение фона: не получилось ({str(err)[:200]}) — ролик без него"
+    return whole, None
+
+
+def segment_frames(tl: Timeline) -> list[tuple[int, int]]:
+    """Кадры исходника каждого отрезка финала по порядку (тизер — первым): `(первый, после последнего)` — так их режет
+    `_cut`; кадр в кадр с ними идёт маска затемнения фона (`matte.write_mattes`)."""
+    return [(round(start * FPS), round(end * FPS)) for start, end, _ in tl.segments]
 
 
 def _cut(tl: Timeline, has_audio: bool) -> list[str]:
@@ -323,8 +392,7 @@ def _cut(tl: Timeline, has_audio: bool) -> list[str]:
     if has_audio:
         chains.append(f"[0:a]asplit={len(segments)}" + "".join(f"[sa{i}]" for i in range(len(segments))))
     pads = []
-    for i, (start, end, _) in enumerate(segments):
-        f0, f1 = round(start * FPS), round(end * FPS)
+    for i, (f0, f1) in enumerate(segment_frames(tl)):
         length = (f1 - f0) / FPS
         chains.append(f"[sv{i}]trim=start_frame={f0}:end_frame={f1},setpts=PTS-STARTPTS[v{i}]")
         if has_audio:
@@ -376,13 +444,13 @@ def looks_filter(edit: dict, tl: Timeline) -> str:
     return ",".join(f"{f}:enable='{enable}'" for f in BW)
 
 
-def _picture(job, edit, tl, info, index, hold, missing, warnings) -> tuple[list[str], list[str], set[int]]:
+def _picture(job, edit, tl, info, index, hold, missing, warnings, video="[vc]") -> tuple[list[str], list[str], set[int]]:
     """Ускорение, цвет, ч/б-куски, зум, фон, перебивки, переходы, стоп-кадр → `[vh]`; плюс входы для перебивок и номера
     перебивок, которых в ролике не будет (файла нет, не читается, начало после конца) — их звук не нужен."""
     chains = []
     inputs: list[str] = []
     cuts = transitions.marks(edit, tl)
-    chain = f"[vc]setpts=PTS/{edit['speed']:g},fps={FPS},{COLOR}"
+    chain = f"{video}setpts=PTS/{edit['speed']:g},fps={FPS},{COLOR}"
     looks = looks_filter(edit, tl)
     if looks:
         chain += f",{looks}"

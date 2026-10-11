@@ -4,7 +4,7 @@
     prepare  in/ → source.mp4, work/source.wav, language.json, words.json, reference.txt, cuts.json, sheet.png; сводка
              (--lang — язык ролика по ответу Павла)
     frames   кадры исходника в моменты --at (с --grid — с сеткой) → look/
-    preview  кадр исходника для превью → frame.png (или --out: картинка к вопросу, с --mark — с рамкой)
+    preview  кадр исходника для превью → frame.png (или --out: картинка к вопросу, с --mark — с рамкой, --dim — фон темнее)
     validate файлы задачи по схемам и файлы, на которые они ссылаются
     style    итоговый стиль по styles.json и answers.json (для edit.json.style)
     fonts    шрифты, в которых есть все буквы текста ролика (для styles.json.fonts), и чего каким не хватает
@@ -24,7 +24,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import fonts
+from . import fonts, matte
 from .fetch import fetch
 from .git import MAX_FILE_BYTES, GitError, push
 from .job import Job, set_status, states, validate
@@ -121,9 +121,17 @@ def _frames(args: argparse.Namespace) -> None:
 
 def _preview(args: argparse.Namespace) -> None:
     job = _job(args)
-    path = extract_frame(job.path("source.mp4"), args.at, job.path(args.out), mark=args.mark, fill=True)  # как в ролике
+    source, mask = job.path("source.mp4"), None
+    if args.dim:  # фон темнее — по маске человека этого кадра, как в ролике с edit.dim
+        if reason := matte.unavailable():
+            raise RuntimeError(f"затемнение фона: {reason}")
+        try:
+            mask = matte.frame_matte(source, args.at, job.path("work/preview-matte.png"))
+        except Exception as err:  # и исключения onnxruntime — понятной строкой, а не трассировкой
+            raise RuntimeError(f"затемнение фона: {err}") from err
+    path = extract_frame(source, args.at, job.path(args.out), mark=args.mark, fill=True, mask=mask, dim=args.dim)
     what = "для превью (styles.json: frameTime)" if args.out == "frame.png" else "— картинка для вопроса"
-    print(f"{path.relative_to(job.root)} — кадр {args.at:g} с {what}")
+    print(f"{path.relative_to(job.root)} — кадр {args.at:g} с {what}" + (f", фон темнее на {args.dim:.0%}" if args.dim else ""))
 
 
 CHECKED = ("status.json", "questions.json", "answers.json", "styles.json", "review.json", "edit.json", "result.json", "script.json")
@@ -463,6 +471,13 @@ def _box(text: str) -> tuple[int, int, int, int]:
     return x, y, w, h
 
 
+def _dim(text: str) -> float:
+    value = float(text)
+    if not 0 <= value <= 0.8:
+        raise argparse.ArgumentTypeError("затемнение фона — доля от 0 до 0.8, например 0.3")
+    return value
+
+
 def _version(text: str) -> int:
     number = int(text)
     if number < 1:
@@ -510,6 +525,7 @@ def _parser() -> argparse.ArgumentParser:
     preview.add_argument("--at", type=float, required=True, help="секунда исходника")
     preview.add_argument("--out", type=_picture_name, default="frame.png", help="имя файла в папке задачи (.png, .jpg)")
     preview.add_argument("--mark", type=_box, help="рамка x,y,w,h в px кадра — например, место вставки")
+    preview.add_argument("--dim", type=_dim, default=0.0, help="фон темнее на долю 0–0.8 (картинка к вопросу «Фон»)")
 
     command("validate", _validate, "файлы задачи по схемам и файлы, на которые они ссылаются")
 

@@ -31,6 +31,8 @@ vercel.com → Add New → Project → Import `PavelMalachovski/video.edit`:
   - `ROUTINE_API_URL`, `GITHUB_API_URL`, `GITHUB_UPLOADS_URL` **не задавайте** — они только для проверок с
     поддельным GitHub.
 - Deploy. Адрес вида `https://video-edit-….vercel.app` — это и есть страница.
+- Ветки `claude/*` (задачи и бренд) Vercel не собирает — так велит `web/vercel.json`: страница коммитит в них десятки
+  раз на ролик, а бесплатный тариф даёт 100 сборок в сутки.
 
 ## 4. Облачное окружение и рутина Claude
 claude.ai/code:

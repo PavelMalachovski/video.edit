@@ -9,7 +9,7 @@ import {
   checkInsert, checkSource, checkTotal, checkVoice, INSERT_TYPES, LONG_VIDEO_SEC, MAX_BRIEF, MAX_INSERTS, uploadAssetName, VOICE_EXT, voiceAssetName,
 } from '@/lib/jobs.ts';
 import {
-  clearPending, loadPending, matchPending, planChunks, resumeDone, runUpload, savePending, type Pending, type PendingInsert,
+  clearPending, loadPending, matchPending, planChunks, resumeDone, runUpload, sameSelection, savePending, type Pending, type PendingInsert,
 } from '@/lib/uploader.ts';
 import { keepScreenOn } from '@/lib/wakelock.ts';
 import { takeNextBrief } from '@/lib/script.ts';
@@ -268,7 +268,8 @@ export default function Uploader() {
   }
 
   const pct = total ? Math.floor((100 * sent) / total) : 0;
-  const resumable = phase === 'failed' && active.current !== null;
+  // после сбоя — как была, если вставки и озвучка те же; поменяли — заново собранной загрузкой (resume)
+  const resumable = phase === 'failed' && active.current !== null && sameSelection(active.current.files, inserts, voice);
   const long = typeof duration === 'number' && duration > LONG_VIDEO_SEC;
 
   return (

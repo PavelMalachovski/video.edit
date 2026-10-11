@@ -37,7 +37,7 @@ from . import beats, transitions
 from .asr import Word
 from .audio import MIN_MUSIC, QUIET_LUFS, audio_graph
 from .job import Job, validate
-from .media import HDR_TO_SDR, MediaError, Probe, loudness, probe
+from .media import FILL, HDR_TO_SDR, MediaError, Probe, loudness, probe
 from .overlay import FPS, build_overlay_events, insert_spans
 from .subs import to_srt
 from .timeline import Timeline
@@ -53,7 +53,6 @@ RATE = 48000
 FADE = 0.01  # с — микро-фейд звука на стыке отрезков
 # чуть темнее и контрастнее, тёплый сдвиг ~1,5 % цветности (U ниже — меньше синего, V выше — больше красного)
 COLOR = "eq=brightness=-0.02:contrast=1.03,lutyuv=u='clip(val-3,16,240)':v='clip(val+3,16,240)'"
-BLUR = "boxblur=luma_radius=40:luma_power=2:chroma_radius=20:chroma_power=2,eq=brightness=-0.06"
 TO_709 = "scale=out_color_matrix=bt709:out_range=tv"
 # Meta не принимает edit lists в контейнере (гайд «Всё о Reels», стр. 63). Без них плеер играет приминг кодера AAC
 # ffmpeg — 1024 отсчёта в начале, поэтому на вход кодера звук идёт с 1024-го отсчёта: приминг занимает его место, и
@@ -284,8 +283,9 @@ def _draw(job: Job, events: list[dict], style: dict, work: Path) -> None:
 
 
 def render_cover(job: Job, edit: dict, out: Path) -> dict:
-    """Обложка `out` (PNG 1080×1920): кадр исходника в `edit.cover.t` с цветом финала и хук крупно (шаблон, состояние
-    `cover`). → `{box}` — рамка текста, px кадра."""
+    """Обложка `out` (PNG 1080×1920): кадр исходника в `edit.cover.t` с цветом финала (не 9:16 — на размытой копии, как
+    в ролике) и хук крупно (шаблон, состояние `cover`). Слой смешивается в RGB: в 4:2:0 тонкая обводка и рукописное
+    слово потеряли бы цвет. → `{box, size}` — рамка текста, px кадра, и размер картинки."""
     cover = edit["cover"]
     work = job.path("work/cover")
     shutil.rmtree(work, ignore_errors=True)
@@ -293,15 +293,19 @@ def render_cover(job: Job, edit: dict, out: Path) -> dict:
     _draw(job, [{"t0": 0.0, "t1": 1 / FPS, "state": {"cover": {"text": cover["text"]}}}], edit["style"], work)
     drawn = json.loads((work / "frames" / "boxes.json").read_text(encoding="utf-8"))[0]
     source = job.path("source.mp4")
-    t = min(max(0.0, float(cover["t"])), max(0.0, probe(source).duration - 1 / FPS))
+    info = probe(source)
+    t = min(max(0.0, float(cover["t"])), max(0.0, info.duration - 1 / FPS))
+    fill = f",{FILL}" if (info.width, info.height) != (W, H) else ""
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     part = out.with_name(f".{out.name}")
     _ffmpeg(["-ss", f"{t:.3f}", "-i", str(source), "-i", str(work / "frames" / drawn["frame"]), "-filter_complex",
-             f"[0:v]{COLOR},scale=in_color_matrix=bt709:in_range=tv,format=rgba[bg];[bg][1:v]overlay=0:0,format=rgb24",
+             (f"[0:v]{COLOR}{fill},scale=in_color_matrix=bt709:in_range=tv,format=rgba[bg];"
+              "[bg][1:v]overlay=0:0:format=rgb,format=rgb24"),
              "-frames:v", "1", "-f", "image2", "-c:v", "png", str(part)], timeout=120)
     os.replace(part, out)
-    return {"box": (drawn.get("boxes") or {}).get("cover")}
+    made = probe(out)
+    return {"box": (drawn.get("boxes") or {}).get("cover"), "size": [made.width, made.height]}
 
 
 def _cut(tl: Timeline, has_audio: bool) -> list[str]:
@@ -347,10 +351,7 @@ def _picture(job, edit, tl, info, index, hold, missing, warnings) -> tuple[list[
     current = "[vz]"
     if (info.width, info.height) != (W, H):
         warnings.append(f"исходник не вертикальный ({info.width}×{info.height}): по краям — размытая копия кадра")
-        chains.append(
-            f"{current}split=2[bgs][fgs];[bgs]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},{BLUR}[bg];"
-            f"[bg][fgs]overlay=(W-w)/2:(H-h)/2[vbg]"
-        )
+        chains.append(f"{current}{FILL}[vbg]")
         current = "[vbg]"
 
     inserts = edit.get("inserts") or []

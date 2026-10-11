@@ -486,6 +486,8 @@ const segments = [
     // обложка: второй кадр и свой текст; превью рисует её тем же шаблоном
     const coverCard = page.locator('[data-cover]');
     check(await coverCard.locator('.cover-pick').count() === 3, 'три кадра обложки');
+    const coverText = await coverCard.getByLabel('Текст обложки').inputValue();
+    check(coverText === 'Как я снимаю reels', `текст обложки — хук, который выбрал Павел: ${coverText}`);
     await coverCard.getByRole('button', { name: 'Кадр 2' }).click();
     await coverCard.getByLabel('Текст обложки').fill('Чешский за 15 минут');
     await until(async () => (await coverCard.locator('iframe').getAttribute('src')) !== null, 5000, 'превью обложки');

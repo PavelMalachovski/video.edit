@@ -479,6 +479,15 @@ def test_normalize_cuts_the_video_to_a_shorter_voiceover(tmp_path, colors):
     assert len(frames) == pytest.approx(45, abs=1) and frames[-1] == pytest.approx(GREEN, abs=COLOR_TOLERANCE)
 
 
+def test_a_raw_aac_voiceover_is_measured_by_its_sound_not_by_a_guess(tmp_path):
+    """У сырого AAC (ADTS) длину ffprobe угадывает по битрейту — на 20 с ошибается на четверть секунды: конец записи
+    обрезался бы. Длина озвучки — по самому звуку."""
+    voice = tmp_path / "voice.aac"
+    ff("-f", "lavfi", "-i", "anoisesrc=d=20:c=pink:a=0.5", "-f", "lavfi", "-i", "sine=f=300:d=20", "-filter_complex",
+       "[0][1]amix=inputs=2,volume='if(lt(mod(t,4),2),1,0.05)':eval=frame", "-c:a", "aac", "-b:a", "96k", voice)
+    assert media.voice_seconds(voice) == pytest.approx(20.0, abs=0.05)  # +21 мс приминга кодера — тоже звук файла
+
+
 def test_normalize_rejects_a_voiceover_without_sound(tmp_path, part_a, silent):
     with pytest.raises(MediaError, match="в записи нет звука"):
         normalize([part_a], tmp_path / "source.mp4", voice=silent)

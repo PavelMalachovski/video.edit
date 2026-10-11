@@ -105,6 +105,14 @@ export function matchPending<F extends Picked>(p: Pending, source: F, inserts: F
   return { ok: same(source, p.source), inserts: found, voice: again, dropped };
 }
 
+/** Тот же ли выбор, с которым загрузка остановилась: вставки и озвучка — те же файлы. Нет — Pending собирается заново
+ *  (как после перезагрузки страницы), иначе ушли бы убранная запись или прежние вставки. */
+export function sameSelection(files: Map<string, File>, inserts: File[], voice: File | null): boolean {
+  const picked = new Set<File>([...inserts, ...(voice ? [voice] : [])]);
+  const sent = [...files].filter(([key]) => key !== 'source').map(([, f]) => f);
+  return sent.length === picked.size && sent.every((f) => picked.has(f));
+}
+
 const isPending = (x: unknown): x is Pending => {
   const p = x as Pending;
   return typeof p === 'object' && p !== null && typeof p.jobId === 'string' && isJobId(p.jobId) && Number.isInteger(p.releaseId)

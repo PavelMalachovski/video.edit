@@ -1,7 +1,7 @@
 // Стиль на экране превью: итоговый StyleSpec по выбору Павла (то же правило, что final_style движка), образец
 // состояния слоя на кадре (субтитры — по правилу build_sub_events), вставки по ответам и запомненный выбор.
 import { chosen, type Draft } from './answers.ts';
-import { AB_KINDS, ADJUST, isCoverChoice, type CoverChoice, ADJUSTABLE, HOOK_SIZE, HOOK_Y, INSERT_W, INSERT_ZONE, inRange, isInsertBox, RESERVED, SUB_SIZE, SUB_Y, type AbKind, type Adjustable, type InsertBox, type Question, type SampleInsert, type StyleChoice, type StyleSpec, type Styles } from './jobfiles.ts';
+import { AB_KINDS, ADJUST, COVER, type CoverChoice, ADJUSTABLE, HOOK_SIZE, HOOK_Y, INSERT_W, INSERT_ZONE, inRange, isInsertBox, RESERVED, SUB_SIZE, SUB_Y, type AbKind, type Adjustable, type InsertBox, type Question, type SampleInsert, type StyleChoice, type StyleSpec, type Styles } from './jobfiles.ts';
 
 export { HOOK_SIZE, HOOK_Y, INSERT_W, SUB_SIZE, SUB_Y };
 export type { InsertBox };
@@ -260,17 +260,38 @@ export function saveAd(storage: Storage | null, jobId: string, on: boolean): voi
 
 const coverKey = (jobId: string): string => `vm:cover:${jobId}`;
 
-export function loadCover(storage: Storage | null, jobId: string): CoverChoice | null {
+/** Выбор обложки в браузере: кадр и текст — если Павел его правил (нет поля или пусто — текст идёт за хуком). */
+export type CoverPick = { frame: number; text?: string };
+
+function isCoverPick(c: unknown): c is CoverPick {
+  if (typeof c !== 'object' || c === null) return false;
+  const { frame, text } = c as Record<string, unknown>;
+  return Number.isInteger(frame) && (frame as number) >= 0 && (frame as number) < COVER.frames
+    && (text === undefined || (typeof text === 'string' && text.length <= COVER.text));
+}
+
+export function loadCover(storage: Storage | null, jobId: string): CoverPick | null {
   try {
     const raw = storage?.getItem(coverKey(jobId));
     const value: unknown = raw ? JSON.parse(raw) : null;
-    return isCoverChoice(value) ? { frame: value.frame, text: value.text } : null;
+    return isCoverPick(value) ? { frame: value.frame, ...(value.text !== undefined ? { text: value.text } : {}) } : null;
   } catch {
     return null;
   }
 }
 
-export function saveCover(storage: Storage | null, jobId: string, cover: CoverChoice): void {
+/** Что на обложке: выбранный кадр (такого нет — первый) и текст — свой текст Павла, иначе хук, который он выбрал,
+ *  иначе предложение Claude (`styles.cover.text`); длиннее обложки (80 знаков) текст не берётся. Обложки нет — null. */
+export function coverOf(pick: CoverPick | null, styles: Styles, hook: string | null): CoverChoice | null {
+  if (!styles.cover) return null;
+  const fits = (t: string | null | undefined): string | null => {
+    const x = (t ?? '').trim();
+    return x && x.length <= COVER.text ? x : null;
+  };
+  return { frame: pick && pick.frame < styles.cover.frames.length ? pick.frame : 0, text: fits(pick?.text) ?? fits(hook) ?? styles.cover.text };
+}
+
+export function saveCover(storage: Storage | null, jobId: string, cover: CoverPick): void {
   try {
     storage?.setItem(coverKey(jobId), JSON.stringify(cover));
   } catch {

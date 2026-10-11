@@ -1261,3 +1261,56 @@ def test_render_makes_the_ads_version_in_the_ads_zone_and_drops_an_old_one(tmp_p
     job.write("edit.json", EDIT_4S)
     assert main(["render", str(job.root)]) == 0
     assert not job.path("out/final-ad.mp4").exists()
+
+
+# ---------- второй заход: ревью ветки ----------
+
+
+def test_a_failing_version_b_ad_or_cover_leaves_no_old_file_and_version_a_results_are_written(tmp_path, monkeypatch):
+    """Сломались версия B, реклама или обложка — их файлов прошлого рендера в out/ нет, а итоги A уже от нового ролика."""
+    import vm.__main__ as cli
+    from vm.render import RenderError
+
+    def broken_cover(job_, edit_, out):
+        raise RenderError("обложка: сломалась")
+
+    for fail_on, extra in (("final-b", {"teaser": {"t0": 1.0, "t1": 3.0}, "ab": "teaser"}), ("final-ad", {"ad": True}),
+                           ("cover", {"cover": {"t": 1.0, "text": "Как я учу"}})):
+        job = Job(tmp_path / fail_on / "jobs" / "abc")
+        job.write("edit.json", {**EDIT_4S, **extra})
+        job.write("result.json", RESULT_OLD)
+        job.path("out").mkdir(parents=True)
+        for old in ("final-b.mp4", "final-ad.mp4", "final-cover.png"):
+            job.path(f"out/{old}").write_bytes(b"old")
+        _fake_outputs(monkeypatch, cli, job, fail_on=fail_on)
+        monkeypatch.setattr(cli, "render_cover", broken_cover)
+        assert main(["render", str(job.root)]) == 1
+        assert sorted(p.name for p in job.path("out").iterdir()) == ["final.mp4"], fail_on
+        assert job.read("result.json")["durations"]["final"] == 3.5, f"{fail_on}: итоги A — от нового ролика"
+
+
+def test_cover_problems_name_the_field_to_change_and_a_wrong_size():
+    from vm.__main__ import _cover_problems
+
+    inside = {"x": 100, "y": 800, "w": 880, "h": 300}
+    assert _cover_problems({"box": inside, "size": [1080, 1920]}) == []
+    (high,) = _cover_problems({"box": {**inside, "y": 100}, "size": [1080, 1920]})
+    assert "edit.cover.text" in high
+    assert _cover_problems({"box": inside, "size": [1080, 608]}) == ["обложка: картинка 1080×608 вместо 1080×1920"]
+
+
+@needs_ffmpeg
+def test_preview_of_a_landscape_source_is_the_9_by_16_frame_of_the_video(tmp_path):
+    """Кадры для превью и обложки — как в ролике: горизонтальный исходник по центру на размытой копии; рамка `--mark` —
+    в координатах кадра 1080×1920."""
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=1080x608:r=30:d=1",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", str(job.path("source.mp4"))], check=True)
+    assert main(["preview", str(job.root), "--at", "0.5", "--out", "q-logo.png", "--mark", "100,1500,300,200"]) == 0
+    raw = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(job.path("q-logo.png")), "-f", "rawvideo",
+                          "-pix_fmt", "rgb24", "-"], check=True, capture_output=True).stdout
+    assert len(raw) == 1080 * 1920 * 3, "кадр 1080×1920"
+    frame = np.frombuffer(raw, np.uint8).reshape(1920, 1080, 3).astype(int)
+    assert frame[100, 540].max() > 20, "сверху — размытая копия кадра"
+    assert np.abs(frame[1503, 200] - [255, 210, 63]).max() < 40, "рамка там, где встанет вставка"

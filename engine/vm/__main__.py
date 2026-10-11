@@ -117,7 +117,7 @@ def _frames(args: argparse.Namespace) -> None:
 
 def _preview(args: argparse.Namespace) -> None:
     job = _job(args)
-    path = extract_frame(job.path("source.mp4"), args.at, job.path(args.out), mark=args.mark)
+    path = extract_frame(job.path("source.mp4"), args.at, job.path(args.out), mark=args.mark, fill=True)  # как в ролике
     what = "для превью (styles.json: frameTime)" if args.out == "frame.png" else "— картинка для вопроса"
     print(f"{path.relative_to(job.root)} — кадр {args.at:g} с {what}")
 
@@ -283,23 +283,14 @@ def _render(args: argparse.Namespace) -> None:
     result = render(job, job.path("out"), name=name, preset=args.preset)
     for done in (f"{name}.mp4", f"{name}.srt"):  # части прошлого push --outputs — от старого ролика
         drop_parts(job.path("out"), done)
-    if not variant:  # версии B в этот раз нет — её прежние файлы не от этого ролика
-        _drop_outputs(job, f"{name}-b")
-    if not edit.get("ad"):
-        _drop_outputs(job, f"{name}-ad")
+    for extra in ("b", "ad", "cover"):  # прежние версия B, реклама и обложка — не от этого ролика: будут — соберутся заново
+        _drop_outputs(job, f"{name}-{extra}")
     step("Проверяю", "Смотрю контрольные кадры и геометрию")
     final = job.path(f"out/{name}.mp4")
     boxes = json.loads(job.path("work/render/frames/boxes.json").read_text(encoding="utf-8"))
     problems = check_layout(boxes, face_box(edit.get("face")), edit.get("inserts")) + check_render(final, edit, boxes, result)
     frames = control_frames(final, slot_times(boxes), job.path("qa"))
     checks = checklist(final, boxes, result)  # по гайду — для экрана «Готово»
-    cover = job.path(f"out/{name}-cover.png")
-    if edit.get("cover"):  # обложка для сетки профиля: кадр исходника и хук крупно
-        step("Монтирую", "Рисую обложку")
-        problems += _cover_problems(render_cover(job, result.get("edit", edit), cover))
-        print(f"обложка: {cover.relative_to(job.root)}")
-    else:
-        _drop_outputs(job, f"{name}-cover")
     summary = {
         "durations": result["durations"],
         "done": previous.get("done", []),
@@ -309,7 +300,14 @@ def _render(args: argparse.Namespace) -> None:
         **({"caption": previous["caption"]} if previous.get("caption") else {}),  # подпись к посту — от Claude
         "checklist": checks,
     }
-    job.write("result.json", summary)  # итоги A — сразу: упадёт версия B, они уже от этого ролика
+    job.write("result.json", summary)  # итоги A — сразу: упадут обложка или версия B, они уже от этого ролика
+    if edit.get("cover"):  # обложка для сетки профиля: кадр исходника и хук крупно
+        step("Монтирую", "Рисую обложку")
+        cover = job.path(f"out/{name}-cover.png")
+        problems += _cover_problems(render_cover(job, result.get("edit", edit), cover))
+        summary["qa"] = {"ok": not problems, "problems": problems}
+        job.write("result.json", summary)
+        print(f"обложка: {cover.relative_to(job.root)}")
     if variant:  # без тизера или без музыки, со своим слоем
         if edit["ab"] == "music":  # без музыки — те же события, что встали на доли в версии A: отличается только звук
             variant = variant_b(result.get("edit", edit))
@@ -359,13 +357,17 @@ def _render(args: argparse.Namespace) -> None:
 
 
 def _cover_problems(report: dict) -> list[str]:
-    """Текст обложки — в том, что видно в сетке профиля (кадр 3:4 по центру)."""
+    """Обложка — картинка 1080×1920, текст — в том, что видно в сетке профиля (кадр 3:4 по центру)."""
+    size = report.get("size")
+    if size and list(size) != [1080, 1920]:
+        return [f"обложка: картинка {size[0]}×{size[1]} вместо 1080×1920"]
     b = report.get("box")
     if not b:
         return ["обложка: текста на ней нет"]
     z = COVER_ZONE
     if b["x"] < z["x0"] or b["x"] + b["w"] > z["x1"] or b["y"] < z["y0"] or b["y"] + b["h"] > z["y1"]:
-        return ["обложка: текст выходит за то, что видно в сетке профиля (кадр 3:4 по центру) — короче хук"]
+        return [("обложка: текст выходит за то, что видно в сетке профиля (кадр 3:4 по центру) — короче текст обложки "
+                 "(edit.cover.text)")]
     return []
 
 

@@ -275,3 +275,12 @@ def test_cli_fonts_counts_the_spellings_of_a_word_question(tmp_path, capsys):
                                                 "options": [{"id": "a", "label": "Καλό"}]}]})  # fmt: skip
     assert main(["fonts", str(job.root)]) == 0
     assert "montserrat" not in json.loads(capsys.readouterr().out.splitlines()[0])["main"]
+
+
+def test_the_cover_text_is_checked_like_the_hook():
+    e = edit(["ahoj"], font="russo-one")
+    e["cover"] = {"t": 1.0, "text": "Mulțumesc pentru tot"}
+    main_text, hand_text = fonts.texts(e)
+    assert "Mulțumesc pentru tot" in main_text and hand_text.split()[-1] == "tot", "последнее слово — рукописным, как у хука"
+    (problem,) = fonts.check(e)
+    assert "russo-one" in problem and "Țț" in problem

@@ -6,11 +6,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { abOptions, buildAnswers, previewEnd, previewHook, type Draft } from '@/lib/answers.ts';
 import { storage } from '@/lib/client.ts';
 import { mmss } from '@/lib/format.ts';
-import { ADJUSTABLE, COVER, type AbKind, type Adjustable, type CoverChoice, type Question, type StyleChoice, type Styles } from '@/lib/jobfiles.ts';
+import { ADJUSTABLE, COVER, type AbKind, type Adjustable, type Question, type StyleChoice, type Styles } from '@/lib/jobfiles.ts';
 import { MAX_NOTE } from '@/lib/jobs.ts';
 import {
-  allowedFonts, choiceFor, clampTo, finalStyle, HOOK_SIZE, HOOK_Y, INSERT_W, insertKey, loadAb, loadAd, loadChoice, loadCover, loadInsertBoxes, loadSpeed, moveBox,
-  resizeBox, resolveInserts, sampleState, saveAb, saveAd, saveChoice, saveCover, saveInsertBoxes, saveSpeed, type InsertBox,
+  allowedFonts, choiceFor, clampTo, coverOf, finalStyle, HOOK_SIZE, HOOK_Y, INSERT_W, insertKey, loadAb, loadAd, loadChoice, loadCover, loadInsertBoxes, loadSpeed, moveBox,
+  resizeBox, resolveInserts, sampleState, saveAb, saveAd, saveChoice, saveCover, saveInsertBoxes, saveSpeed, type CoverPick, type InsertBox,
   SPEEDS, SUB_SIZE, SUB_Y, SWATCHES,
 } from '@/lib/style.ts';
 import PreviewFrame from '../../preview-frame';
@@ -68,15 +68,12 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
   const [abPick, setAbPick] = useState<AbKind | null>(() => loadAb(storage(), jobId));
   const abChoices = useMemo(() => abOptions(questions, draft, brief), [questions, draft, brief]);
   const ab = abPick && abChoices.includes(abPick) ? abPick : null;
-  // обложка: кадр из трёх, что предложил Claude, и текст (хук); выбор живёт в браузере, как скорость
-  const [coverPick, setCoverPick] = useState<CoverChoice | null>(() => loadCover(storage(), jobId));
+  // обложка: кадр из трёх, что предложил Claude, и текст — за хуком, пока Павел не впишет свой; выбор — в браузере
+  const [coverPick, setCoverPick] = useState<CoverPick | null>(() => loadCover(storage(), jobId));
   const coverFrames = styles.cover?.frames ?? [];
-  const cover: CoverChoice | null = styles.cover
-    ? (coverPick && coverPick.frame < coverFrames.length ? coverPick : { frame: 0, text: styles.cover.text })
-    : null;
-  const setCover = (c: CoverChoice) => {
-    setCoverPick(c);
-    saveCover(storage(), jobId, c);
+  const setCover = (p: CoverPick) => {
+    setCoverPick(p);
+    saveCover(storage(), jobId, p);
   };
   const setAb = (x: AbKind | null) => {
     setAbPick(x);
@@ -104,6 +101,9 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
   }, []);
 
   const hook = useMemo(() => previewHook(questions, draft, styles.sample.hook), [questions, draft, styles]);
+  const cover = coverOf(coverPick, styles, hook);
+  const coverText = cover?.text;
+  const coverState = useMemo(() => ({ inserts: [], cover: { text: coverText ?? '' } }), [coverText]); // не перерисовывать на каждом движении
   const card = useMemo(() => previewEnd(questions, draft, styles.sample.end), [questions, draft, styles]);
   const [showCard, setShowCard] = useState(false); // крупное превью — финальная карточка вместо кадра с текстом
   const [adOn, setAdOn] = useState(() => loadAd(storage(), jobId)); // ещё версия для рекламы Reels
@@ -153,7 +153,7 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
     const claims = Object.fromEntries(Object.entries(uploads).map(([qid, u]) => [qid, { asset: u.asset, name: u.name, size: u.size, type: u.type, parts: u.parts }]));
     const keys = new Set((styles.sample.inserts ?? []).map(insertKey));
     const placed = Object.fromEntries(Object.entries(insertBoxes).filter(([k]) => keys.has(k))); // только вставки этого превью
-    void run('answers', { answers, uploads: claims, style: choice, speed, ...(Object.keys(placed).length ? { insertBoxes: placed } : {}), ...(ab ? { ab } : {}), ...(adOn ? { ad: true } : {}), ...(cover && cover.text.trim() ? { cover: { frame: cover.frame, text: cover.text.trim() } } : {}) });
+    void run('answers', { answers, uploads: claims, style: choice, speed, ...(Object.keys(placed).length ? { insertBoxes: placed } : {}), ...(ab ? { ab } : {}), ...(adOn ? { ad: true } : {}), ...(cover ? { cover } : {}) });
   }
 
   const pickFont = (kind: 'font' | 'hand', id: string) => setChoice({ ...choice, [kind]: id });
@@ -311,15 +311,15 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
           <div className="cover-frames">
             {coverFrames.map((f, i) => (
               <button key={f.image} type="button" className="cover-pick" aria-pressed={cover.frame === i} aria-label={`Кадр ${i + 1}`}
-                onClick={() => setCover({ ...cover, frame: i })}>
+                onClick={() => setCover({ ...coverPick, frame: i })}>
                 <img src={fileUrl(f.image)} alt="" />
               </button>
             ))}
           </div>
-          <input type="text" aria-label="Текст обложки" maxLength={COVER.text} value={cover.text} onChange={(e) => setCover({ ...cover, text: e.target.value })} />
+          <input type="text" aria-label="Текст обложки" maxLength={COVER.text} value={coverPick?.text ?? cover.text} placeholder={hook ?? styles.cover?.text}
+            onChange={(e) => setCover({ frame: cover.frame, text: e.target.value })} />
           <div className="cover-preview">
-            <PreviewFrame frameUrl={fileUrl(coverFrames[cover.frame].image)} spec={spec} state={{ inserts: [], cover: { text: cover.text.trim() || styles.cover?.text || '' } }}
-              progress={0} width={BIG} />
+            <PreviewFrame frameUrl={fileUrl(coverFrames[cover.frame].image)} spec={spec} state={coverState} progress={0} width={BIG} />
           </div>
           <div className="muted small">В сетке профиля видна середина кадра 3:4 — текст стоит в ней. PNG — на экране «Готово».</div>
         </div>

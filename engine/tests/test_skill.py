@@ -211,3 +211,20 @@ def test_a_voiceover_replaces_the_video_sound_and_the_frame_may_have_no_face():
     sound = section("5. Звук")
     assert "**Озвучка**" in sound and '`kind: "audio"`' in sound and "лица в кадре может не быть" in sound.lower()
     assert "`audio`" in section("Страница") and "озвучка" in section("Файлы задачи")
+
+
+
+def test_the_ad_text_is_written_with_the_caption_and_ad_problems_have_a_way_out():
+    render = section("Шаг render")
+    answers = render[render.index("2. Ответы"):render.index("3. `vm check`")]
+    assert "caption.ad" not in answers, "подпись пишется в п. 5 — с ней и текст рекламы"
+    result = render[render.index("5. В `result.json`"):]
+    assert "`ad`" in result and "72 знак" in result
+    checks = render[render.index("4. `vm render --status`"):render.index("5. В `result.json`")]
+    assert "«реклама: …»" in checks and "`unsure`" in checks
+    assert "`ad`" in SKILL[SKILL.index("| `result.json` |"):].splitlines()[0]
+
+
+def test_restyle_keeps_the_cover_fonts_and_sample():
+    restyle = section("Шаг restyle")
+    assert "`cover`" in restyle and "`fonts`" in restyle and "`sample`" in restyle

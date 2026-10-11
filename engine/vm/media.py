@@ -28,6 +28,11 @@ GRID_CELL = (108, 192)  # 10×10 клеток на кадре 1080×1920: по �
 THUMB_WIDTH = 180  # колонка контактного листа: 6 колонок — ровно 1080 px
 STDERR_LINES = 8  # столько последних строк ffmpeg/ffprobe попадает в сообщение об ошибке
 LAST_FRAME_SLACK = 0.001  # на столько t может выйти за конец клипа из-за округления, оставаясь последним кадром
+# кадр не 9:16 — по центру на своей размытой копии во весь кадр 1080×1920: так его кладёт финал (render), так же его
+# показывают кадры превью и обложка (`vm preview`, `render_cover`)
+BLUR = "boxblur=luma_radius=40:luma_power=2:chroma_radius=20:chroma_power=2,eq=brightness=-0.06"
+FILL = (f"split=2[fillbg][fillfg];[fillbg]scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,crop={WIDTH}:{HEIGHT},"
+        f"{BLUR}[fillblur];[fillblur][fillfg]overlay=(W-w)/2:(H-h)/2")
 # смена сцены — оценка `scene` ffmpeg (0–1) выше этой: стык разных планов даёт 0,5–1, движение в одном плане — до 0,2
 SCENE = 0.35
 SCENE_GAP = 0.5  # с — смена ближе к прошлой — та же (вспышка: кадр белого и обратно — одна смена, а не две)
@@ -227,15 +232,23 @@ def _audio_chain(index: int, streams: _Streams, frames: int) -> str:
     return f"{source},atrim=end_sample={samples},asetpts=PTS-STARTPTS[a{index}]"
 
 
+VOICE_RATE = 8000  # Гц — длина озвучки считается по отсчётам звука такой частоты: точность 1/8000 с, мало памяти
+
+
 def voice_seconds(path: PathLike) -> float:
-    """Длина записи голоса (озвучки), с; звука в файле нет или длина не ясна — MediaError."""
-    data = _ffprobe(path)
-    audio = next((s for s in data.get("streams", []) if s.get("codec_type") == "audio"), None)
-    if audio is None:
+    """Длина записи голоса (озвучки), с — по самому звуку: у сырого AAC (ADTS) ffprobe угадывает её по битрейту и
+    ошибается на доли секунды, и конец записи обрезался бы. Звука нет или он не читается — MediaError."""
+    if not any(s.get("codec_type") == "audio" for s in _ffprobe(path).get("streams", [])):
         raise MediaError(f"{path}: в записи нет звука")
-    seconds = _seconds(audio.get("duration")) or _seconds(data.get("format", {}).get("duration"))
-    if not seconds:
-        raise MediaError(f"{path}: не понял длину записи")
+    try:
+        done = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-i", str(path), "-map", "0:a:0",
+                               "-ac", "1", "-ar", str(VOICE_RATE), "-f", "s16le", "-"], capture_output=True, check=False)
+    except FileNotFoundError:
+        raise MediaError("ffmpeg not found (is ffmpeg installed?)") from None
+    seconds = len(done.stdout) / 2 / VOICE_RATE
+    if done.returncode != 0 or seconds <= 0:
+        tail = "\n".join(done.stderr.decode(errors="replace").strip().splitlines()[-STDERR_LINES:])
+        raise MediaError(f"{path}: запись не читается ({tail or 'нет звука'})")
     return seconds
 
 
@@ -399,14 +412,20 @@ def _frame(src, t: float, out: Path, vf: str | None = None) -> Path:
     return out
 
 
-def extract_frame(src: PathLike, t: float, out: PathLike, mark: tuple[int, int, int, int] | None = None) -> Path:
-    """Кадр видео в момент t, секунд (PNG или JPEG — по расширению out). `mark` — (x, y, w, h) в px кадра: жёлтая
-    рамка 8 px, например место будущей вставки на картинке к вопросу."""
-    vf = None
+def extract_frame(src: PathLike, t: float, out: PathLike, mark: tuple[int, int, int, int] | None = None,
+                  fill: bool = False) -> Path:
+    """Кадр видео в момент t, секунд (PNG или JPEG — по расширению out). `fill` — кадр как в ролике: не 9:16 — по
+    центру на размытой копии (FILL), 1080×1920. `mark` — (x, y, w, h) в px кадра: жёлтая рамка 8 px, например место
+    будущей вставки на картинке к вопросу."""
+    steps = []
+    if fill:
+        info = probe(src)
+        if (info.width, info.height) != (WIDTH, HEIGHT):
+            steps.append(FILL)
     if mark:
         x, y, w, h = mark
-        vf = f"drawbox=x={x}:y={y}:w={w}:h={h}:color=0xFFD23F@1:t=8"
-    return _frame(src, _check_time(t), Path(out), vf)
+        steps.append(f"drawbox=x={x}:y={y}:w={w}:h={h}:color=0xFFD23F@1:t=8")
+    return _frame(src, _check_time(t), Path(out), ",".join(steps) or None)
 
 
 def _grid_filter(t: float) -> str:

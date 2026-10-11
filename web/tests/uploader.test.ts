@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  clearPending, loadPending, matchPending, planChunks, resumeDone, runUpload, savePending, type Pending, type PutResult,
+  clearPending, loadPending, matchPending, planChunks, resumeDone, runUpload, sameSelection, savePending, type Pending, type PutResult,
 } from '../lib/uploader.ts';
 import { blockedStorage, memoryStorage } from './helpers.ts';
 
@@ -131,6 +131,17 @@ test('a voiceover resumes when picked again; another file or none is not the pen
   assert.deepEqual(loadPending(store), p);
   store.setItem('vm:pending', JSON.stringify({ ...p, voice: { ...p.voice, asset: 'upload-i1.png' } }));
   assert.equal(loadPending(store), null);
+});
+
+test('a stopped upload goes on as it was only with the same inserts and voiceover', () => {
+  const [src, a, v] = [file('clip.mov', 10, 1), file('a.png', 3, 2), file('take.m4a', 7, 3)];
+  const files = new Map<string, File>([['source', src], ['upload-i1.png', a], ['upload-voice.m4a', v]]);
+  assert.equal(sameSelection(files, [a], v), true);
+  assert.equal(sameSelection(files, [a], null), false, 'озвучку убрали');
+  assert.equal(sameSelection(files, [a], file('take2.m4a', 9, 4)), false, 'другая запись');
+  assert.equal(sameSelection(files, [], v), false, 'вставку убрали');
+  assert.equal(sameSelection(files, [a, file('b.png', 4, 5)], v), false, 'вставку добавили');
+  assert.equal(sameSelection(new Map([['source', src]]), [], null), true);
 });
 
 test('pending upload survives in storage; corrupt or blocked storage gives null', () => {

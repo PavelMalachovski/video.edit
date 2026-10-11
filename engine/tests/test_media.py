@@ -647,6 +647,21 @@ def test_mp4_boxes_lists_nested_boxes_like_edit_lists(tmp_path):
     assert not any(b.endswith(("edts", "elst")) for b in media.mp4_boxes(tmp_path / "without.mp4"))
 
 
+def test_mp4_boxes_reads_only_the_headers_of_a_big_file(tmp_path, monkeypatch):
+    # ролик на сотни мегабайт: читаются заголовки коробок, mdat пропускается, а не грузится в память
+    import struct
+
+    big = tmp_path / "big.mp4"
+    with big.open("wb") as f:
+        f.write(struct.pack(">I4s", 16, b"ftyp") + b"isom\x00\x00\x02\x00")
+        f.write(struct.pack(">I4s", 1, b"mdat") + struct.pack(">Q", 16 + 300 * 1024 * 1024))
+        f.seek(300 * 1024 * 1024, 1)  # разреженный файл: место на диске не тратится
+        moov = struct.pack(">I4s", 8, b"mvhd")
+        f.write(struct.pack(">I4s", 8 + len(moov), b"moov") + moov)
+    monkeypatch.setattr(Path, "read_bytes", lambda self: (_ for _ in ()).throw(AssertionError("весь файл в память")))
+    assert media.mp4_boxes(big) == ["ftyp", "mdat", "moov", "moov/mvhd"]
+
+
 def test_mp4_boxes_of_a_broken_file_is_an_error(tmp_path):
     bad = tmp_path / "bad.mp4"
     bad.write_bytes(b"\x00\x00\x00\x08ftyp" + b"\x00\x00\x10\x00moov")  # коробка moov заявлена длиннее файла

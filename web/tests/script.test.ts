@@ -83,4 +83,12 @@ test('the brief waits in the browser for the next upload and is taken once', () 
   assert.equal(takeNextBrief(storage), 'ХУК: …');
   assert.equal(takeNextBrief(storage), null, 'второй раз — пусто');
   assert.equal(takeNextBrief(null), null);
+  // ТЗ ждёт сутки: незаконченная загрузка не даст ему подставиться через неделю
+  const at = Date.UTC(2026, 9, 11, 12, 0, 0);
+  saveNextBrief(storage, 'ХУК: старый', at);
+  assert.equal(takeNextBrief(storage, at + 25 * 3600_000), null);
+  saveNextBrief(storage, 'ХУК: свежий', at);
+  assert.equal(takeNextBrief(storage, at + 3600_000), 'ХУК: свежий');
+  storage.setItem('vm:brief', 'не JSON');
+  assert.equal(takeNextBrief(storage, at), null);
 });

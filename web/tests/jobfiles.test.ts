@@ -244,6 +244,7 @@ test('A/B: result.json ab — what version B differs in and its check; a broken 
 test('A/B: labels follow what version B was built without', () => {
   assert.deepEqual(abLabels('teaser'), ['A — с тизером', 'B — без тизера']);
   assert.deepEqual(abLabels('music'), ['A — с музыкой', 'B — без музыки']);
+  assert.deepEqual(abLabels(null), ['A', 'B'], 'не знаем, чем отличается, — без догадок');
 });
 
 test('review.json: points of the guide, ok or warn, with a note; a broken file reads as no review', () => {

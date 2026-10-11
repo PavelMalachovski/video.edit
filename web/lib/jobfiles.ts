@@ -399,7 +399,8 @@ export function parseReview(raw: unknown): Review | null {
 }
 
 /** Подписи двух роликов на экране «Готово»: без чего собрана версия B. */
-export function abLabels(differs: AbKind): [string, string] {
+export function abLabels(differs: AbKind | null): [string, string] {
+  if (!differs) return ['A', 'B'];
   return differs === 'music' ? ['A — с музыкой', 'B — без музыки'] : ['A — с тизером', 'B — без тизера'];
 }
 

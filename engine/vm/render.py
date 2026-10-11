@@ -60,6 +60,7 @@ TO_709 = "scale=out_color_matrix=bt709:out_range=tv"
 AAC_PRIMING = 1024
 IMAGES = {".png", ".jpg", ".jpeg", ".webp"}  # картинка держится всё окно перебивки; GIF крутится по кругу
 TEXTUAL = ("sticker", "text")  # вставки из одного текста: картинка им не нужна
+TEASER = (1.0, 5.0)  # с — длина фразы тизера (правило — 1,5–4 с, с запасом на границы слов)
 AB = ("teaser", "music")  # чем вторая версия A/B-теста отличается от первой: без тизера или без музыки
 LOOPED = {".gif"}
 
@@ -82,7 +83,17 @@ def timeline(edit: dict, limit: float | None = None) -> Timeline:
 
     keep = [span for a, b in edit["keep"] if (span := frames(a, b))]
     teaser = edit.get("teaser") or None
-    return Timeline(keep, edit["speed"], teaser=frames(teaser["t0"], teaser["t1"]) if teaser else None)
+    span = None
+    if teaser:  # тизер не пропадает молча: ошибка называет, что с ним не так
+        t0, t1 = float(teaser["t0"]), float(teaser["t1"])
+        if t1 <= t0:
+            raise RenderError(f"edit.json: teaser — t1 ({t1}) должен быть больше t0 ({t0})")
+        if not TEASER[0] <= t1 - t0 <= TEASER[1]:
+            raise RenderError(f"edit.json: teaser — {t1 - t0:.1f} с, нужна фраза на {TEASER[0]:g}–{TEASER[1]:g} с")
+        span = frames(t0, t1)
+        if span is None:
+            raise RenderError(f"edit.json: teaser {t0}–{t1} с — за концом исходника")
+    return Timeline(keep, edit["speed"], teaser=span)
 
 
 @dataclass
@@ -217,6 +228,7 @@ def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium",
         "music": music["file"] if music else None,  # файл, отданный в микс (для проверки качества)
         "voice": {"lufs": None if lufs is None or math.isinf(lufs) else round(lufs, 1), "denoise": quiet},
         "beats": drawn.beats,
+        "edit": drawn.edit,  # по нему собран ролик: события на долях музыки (версия B без музыки берёт их же)
     }
 
 

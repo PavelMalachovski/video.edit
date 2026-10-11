@@ -23,6 +23,7 @@ type Props = {
   jobId: string;
   styles: Styles;
   questions: Question[];
+  brief: string; // ТЗ задачи: «МУЗЫКА:» в нём — можно и версию без музыки
   draft: Draft;
   duration: number | null;
   fileUrl: (path: string) => string;
@@ -49,7 +50,7 @@ const ROWS: { key: ColorKey; title: string; own: string }[] = [
   { key: 'bar', title: 'Шкала времени', own: 'Свой цвет шкалы' },
 ];
 
-export default function Previews({ jobId, styles, questions, draft, duration, fileUrl, localUrl, onBack, onAct }: Props) {
+export default function Previews({ jobId, styles, questions, draft, brief, duration, fileUrl, localUrl, onBack, onAct }: Props) {
   const [choice, setChoiceState] = useState<StyleChoice>(() => loadChoice(storage(), jobId, styles));
   useEffect(() => setChoiceState(loadChoice(storage(), jobId, styles)), [jobId, styles]); // новые варианты — выбор заново
   const setChoice = (c: StyleChoice) => {
@@ -65,7 +66,7 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
 
   // вторая версия для A/B-теста: без тизера или без музыки — что из этого есть в ответах
   const [abPick, setAbPick] = useState<AbKind | null>(() => loadAb(storage(), jobId));
-  const abChoices = useMemo(() => abOptions(questions, draft), [questions, draft]);
+  const abChoices = useMemo(() => abOptions(questions, draft, brief), [questions, draft, brief]);
   const ab = abPick && abChoices.includes(abPick) ? abPick : null;
   const setAb = (x: AbKind | null) => {
     setAbPick(x);

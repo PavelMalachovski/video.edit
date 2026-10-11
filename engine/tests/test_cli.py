@@ -1037,3 +1037,112 @@ def test_render_says_how_the_events_follow_the_beats(tmp_path, monkeypatch, caps
     assert main(["render", str(job.root)]) == 0
     out = capsys.readouterr().out
     assert (line in out) if line else ("в такт" not in out), out
+
+
+# ---------- второй заход: отложенное из ревью ----------
+
+
+def test_a_teaser_must_be_a_real_phrase_inside_the_source():
+    from vm.render import RenderError, timeline
+
+    edit = {"keep": [[0.0, 10.0]], "speed": 1.0, "teaser": {"t0": 4.0, "t1": 6.0}}
+    assert timeline(edit, 10.0).teaser_duration == pytest.approx(2.0)
+    for teaser, why in (({"t0": 6.0, "t1": 4.0}, "teaser"), ({"t0": 4.0, "t1": 4.5}, "1–5 с"), ({"t0": 1.0, "t1": 7.5}, "1–5 с"),
+                        ({"t0": 11.0, "t1": 13.0}, "за концом")):
+        with pytest.raises(RenderError, match=why):
+            timeline({**edit, "teaser": teaser}, 10.0)
+
+
+def test_version_b_without_music_keeps_the_events_of_version_a_on_its_beats(tmp_path, monkeypatch):
+    import vm.__main__ as cli
+
+    job = Job(tmp_path / "jobs" / "abc")
+    job.write("edit.json", {"speed": 1.0, "keep": [[0.0, 4.0]], "words": [], "hook": None, "cta": None, "inserts": [],
+                            "zooms": [{"t": 1.1, "level": 1.05}], "face": {"x": 0.5, "y": 0.3},
+                            "music": {"file": "assets/music/a.mp3", "gainDb": -18}, "hold": 0.0, "style": STYLE, "ab": "music"})
+    seen = []
+
+    def fake_render(job_, out_dir, name="final", preset="medium", edit=None, work="work/render"):
+        seen.append(edit)
+        (job_.path(work) / "frames").mkdir(parents=True, exist_ok=True)
+        (job_.path(work) / "frames" / "boxes.json").write_text("[]", encoding="utf-8")
+        job_.path("out").mkdir(exist_ok=True)
+        job_.path(f"out/{name}.mp4").write_bytes(b"video")
+        used = {**(edit or job_.read("edit.json"))}
+        if used.get("music"):  # A: смена зума встала на долю 1,0 с
+            used["zooms"] = [{"t": 1.0, "level": 1.05}]
+        return {"durations": {"source": 4.0, "final": 4.0}, "missing": [], "warnings": [], "voice": {}, "edit": used}
+
+    monkeypatch.setattr(cli, "render", fake_render)
+    monkeypatch.setattr(cli, "_fonts_ok", lambda job: None)
+    monkeypatch.setattr(cli, "check_render", lambda *a: [])
+    monkeypatch.setattr(cli, "control_frames", lambda *a, **k: {"sheet": job.path("qa/qa.png")})
+    monkeypatch.setattr(cli, "checklist", lambda *a: [])
+    assert main(["render", str(job.root)]) == 0
+    assert seen[1]["music"] is None and seen[1]["zooms"] == [{"t": 1.0, "level": 1.05}], "B — те же доли, что у A"
+
+
+def _fake_outputs(monkeypatch, cli, job, fail_on=None):
+    """render, проверки и чек-лист без ffmpeg: ролик — байты, слой — пустой; `fail_on` — имя, на котором render падает."""
+    calls = []
+
+    def fake_render(job_, out_dir, name="final", preset="medium", edit=None, work="work/render"):
+        calls.append(name)
+        if name == fail_on:
+            from vm.render import RenderError
+
+            raise RenderError(f"{name}: сломался")
+        (job_.path(work) / "frames").mkdir(parents=True, exist_ok=True)
+        (job_.path(work) / "frames" / "boxes.json").write_text("[]", encoding="utf-8")
+        job_.path("out").mkdir(exist_ok=True)
+        job_.path(f"out/{name}.mp4").write_bytes(b"video")
+        return {"durations": {"source": 4.0, "final": 3.5}, "missing": [], "warnings": [], "voice": {}}
+
+    monkeypatch.setattr(cli, "render", fake_render)
+    monkeypatch.setattr(cli, "_fonts_ok", lambda job: None)
+    monkeypatch.setattr(cli, "check_render", lambda *a: [])
+    monkeypatch.setattr(cli, "control_frames", lambda *a, **k: {"sheet": job.path("qa/qa.png")})
+    monkeypatch.setattr(cli, "checklist", lambda *a: [])
+    return calls
+
+
+EDIT_4S = {"speed": 1.0, "keep": [[0.0, 4.0]], "words": [], "hook": None, "cta": None, "inserts": [], "zooms": [],
+           "face": {"x": 0.5, "y": 0.3}, "music": None, "hold": 0.0, "style": STYLE}
+RESULT_OLD = {"durations": {"source": 4.0, "final": 4.0}, "done": ["вырезал паузы"], "unsure": [], "missing": [], "qa": {"ok": True, "problems": []}}
+
+
+def test_render_refuses_a_broken_result_json_before_encoding(tmp_path, monkeypatch, capsys):
+    import vm.__main__ as cli
+
+    job = Job(tmp_path / "jobs" / "abc")
+    job.write("edit.json", EDIT_4S)
+    job.path("result.json").write_text(json.dumps({**RESULT_OLD, "caption": {"text": "Подпись", "hashtags": ["#reels"]}}), encoding="utf-8")
+    calls = _fake_outputs(monkeypatch, cli, job)
+    assert main(["render", str(job.root)]) == 1
+    assert calls == [], "кривая подпись — ошибка до кодирования"
+    assert "result.json" in capsys.readouterr().err
+
+
+def test_render_writes_version_a_result_before_version_b(tmp_path, monkeypatch):
+    import vm.__main__ as cli
+
+    job = Job(tmp_path / "jobs" / "abc")
+    job.write("edit.json", {**EDIT_4S, "teaser": {"t0": 1.0, "t1": 3.0}, "ab": "teaser"})
+    job.write("result.json", RESULT_OLD)
+    _fake_outputs(monkeypatch, cli, job, fail_on="final-b")
+    assert main(["render", str(job.root)]) == 1
+    result = job.read("result.json")
+    assert result["durations"]["final"] == 3.5 and result["done"] == ["вырезал паузы"], "итоги A — от нового ролика"
+
+
+def test_render_without_ab_drops_an_old_version_b(tmp_path, monkeypatch):
+    import vm.__main__ as cli
+
+    job = Job(tmp_path / "jobs" / "abc")
+    job.write("edit.json", EDIT_4S)
+    job.path("out").mkdir(parents=True)
+    for old in ("final-b.mp4", "final-b.srt", "final-b.mp4.part-aa"):
+        job.path(f"out/{old}").write_bytes(b"old")
+    _fake_outputs(monkeypatch, cli, job)
+    assert main(["render", str(job.root)]) == 0
+    assert sorted(p.name for p in job.path("out").iterdir()) == ["final.mp4"]

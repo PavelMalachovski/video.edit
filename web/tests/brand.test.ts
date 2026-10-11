@@ -37,6 +37,10 @@ test('parseBrand says in Russian what is wrong', () => {
   assert.match(bad({ handle: '@' + 'a'.repeat(31) }), /ник/i);
   assert.match(bad({ colors: { text: 'white', accent: '#FFD23F', bar: '#FFD23F' } }), /цвет/i);
   assert.match(bad({ font: '../x' }), /шрифт/i);
+  for (const font of ['Inter Tight 2.0', 'Black & White', 'Gilroy (Bold)']) {  // свои шрифты Павла называются по файлу
+    const r = parseBrand({ handle: null, colors: null, font, hand: null, signature: null, hashtags: [] });
+    assert.ok(!('error' in r) && r.brand.font === font, font);
+  }
   assert.match(bad({ signature: 'я'.repeat(301) }), /подпись/i);
   assert.match(bad({ hashtags: 'один два-три' }), /хэштег/i);
   assert.match(bad({ hashtags: Array.from({ length: 11 }, (_, i) => `t${i}`) }), /хэштег/i);

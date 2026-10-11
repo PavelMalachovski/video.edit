@@ -178,3 +178,8 @@ def test_a_script_job_has_its_own_section_and_the_analyze_step_sends_there():
 def test_a_brief_from_a_script_feeds_the_stickers_and_the_end_card():
     rules = section("7. Вставки") + section("8. Стоп-кадр и финальная карточка")
     assert "`ТЕЗИСЫ:`" in rules and "`ПРИЗЫВ:`" in rules
+
+
+def test_the_teaser_starts_a_little_before_its_word_and_keeps_hook_until_for_version_b():
+    texts = section("6. Тексты")
+    assert "на 0,1 с раньше первого слова" in texts and "по нему идёт версия B" in texts

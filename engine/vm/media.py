@@ -269,32 +269,38 @@ _MP4_CONTAINERS = {"moov": 0, "trak": 0, "mdia": 0, "minf": 0, "stbl": 0, "edts"
 
 
 def mp4_boxes(path: PathLike) -> list[str]:
-    """Коробки MP4 по порядку, путём от корня: `moov/trak/edts/elst`. Файл не MP4 или обрезан — MediaError."""
-    data = Path(path).read_bytes()
+    """Коробки MP4 по порядку, путём от корня: `moov/trak/edts/elst`. Файл не MP4 или обрезан — MediaError. Читаются
+    только заголовки коробок (mdat в сотни мегабайт пропускается, в память не грузится)."""
     out: list[str] = []
+    with Path(path).open("rb") as f:
+        total = f.seek(0, 2)
 
-    def walk(off: int, end: int, parent: str) -> None:
-        while off < end:
-            if end - off < 8:
-                raise MediaError(f"{path}: не MP4 — обрывок коробки на {off}")
-            size, kind = struct.unpack(">I4s", data[off:off + 8])
-            head = 8
-            if size == 1:
-                if end - off < 16:
+        def read(off: int, n: int) -> bytes:
+            f.seek(off)
+            return f.read(n)
+
+        def walk(off: int, end: int, parent: str) -> None:
+            while off < end:
+                if end - off < 8:
                     raise MediaError(f"{path}: не MP4 — обрывок коробки на {off}")
-                size, head = struct.unpack(">Q", data[off + 8:off + 16])[0], 16
-            elif size == 0:
-                size = end - off
-            name = kind.decode("latin-1")
-            if size < head or off + size > end:
-                raise MediaError(f"{path}: не MP4 — коробка {name!r} на {off} длиной {size} выходит за границу")
-            here = f"{parent}/{name}" if parent else name
-            out.append(here)
-            if name in _MP4_CONTAINERS:
-                walk(off + head + _MP4_CONTAINERS[name], off + size, here)
-            off += size
+                size, kind = struct.unpack(">I4s", read(off, 8))
+                head = 8
+                if size == 1:
+                    if end - off < 16:
+                        raise MediaError(f"{path}: не MP4 — обрывок коробки на {off}")
+                    size, head = struct.unpack(">Q", read(off + 8, 8))[0], 16
+                elif size == 0:
+                    size = end - off
+                name = kind.decode("latin-1")
+                if size < head or off + size > end:
+                    raise MediaError(f"{path}: не MP4 — коробка {name!r} на {off} длиной {size} выходит за границу")
+                here = f"{parent}/{name}" if parent else name
+                out.append(here)
+                if name in _MP4_CONTAINERS:
+                    walk(off + head + _MP4_CONTAINERS[name], off + size, here)
+                off += size
 
-    walk(0, len(data), "")
+        walk(0, total, "")
     return out
 
 

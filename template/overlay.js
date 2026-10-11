@@ -501,6 +501,7 @@ function drawEnd({ spec, main }, end, logo) {
   const plate = call.getBoundingClientRect();
   parts.push([call, plate.width, plate.height]);
   let handle = null;
+  let handleSize = END.handle;
   if (end.handle) {
     handle = el('div', 'handle', String(end.handle));
     Object.assign(handle.style, {
@@ -508,6 +509,12 @@ function drawEnd({ spec, main }, end, logo) {
       fontSize: `${END.handle}px`, lineHeight: '1', color: c.text, textShadow: '0 3px 12px rgba(0, 0, 0, 0.6)',
     });
     root.append(handle);
+    const room = WIDTH - 2 * 14; // тень ника — по 12 px с боков
+    const wide = handle.getBoundingClientRect().width;
+    if (wide > room) { // длинный ник в широком шрифте — мельче, но в безопасной зоне
+      handleSize = Math.floor((END.handle * room) / wide);
+      handle.style.fontSize = `${handleSize}px`;
+    }
     const r = handle.getBoundingClientRect();
     parts.push([handle, r.width, r.height]);
   }
@@ -530,7 +537,7 @@ function drawEnd({ spec, main }, end, logo) {
   if (logo) all.push(rects[0]);
   if (handle) {
     const r = rects.at(-1);
-    const m = ink(main, END.handle, String(end.handle));
+    const m = ink(main, handleSize, String(end.handle));
     all.push(grow({ left: r.left - m.left, top: r.top, right: r.right + m.right, bottom: r.bottom }, 12, 9, 15)); // тень ника
   }
   return box(union(all));

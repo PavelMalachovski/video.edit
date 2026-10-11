@@ -91,8 +91,8 @@ function ReviewCard({ review }: { review: Review }) {
     <div className="card" data-review>
       <div className="caps small">Разбор по гайду</div>
       <ul className="plain marks">
-        {review.items.map((it) => (
-          <li key={it.id} data-status={it.status}>
+        {review.items.map((it, i) => (
+          <li key={i} data-status={it.status}>
             <span className="mark" aria-label={it.status === 'ok' ? 'по гайду' : 'стоит поправить'}>{it.status === 'ok' ? '✓' : '!'}</span>
             <div><b>{it.title}</b><div className="muted small">{it.note}</div></div>
           </li>

@@ -71,7 +71,7 @@ export default function Result({ view, result, answers, fixes, onAct }: Props) {
   }
 
   const b = final.b;
-  const [labelA, labelB] = abLabels(result?.ab?.differs ?? answers?.ab ?? 'teaser');
+  const [labelA, labelB] = abLabels(result?.ab?.differs ?? answers?.ab ?? null);
 
   return (
     <>

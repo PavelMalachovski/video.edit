@@ -58,6 +58,7 @@ export type JobData = {
   review: Review | null;
   script: Script | null;
   scriptRequest: ScriptRequest | null;
+  brief: string; // ТЗ задачи (job.json)
   answers: AnswersFile | null;
   result: ResultFile | null;
   fixes: FixFile['fixes'];

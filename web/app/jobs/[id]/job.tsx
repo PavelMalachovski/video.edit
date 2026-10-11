@@ -140,7 +140,7 @@ export default function Job({ id }: { id: string }) {
     return (
       <>
         <Steps current={3} />
-        <Previews jobId={id} styles={styles} questions={questions} draft={draft} duration={view.duration} fileUrl={fileUrl} localUrl={localUrl}
+        <Previews jobId={id} styles={styles} questions={questions} draft={draft} brief={data.brief} duration={view.duration} fileUrl={fileUrl} localUrl={localUrl}
           onBack={() => setStage('questions')} onAct={act} />
       </>
     );

@@ -42,6 +42,7 @@ from .qa import (
 from .render import _resolve, draw_layer, render, variant_b
 from .style import final_style
 
+SERVICE = ("own", "none", "upload")  # служебные варианты вопросов: их подписи — интерфейс страницы
 PART_SIZE = 95 * 1024 * 1024  # как `split -b 95M`: столько же, сколько MAX_FILE_BYTES
 
 
@@ -190,9 +191,14 @@ def _fonts(args: argparse.Namespace) -> None:
     if job.path("edit.json").is_file():
         main_text, hand_text = fonts.texts(job.read("edit.json"))
         if job.path("questions.json").is_file():
-            labels = [o["label"] for q in job.read("questions.json")["questions"] if q["id"] in ("hook", "word")
-                      for o in q.get("options") or []]  # fmt: skip
-            main_text, hand_text = "\n".join([main_text, *labels]), "\n".join([hand_text, *labels])
+            questions = job.read("questions.json")["questions"]
+
+            def options(keep) -> list[str]:  # «Свой», «Не надо» — кнопки страницы, не текст ролика
+                return [o["label"] for q in questions if keep(q) for o in q.get("options") or [] if o["id"] not in SERVICE]
+
+            labels = options(lambda q: q["id"] == "hook" or q["type"] == "word")  # хук и написания слов
+            calls = options(lambda q: q["id"] == "end")  # призыв финальной карточки
+            main_text, hand_text = "\n".join([main_text, *labels, *calls]), "\n".join([hand_text, *labels])
         hand_text = f"{hand_text}\n{main_text}"  # рукописным может стать любое слово хука — с запасом
     else:
         parts = [w["text"] for w in json.loads(job.path("words.json").read_text(encoding="utf-8"))] if job.path("words.json").is_file() else []
@@ -259,18 +265,34 @@ def _render(args: argparse.Namespace) -> None:
     _fonts_ok(job)
     edit = job.read("edit.json")
     variant = variant_b(edit) if edit.get("ab") else None  # вторая версия A/B-теста; ошибка в ab — до сборки
+    previous = job.read("result.json") if job.path("result.json").is_file() else {}
+    if previous:  # done, unsure и подпись Claude переносятся в новый result.json: кривые — ошибка до кодирования
+        validate("result.json", previous)
     step("Монтирую", "Собираю ролик: нарезка, текст, вставки, звук")
     result = render(job, job.path("out"), name=name, preset=args.preset)
     for done in (f"{name}.mp4", f"{name}.srt"):  # части прошлого push --outputs — от старого ролика
         drop_parts(job.path("out"), done)
+    if not variant:  # версии B в этот раз нет — её прежние файлы не от этого ролика
+        _drop_outputs(job, f"{name}-b")
     step("Проверяю", "Смотрю контрольные кадры и геометрию")
     final = job.path(f"out/{name}.mp4")
     boxes = json.loads(job.path("work/render/frames/boxes.json").read_text(encoding="utf-8"))
     problems = check_layout(boxes, face_box(edit.get("face")), edit.get("inserts")) + check_render(final, edit, boxes, result)
     frames = control_frames(final, slot_times(boxes), job.path("qa"))
     checks = checklist(final, boxes, result)  # по гайду — для экрана «Готово»
-    second = None
+    summary = {
+        "durations": result["durations"],
+        "done": previous.get("done", []),
+        "unsure": previous.get("unsure", []),
+        "missing": result["missing"],
+        "qa": {"ok": not problems, "problems": problems},
+        **({"caption": previous["caption"]} if previous.get("caption") else {}),  # подпись к посту — от Claude
+        "checklist": checks,
+    }
+    job.write("result.json", summary)  # итоги A — сразу: упадёт версия B, они уже от этого ролика
     if variant:  # без тизера или без музыки, со своим слоем
+        if edit["ab"] == "music":  # без музыки — те же события, что встали на доли в версии A: отличается только звук
+            variant = variant_b(result.get("edit", edit))
         step("Монтирую", "Собираю вторую версию для теста")
         result_b = render(job, job.path("out"), name=f"{name}-b", preset=args.preset, edit=variant, work="work/render-b")
         for done in (f"{name}-b.mp4", f"{name}-b.srt"):
@@ -278,24 +300,11 @@ def _render(args: argparse.Namespace) -> None:
         boxes_b = json.loads(job.path("work/render-b/frames/boxes.json").read_text(encoding="utf-8"))
         final_b = job.path(f"out/{name}-b.mp4")
         problems_b = check_layout(boxes_b, face_box(variant.get("face")), variant.get("inserts")) + check_render(final_b, variant, boxes_b, result_b)
-        second = {"differs": edit["ab"], "durations": result_b["durations"], "qa": {"ok": not problems_b, "problems": problems_b}}
+        summary["ab"] = {"differs": edit["ab"], "durations": result_b["durations"], "qa": {"ok": not problems_b, "problems": problems_b}}
+        job.write("result.json", summary)
         print(f"{final_b.relative_to(job.root)}: {result_b['durations']['final']:.1f} с — версия B, {'без тизера' if edit['ab'] == 'teaser' else 'без музыки'}")
         for line in problems_b:
             print(f"  версия B: {line}")
-    previous = job.read("result.json") if job.path("result.json").is_file() else {}
-    job.write(
-        "result.json",
-        {
-            "durations": result["durations"],
-            "done": previous.get("done", []),
-            "unsure": previous.get("unsure", []),
-            "missing": result["missing"],
-            "qa": {"ok": not problems, "problems": problems},
-            **({"caption": previous["caption"]} if previous.get("caption") else {}),  # подпись к посту — от Claude
-            **({"ab": second} if second else {}),
-            "checklist": checks,
-        },
-    )
     print(f"{final.relative_to(job.root)}: {result['durations']['final']:.1f} с (исходник {result['durations']['source']:.1f} с)")
     print(f"контрольный лист: {frames['sheet'].relative_to(job.root)}")
     voice = result.get("voice") or {}
@@ -312,6 +321,16 @@ def _render(args: argparse.Namespace) -> None:
     print("проверка: " + ("всё в порядке" if not problems else "проблемы:"))
     for line in problems:
         print(f"  - {line}")
+
+
+def _drop_outputs(job: Job, base: str) -> None:
+    """Убрать из out/ файлы `<base>.*` прежнего рендера и их части (версия, которую в этот раз не собирали)."""
+    out = job.path("out")
+    if not out.is_dir():
+        return
+    for stale in out.glob(f"{base}.*"):
+        if stale.is_file():
+            stale.unlink()
 
 
 def drop_parts(out: Path, name: str) -> None:

@@ -566,3 +566,10 @@ test('a long call to action wraps instead of shrinking', async () => {
   assert.ok(call.height > 2 * call.size, `в несколько строк: ${call.height}`);
   assert.ok(insideSafe((await boxes()).end));
 });
+
+test('a very long handle shrinks to stay in the safe zone', async () => {
+  await render(spec({ font: 'unbounded' }), { end: { lines: ['Сохрани ✅'], handle: '@pavel.malakhouski.video.edit.cz', t: 1 } });
+  const size = await page.evaluate(() => parseFloat(getComputedStyle(document.querySelector('#end .handle')).fontSize));
+  assert.ok(size < 54, `кегль ника ${size}`);
+  assert.ok(insideSafe((await boxes()).end), JSON.stringify((await boxes()).end));
+});

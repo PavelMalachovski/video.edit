@@ -646,6 +646,17 @@ def test_validate_names_bad_fields_and_missing_pictures(tmp_path, capsys):
     assert "questions.json" in capsys.readouterr().out
 
 
+def test_validate_checks_the_review_and_the_script_too(tmp_path, capsys):
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    for name, bad in (("review.json", {"items": [{"id": "hook", "title": "Мысль", "status": "maybe", "note": "…"}]}),
+                      ("script.json", {"story": "vlog", "hooks": [], "scenes": [], "cta": "", "tips": [], "caption": {}})):
+        job.path(name).write_text(json.dumps(bad), encoding="utf-8")
+        assert main(["validate", str(job.root)]) == 1, name
+        assert name in capsys.readouterr().err
+        job.path(name).unlink()
+
+
 def test_validate_finds_insert_files_of_edit_json(tmp_path, capsys):
     job = Job(tmp_path / "jobs" / "abc")
     job.root.mkdir(parents=True)

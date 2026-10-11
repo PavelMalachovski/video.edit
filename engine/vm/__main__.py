@@ -112,7 +112,7 @@ def _preview(args: argparse.Namespace) -> None:
     print(f"{path.relative_to(job.root)} — кадр {args.at:g} с {what}")
 
 
-CHECKED = ("status.json", "questions.json", "answers.json", "styles.json", "edit.json", "result.json")
+CHECKED = ("status.json", "questions.json", "answers.json", "styles.json", "review.json", "edit.json", "result.json", "script.json")
 
 
 def _files(job: Job, name: str, data: dict, unchecked: set[str] | None = None) -> list[str]:

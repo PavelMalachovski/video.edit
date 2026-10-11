@@ -9,6 +9,7 @@ import {
 } from './jobfiles.ts';
 import { jobBranch, jobDir, jobTag } from './jobs.ts';
 import type { Step } from './routine.ts';
+import { parseScript, type Script, type ScriptRequest } from './script.ts';
 
 export type JobFiles = {
   head: string;
@@ -19,6 +20,7 @@ export type JobFiles = {
   questions: Question[] | null;
   styles: Styles | null;
   review: Review | null;
+  script: Script | null; // сценарий задачи-сценария (script.json)
   answers: AnswersFile | null;
   result: ResultFile | null;
   fix: FixFile | null;
@@ -26,9 +28,11 @@ export type JobFiles = {
   released: Released | null;
 };
 
-export type Screen = 'uploading' | 'not_started' | 'working' | 'questions' | 'result' | 'error';
+export type Screen = 'uploading' | 'not_started' | 'working' | 'questions' | 'result' | 'script' | 'error';
 export type JobView = {
   id: string;
+  /** `script` — задача-сценарий: видео нет, итог — script.json. */
+  kind: 'video' | 'script';
   title: string;
   createdAt: string;
   duration: number | null;
@@ -52,6 +56,8 @@ export type JobData = {
   questions: Question[] | null;
   styles: Styles | null;
   review: Review | null;
+  script: Script | null;
+  scriptRequest: ScriptRequest | null;
   answers: AnswersFile | null;
   result: ResultFile | null;
   fixes: FixFile['fixes'];
@@ -103,7 +109,7 @@ function parse<T>(text: string | null): T | null {
 }
 
 const LIST_FILES = ['job.json', 'status.json', 'fix.json'];
-const ALL_FILES = [...LIST_FILES, 'questions.json', 'styles.json', 'review.json', 'answers.json', 'result.json', 'restyle.json'];
+const ALL_FILES = [...LIST_FILES, 'questions.json', 'styles.json', 'review.json', 'script.json', 'answers.json', 'result.json', 'restyle.json'];
 
 /**
  * Файлы задачи на коммите `head` (`list` — только нужные списку задач). Папки задачи нет — null; файла нет или
@@ -127,6 +133,7 @@ export async function readJobFiles(gh: GH, id: string, head: string, parts: 'lis
     questions: parseQuestions(json<unknown>('questions.json')),  // файлы сессии — по форме: кривой файл как нет файла
     styles: parseStyles(json<unknown>('styles.json')),
     review: parseReview(json<unknown>('review.json')),
+    script: parseScript(json<unknown>('script.json')),
     answers: json<AnswersFile>('answers.json'),
     result: parseResult(json<unknown>('result.json')),
     fix: json<FixFile>('fix.json'),
@@ -153,6 +160,7 @@ export function deriveView(release: Release, files: JobFiles | null, now: number
   const older = delivered.map((name) => [name, versionOf(name)] as const).filter(([, v]) => v !== null && v < version);
   const view: JobView = {
     id,
+    kind: job?.kind === 'script' ? 'script' : 'video',
     title: job?.name ?? release.name ?? id,
     createdAt: job?.createdAt ?? release.created_at ?? '',
     duration: job?.duration ?? null,
@@ -182,6 +190,12 @@ export function deriveView(release: Release, files: JobFiles | null, now: number
   }
   const age = now - Date.parse(status.at);
   if (status.state === 'error') return { ...view, screen: 'error' };
+  if (status.state === 'script_ready') {
+    if (!files.full || files.script) return { ...view, screen: 'script' };
+    const error = { state: 'error' as const, phase: 'Ошибка', message: 'Claude не оставил сценарий — повторите шаг', at: status.at,
+      error: 'script.json нет или не по схеме' };
+    return { ...view, screen: 'error', status: error };
+  }
   if (status.state === 'waiting_answers') {
     if (!files.full || (files.questions && files.styles)) return { ...view, screen: 'questions' };
     const error = { state: 'error' as const, phase: 'Ошибка', message: 'Claude не оставил вопросы или стили — повторите шаг', at: status.at,

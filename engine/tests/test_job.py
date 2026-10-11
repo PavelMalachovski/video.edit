@@ -506,6 +506,33 @@ def test_review_is_five_to_eight_points_of_the_guide(job):
             job.write("review.json", {"items": bad})
 
 
+SCRIPT = {
+    "story": "tutorial",
+    "hooks": [{"technique": "value", "text": "3 ошибки, из-за которых чешский не идёт", "frame": "крупный план, смотрю в камеру"},
+              {"technique": "engage", "text": "Какой вы ученик: зубрила или болтун?"},
+              {"technique": "emotion", "text": "POV: полгода учишь чешский и молчишь в магазине"}],
+    "scenes": [{"part": "hook", "t0": 0, "t1": 2.5, "say": "3 ошибки…", "screen": "3 ошибки 🔥", "frame": "крупно, лицо"},
+               {"part": "hold", "t0": 2.5, "t1": 20, "say": "Первая — учить слова списком", "screen": "Слова — списком", "frame": "средний план"},
+               {"part": "reward", "t0": 20, "t1": 30, "say": "Пиши «чешский» — пришлю план", "screen": "Пиши «чешский»", "frame": "крупно",
+                "sound": "музыка громче"}],
+    "cta": "Пиши «чешский» в комментариях — пришлю план на месяц",
+    "tips": ["Лицо в кадре с первой секунды", "Снимай вертикально, 9:16"],
+    "caption": {"text": "3 ошибки в чешском 🇨🇿", "hashtags": ["чешский"]},
+}
+
+
+def test_a_script_job_ends_with_script_ready_and_a_script(job):
+    job.write("status.json", {"state": "script_ready", "phase": "Сценарий готов", "message": "Три хука и раскадровка", "at": "2026-10-11T10:00:00Z"})
+    job.write("script.json", SCRIPT)
+    assert job.read("script.json") == SCRIPT
+    for bad, field in (({**SCRIPT, "story": "vlog"}, r"story"), ({**SCRIPT, "hooks": SCRIPT["hooks"][:2]}, r"hooks"),
+                       ({**SCRIPT, "hooks": [{**SCRIPT["hooks"][0], "technique": "joke"}, *SCRIPT["hooks"][1:]]}, r"hooks\[0\]\.technique"),
+                       ({**SCRIPT, "scenes": [{**SCRIPT["scenes"][0], "part": "intro"}, *SCRIPT["scenes"][1:]]}, r"scenes\[0\]\.part"),
+                       ({**SCRIPT, "caption": {"text": "", "hashtags": []}}, r"caption\.text"), ({**SCRIPT, "tips": []}, r"tips")):
+        with pytest.raises(ValueError, match=rf"  {field}: "):
+            job.write("script.json", bad)
+
+
 def test_edit_rejects_unknown_insert_kind(job):
     edit = make_edit()
     edit["inserts"][0]["kind"] = "gif"

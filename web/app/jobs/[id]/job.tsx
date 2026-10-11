@@ -13,6 +13,7 @@ import Phases from './phases';
 import Previews from './previews';
 import Questions, { type ChangeDraft } from './questions';
 import Result from './result';
+import ScriptView from './script';
 
 /** Действие на странице → `POST run`; null — запущено, иначе текст ошибки для кнопки. */
 export type Act = (action: Action, extra?: Record<string, unknown>) => Promise<string | null>;
@@ -144,6 +145,14 @@ export default function Job({ id }: { id: string }) {
       </>
     );
   }
+  if (data && view?.screen === 'script' && data.script) {
+    return (
+      <>
+        <Link href="/" className="back">← Мои видео</Link>
+        <ScriptView title={view.title} script={data.script} request={data.scriptRequest} />
+      </>
+    );
+  }
   if (data && view?.screen === 'result') {
     return (
       <>
@@ -162,7 +171,7 @@ export default function Job({ id }: { id: string }) {
       </header>
       {wait !== null ? <div className="muted small">GitHub просит подождать, обновлю через {wait} с</div> : null}
       {trouble ? <div className="muted small">{trouble}</div> : null}
-      {view ? <Steps current={stepIndex(view)} /> : null}
+      {view && view.kind === 'video' ? <Steps current={stepIndex(view)} /> : null}
       {!data || !view ? null : view.screen === 'questions' ? (
         questions && draft ? (
           <Questions jobId={id} releaseId={data.releaseId} questions={questions} review={data.review} draft={draft} onDraft={changeDraft} fileUrl={fileUrl}

@@ -4,10 +4,11 @@
 import { isUploadFile, MAX_NOTE } from './jobs.ts';
 import type { Step } from './routine.ts';
 import type { Brand } from './brand.ts';
+import type { ScriptRequest } from './script.ts';
 
 // ---------- status.json ----------
 
-export const STATES = ['uploading', 'queued', 'analyzing', 'waiting_answers', 'rendering', 'rendered', 'error'] as const;
+export const STATES = ['uploading', 'queued', 'analyzing', 'waiting_answers', 'rendering', 'rendered', 'script_ready', 'error'] as const;
 export type State = (typeof STATES)[number];
 export type Status = {
   state: State;
@@ -169,6 +170,8 @@ export type JobFile = {
   id: string; name: string; size: number; type: string; duration: number | null; createdAt: string;
   brief: string; uploads: UploadRef[]; runs: Run[];
   brand?: Brand; // копия «Моего бренда» на момент старта; логотип — путь от папки задачи (in/brand/logo.png)
+  kind?: 'script'; // задача-сценарий: видео нет, сессия пишет script.json (нет поля — видео)
+  script?: ScriptRequest; // запрос сценария с экрана «Новый сценарий»
 };
 
 export function buildJobFile(m: Manifest, now: Date): JobFile {

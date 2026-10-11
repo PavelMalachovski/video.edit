@@ -164,3 +164,17 @@ def test_the_analyze_step_writes_the_guide_review_and_render_writes_the_checklis
         assert f"`{key}`" in analyze, key
     files = section("Файлы задачи")
     assert "| `review.json` |" in files and "`checklist`" in files
+
+
+def test_a_script_job_has_its_own_section_and_the_analyze_step_sends_there():
+    script = section("Сценарий (задача без видео)")
+    assert "`script.json`" in script and "`script_ready`" in script and "`job.json.script`" in script
+    for key in ("hook", "hold", "reward", "sound", "motion", "engage", "value", "emotion", "tutorial", "before_after"):
+        assert f"`{key}`" in script, key
+    assert "раздел «Сценарий (задача без видео)»" in section("Шаг analyze")
+    assert "| `script.json` |" in section("Файлы задачи") and "`kind`" in section("Файлы задачи")
+
+
+def test_a_brief_from_a_script_feeds_the_stickers_and_the_end_card():
+    rules = section("7. Вставки") + section("8. Стоп-кадр и финальная карточка")
+    assert "`ТЕЗИСЫ:`" in rules and "`ПРИЗЫВ:`" in rules

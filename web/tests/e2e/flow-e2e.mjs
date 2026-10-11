@@ -97,6 +97,24 @@ const REVIEW = { items: [
   { id: 'cta', title: 'Призыв в конце', status: 'ok', note: 'Кодовое слово в конце — титр и финальная карточка' },
   { id: 'length', title: 'Длина', status: 'ok', note: '1:16 после резки — до 90 с' },
 ] };
+const SCRIPT = {
+  story: 'tutorial',
+  hooks: [
+    { technique: 'value', text: '3 ошибки, из-за которых чешский не идёт', frame: 'Крупно, смотрю в камеру' },
+    { technique: 'engage', text: 'Какой вы ученик: зубрила или болтун?' },
+    { technique: 'emotion', text: 'POV: полгода учишь чешский и молчишь в магазине' },
+  ],
+  scenes: [
+    { part: 'hook', t0: 0, t1: 2.5, say: 'Три ошибки, из-за которых чешский не идёт', screen: '3 ошибки 🔥', frame: 'Крупно, лицо' },
+    { part: 'hold', t0: 2.5, t1: 20, say: 'Первая — учить слова списком', screen: 'Слова — списком', frame: 'Средний план, тетрадь в руке' },
+    { part: 'hold', t0: 20, t1: 40, say: 'Вторая — молчать', screen: '', frame: 'Переход взмахом руки' },
+    { part: 'hold', t0: 40, t1: 52, say: 'Третья — учить без повторов', screen: 'Без повторов', frame: 'Крупно' },
+    { part: 'reward', t0: 52, t1: 60, say: 'Пиши «план» — пришлю', screen: 'Пиши «план»', frame: 'Крупно', sound: 'Музыка громче' },
+  ],
+  cta: 'Пиши «план» в комментариях',
+  tips: ['Лицо в кадре с первой секунды', 'Снимай у окна: свет спереди'],
+  caption: { text: 'Три ошибки в чешском 🇨🇿', hashtags: ['чешский', 'языки'] },
+};
 const FIXTURE = JSON.parse(fs.readFileSync(path.resolve('../engine/tests/fixtures/style-merge.json'), 'utf8'));
 const STYLES = { ...FIXTURE.styles, sample: { ...FIXTURE.styles.sample, inserts: [{ kind: 'image', x: 70, y: 500, w: 250, question: 'logo' }] } };
 
@@ -562,6 +580,52 @@ const segments = [
     const fixes = JSON.parse((await branchFile(ctx, 'fix.json')) ?? '{}').fixes ?? [];
     check(fixes.length === 1 && fixes[0].text === 'логотип левее', `fix.json после «Вернуть»: ${JSON.stringify(fixes)}`);
     check((await fires()).filter((f) => f.step === 'fix').length === 2, '«Вернуть» ничего не запускает');
+  }],
+
+  ['script', async (ctx) => {
+    const { page } = ctx;
+    const topic = 'Как я учу чешский по 15 минут в день';
+    await page.goto(`${APP}/`);
+    await page.getByRole('link', { name: 'Сценарий' }).click();
+    await page.waitForURL(`${APP}/script`);
+    const go = page.getByRole('button', { name: 'Написать сценарий' });
+    check(await go.isDisabled(), '«Написать сценарий» включена без темы');
+    await page.fill('#topic', topic);
+    await page.getByRole('button', { name: 'Заявки', exact: true }).click();
+    await page.getByRole('button', { name: 'Обучающий', exact: true }).click();
+    await page.getByRole('button', { name: '60 с', exact: true }).click();
+    await page.getByRole('button', { name: 'чешский', exact: true }).click();
+    await shot(page, 'script-form');
+    await go.click();
+    await page.waitForURL(/\/jobs\/\d{6}-\d{6}-[0-9a-z]{4}$/, { timeout: 20_000 });
+    ctx.jobId = page.url().split('/').pop();
+    const job = JSON.parse((await branchFile(ctx, 'job.json')) ?? '{}');
+    check(job.kind === 'script' && isDeepStrictEqual(job.script, { topic, goal: 'leads', story: 'tutorial', length: 60, language: 'чешский' }),
+      `job.json задачи-сценария: ${JSON.stringify({ kind: job.kind, script: job.script })}`);
+    check((await fires()).some((f) => f.job === ctx.jobId && f.step === 'analyze' && f.attempt === 1), 'анализ сценария не запущен');
+    await page.getByText('Пишу сценарий').or(page.getByText('Запускаю сессию')).first().waitFor({ timeout: 7000 });
+
+    engineValidate('script.json', SCRIPT);
+    await session(ctx, { 'script.json': SCRIPT,
+      'status.json': { state: 'script_ready', phase: 'Сценарий готов', message: 'Три хука и раскадровка — можно снимать', at: new Date().toISOString() } });
+    const view = page.locator('[data-script]');
+    await view.waitFor({ timeout: 7000 });
+    check(await view.locator('[data-hook]').count() === 3, 'не три хука');
+    check(await view.locator('[data-scene]').count() === SCRIPT.scenes.length, 'сцены раскадровки');
+    const text = await view.textContent();
+    for (const part of ['Обучающий', 'Зацепить', 'Удержать', 'Вознаградить', 'Пиши «план» в комментариях', 'Лицо в кадре с первой секунды', '#чешский']) {
+      check(text.includes(part), `на экране сценария нет «${part}»`);
+    }
+    await shot(page, 'script');
+    await view.locator('[data-hook]').nth(1).click();
+    await page.getByRole('button', { name: 'Снять по сценарию' }).click();
+    await page.waitForURL(`${APP}/`);
+    const brief = await until(async () => page.inputValue('#brief').catch(() => ''), 7000, 'ТЗ по сценарию в форме загрузки');
+    check(brief === 'ХУК: Какой вы ученик: зубрила или болтун?\nТЕЗИСЫ: Слова — списком; Без повторов\nПРИЗЫВ: Пиши «план» в комментариях\nЯЗЫК: чешский',
+      `ТЗ по сценарию: ${JSON.stringify(brief)}`);
+    await page.locator(`[data-job="${ctx.jobId}"]`).getByText('Сценарий готов').waitFor();
+    await page.reload();
+    check(await page.inputValue('#brief') === '', 'ТЗ сценария подставилось второй раз');
   }],
 ];
 

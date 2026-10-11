@@ -6,7 +6,7 @@
   "required": ["state", "phase", "message", "at"],
   "properties": {
     "state": {
-      "enum": ["uploading", "queued", "analyzing", "waiting_answers", "rendering", "rendered", "error"]
+      "enum": ["uploading", "queued", "analyzing", "waiting_answers", "rendering", "rendered", "script_ready", "error"]
     },
     "phase": {
       "description": "Название фазы для человека, например «Расшифровываю».",

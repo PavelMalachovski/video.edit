@@ -170,3 +170,12 @@ ul.marks .mark { flex: none; width: 22px; height: 22px; border-radius: 11px; dis
   font-size: 13px; font-weight: 800; margin-top: 2px; background: var(--ok); color: var(--ok-ink); }
 ul.marks li[data-status=warn] .mark { background: var(--accent); color: var(--ink); }
 ul.marks li[data-ok=false] .mark { background: var(--bad); color: var(--bad-ink); }
+/* сценарий до съёмки: ссылки в шапке, выбор хука, сцены по частям */
+.top-links { display: flex; gap: 16px; }
+.script { display: flex; flex-direction: column; gap: 22px; } /* как main: экран сценария — одна обёртка */
+.hook-pick { display: flex; flex-direction: column; gap: 4px; text-align: left; padding: 12px 14px; border-radius: 14px;
+  border: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; cursor: pointer; }
+.hook-pick[aria-pressed=true] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.scene-part { display: flex; flex-direction: column; gap: 8px; }
+.scene { display: flex; flex-direction: column; gap: 2px; padding-left: 12px; border-left: 2px solid var(--line); }
+.pre { white-space: pre-line; }

@@ -20,6 +20,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       questions: f?.questions ?? null,
       styles: f?.styles ?? null,
       review: f?.review ?? null,
+      script: f?.script ?? null,
+      scriptRequest: f?.job?.script ?? null,
       answers: f?.answers ?? null,
       result: f?.result ?? null,
       fixes: f?.fix?.fixes ?? [],

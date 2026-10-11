@@ -24,7 +24,7 @@ const SPEC = {
 };
 const STYLES = { frame: 'frame.png', frameTime: 1, sample: { words: ['раз'], spoken: 0 }, variants: (['A', 'B', 'C'] as const).map((id) => ({ id, label: id, spec: SPEC })) };
 const files = (over: Partial<JobFiles> = {}): JobFiles => ({
-  head: 'h1', full: true, job: job(), status: status('analyzing'), statusBroken: false, questions: QUESTIONS, styles: STYLES, review: null, answers: null, result: null,
+  head: 'h1', full: true, job: job(), status: status('analyzing'), statusBroken: false, questions: QUESTIONS, styles: STYLES, review: null, script: null, answers: null, result: null,
   fix: null, restyle: null, released: null, ...over,
 });
 const delivered = (...names: string[]) => ({ release_id: 7, assets: names.map((name, i) => ({ name, id: 200 + i, size: 1 })), at: new Date(T0).toISOString() });
@@ -90,6 +90,7 @@ test('canRun allows each action only from its screen', () => {
     working: [],
     questions: ['answers', 'restyle', 'delete'],
     result: ['fix', 'delete'],
+    script: ['delete'],
     error: ['retry', 'delete'],
   };
   const actions: Action[] = ['start', 'answers', 'restyle', 'fix', 'retry', 'delete'];
@@ -230,3 +231,39 @@ test('an A/B job shows version B next to A once both are delivered', () => {
   assert.deepEqual(v2.final, { mp4: 'final-v2.mp4', srt: null, b: { mp4: 'final-v2-b.mp4', srt: null } });
   assert.equal(v2.previous, 'final.mp4');
 });
+
+// ---------- задача-сценарий ----------
+
+const SCRIPT = {
+  story: 'tutorial' as const,
+  hooks: [{ technique: 'value' as const, text: 'Три ошибки' }, { technique: 'engage' as const, text: 'Какой вы ученик?' },
+    { technique: 'emotion' as const, text: 'POV: молчу в магазине' }],
+  scenes: [{ part: 'hook' as const, t0: 0, t1: 2.5, say: 'Три ошибки', screen: 'Три ошибки', frame: 'крупно' }],
+  cta: 'Пиши «чешский»', tips: ['Лицо с первой секунды'], caption: { text: 'Чешский', hashtags: [] },
+};
+const scriptJob = (): JobFile => ({ ...job(), name: 'Сценарий: чешский', size: 0, type: '', duration: null, kind: 'script',
+  script: { topic: 'чешский', goal: 'followers', story: 'any', length: 30, language: 'русский' } });
+
+test('a script job works on analyze, then shows the script; a missing script.json is an error', () => {
+  const draft = release([]); // у сценария в черновике нет видео
+  const at = (state: Status['state'], over: Partial<JobFiles> = {}) => deriveView(draft, files({ job: scriptJob(), status: status(state), ...over }), T0);
+  assert.equal(at('analyzing').screen, 'working');
+  const ready = at('script_ready', { script: SCRIPT });
+  assert.equal(ready.screen, 'script');
+  assert.equal(ready.kind, 'script');
+  assert.equal(deriveView(release(), files(), T0).kind, 'video');
+  const lost = at('script_ready', { script: null });
+  assert.equal(lost.screen, 'error');
+  assert.match(lost.status?.message ?? '', /сценари/);
+  assert.equal(at('script_ready', { script: null, full: false }).screen, 'script', 'списку задач сценарий читать незачем');
+  assert.equal(canRun(ready, 'delete'), null);
+  for (const a of ['start', 'answers', 'restyle', 'fix', 'retry', 'back'] as Action[]) assert.notEqual(canRun(ready, a), null, a);
+});
+
+test('script.json is read with the other session files', () => withFake(async ({ fake, gh }) => {
+  const head = fake.commit(`claude/job-${ID}`, {
+    [`jobs/${ID}/job.json`]: JSON.stringify(scriptJob()),
+    [`jobs/${ID}/script.json`]: JSON.stringify(SCRIPT),
+  });
+  assert.deepEqual((await readJobFiles(gh, ID, head))?.script, SCRIPT);
+}));

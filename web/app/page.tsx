@@ -7,7 +7,10 @@ export default function Home() {
     <main>
       <header className="top">
         <h1 className="logo">video<b>.</b>edit</h1>
-        <a className="top-link" href="/brand">Мой бренд</a>
+        <nav className="top-links">
+          <a className="top-link" href="/script">Сценарий</a>
+          <a className="top-link" href="/brand">Мой бренд</a>
+        </nav>
       </header>
       <Uploader />
       <Steps current={0} />

@@ -66,3 +66,5 @@
 - Бренд Павла: поля и проверка — `web/lib/brand.ts`, как их берёт монтаж — SKILL.md (стиль A, `job.json.brand`).
 - Эмодзи: правило деления текста — `engine/vm/emoji.py` (`runs`) и `template/emoji.js` (`emojiRuns`), общая фикстура
   `engine/tests/fixtures/emoji-runs.json`; картинки и список — `template/emoji/` (собирает `python3 -m vm.emoji`).
+- Сценарий до съёмки: схема `engine/vm/schemas/script.json` и `web/lib/script.ts` (типы; ТЗ «Снять по сценарию» —
+  строки `ХУК:`, `ТЕЗИСЫ:`, `ПРИЗЫВ:`, `ЯЗЫК:`, их понимает SKILL.md).

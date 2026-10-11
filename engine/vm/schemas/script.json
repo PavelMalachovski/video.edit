@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://video.edit/schemas/script.json",
+  "title": "script.json — сценарий до съёмки по гайду Meta «Всё о Reels» (пишет Claude на шаге analyze задачи-сценария)",
+  "type": "object",
+  "required": ["story", "hooks", "scenes", "cta", "tips", "caption"],
+  "properties": {
+    "story": {
+      "description": "Тип истории по гайду: photodump — фотодамп, which_type — «к какому типу относитесь вы», facts — перечень фактов, transitions — переходы, tutorial — обучающий, before_after — до и после, pov — POV, behind — за кадром.",
+      "enum": ["photodump", "which_type", "facts", "transitions", "tutorial", "before_after", "pov", "behind"]
+    },
+    "hooks": {
+      "description": "Три хука разных приёмов гайда: sound — звук, motion — движение камеры, engage — вовлечение, value — польза, emotion — эмоция.",
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "required": ["technique", "text"],
+        "properties": {
+          "technique": { "enum": ["sound", "motion", "engage", "value", "emotion"] },
+          "text": { "description": "Что сказать и написать на экране в первые 2 с.", "type": "string", "minLength": 1, "maxLength": 120 },
+          "frame": { "description": "Что в кадре.", "type": "string", "maxLength": 300 }
+        }
+      }
+    },
+    "scenes": {
+      "description": "Раскадровка по частям гайда: зацепить (hook) → удержать (hold) → вознаградить (reward); t0, t1 — секунды ролика.",
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "required": ["part", "t0", "t1", "say", "screen", "frame"],
+        "properties": {
+          "part": { "enum": ["hook", "hold", "reward"] },
+          "t0": { "type": "number", "minimum": 0 },
+          "t1": { "type": "number", "exclusiveMinimum": 0 },
+          "say": { "description": "Что сказать.", "type": "string" },
+          "screen": { "description": "Текст на экране (тезис для стикера); пусто — нет.", "type": "string", "maxLength": 120 },
+          "frame": { "description": "Что в кадре: план, движение, переход.", "type": "string", "minLength": 1, "maxLength": 300 },
+          "sound": { "description": "Звук сверх голоса: музыка, эффект.", "type": "string", "maxLength": 200 }
+        }
+      }
+    },
+    "cta": { "description": "Призыв в конце (для финальной карточки).", "type": "string", "minLength": 1, "maxLength": 120 },
+    "tips": {
+      "description": "Советы по съёмке: план, свет, переходы, лицо в первые секунды.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": { "type": "string", "minLength": 1, "maxLength": 300 }
+    },
+    "caption": { "$ref": "result.json#/properties/caption" }
+  }
+}

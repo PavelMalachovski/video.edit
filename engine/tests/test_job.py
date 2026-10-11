@@ -277,6 +277,16 @@ def test_styles_accepts_empty_sample_words_for_a_silent_clip(job):
     assert job.read("styles.json") == styles
 
 
+def test_styles_take_the_fonts_that_have_every_letter(job):
+    styles = make_styles()
+    styles["fonts"] = {"main": ["montserrat", "comfortaa"], "hand": ["bad-script"]}  # вывод vm fonts
+    job.write("styles.json", styles)
+    assert job.read("styles.json") == styles
+    for bad in ({"main": ["montserrat"]}, {"main": "montserrat", "hand": []}, {"main": ["montserrat"], "hand": [""]}):
+        with pytest.raises(ValueError, match="fonts"):
+            job.write("styles.json", {**styles, "fonts": bad})
+
+
 def test_style_hook_y_is_optional_and_stays_in_the_frame(job):
     # высота хука (центр строки капсом) — часть стиля: хук не должен лечь на лицо
     styles = make_styles()

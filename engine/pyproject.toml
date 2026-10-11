@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Движок монтажа video.edit: папка задачи, схемы, статус, рендер"
 requires-python = ">=3.11"
 dependencies = [
+    "fonttools",
     "jsonschema>=4.18",
     "numpy",
     "sherpa-onnx",

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { initialDraft, pick } from '../lib/answers.ts';
 import type { Question, StyleChoice, Styles } from '../lib/jobfiles.ts';
-import { choiceFor, finalStyle, loadChoice, resolveInserts, sampleState, saveChoice, SWATCHES } from '../lib/style.ts';
+import { allowedFonts, choiceFor, finalStyle, loadChoice, resolveInserts, sampleState, saveChoice, SWATCHES } from '../lib/style.ts';
 import { blockedStorage, memoryStorage } from './helpers.ts';
 
 // Общая с движком фикстура: final_style в engine/vm/style.py обязан давать то же самое.
@@ -80,4 +80,26 @@ test('swatches are #RRGGBB', () => {
   assert.deepEqual(SWATCHES.text.map((s) => s.color), ['#FFFFFF', '#FFF1C2', '#DDF7FF']);
   assert.deepEqual(SWATCHES.bar.map((s) => s.color), ['#FFD23F', '#FFFFFF', '#7CF2B0', '#FF5C8A']);
   for (const list of Object.values(SWATCHES)) for (const s of list) assert.match(s.color, /^#[0-9A-F]{6}$/), assert.ok(s.name);
+});
+
+test('only fonts with every letter of the video are offered', () => {
+  const list = [
+    { id: 'montserrat', kind: 'main' as const }, { id: 'russo-one', kind: 'main' as const },
+    { id: 'caveat', kind: 'hand' as const }, { id: 'bad-script', kind: 'hand' as const },
+  ];
+  assert.deepEqual(allowedFonts(list, STYLES), list, 'no fonts in styles.json — every font');
+  const romanian = { ...STYLES, fonts: { main: ['montserrat'], hand: ['caveat', 'bad-script'] } };
+  assert.deepEqual(allowedFonts(list, romanian).map((f) => f.id), ['montserrat', 'caveat', 'bad-script']);
+  assert.deepEqual(allowedFonts(list, { ...STYLES, fonts: { main: ['montserrat'], hand: [] } }).map((f) => f.id), ['montserrat', 'caveat', 'bad-script'], 'an empty list hides nothing: Pavel keeps buttons');
+});
+
+test('a saved font without the letters of the video is not taken back', () => {
+  const store = memoryStorage();
+  const id = '261010-120000-cd34';
+  const fonts = { main: ['montserrat', 'rubik'], hand: [STYLES.variants[0].spec.hand] };
+  const styles = { ...STYLES, fonts };
+  saveChoice(store, id, styles, { ...choiceFor(styles, 'A'), font: 'rubik' });
+  assert.equal(loadChoice(store, id, styles).font, 'rubik');
+  saveChoice(store, id, styles, { ...choiceFor(styles, 'A'), font: 'russo-one' });
+  assert.deepEqual(loadChoice(store, id, styles), choiceFor(styles, 'A'));
 });

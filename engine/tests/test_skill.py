@@ -44,3 +44,29 @@ def test_the_page_contract_names_what_the_page_reads_and_waits_for():
         assert must in page, must
     assert "vm style" in section("Команды движка")
     assert "vm style" in section("Шаг render")
+
+
+def test_the_rules_work_in_the_language_of_the_video():
+    frame = section("1. Кадр")
+    assert "только русская" not in frame and "language.json" in frame
+    texts = section("6. Тексты")
+    assert "Parakeet" in texts and "языке ролика" in texts  # звёздочки и слова — на языке ролика
+    assert "vm fonts" in section("2. Стиль A — домашний стиль Павла")
+
+
+def test_the_service_part_knows_the_language_and_the_fonts():
+    commands = section("Команды движка")
+    assert "--lang" in commands and "vm fonts" in commands
+    assert "language.json" in section("Файлы задачи")
+    assert "--lang" in section("Шаг analyze") and "--lang" in section("Шаг render")
+    assert "`language`" in section("Вопросы (questions.json)")
+    assert "vm fonts" in section("Стили (styles.json)")
+    assert "пока не поддерживается" in section("Ошибки")
+
+
+def test_the_steps_say_what_to_do_when_language_or_fonts_go_wrong():
+    analyze = section("Шаг analyze")
+    assert "проверь" in analyze  # язык по речи проверяется всегда, не только при «ВНИМАНИЕ»
+    render = section("Шаг render")
+    assert "vm fonts" in render and "unsure" in render  # другой язык — заново хук, звёздочки, шрифты
+    assert "эмодзи" in section("6. Тексты").lower()

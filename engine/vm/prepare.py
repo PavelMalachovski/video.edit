@@ -1,14 +1,17 @@
 """Подготовка задачи к монтажу: исходник, звук, слова, план мягкой резки, контактный лист — и сводка для Claude.
 
 Видео из `in/` (`in/source.*`, как кладёт fetch; иначе все видео по имени) → `source.mp4` (1080×1920 SDR 30 к/с)
-→ `work/source.wav` (16 кГц) → `words.json` (GigaAM), `reference.txt` (сплошной текст Whisper, по нему Claude
-правит слова), `speech.json` (где речь по VAD: мягкая резка внутри неё не режет), `cuts.json` (`plan_keep`),
-`sheet.png`. Какие модели были и каких нет — в сводке: без GigaAM
-работать нельзя, без Whisper и VAD — можно, но хуже.
+→ `work/source.wav` (16 кГц) → `language.json` (язык ролика: `ЯЗЫК:` в ТЗ, ответ Павла `--lang` или Whisper по
+речи) → `reference.txt` (сплошной текст Whisper, по нему Claude правит слова) → `words.json` (слова с временем:
+GigaAM для русского, Parakeet для 25 европейских языков, иначе Whisper по фразам), `speech.json` (где речь по VAD:
+мягкая резка внутри неё не режет), `cuts.json` (`plan_keep`), `sheet.png`. Какие модели были и каких нет — в
+сводке: без модели слов для языка ролика работать нельзя, без Whisper и VAD — можно, но хуже. Язык второго этапа
+(своя письменность) — ошибка с понятным текстом.
 
 Делается только недостающее. `source.mp4` в git нет, поэтому каждая новая сессия (render, fix, restyle) запускает
 prepare, чтобы его восстановить; речь при этом заново не распознаётся: есть `words.json` — распознавание, план резки
-(если `cuts.json` есть) и контактный лист пропускаются. `redo=True` (`--redo`) делает всё заново.
+(если `cuts.json` есть) и контактный лист пропускаются. `redo=True` (`--redo`) делает всё заново, `language`
+(`--lang`, ответ Павла) — распознаёт заново, если язык не тот, что в `language.json`.
 """
 import json
 import math
@@ -16,7 +19,7 @@ import re
 from collections.abc import Callable
 from pathlib import Path
 
-from . import asr
+from . import asr, lang
 from .cuts import plan_keep
 from .job import Job, _atomic_write
 from .media import contact_sheet, extract_wav, normalize, probe
@@ -25,20 +28,57 @@ VIDEO = {".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi", ".3gp", ".hevc"}
 SHEET_THUMBS = 60  # кадров на контактном листе — не больше, иначе лист выходит в десятки тысяч пикселей
 PHRASE_GAP = 0.6  # с — пауза, после которой сводка начинает новую строку текста
 LINE_MAX = 10.0  # с — строка сводки не длиннее: по её времени Claude выбирает кадры
+MODEL = {"gigaam": "GigaAM", "parakeet": "Parakeet", "whisper": "Whisper"}  # чем распознаётся язык → модель
+SOURCE = {"brief": "из ТЗ", "answer": "ответ Павла", "detected": "по речи", "default": "по умолчанию"}
 
 
-def models() -> tuple[list[str], list[str]]:
-    """(что есть, чего нет) из моделей распознавания; без GigaAM — ValueError."""
-    have, lack = [], []
-    gigaam = asr._model("ASR_MODEL", asr.GIGAAM)
-    if asr._missing(gigaam, asr.GIGAAM_FILES):
-        raise ValueError(f"нет модели распознавания GigaAM ({gigaam}): запустите setup/cloud-setup.sh")
-    have.append("GigaAM")
-    whisper = asr._model("ASR_REF_MODEL", asr.WHISPER)
-    (lack if asr._missing(whisper, asr.WHISPER_FILES) else have).append("Whisper")
-    vad = asr._model("VAD_MODEL", asr.SILERO)
-    (have if vad.is_file() else lack).append("VAD")
-    return have, lack
+def models() -> dict[str, bool]:
+    """Какие модели распознавания стоят: GigaAM, Parakeet, Whisper, VAD."""
+    return {
+        "GigaAM": not asr._missing(asr._model("ASR_MODEL", asr.GIGAAM), asr.GIGAAM_FILES),
+        "Parakeet": not asr._missing(asr._model("PARAKEET_MODEL", asr.PARAKEET), asr.PARAKEET_FILES),
+        "Whisper": not asr._missing(asr._model("ASR_REF_MODEL", asr.WHISPER), asr.WHISPER_FILES),
+        "VAD": asr._model("VAD_MODEL", asr.SILERO).is_file(),
+    }
+
+
+def _engine(code: str, have: dict[str, bool], hint: str = "") -> str:
+    """Чем распознавать язык `code`; второй этап или нет нужной модели — ValueError с понятным текстом."""
+    try:
+        how = lang.engine(code)
+    except lang.Unsupported as err:
+        raise lang.Unsupported(f"{err}{hint}") from None
+    if not have[MODEL[how]]:
+        raise ValueError(f"нет модели {MODEL[how]} для языка {lang.name(code)}: запустите setup/cloud-setup.sh")
+    return how
+
+
+def _brief(job: Job) -> str:
+    path = job.path("job.json")
+    return str(json.loads(path.read_text(encoding="utf-8")).get("brief") or "") if path.is_file() else ""
+
+
+def _language_lines(info: dict, unknown: str | None) -> list[str]:
+    """Строка сводки о языке и предупреждения: язык не ясен, строка «ЯЗЫК:» не понята, время слов грубое."""
+    lines = [f"Язык: {info['name']} ({info['code']}, {SOURCE[info['source']]})"]
+    if unknown:
+        lines.append(f"ВНИМАНИЕ: в ТЗ «ЯЗЫК: {unknown}» — не понял такой язык, определял по речи")
+    if not info["sure"]:
+        why = f"окна записи: {', '.join(info['votes'])}" if info["votes"] else "Whisper нет, некому определить"
+        lines.append(
+            f"ВНИМАНИЕ: язык не ясен ({why}): прочитай reference.txt и words.json; язык другой — "
+            "vm prepare --lang <код> (распознает заново); сам не понял — вопрос `language`"
+        )
+    if info["source"] == "detected" and (near := lang.siblings(info["code"])):
+        names = ", ".join(lang.name(code) for code in near)
+        lines.append(f"Язык по речи — проверь по тексту, не {names} ли это: Whisper их путает (все окна могут ошибиться "
+                     "одинаково, а reference.txt — выйти переводом); другой — vm prepare --lang <код>")
+    if lang.engine(info["code"]) == "whisper":
+        lines.append(
+            f"ВНИМАНИЕ: для языка {info['name']} нет модели с временем слов: время слов разложено по фразам примерно — "
+            "подсветка слова может отставать; напиши об этом в unsure"
+        )
+    return lines
 
 
 def _clock(t: float) -> str:
@@ -60,13 +100,13 @@ def _lines(words: list[asr.Word]) -> list[str]:
     return out
 
 
-def _coverage(words: list[asr.Word], reference: str) -> str | None:
-    """Предупреждение, если GigaAM услышал заметно меньше слов, чем Whisper (меньше 60 %): значит, в words.json
-    могли пропасть целые фразы, и по ним не будет субтитров."""
+def _coverage(words: list[asr.Word], reference: str, model: str = "GigaAM") -> str | None:
+    """Предупреждение, если модель слов (`model`) услышала заметно меньше слов, чем Whisper (меньше 60 %): значит,
+    в words.json могли пропасть целые фразы, и по ним не будет субтитров."""
     heard = len(re.findall(r"\w+", reference))
     if heard < 10 or len(words) >= 0.6 * heard:
         return None
-    return (f"ВНИМАНИЕ: GigaAM услышал {len(words)} слов, а Whisper — {heard}: сверь words.json с reference.txt — "
+    return (f"ВНИМАНИЕ: {model} услышал {len(words)} слов, а Whisper — {heard}: сверь words.json с reference.txt — "
             "пропавшие фразы допиши словами с временем из соседних слов или скажи об этом в unsure")
 
 
@@ -94,14 +134,32 @@ def _write_cuts(path: Path, cuts: dict) -> None:
     _atomic_write(path, f'{{"duration": {cuts["duration"]}, "cut_seconds": {cuts["cut_seconds"]}, "keep": {keep}}}\n')
 
 
-def prepare(job: Job, step: Callable[[str, str], None] | None = None, redo: bool = False) -> str:
-    """Готовит задачу (только недостающее; `redo` — всё заново); `step(фаза, текст)` зовётся на каждой смене фазы.
-    → сводка для Claude."""
+def prepare(
+    job: Job, step: Callable[[str, str], None] | None = None, redo: bool = False, language: str | None = None
+) -> str:
+    """Готовит задачу (только недостающее; `redo` — всё заново; `language` — язык ролика по ответу Павла);
+    `step(фаза, текст)` зовётся на каждой смене фазы. → сводка для Claude."""
     step = step or (lambda phase, message: None)
     source, words_path, cuts_path = job.path("source.mp4"), job.path("words.json"), job.path("cuts.json")
-    speech_path = job.path("speech.json")
-    recognise = redo or not words_path.is_file()
-    have, lack = models() if recognise else ([], [])  # до тяжёлой работы: без GigaAM распознавать нечем
+    speech_path, language_path = job.path("speech.json"), job.path("language.json")
+    brief = _brief(job)
+    answer = lang.parse(language) if language is not None else None
+    if language is not None and answer is None:
+        raise ValueError(f"не понял язык «{language}»: напиши код (cs) или название (чешский)")
+    if language_path.is_file():
+        known = job.read("language.json")
+    else:  # задача до мультиязычности — русская
+        known = {"code": "ru", "name": "русский", "source": "default", "sure": True, "votes": []} if words_path.is_file() else None
+    recognise = redo or not words_path.is_file() or (answer is not None and (known or {}).get("code") != answer)
+    if answer is None and known and known["source"] == "answer":
+        answer = known["code"]  # ответ Павла переживает --redo
+    told, unknown = (answer, None) if answer else lang.from_brief(brief)
+    have = models() if recognise else {}
+    if recognise:  # до тяжёлой работы: распознавать нечем, язык не поддержан или нет его модели
+        if not (have["GigaAM"] or have["Parakeet"] or have["Whisper"]):
+            raise ValueError("нет моделей распознавания (GigaAM, Parakeet, Whisper): запустите setup/cloud-setup.sh")
+        if told:
+            _engine(told, have)
     notes = []
 
     if redo or not source.is_file():
@@ -120,21 +178,32 @@ def prepare(job: Job, step: Callable[[str, str], None] | None = None, redo: bool
     reference = ""
     if recognise:
         wav = extract_wav(source, job.path("work/source.wav"))
-        step("Расшифровываю", "Слушаю речь и расставляю слова по времени")
-        words = asr.transcribe(wav)
+        step("Расшифровываю", f"Язык — {lang.name(told)}: слушаю речь" if told else "Слушаю речь и определяю язык")
+        reference, votes = asr.reference(wav, told or "") if have["Whisper"] else ("", [])
+        spoken = lang.decide(brief, [] if told else votes, answer=answer)
+        how = _engine(spoken["code"], have, "" if told else ". Если язык другой — напиши его в ТЗ строкой «ЯЗЫК: …»")
+        model = MODEL[how]
+        step("Расшифровываю", f"Язык — {spoken['name']}: расставляю слова по времени")
+        words = asr.transcribe(wav, spoken["code"])
+        job.write("language.json", spoken)
         asr.save_words(words, words_path)
-        reference = asr.reference_text(wav) if "Whisper" in have else ""
         _atomic_write(job.path("reference.txt"), reference + ("\n" if reference else ""))
         speech = asr.speech_spans(wav)
         _atomic_write(speech_path, json.dumps([list(span) for span in speech]) + "\n")
-        if warning := _coverage(words, reference):
+        notes += _language_lines(spoken, unknown)
+        if model != "Whisper" and (warning := _coverage(words, reference, model)):
             notes.append(warning)
         if lost := _uncovered(words, speech):
             spans = ", ".join(f"{_clock(a)}–{_clock(b)}" for a, b in lost)
-            notes.append(f"ВНИМАНИЕ: речь без слов ({spans}) — GigaAM там ничего не разобрал, субтитров там не будет; "
+            notes.append(f"ВНИМАНИЕ: речь без слов ({spans}) — {model} там ничего не разобрал, субтитров там не будет; "
                          "сверь с reference.txt и добавь слова (asr.distribute_words)")
     else:
         words = asr.load_words(words_path)
+        spoken = known
+        if answer and spoken["source"] != "answer":  # Павел (или Claude) подтвердил язык: заново не распознаём
+            spoken = {**spoken, "source": "answer", "sure": True}
+            job.write("language.json", spoken)
+        notes.append(f"Язык: {spoken['name']} ({spoken['code']}, {SOURCE[spoken['source']]})")
         notes.append("Речь уже расшифрована (words.json) — распознавание не повторял; заново — --redo")
 
     if recognise or not cuts_path.is_file():
@@ -158,11 +227,12 @@ def prepare(job: Job, step: Callable[[str, str], None] | None = None, redo: bool
         *notes,
     ]
     if recognise:
-        summary.append(f"Модели: {', '.join(have)}" + (f"; нет: {', '.join(lack)}" if lack else ""))
-    if "Whisper" in lack:
-        summary.append("Whisper нет: reference.txt пуст — слова правьте по смыслу")
-    if "VAD" in lack:
-        summary.append("VAD нет: паузы для кусков распознавания ищутся по громкости")
+        lack = [name for name, ok in have.items() if not ok]
+        summary.append(f"Модели: {', '.join(n for n, ok in have.items() if ok)}" + (f"; нет: {', '.join(lack)}" if lack else ""))
+        if not have["Whisper"]:
+            summary.append("Whisper нет: reference.txt пуст — слова правьте по смыслу")
+        if not have["VAD"]:
+            summary.append("VAD нет: паузы для кусков распознавания ищутся по громкости")
     summary += ["", "Текст (по фразам; слова — words.json):", *_lines(words)]
     if reference or (not recognise and job.path("reference.txt").is_file()):
         summary += ["", "Сплошной текст (Whisper) — reference.txt"]

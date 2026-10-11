@@ -43,6 +43,16 @@
         }
       }
     },
+    "fonts": {
+      "description": "Шрифты, в которых есть все буквы ролика (вывод vm fonts): страница предлагает Павлу только их. Нет поля — все.",
+      "type": "object",
+      "required": ["main", "hand"],
+      "additionalProperties": false,
+      "properties": {
+        "main": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "hand": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
     "variants": {
       "description": "Ровно три варианта в порядке A, B, C: A — строго по правилам SKILL.md, B и C — вариации.",
       "type": "array",

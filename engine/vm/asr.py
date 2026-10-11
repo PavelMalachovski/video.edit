@@ -1,13 +1,16 @@
-"""Слова с временем: GigaAM даёт слова и их время, Whisper — текст с пунктуацией для правки, Silero VAD — паузы.
+"""Слова с временем: GigaAM или Parakeet дают слова и их время, Whisper — текст с пунктуацией для правки и язык,
+Silero VAD — паузы.
 
-`transcribe` — GigaAM v2 (transducer, sherpa-onnx): буквы с временем → слова. По ним строятся субтитры
-по словам и резка пауз. `reference_text` — Whisper turbo: времени у него нет, зато есть пунктуация и регистр;
-по этому тексту Claude правит слова. Silero VAD нужен, чтобы резать длинную запись в паузах, а не посреди слова.
-Выбор моделей и замеры точности: docs/spikes/2026-10-results.md.
+`transcribe` — слова с временем на языке ролика (`lang.engine`): русский — GigaAM v2 (transducer, буквы с временем),
+25 европейских языков — NeMo Parakeet TDT 0.6B v3 (кусочки слов с временем), прочие языки этапа 1 — текст Whisper
+по фразам VAD с временем, разложенным по буквам (неточно). По словам строятся субтитры и резка пауз.
+`reference` — Whisper turbo: времени у него нет, зато есть пунктуация и регистр (по этому тексту Claude правит
+слова), а без заданного языка он определяет язык каждого окна записи. Silero VAD нужен, чтобы резать длинную запись
+в паузах, а не посреди слова. Выбор моделей и замеры точности: docs/spikes/2026-10-results.md.
 
 Модели лежат там, куда их кладёт setup/cloud-setup.sh (~/.cache/vm, или $VM_CACHE); свои пути — переменные
-окружения ASR_MODEL и ASR_REF_MODEL (папки) и VAD_MODEL (файл). Каждая модель грузится один раз за процесс
-(загрузка — секунды). Вход — WAV 16 кГц моно, как отдаёт `media.extract_wav`; время — секунды от начала записи.
+окружения ASR_MODEL, PARAKEET_MODEL и ASR_REF_MODEL (папки) и VAD_MODEL (файл). Каждая модель грузится один раз за
+процесс (загрузка — секунды). Вход — WAV 16 кГц моно, как отдаёт `media.extract_wav`; время — секунды от начала записи.
 """
 import json
 import math
@@ -20,12 +23,15 @@ from pathlib import Path
 import numpy as np
 import soundfile
 
+from . import lang
 from .job import _atomic_write
 from .media import PathLike
 
 RATE = 16000  # Гц: на этом звуке обе модели и VAD обучены
 GIGAAM = "sherpa-onnx-nemo-transducer-giga-am-v2-russian-2025-04-19"
 GIGAAM_FILES = ("encoder.int8.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt")
+PARAKEET = "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
+PARAKEET_FILES = ("encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt")
 WHISPER = "sherpa-onnx-whisper-turbo"
 WHISPER_FILES = ("turbo-encoder.int8.onnx", "turbo-decoder.int8.onnx", "turbo-tokens.txt")
 SILERO = "silero_vad.onnx"
@@ -45,6 +51,8 @@ MIN_PAUSE = 0.3  # пауза для VAD, с
 SPARSE = 1.5  # слов на секунду речи (по VAD): меньше — кусок перераспознаётся по фразам (живая речь — 2–2,5)
 BETTER = 1.1  # результат по фразам берётся, если слов в нём больше хотя бы во столько раз
 UTTERANCE_PAD = 0.2  # с — поля фразы по VAD при перераспознавании: VAD обрезает края слов
+MIN_PHRASE = 0.3  # с — фраза VAD короче — не речь для Whisper: на обрывке он выдумывает «Thank you.»
+OPENING = frozenset("¿¡«(„“‘\"'-—–[")  # знаки, которые без букв встают перед следующим словом
 QUIET_FRAME = RATE // 20  # 50 мс: шаг поиска самого тихого места
 THREADS = min(4, os.cpu_count() or 1)
 
@@ -60,21 +68,40 @@ class Word:
 
 
 def words_from_tokens(tokens, timestamps) -> list[Word]:
-    """Буквы GigaAM с временем → слова. Граница слова — пробельный токен, `t0` — время первой буквы, `t1` —
-    меньшее из: `t0` следующего слова и время последней буквы + 0,12 с."""
+    """Токены с временем → слова. GigaAM отдаёт буквы и пробел между словами, Parakeet — кусочки слов, у первого
+    кусочка слова пробел (или «▁») впереди. Граница слова — пробельный токен или пробел в начале токена; знаки
+    препинания и дефис — токены без пробела, прилипают к слову. `t0` — время первого токена, `t1` — меньшее из:
+    `t0` следующего слова и время последнего токена + 0,12 с. Кусок без букв (у Parakeet бывают отдельные «▁¿»,
+    «▁-», «▁.») словом не становится: открывающий знак (`OPENING`) встаёт перед следующим словом, прочие — в конец
+    предыдущего; `t0` слова — время его первой буквы."""
     if len(tokens) != len(timestamps):
         raise ValueError(f"{len(tokens)} tokens but {len(timestamps)} timestamps")
-    spans: list[tuple[str, float, float]] = []  # слово, время первой и последней буквы
-    text, first, last = "", 0.0, 0.0
+    spans: list[tuple[str, float, float]] = []  # слово, время первого и последнего токена
+    text, first, last, prefix = "", 0.0, 0.0, ""
     for token, at in zip(tokens, timestamps):
-        if not token.strip():
+        piece = token.replace("▁", " ")
+        starts = piece[:1].isspace()
+        piece = piece.strip()
+        if not piece:
             if text:
                 spans.append((text, first, last))
                 text = ""
             continue
+        if not any(c.isalnum() for c in piece):
+            if text and not (starts and set(piece) <= OPENING):
+                text, last = text + piece, at
+            else:
+                if text:
+                    spans.append((text, first, last))
+                    text = ""
+                prefix += piece
+            continue
+        if starts and text:
+            spans.append((text, first, last))
+            text = ""
         if not text:
-            first = at
-        text, last = text + token, at
+            first, text, prefix = at, prefix, ""
+        text, last = text + piece, at
     if text:
         spans.append((text, first, last))
     ends = [min(following[1], last + WORD_TAIL) for (_, _, last), following in pairwise(spans)]
@@ -179,8 +206,27 @@ def _gigaam(model: str):
 
 
 @cache
-def _whisper(model: str):
-    """Whisper turbo или None: модель может отсутствовать (VM_WHISPER_REF=0 в setup/cloud-setup.sh)."""
+def _parakeet(model: str):
+    import sherpa_onnx
+
+    directory = Path(model)
+    if missing := _missing(directory, PARAKEET_FILES):
+        what = f"is missing {', '.join(missing)}" if directory.is_dir() else "does not exist"
+        raise FileNotFoundError(f"ASR model {directory} {what} (set PARAKEET_MODEL or run setup/cloud-setup.sh)")
+    return sherpa_onnx.OfflineRecognizer.from_transducer(
+        encoder=str(directory / "encoder.int8.onnx"),
+        decoder=str(directory / "decoder.int8.onnx"),
+        joiner=str(directory / "joiner.int8.onnx"),
+        tokens=str(directory / "tokens.txt"),
+        model_type="nemo_transducer",
+        num_threads=THREADS,
+    )
+
+
+@cache
+def _whisper(model: str, language: str):
+    """Whisper turbo на языке `language` ("" — сам определяет язык) или None: модель может отсутствовать
+    (VM_WHISPER_REF=0 в setup/cloud-setup.sh)."""
     import sherpa_onnx
 
     directory = Path(model)
@@ -190,7 +236,7 @@ def _whisper(model: str):
         encoder=str(directory / "turbo-encoder.int8.onnx"),
         decoder=str(directory / "turbo-decoder.int8.onnx"),
         tokens=str(directory / "turbo-tokens.txt"),
-        language="ru",
+        language=language,
         task="transcribe",
         num_threads=THREADS,
         tail_paddings=1000,
@@ -352,18 +398,27 @@ def _utterances(spans: list[tuple[int, int]], start: int, stop: int) -> list[tup
     return out
 
 
-def transcribe(wav: PathLike) -> list[Word]:
-    """Слова записи со временем: GigaAM v2 transducer. Запись до минуты распознаётся целиком, длиннее — кусками до
-    минуты: режем около середины остатка в самой длинной паузе (куски и хвост не короче 15 с). Тишина — пустой список.
+def transcribe(wav: PathLike, language: str = "ru") -> list[Word]:
+    """Слова записи со временем на языке `language`: русский — GigaAM v2 transducer, языки Parakeet — Parakeet TDT v3
+    (тем же путём), прочие языки этапа 1 — `_whisper_words`; письменность второго этапа — lang.Unsupported. Запись
+    до минуты распознаётся целиком, длиннее — кусками до минуты: режем около середины остатка в самой длинной паузе
+    (куски и хвост не короче 15 с). Тишина — пустой список.
 
     Страховка: бывает, что на длинном куске модель замолкает или теряет фразы (на синтетической речи — всё после
     первой фразы). Если слов в куске меньше `SPARSE` на секунду речи по VAD, кусок распознаётся заново по фразам, и
     этот результат берётся, когда слов в нём больше в `BETTER` раз. На живой речи потерь не было (ролик 4:25 —
-    517 слов целиком и 515 по фразам), так что обычный путь — целый кусок."""
+    517 слов целиком и 515 по фразам), так что обычный путь — целый кусок. У Parakeet то же самое: 94 с подряд
+    он слышит хуже, чем 60."""
+    how = lang.engine(language)
     audio = _read(wav)
     if _blank(audio):
         return []
-    recognizer = _gigaam(str(_model("ASR_MODEL", GIGAAM)))
+    if how == "whisper":
+        return _whisper_words(audio, language)
+    if how == "gigaam":
+        recognizer = _gigaam(str(_model("ASR_MODEL", GIGAAM)))
+    else:
+        recognizer = _parakeet(str(_model("PARAKEET_MODEL", PARAKEET)))
     speech = _speech(audio)
     if len(audio) > ASR_MAX * RATE:
         chunks = _chunks(audio, _pauses(speech, len(audio)), _asr_window)
@@ -388,6 +443,41 @@ def transcribe(wav: PathLike) -> list[Word]:
     return words
 
 
+def _whisper_words(audio: np.ndarray, language: str) -> list[Word]:
+    """Слова для языка без модели с временем слов: Whisper слушает каждую фразу VAD (с полями `UTTERANCE_PAD`),
+    время слов делится по буквам внутри фразы (`distribute_words`). Фраза длиннее окна Whisper режется окнами;
+    нет VAD — окна по всей записи. Это грубее GigaAM и Parakeet: подсветка слова может отставать."""
+    model = _model("ASR_REF_MODEL", WHISPER)
+    recognizer = _whisper(str(model), language)
+    if recognizer is None:
+        raise FileNotFoundError(
+            f"Whisper model {model} is missing: language {language} needs it for words "
+            "(set ASR_REF_MODEL or run setup/cloud-setup.sh)"
+        )
+    speech = _speech(audio)
+    if speech is None:
+        phrases, pads = _chunks(audio, [], _ref_window), None
+    else:  # поле фразы — не больше половины паузы до соседней: иначе начало соседней попадёт в эту
+        phrases = [(a, b) for a, b in speech if b - a >= MIN_PHRASE * RATE]
+        edges = [-(10**9), *(x for span in phrases for x in span), 10**12]
+        pad = round(UTTERANCE_PAD * RATE)
+        pads = [
+            (min(pad, (a - edges[2 * i]) // 2), min(pad, (edges[2 * i + 3] - b) // 2)) for i, (a, b) in enumerate(phrases)
+        ]
+    words: list[Word] = []
+    for k, (a, b) in enumerate(phrases):
+        before, after = pads[k] if pads else (0, 0)
+        pieces = [(a + x, a + y) for x, y in _chunks(audio[a:b], [], _ref_window)]
+        for i, (start, stop) in enumerate(pieces):
+            low = max(0, start - before) if i == 0 else start
+            high = min(len(audio), stop + after) if i == len(pieces) - 1 else stop
+            if _blank(audio[low:high]):
+                continue
+            text = _decode(recognizer, audio[low:high]).text.strip()
+            words += distribute_words(text, start / RATE, stop / RATE)
+    return words
+
+
 def speech_spans(wav: PathLike) -> list[tuple[float, float]]:
     """Где в записи речь (Silero VAD), секунды. Нет модели VAD или тишина — пустой список."""
     audio = _read(wav)
@@ -400,22 +490,45 @@ def _overlaps(spans: list[tuple[int, int]], start: int, stop: int) -> bool:
     return any(a < stop and b > start for a, b in spans)
 
 
-def reference_text(wav: PathLike) -> str:
-    """Сплошной текст записи с пунктуацией и регистром: Whisper turbo. По нему Claude правит слова из `transcribe`.
+def _code(heard: str) -> str:
+    """Язык, как его называет Whisper («<|cs|>» или «cs»), → код."""
+    return heard.strip().strip("<|>").strip()
+
+
+def reference(wav: PathLike, language: str = "ru") -> tuple[str, list[str]]:
+    """Сплошной текст записи с пунктуацией и регистром (Whisper turbo) и язык каждого окна записи.
+
+    `language` — язык ролика; "" — Whisper определяет язык сам в каждом окне (это даром: те же окна, что для текста),
+    и окна, услышавшие не тот язык, что большинство, слушает ещё раз на языке большинства. По тексту Claude правит
+    слова из `transcribe`, по голосам окон (`lang.vote`) выбирается язык ролика.
 
     Whisper видит не больше ~30 с, поэтому запись идёт окнами, разрезанными в паузах; окна без речи пропускаются
-    (на шуме он выдумывает текст). Нет модели Whisper — пустая строка."""
+    (на шуме он выдумывает текст). Нет модели Whisper — ("", [])."""
     audio = _read(wav)
     if _blank(audio):
-        return ""
-    recognizer = _whisper(str(_model("ASR_REF_MODEL", WHISPER)))
+        return "", []
+    model = str(_model("ASR_REF_MODEL", WHISPER))
+    recognizer = _whisper(model, language)
     if recognizer is None:
-        return ""
+        return "", []
     spans = _speech(audio)
-    parts = []
-    for start, stop in _chunks(audio, _pauses(spans, len(audio)), _ref_window):
-        if _blank(audio[start:stop]) or (spans is not None and not _overlaps(spans, start, stop)):
-            continue
-        if text := _decode(recognizer, audio[start:stop]).text.strip():
-            parts.append(text)
-    return " ".join(parts)
+    windows = [
+        (start, stop)
+        for start, stop in _chunks(audio, _pauses(spans, len(audio)), _ref_window)
+        if not _blank(audio[start:stop]) and (spans is None or _overlaps(spans, start, stop))
+    ]
+    heard = [_decode(recognizer, audio[start:stop]) for start, stop in windows]
+    texts = [result.text.strip() for result in heard]
+    votes = [_code(getattr(result, "lang", "") or "") or language for result in heard]
+    if not language and votes:
+        winner, _ = lang.vote(votes)
+        again = _whisper(model, winner)
+        for i, (start, stop) in enumerate(windows):
+            if votes[i] != winner:
+                texts[i] = _decode(again, audio[start:stop]).text.strip()
+    return " ".join(text for text in texts if text), [vote for vote in votes if vote]
+
+
+def reference_text(wav: PathLike, language: str = "ru") -> str:
+    """Только текст `reference`: язык ролика уже известен."""
+    return reference(wav, language)[0]

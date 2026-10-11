@@ -92,6 +92,8 @@ export type Styles = {
   frameTime: number;
   sample: { hook?: string; words: string[]; spoken: number; inserts?: SampleInsert[] };
   variants: { id: 'A' | 'B' | 'C'; label: string; spec: StyleSpec }[];
+  /** Шрифты, в которых есть все буквы ролика (`vm fonts`); нет поля — годятся все. */
+  fonts?: { main: string[]; hand: string[] };
 };
 export type StyleChoice = { variant: 'A' | 'B' | 'C'; font: string; hand: string; colors: { text: string; accent: string; bar: string } };
 
@@ -115,6 +117,8 @@ export function parseStyles(raw: unknown): Styles | null {
   if (sample.hook !== undefined && !isStr(sample.hook)) return null;
   const insertOk = (i: unknown) => isObject(i) && ['image', 'badge', 'sticker', 'anim'].includes(i.kind as string) && isNum(i.x) && isNum(i.y) && isNum(i.w) && i.w > 0;
   if (sample.inserts !== undefined && !(Array.isArray(sample.inserts) && sample.inserts.every(insertOk))) return null;
+  const ids = (x: unknown) => Array.isArray(x) && x.every((i) => isStr(i) && i !== '');
+  if (raw.fonts !== undefined && !(isObject(raw.fonts) && ids(raw.fonts.main) && ids(raw.fonts.hand))) return null;
   const v = raw.variants;
   if (!Array.isArray(v) || v.length !== 3 || !v.every((x, k) => isObject(x) && x.id === 'ABC'[k] && isStr(x.label) && isSpec(x.spec))) return null;
   return raw as Styles;

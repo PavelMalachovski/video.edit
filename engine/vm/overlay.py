@@ -107,7 +107,11 @@ def build_overlay_events(edit: dict, tl: Timeline) -> list[dict]:
     for e in events:
         e["t0"] = e["t0"] / FPS
         e["t1"] = end if e["t1"] == last else e["t1"] / FPS
-    return events or [{"t0": 0, "t1": end, "state": {}}]
+    events = events or [{"t0": 0, "t1": end, "state": {}}]
+    if edit.get("zone") == "ads":  # версия для рекламы: шаблон держит всё выше кнопки и подписи рекламы
+        for e in events:
+            e["state"]["zone"] = "ads"
+    return events
 
 
 def _frame(t: float) -> int:

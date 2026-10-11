@@ -14,7 +14,17 @@ import pytest
 
 from vm.job import Job
 from vm.media import mp4_boxes
-from vm.render import RenderError, _ffmpeg, _sounds, render, timeline, variant_b
+from vm.render import (
+    COVER_ZONE,
+    RenderError,
+    _ffmpeg,
+    _sounds,
+    render,
+    render_cover,
+    timeline,
+    variant_ad,
+    variant_b,
+)
 
 pytestmark = [
     pytest.mark.slow,
@@ -566,11 +576,71 @@ def test_reference_style_end_to_end(tmp_path, sources):
     assert saturation(frame(final, 4.5)[corner]) < 8, "ч/б-кусок"
     assert saturation(frame(final, 5.5)[corner]) > 40, "после — снова цвет"
     boxes = json.loads((job.path("work/render/frames/boxes.json")).read_text(encoding="utf-8"))
-    during = [e["boxes"] for e in boxes if e["t0"] <= 2.8 < e["t1"]][0]
+    def at(t):
+        return next(e["boxes"] for e in boxes if e["t0"] <= t < e["t1"])
+
+    during = at(2.8)
     assert during.get("accent") and not during.get("sub"), "акцент вместо субтитров"
-    after = [e["boxes"] for e in boxes if e["t0"] <= 4.2 < e["t1"]][0]
+    after = at(4.2)
     assert after.get("sub") and not after.get("accent")
-    assert [e["boxes"] for e in boxes if e["t0"] <= 0.1 < e["t1"]][0].get("hook"), "хук с первого кадра"
+    assert at(0.1).get("hook"), "хук с первого кадра"
     # резкая смена крупности: на 2,0 с картинка сразу крупнее (×1,25), без перехода
     before, cut = frame(final, 1.95).astype(int), frame(final, 2.04).astype(int)
     assert abs(before[1500:1800, 100:300] - cut[1500:1800, 100:300]).mean() > 15, "план сменился"
+
+
+# ---------- обложка ----------
+
+
+def test_cover_is_the_source_frame_with_the_hook_in_big_letters(tmp_path, sources):
+    job = make_job(tmp_path, sources["short"], cover={"t": 1.2, "text": "Как я учу чешский"})
+    out = job.path("out/final-cover.png")
+    report = render_cover(job, job.read("edit.json"), out)
+    picture = frame(out, 0)  # PNG читается как один кадр
+    assert picture.shape == (1920, 1080, 3)
+    b = report["box"]
+    assert COVER_ZONE["x0"] <= b["x"] and b["x"] + b["w"] <= COVER_ZONE["x1"] and COVER_ZONE["y0"] <= b["y"] <= b["y"] + b["h"] <= COVER_ZONE["y1"]
+    source = frame(job.path("source.mp4"), 1.2).astype(int)
+    text = (slice(b["y"], b["y"] + b["h"]), slice(b["x"], b["x"] + b["w"]))
+    assert np.abs(picture.astype(int)[text] - source[text]).mean() > 20, "на кадре — текст обложки"
+    assert np.abs(picture.astype(int)[1750:1900, 100:1000] - source[1750:1900, 100:1000]).mean() < 12, "ниже — кадр исходника"
+
+
+# ---------- версия для рекламы ----------
+
+
+def test_the_ads_version_keeps_every_box_above_the_ad_button(tmp_path, sources):
+    from vm.qa import ADS_SAFE, check_layout
+
+    words = [{"t0": 0.5 + 0.4 * i, "t1": 0.8 + 0.4 * i, "text": w} for i, w in enumerate(["это", "мои", "субтитры", "внизу", "кадра"])]
+    job = make_job(tmp_path, sources["short"], keep=[[0.0, 4.0]], words=words, ad=True,
+                   inserts=[{"kind": "text", "id": "s1", "text": "3 ошибки", "t0": 1.0, "t1": 3.0, "x": 120, "y": 1300, "w": 420,
+                             "sfx": None, "params": {}}])
+    render(job, job.path("out"), name="final-ad", preset="ultrafast", edit=variant_ad(job.read("edit.json")), work="work/render-ad")
+    boxes = json.loads(job.path("work/render-ad/frames/boxes.json").read_text(encoding="utf-8"))
+    drawn = [b for e in boxes for k, v in (e.get("boxes") or {}).items() for b in (v if k == "inserts" else [v]) if b]
+    assert drawn and all(b["y"] >= ADS_SAFE["y0"] and b["y"] + b["h"] <= ADS_SAFE["y1"] for b in drawn), drawn
+    assert not [p for p in check_layout(boxes, None, safe=ADS_SAFE) if "безопасной зоны" in p]
+
+
+def test_transitions_flash_punch_and_smear_the_picture_only_at_their_seams(tmp_path, sources):
+    """Вспышка на 1,5 с, толчок зума на 3,0 с, смаз на 4,5 с (финал = исходник): на стыке — белый кадр, тот же кадр
+    крупнее в 1,25 раза (якорь — лицо) и смазанный; вне окон ролик как без переходов."""
+    cuts = [{"t": 1.5, "kind": "flash", "sfx": None}, {"t": 3.0, "kind": "zoom", "sfx": None}, {"t": 4.5, "kind": "blur", "sfx": None}]
+    job = make_job(tmp_path / "a", sources["short"], transitions=cuts)
+    plain = make_job(tmp_path / "b", sources["short"])
+    result = render(job, job.path("out"), preset="ultrafast")
+    render(plain, plain.path("out"), preset="ultrafast")
+    assert sum("ближе 3 с" in line for line in result["warnings"]) == 2, result["warnings"]
+    a = lambda t: frame(job.path("out/final.mp4"), t).astype(int)[:1800]  # без шкалы внизу
+    b = lambda t: frame(plain.path("out/final.mp4"), t).astype(int)[:1800]
+    for t in (0.9, 2.4, 3.6, 5.4):
+        assert np.abs(a(t) - b(t)).mean() < 3, f"{t} с — вне перехода кадр не тронут"
+    assert a(1.5).min() > 225, "вспышка: на стыке белый кадр"
+    zoomed, flat = a(3.0), frame(plain.path("out/final.mp4"), 3.0).astype(int)
+    x0, y0 = round(0.5 * (1080 - 1080 / 1.25)), round(0.3 * (1920 - 1920 / 1.25))  # окно зума: лицо (0,5; 0,3) на месте
+    ys, xs = (y0 + np.arange(1800) / 1.25).astype(int), (x0 + np.arange(1080) / 1.25).astype(int)
+    expected = flat[ys][:, xs]
+    assert np.abs(zoomed - expected).mean() < 0.5 * np.abs(zoomed - flat[:1800]).mean(), "толчок: кадр ×1,25 у лица"
+    sharp = lambda f: float((np.diff(f[300:1200].mean(axis=2), axis=1) ** 2).mean())  # размытие гасит перепады по x
+    assert sharp(a(4.5)) < 0.5 * sharp(b(4.5)), "смаз на стыке"

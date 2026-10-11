@@ -496,7 +496,10 @@ export async function drawInserts(root, inserts, look) {
   const made = await Promise.all((inserts ?? []).map((ins) => content(ins, look)));
   root.replaceChildren();
   return made.map((m, i) => {
-    const ins = inserts[i];
+    // в зоне рекламы вставка поднимается так, чтобы целиком (с тенью) стоять выше кнопки рекламы
+    const zone = look?.zone;
+    const raw = inserts[i];
+    const ins = zone ? { ...raw, y: Math.round(clamp(raw.y, zone.y0 + m.ext.top, zone.y1 - m.h - m.ext.bottom)) } : raw;
     const k = ease(ins.anim ?? 1);
     const wrap = document.createElement('div');
     wrap.className = 'ins';

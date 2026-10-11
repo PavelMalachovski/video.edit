@@ -40,10 +40,10 @@
           "maximum": 1330
         },
         "subY": {
-          "description": "Куда Павел перетащил субтитры на превью: центр блока, px кадра; нет — как в варианте.",
+          "description": "Куда Павел перетащил субтитры на превью: центр блока, px кадра — почти до низа, над шкалой времени (ниже 1530 их может закрыть подпись Reels); нет — как в варианте.",
           "type": "number",
           "minimum": 240,
-          "maximum": 1440
+          "maximum": 1760
         },
         "colors": {
           "type": "object",
@@ -69,6 +69,19 @@
           "y": { "type": "number", "minimum": 120, "maximum": 1490 },
           "w": { "type": "number", "minimum": 80, "maximum": 830 }
         }
+      }
+    },
+    "ad": {
+      "description": "Павел попросил ещё версию для рекламы Reels.",
+      "type": "boolean"
+    },
+    "cover": {
+      "description": "Обложка, которую Павел выбрал на превью: номер кадра в styles.json cover.frames (с 0) и текст.",
+      "type": "object",
+      "required": ["frame", "text"],
+      "properties": {
+        "frame": { "type": "integer", "minimum": 0, "maximum": 2 },
+        "text": { "type": "string", "minLength": 1, "maxLength": 80 }
       }
     },
     "ab": {

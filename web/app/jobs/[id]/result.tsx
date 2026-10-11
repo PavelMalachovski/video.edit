@@ -42,6 +42,21 @@ function CaptionCard({ caption }: { caption: Caption }) {
       <div className="muted small">Жирное — то, что видно до «ещё».</div>
       <button type="button" className="btn ghost" onClick={() => void copy()}>{copied === 'ok' ? 'Скопировано' : 'Скопировать подпись'}</button>
       {copied === 'fail' ? <div className="err small">Не получилось скопировать — выделите текст и скопируйте вручную</div> : null}
+      {caption.ad ? <AdText text={caption.ad} /> : null}
+    </div>
+  );
+}
+
+/** Основной текст рекламы (до 72 знаков — столько видно до обрезки) с копированием. */
+function AdText({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="ad-text" data-ad-text>
+      <div className="caps small">Текст для рекламы</div>
+      <p className="lead">{text}</p>
+      <button type="button" className="btn ghost" onClick={() => void navigator.clipboard.writeText(text).then(() => setCopied(true), () => setCopied(false))}>
+        {copied ? 'Скопировано' : 'Скопировать текст рекламы'}
+      </button>
     </div>
   );
 }
@@ -71,7 +86,7 @@ export default function Result({ view, result, answers, fixes, onAct }: Props) {
   }
 
   const b = final.b;
-  const [labelA, labelB] = abLabels(result?.ab?.differs ?? answers?.ab ?? 'teaser');
+  const [labelA, labelB] = abLabels(result?.ab?.differs ?? answers?.ab ?? null);
 
   return (
     <>
@@ -104,12 +119,30 @@ export default function Result({ view, result, answers, fixes, onAct }: Props) {
           </div>
         </>
       )}
+      {final.ad ? (
+        <div className="card" data-ad-result>
+          <div className="caps small">Для рекламы</div>
+          <video className="result-video small" controls playsInline preload="metadata" src={download(final.ad.mp4)} />
+          <div className="two">
+            <a className="btn" href={download(final.ad.mp4)} download={final.ad.mp4}>Скачать</a>
+            {final.ad.srt ? <a className="btn ghost" href={download(final.ad.srt)} download={final.ad.srt}>Субтитры .srt</a> : null}
+          </div>
+        </div>
+      ) : null}
+      {final.cover ? (
+        <div className="card" data-cover-result>
+          <div className="caps small">Обложка</div>
+          <img className="cover-img" src={download(final.cover)} alt="Обложка ролика" />
+          <a className="btn ghost" href={download(final.cover)} download={final.cover}>Скачать обложку</a>
+        </div>
+      ) : null}
       {caption ? <CaptionCard caption={caption} /> : null}
       {result?.checklist ? <Checklist items={result.checklist} caption={Boolean(caption)} /> : null}
       {result ? (
         <>
           {result.qa.ok ? null : <List title={b ? 'Проверка версии A нашла' : 'Проверка нашла'} items={result.qa.problems} tone="alert" />}
           {b && result.ab && !result.ab.qa.ok ? <List title="Проверка версии B нашла" items={result.ab.qa.problems} tone="alert" /> : null}
+          {final.ad && result.ad && !result.ad.qa.ok ? <List title="Проверка версии для рекламы нашла" items={result.ad.qa.problems} tone="alert" /> : null}
           <div className="card">
             <div className="caps small">Что я сделал</div>
             {result.done.length ? <ul className="plain">{result.done.map((line, i) => <li key={i}>{line}</li>)}</ul> : <div className="muted">Claude не оставил итогов.</div>}

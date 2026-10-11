@@ -2,8 +2,9 @@
 
 Кадр: вырезка отрезков `keep` (по целым кадрам исходника; звук — с микро-фейдами 10 мс на стыках) → ускорение →
 лёгкий цветокор → ч/б-куски (`edit.looks`: на своих кадрах — без цвета, контрастнее, темнее, с виньеткой) → зум
-(якорь — лицо) → у невертикального исходника фон из размытой копии кадра → полноэкранные
-перебивки (масштаб с обрезкой по центру, без своего звука) → стоп-кадр в конце (`hold` и финальная карточка
+(якорь — лицо; в нём же толчок зума перехода) → у невертикального исходника фон из размытой копии кадра →
+полноэкранные перебивки (масштаб с обрезкой по центру, без своего звука) → переходы на смене сцены (вспышка, смаз —
+`transitions`) → стоп-кадр в конце (`hold` и финальная карточка
 `end.seconds`: её затемнение, призыв, ник и логотип рисует слой) → слой PNG (субтитры, хук,
 титр, вставки; кадры рисует template/render-frames.mjs тем же шаблоном, что и превью) → шкала времени → H.264/AAC
 с метками BT.709, без B-кадров и edit lists (их не принимает Meta). Звук — граф `audio_graph`: голос, музыка, звуки
@@ -33,11 +34,11 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import beats
+from . import beats, transitions
 from .asr import Word
 from .audio import MIN_MUSIC, QUIET_LUFS, audio_graph
 from .job import Job, validate
-from .media import HDR_TO_SDR, MediaError, Probe, loudness, probe
+from .media import FILL, HDR_TO_SDR, MediaError, Probe, loudness, probe
 from .overlay import FPS, build_overlay_events, insert_spans
 from .subs import to_srt
 from .timeline import Timeline
@@ -53,7 +54,6 @@ RATE = 48000
 FADE = 0.01  # с — микро-фейд звука на стыке отрезков
 # чуть темнее и контрастнее, тёплый сдвиг ~1,5 % цветности (U ниже — меньше синего, V выше — больше красного)
 COLOR = "eq=brightness=-0.02:contrast=1.03,lutyuv=u='clip(val-3,16,240)':v='clip(val+3,16,240)'"
-BLUR = "boxblur=luma_radius=40:luma_power=2:chroma_radius=20:chroma_power=2,eq=brightness=-0.06"
 TO_709 = "scale=out_color_matrix=bt709:out_range=tv"
 # ч/б-кусок стиля эталона: без цвета, контрастнее, чуть темнее, виньетка по краям
 BW = ("hue=s=0", "eq=contrast=1.18:brightness=-0.04", "vignette=angle=0.6")
@@ -63,6 +63,8 @@ BW = ("hue=s=0", "eq=contrast=1.18:brightness=-0.04", "vignette=angle=0.6")
 AAC_PRIMING = 1024
 IMAGES = {".png", ".jpg", ".jpeg", ".webp"}  # картинка держится всё окно перебивки; GIF крутится по кругу
 TEXTUAL = ("sticker", "text")  # вставки из одного текста: картинка им не нужна
+COVER_ZONE = {"x0": 60, "x1": 1020, "y0": 240, "y1": 1680}  # что видно в сетке профиля: кадр 3:4 по центру
+TEASER = (1.0, 5.0)  # с — длина фразы тизера (правило — 1,5–4 с, с запасом на границы слов)
 AB = ("teaser", "music")  # чем вторая версия A/B-теста отличается от первой: без тизера или без музыки
 LOOPED = {".gif"}
 
@@ -85,7 +87,17 @@ def timeline(edit: dict, limit: float | None = None) -> Timeline:
 
     keep = [span for a, b in edit["keep"] if (span := frames(a, b))]
     teaser = edit.get("teaser") or None
-    return Timeline(keep, edit["speed"], teaser=frames(teaser["t0"], teaser["t1"]) if teaser else None)
+    span = None
+    if teaser:  # тизер не пропадает молча: ошибка называет, что с ним не так
+        t0, t1 = float(teaser["t0"]), float(teaser["t1"])
+        if t1 <= t0:
+            raise RenderError(f"edit.json: teaser — t1 ({t1}) должен быть больше t0 ({t0})")
+        if not TEASER[0] <= t1 - t0 <= TEASER[1]:
+            raise RenderError(f"edit.json: teaser — {t1 - t0:.1f} с, нужна фраза на {TEASER[0]:g}–{TEASER[1]:g} с")
+        span = frames(t0, t1)
+        if span is None:
+            raise RenderError(f"edit.json: teaser {t0}–{t1} с — за концом исходника")
+    return Timeline(keep, edit["speed"], teaser=span)
 
 
 @dataclass
@@ -134,6 +146,11 @@ def on_beats(job: Job, edit: dict, tl: Timeline) -> tuple[dict, dict | None]:
     return snapped, {"bpm": grid.bpm, "moved": moved}
 
 
+def variant_ad(edit: dict) -> dict:
+    """Версия для рекламы Reels (`edit.ad`): тот же монтаж, текст и вставки — в зоне рекламы (`zone: "ads"`)."""
+    return {**edit, "ab": None, "ad": False, "zone": "ads"}
+
+
 def draw_layer(job: Job, edit: dict | None = None, work: str = "work/render") -> Layer:
     """edit.json (по схеме; `edit` — вместо него, например версия B) → шкала по исходнику → события на доли музыки
     (`on_beats`) → кадры слоя в `<work>/frames`."""
@@ -153,6 +170,7 @@ def draw_layer(job: Job, edit: dict | None = None, work: str = "work/render") ->
     beyond = (timeline(edit).duration - tl.duration) * edit["speed"]
     if beyond > 0.1:
         warnings.append(f"keep заходит за конец исходника ({info.duration:.1f} с): {beyond:.1f} с отрезков отброшено")
+    warnings += transitions.warnings(edit, tl)
     edit, beat = on_beats(job, edit, tl)
     frames = _layer(job, edit, tl, job.path(work))
     boxes = json.loads((frames.parent / "boxes.json").read_text(encoding="utf-8"))
@@ -220,6 +238,7 @@ def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium",
         "music": music["file"] if music else None,  # файл, отданный в микс (для проверки качества)
         "voice": {"lufs": None if lufs is None or math.isinf(lufs) else round(lufs, 1), "denoise": quiet},
         "beats": drawn.beats,
+        "edit": drawn.edit,  # по нему собран ролик: события на долях музыки (версия B без музыки берёт их же)
     }
 
 
@@ -243,9 +262,16 @@ def _layer(job: Job, edit: dict, tl: Timeline, work: Path) -> Path:
         return frames / "frames.ffconcat"
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
+    _draw(job, events, edit["style"], work)
+    done.write_text(key, encoding="utf-8")
+    return frames / "frames.ffconcat"
+
+
+def _draw(job: Job, events: list[dict], style: dict, work: Path) -> None:
+    """Состояния слоя `events` → PNG, frames.ffconcat и boxes.json в `<work>/frames` (template/render-frames.mjs)."""
     (work / "events.json").write_text(json.dumps(events, ensure_ascii=False), encoding="utf-8")
-    (work / "spec.json").write_text(json.dumps(edit["style"], ensure_ascii=False), encoding="utf-8")
-    cmd = ["node", str(TEMPLATE / "render-frames.mjs"), str(work / "events.json"), str(work / "spec.json"), str(frames),
+    (work / "spec.json").write_text(json.dumps(style, ensure_ascii=False), encoding="utf-8")
+    cmd = ["node", str(TEMPLATE / "render-frames.mjs"), str(work / "events.json"), str(work / "spec.json"), str(work / "frames"),
            "--root", str(job.root), "--root", str(REPO)]
     if FONTS.is_dir():
         cmd += ["--fonts", str(FONTS)]
@@ -257,8 +283,32 @@ def _layer(job: Job, edit: dict, tl: Timeline, work: Path) -> Path:
         raise RenderError("нет node: слой рисует Chromium через Node 22 — запустите setup/cloud-setup.sh") from None
     if proc.returncode != 0:
         raise RenderError(f"слой не нарисован (код {proc.returncode}): {proc.stderr.strip()[-2000:]}")
-    done.write_text(key, encoding="utf-8")
-    return frames / "frames.ffconcat"
+
+
+def render_cover(job: Job, edit: dict, out: Path) -> dict:
+    """Обложка `out` (PNG 1080×1920): кадр исходника в `edit.cover.t` с цветом финала (не 9:16 — на размытой копии, как
+    в ролике) и хук крупно (шаблон, состояние `cover`). Слой смешивается в RGB: в 4:2:0 тонкая обводка и рукописное
+    слово потеряли бы цвет. → `{box, size}` — рамка текста, px кадра, и размер картинки."""
+    cover = edit["cover"]
+    work = job.path("work/cover")
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir(parents=True)
+    _draw(job, [{"t0": 0.0, "t1": 1 / FPS, "state": {"cover": {"text": cover["text"]}}}], edit["style"], work)
+    drawn = json.loads((work / "frames" / "boxes.json").read_text(encoding="utf-8"))[0]
+    source = job.path("source.mp4")
+    info = probe(source)
+    t = min(max(0.0, float(cover["t"])), max(0.0, info.duration - 1 / FPS))
+    fill = f",{FILL}" if (info.width, info.height) != (W, H) else ""
+    out = Path(out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    part = out.with_name(f".{out.name}")
+    _ffmpeg(["-ss", f"{t:.3f}", "-i", str(source), "-i", str(work / "frames" / drawn["frame"]), "-filter_complex",
+             (f"[0:v]{COLOR}{fill},scale=in_color_matrix=bt709:in_range=tv,format=rgba[bg];"
+              "[bg][1:v]overlay=0:0:format=rgb,format=rgb24"),
+             "-frames:v", "1", "-f", "image2", "-c:v", "png", str(part)], timeout=120)
+    os.replace(part, out)
+    made = probe(out)
+    return {"box": (drawn.get("boxes") or {}).get("cover"), "size": [made.width, made.height]}
 
 
 def _cut(tl: Timeline, has_audio: bool) -> list[str]:
@@ -316,25 +366,24 @@ def looks_filter(edit: dict, tl: Timeline) -> str:
 
 
 def _picture(job, edit, tl, info, index, hold, missing, warnings) -> tuple[list[str], list[str], set[int]]:
-    """Ускорение, цвет, ч/б-куски, зум, фон, перебивки, стоп-кадр → `[vh]`; плюс входы для перебивок и номера перебивок,
-    которых в ролике не будет (файла нет, не читается, начало после конца) — их звук не нужен."""
+    """Ускорение, цвет, ч/б-куски, зум, фон, перебивки, переходы, стоп-кадр → `[vh]`; плюс входы для перебивок и номера
+    перебивок, которых в ролике не будет (файла нет, не читается, начало после конца) — их звук не нужен."""
     chains = []
     inputs: list[str] = []
+    cuts = transitions.marks(edit, tl)
     chain = f"[vc]setpts=PTS/{edit['speed']:g},fps={FPS},{COLOR}"
     looks = looks_filter(edit, tl)
     if looks:
         chain += f",{looks}"
-    zoom = zoom_filter(edit.get("zooms") or [], tl, edit["face"], W=info.width, H=info.height, fps=FPS)
+    zoom = zoom_filter(edit.get("zooms") or [], tl, edit["face"], W=info.width, H=info.height, fps=FPS,
+                       punches=[m.t for m in cuts if m.kind == "zoom"])
     if zoom != "null":
         chain += f",{zoom}"
     chains.append(f"{chain}[vz]")
     current = "[vz]"
     if (info.width, info.height) != (W, H):
         warnings.append(f"исходник не вертикальный ({info.width}×{info.height}): по краям — размытая копия кадра")
-        chains.append(
-            f"{current}split=2[bgs][fgs];[bgs]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},{BLUR}[bg];"
-            f"[bg][fgs]overlay=(W-w)/2:(H-h)/2[vbg]"
-        )
+        chains.append(f"{current}{FILL}[vbg]")
         current = "[vbg]"
 
     inserts = edit.get("inserts") or []
@@ -379,6 +428,10 @@ def _picture(job, edit, tl, info, index, hold, missing, warnings) -> tuple[list[
         current = f"[vf{i}]"
         index += 1
 
+    effects = transitions.picture_chains(cuts, current, "[vt]", (W, H), FPS)  # после перебивок: стык виден и на них
+    if effects:
+        chains += effects
+        current = "[vt]"
     if hold > 0:
         chains.append(f"{current}tpad=stop_mode=clone:stop_duration={hold:.6f}[vh]")
     else:
@@ -448,6 +501,15 @@ def _sounds(job: Job, edit: dict, tl: Timeline, skip: set[int]) -> tuple[list, d
             notes.append(f"нет звука {teaser['sfx']} — тизер без звука на стыке")
         else:
             sfx.append((tl.teaser_duration, path))
+    for cut in transitions.marks(edit, tl):  # свуш перехода — с началом перехода
+        if not cut.sfx:
+            continue
+        path = _resolve(job, cut.sfx)
+        if path is None:
+            when = f"{cut.t:.1f}".replace(".", ",")
+            notes.append(f"нет звука {cut.sfx} — переход на {when} с без звука")
+        else:
+            sfx.append((max(0.0, cut.t - transitions.HALF), path))
     card = edit.get("end") or None
     if card and card.get("sfx"):  # звук появления карточки — сразу после стоп-кадра
         path = _resolve(job, card["sfx"])

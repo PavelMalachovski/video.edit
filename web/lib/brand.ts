@@ -22,7 +22,7 @@ export type LogoUpload = { type: string; base64: string };
 
 const HANDLE = /^@?[A-Za-z0-9._]{1,30}$/; // как у Instagram: латиница, цифры, точка, подчёркивание, до 30
 const COLOR = /^#[0-9A-Fa-f]{6}$/;
-const FONT = /^[\p{L}\p{N} _-]{1,40}$/u; // id шрифта: встроенный (montserrat) или свой (имя файла: Druk Wide)
+const FONT = /^[\p{L}\p{N} _.&()-]{1,40}$/u; // id шрифта: встроенный (montserrat) или свой (имя файла: Druk Wide)
 const TAG = /^[\p{L}\p{N}_]{1,40}$/u;
 
 const text = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');

@@ -22,7 +22,12 @@ import { appendText, emojiImages, emojiOnly, glueEmoji, loadEmoji, stripEmoji } 
 import { drawInserts, ease } from './inserts.js';
 
 const FRAME = { w: 1080, h: 1920 };
-const SAFE = { x0: 60, x1: 890, y0: 120, y1: 1530 }; // безопасная зона: всё, кроме шкалы, — внутри
+// безопасная зона: всё, кроме шкалы, — внутри. Для рекламы Reels (state.zone = "ads") снизу 35 % и сверху 14 % заняты
+// кнопкой CTA, подписью и шапкой — та же ширина, меньше по высоте. Субтитры Павел может опустить ниже — до `subsY1`,
+// над шкалой времени: там их может закрыть подпись Reels, но это его выбор; в зоне рекламы они — как всё остальное
+const ORGANIC = { x0: 60, x1: 890, y0: 120, y1: 1530, subsY1: 1820 };
+const ADS = { x0: 60, x1: 890, y0: 270, y1: 1250 };
+let SAFE = ORGANIC;
 const CX = (SAFE.x0 + SAFE.x1) / 2; // центр безопасной зоны (справа — кнопки соцсетей)
 const WIDTH = SAFE.x1 - SAFE.x0;
 const HOOK_Y = 400; // центр хука по высоте, если в стиле не задан hook.y
@@ -169,9 +174,9 @@ function shift(r, dy) {
 
 /** Целый сдвиг по высоте, после которого рамка `r` стоит внутри безопасной зоны — с тем же округлением
 наружу, что и у `box`, чтобы отчётная рамка тоже не вышла за зону ни на пиксель. */
-function keepInside(r, dy) {
+function keepInside(r, dy, bottom = SAFE.y1) {
   let d = Math.round(dy);
-  if (Math.ceil(r.bottom) + d > SAFE.y1) d = SAFE.y1 - Math.ceil(r.bottom);
+  if (Math.ceil(r.bottom) + d > bottom) d = bottom - Math.ceil(r.bottom);
   if (Math.floor(r.top) + d < SAFE.y0) d = SAFE.y0 - Math.floor(r.top);
   return d;
 }
@@ -313,7 +318,7 @@ function drawSub({ spec, main }, sub) {
     below = Math.max(0, bar.bottom - (words0.bottom + ext.y));
   }
   const outer = grow(words0, ext.x, ext.y, ext.y + below);
-  const dy = keepInside(outer, Math.round(y - (words0.top + words0.bottom) / 2));
+  const dy = keepInside(outer, Math.round(y - (words0.top + words0.bottom) / 2), SAFE.subsY1 ?? SAFE.y1);
   lines.style.top = `${dy}px`;
   if (mode === 'plate') place(plate, shift(grow(words0, ext.x, ext.y), dy), { background: c.plate, borderRadius: `${Math.round(0.28 * px)}px` });
   if (bar) place(underline, shift(bar, dy), { background: c.accent, borderRadius: `${(bar.bottom - bar.top) / 2}px` });
@@ -423,7 +428,7 @@ function drawSoftSub(root, { spec, main }, sub) {
   // место — по всем строкам блока, и тем, что ещё не видны: блок не прыгает, когда появляется вторая строка
   const ink = union(spans.map((s) => wordRect(s, main, px)));
   const outer = grow(ink, SHADOW_EXT.x, SHADOW_EXT.top, SHADOW_EXT.bottom);
-  const dy = keepInside(outer, Math.round(y - (ink.top + ink.bottom) / 2));
+  const dy = keepInside(outer, Math.round(y - (ink.top + ink.bottom) / 2), SAFE.subsY1 ?? SAFE.y1);
   lines.style.top = `${dy}px`;
   // видна строка, первое слово которой уже звучит; последняя видимая — съезжается и проявляется
   const newest = rows.findLastIndex((r) => r.shown);
@@ -454,8 +459,9 @@ function graphemes(text) {
 }
 
 /** Строки лесенкой в узле `root`: `lines` — `[{text, size, color, age}]`, центр блока — `at` ({x, y}); `motion` —
-{anim, out, leave}. → рамка блока для проверок (без анимации). Возраст строки null — её слово ещё не звучит. */
-function drawLines(root, { spec, main }, lines, at, motion = {}) {
+{anim, out, leave}; `area` — где блок держится по ширине (по умолчанию безопасная зона; обложка — почти весь кадр).
+→ рамка блока для проверок (без анимации). Возраст строки null — её слово ещё не звучит. */
+function drawLines(root, { spec, main }, lines, at, motion = {}, area = { x0: SAFE.x0, x1: SAFE.x1 }) {
   const base = spec.hook.size;
   const anim = motion.anim ?? 'blur';
   const perChar = anim === 'type' || anim === 'letters';
@@ -485,7 +491,7 @@ function drawLines(root, { spec, main }, lines, at, motion = {}) {
   const offsets = items.map((_, k) => (items.length === 1 ? 0 : (k % 2 ? 1 : -1) * ((ACC.stagger * base) / 2)));
 
   // кегль: все строки (со сдвигом лесенки) влезают в безопасную зону
-  const room = WIDTH - 2 * SHADOW_EXT.x;
+  const room = area.x1 - area.x0 - 2 * SHADOW_EXT.x;
   let scale = 1;
   const size = (it) => base * it.factor * scale;
   for (;;) {
@@ -514,8 +520,8 @@ function drawLines(root, { spec, main }, lines, at, motion = {}) {
   let dx = Math.round(at.x - (inkAll.left + inkAll.right) / 2);
   let dy = Math.round(at.y - (inkAll.top + inkAll.bottom) / 2);
   const outer = grow(inkAll, SHADOW_EXT.x, SHADOW_EXT.top, SHADOW_EXT.bottom);
-  if (Math.ceil(outer.right) + dx > SAFE.x1) dx = SAFE.x1 - Math.ceil(outer.right);
-  if (Math.floor(outer.left) + dx < SAFE.x0) dx = SAFE.x0 - Math.floor(outer.left);
+  if (Math.ceil(outer.right) + dx > area.x1) dx = area.x1 - Math.ceil(outer.right);
+  if (Math.floor(outer.left) + dx < area.x0) dx = area.x0 - Math.floor(outer.left);
   dy = keepInside(outer, dy);
   for (const it of items) Object.assign(it.node.style, { left: `${it.place.left + dx}px`, top: `${it.place.top + dy}px` });
 
@@ -618,13 +624,13 @@ function accentCta(cta) {
   return lines.length ? lines : null;
 }
 
-function drawAccentTitle(id, look, lines, t) {
+function drawAccentTitle(id, look, lines, t, area) {
   const root = layer(id);
   if (!lines) return null;
   root.hidden = false;
   const age = t == null ? Infinity : t;
-  const at = { x: CX, y: look.spec.hook.y ?? HOOK_Y };
-  return drawLines(root, look, lines.map((l) => ({ ...l, age })), at, { anim: 'blur' });
+  const at = { x: area ? (area.x0 + area.x1) / 2 : CX, y: look.spec.hook.y ?? HOOK_Y };
+  return drawLines(root, look, lines.map((l) => ({ ...l, age })), at, { anim: 'blur' }, area);
 }
 
 // ---------- хук и титр с кодовым словом ----------
@@ -657,7 +663,8 @@ function titleLook(mode, size) {
   return { pad: { x: 20, y: 20 }, hand: 20 };
 }
 
-function drawTitle(id, { spec, main, hand }, title) {
+/** Хук или титр; `area` — по чему центровать строки: безопасная зона (по умолчанию) или весь кадр (обложка). */
+function drawTitle(id, { spec, main, hand }, title, area = { cx: CX, width: WIDTH }) {
   const root = layer(id);
   if (!title) return null;
   root.hidden = false;
@@ -691,10 +698,10 @@ function drawTitle(id, { spec, main, hand }, title) {
   const setSize = (s) => {
     px = s;
     look = titleLook(mode, s);
-    const capsWidth = WIDTH - 2 * look.pad.x;
-    const handWidth = WIDTH - 2 * look.hand;
-    Object.assign(caps.style, { fontSize: `${s}px`, left: `${CX - capsWidth / 2}px`, width: `${capsWidth}px`, top: '0px' });
-    Object.assign(handBox.style, { fontSize: `${s * HAND}px`, left: `${CX - handWidth / 2}px`, width: `${handWidth}px`, top: '0px' });
+    const capsWidth = area.width - 2 * look.pad.x;
+    const handWidth = area.width - 2 * look.hand;
+    Object.assign(caps.style, { fontSize: `${s}px`, left: `${area.cx - capsWidth / 2}px`, width: `${capsWidth}px`, top: '0px' });
+    Object.assign(handBox.style, { fontSize: `${s * HAND}px`, left: `${area.cx - handWidth / 2}px`, width: `${handWidth}px`, top: '0px' });
     stroke(caps, look.outline ?? 0, c.outline);
     stroke(handBox, look.outline ?? 0, c.outline);
     return { capsWidth, handWidth };
@@ -750,6 +757,21 @@ function drawTitle(id, { spec, main, hand }, title) {
   handBox.style.top = `${handDy + dy}px`;
   if (!plate.hidden) place(plate, shift(capsOuter, dy), { background: c.plate, borderRadius: `${Math.round(0.2 * px)}px` });
   return box(shift(outer, dy));
+}
+
+// ---------- обложка ----------
+
+// Обложка для сетки профиля: хук крупно (кегль 132, как у хука — капс и рукописное последнее слово) в середине того, что
+// видно в сетке, — кадр 3:4 по центру (y 240–1680); строки — по центру всего кадра, справа кнопок на обложке нет.
+const COVER = { y: 960, size: 132, cx: FRAME.w / 2, width: FRAME.w - 120 };
+
+function drawCover({ spec, main, hand }, cover) {
+  if (!cover?.text) return null;
+  const look = { spec: { ...spec, hook: { ...spec.hook, y: COVER.y, size: COVER.size } }, main, hand };
+  if (spec.hook.mode === 'accent') { // стиль эталона: обложка — тот же хук лесенкой
+    return drawAccentTitle('hook', look, accentHook(cover), null, { x0: COVER.cx - COVER.width / 2, x1: COVER.cx + COVER.width / 2 });
+  }
+  return drawTitle('hook', look, hookTitle(cover), { cx: COVER.cx, width: COVER.width });
 }
 
 // ---------- финальная карточка ----------
@@ -815,6 +837,7 @@ function drawEnd({ spec, main }, end, logo) {
   const plate = call.getBoundingClientRect();
   parts.push([call, plate.width, plate.height]);
   let handle = null;
+  let handleSize = END.handle;
   if (end.handle) {
     handle = el('div', 'handle', String(end.handle));
     Object.assign(handle.style, {
@@ -822,6 +845,12 @@ function drawEnd({ spec, main }, end, logo) {
       fontSize: `${END.handle}px`, lineHeight: '1', color: c.text, textShadow: '0 3px 12px rgba(0, 0, 0, 0.6)',
     });
     root.append(handle);
+    const room = WIDTH - 2 * 14; // тень ника — по 12 px с боков
+    const wide = handle.getBoundingClientRect().width;
+    if (wide > room) { // длинный ник в широком шрифте — мельче, но в безопасной зоне
+      handleSize = Math.floor((END.handle * room) / wide);
+      handle.style.fontSize = `${handleSize}px`;
+    }
     const r = handle.getBoundingClientRect();
     parts.push([handle, r.width, r.height]);
   }
@@ -844,7 +873,7 @@ function drawEnd({ spec, main }, end, logo) {
   if (logo) all.push(rects[0]);
   if (handle) {
     const r = rects.at(-1);
-    const m = ink(main, END.handle, String(end.handle));
+    const m = ink(main, handleSize, String(end.handle));
     all.push(grow({ left: r.left - m.left, top: r.top, right: r.right + m.right, bottom: r.bottom }, 12, 9, 15)); // тень ника
   }
   return box(union(all));
@@ -879,7 +908,7 @@ window.renderState = function renderState(spec, state = {}, opts = {}) {
 function texts(s) {
   const cta = s.cta ?? {};
   return [
-    s.hook?.text, ...(cta.lines ?? []), cta.word, ...(s.accent?.lines ?? []).map((l) => l?.text),
+    s.hook?.text, s.cover?.text, ...(cta.lines ?? []), cta.word, ...(s.accent?.lines ?? []).map((l) => l?.text),
     ...(s.inserts ?? []).flatMap((i) => [i.text, i.title]), ...(s.end?.lines ?? []),
   ];
 }
@@ -887,15 +916,19 @@ function texts(s) {
 async function draw(spec, state, opts) {
   const [main, hand] = await Promise.all([font(spec.font), font(spec.hand), loadEmoji(texts(state ?? {}))]);
   await document.fonts.ready;
-  const look = { spec, main, hand };
   const s = state ?? {};
+  SAFE = s.zone === 'ads' ? ADS : ORGANIC;
+  const look = { spec, main, hand, zone: s.zone === 'ads' ? ADS : null };
   document.getElementById('frame').style.background = opts?.background ?? 'transparent';
   const boxes = { inserts: await drawInserts(document.getElementById('inserts'), s.inserts ?? [], look) };
   const sub = drawSub(look, s.sub);
   if (sub) boxes.sub = sub;
   const accentMode = spec.hook.mode === 'accent';
-  const hook = accentMode ? drawAccentTitle('hook', look, accentHook(s.hook), s.hook?.t) : drawTitle('hook', look, hookTitle(s.hook));
+  let hook = null;
+  if (!s.cover) hook = accentMode ? drawAccentTitle('hook', look, accentHook(s.hook), s.hook?.t) : drawTitle('hook', look, hookTitle(s.hook));
   if (hook) boxes.hook = hook;
+  const cover = s.cover ? drawCover(look, s.cover) : null;
+  if (cover) boxes.cover = cover;
   const cta = accentMode ? drawAccentTitle('cta', look, accentCta(s.cta)) : drawTitle('cta', look, ctaTitle(s.cta));
   if (cta) boxes.cta = cta;
   const accent = drawAccent(look, s.accent);

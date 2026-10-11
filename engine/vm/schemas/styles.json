@@ -65,6 +65,24 @@
         "hand": { "type": "array", "items": { "type": "string", "minLength": 1 } }
       }
     },
+    "cover": {
+      "description": "Обложка на превью: до трёх кадров исходника (t — с; image — картинка vm preview, путь от папки задачи) и текст — хук. Павел выбирает кадр и правит текст (answers.json cover).",
+      "type": "object",
+      "required": ["frames", "text"],
+      "properties": {
+        "frames": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "required": ["t", "image"],
+            "properties": { "t": { "type": "number", "minimum": 0 }, "image": { "type": "string", "minLength": 1 } }
+          }
+        },
+        "text": { "type": "string", "minLength": 1, "maxLength": 80 }
+      }
+    },
     "variants": {
       "description": "Ровно три варианта в порядке A, B, C: A — строго по правилам SKILL.md, B и C — вариации.",
       "type": "array",

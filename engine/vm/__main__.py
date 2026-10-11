@@ -31,6 +31,8 @@ from .job import Job, set_status, states, validate
 from .media import extract_frame, grid_frames
 from .prepare import prepare
 from .qa import (
+    ADS_SAFE,
+    SAFE,
     check_layout,
     check_render,
     checklist,
@@ -39,11 +41,21 @@ from .qa import (
     face_box,
     slot_times,
 )
-from .render import _resolve, draw_layer, render, timeline, variant_b
+from .render import (
+    COVER_ZONE,
+    _resolve,
+    draw_layer,
+    render,
+    render_cover,
+    timeline,
+    variant_ad,
+    variant_b,
+)
 from .style import final_style
 from .timeline import Timeline
 from .zoom import zoom_at
 
+SERVICE = ("own", "none", "upload")  # служебные варианты вопросов: их подписи — интерфейс страницы
 PART_SIZE = 95 * 1024 * 1024  # как `split -b 95M`: столько же, сколько MAX_FILE_BYTES
 
 
@@ -109,7 +121,7 @@ def _frames(args: argparse.Namespace) -> None:
 
 def _preview(args: argparse.Namespace) -> None:
     job = _job(args)
-    path = extract_frame(job.path("source.mp4"), args.at, job.path(args.out), mark=args.mark)
+    path = extract_frame(job.path("source.mp4"), args.at, job.path(args.out), mark=args.mark, fill=True)  # как в ролике
     what = "для превью (styles.json: frameTime)" if args.out == "frame.png" else "— картинка для вопроса"
     print(f"{path.relative_to(job.root)} — кадр {args.at:g} с {what}")
 
@@ -144,6 +156,8 @@ def _files(job: Job, name: str, data: dict, unchecked: set[str] | None = None) -
                     need(f"questions[{i}].options[{k}].image", option["image"])
     elif name == "styles.json":
         need("frame", data["frame"])
+        for i, f in enumerate((data.get("cover") or {}).get("frames") or []):  # кадры обложки — vm preview
+            need(f"cover.frames[{i}].image", f["image"])
     elif name == "edit.json":
         for i, ins in enumerate(data["inserts"]):
             for key in ("src", "sfx"):
@@ -192,9 +206,14 @@ def _fonts(args: argparse.Namespace) -> None:
     if job.path("edit.json").is_file():
         main_text, hand_text = fonts.texts(job.read("edit.json"))
         if job.path("questions.json").is_file():
-            labels = [o["label"] for q in job.read("questions.json")["questions"] if q["id"] in ("hook", "word")
-                      for o in q.get("options") or []]  # fmt: skip
-            main_text, hand_text = "\n".join([main_text, *labels]), "\n".join([hand_text, *labels])
+            questions = job.read("questions.json")["questions"]
+
+            def options(keep) -> list[str]:  # «Свой», «Не надо» — кнопки страницы, не текст ролика
+                return [o["label"] for q in questions if keep(q) for o in q.get("options") or [] if o["id"] not in SERVICE]
+
+            labels = options(lambda q: q["id"] == "hook" or q["type"] == "word")  # хук и написания слов
+            calls = options(lambda q: q["id"] == "end")  # призыв финальной карточки
+            main_text, hand_text = "\n".join([main_text, *labels, *calls]), "\n".join([hand_text, *labels])
         hand_text = f"{hand_text}\n{main_text}"  # рукописным может стать любое слово хука — с запасом
     else:
         parts = [w["text"] for w in json.loads(job.path("words.json").read_text(encoding="utf-8"))] if job.path("words.json").is_file() else []
@@ -240,8 +259,9 @@ def _zoom(edit: dict, tl: Timeline):
     return lambda t: zoom_at(zooms, tl, t)
 
 
-def _layout(boxes: list[dict], edit: dict, tl: Timeline) -> list[str]:
-    return check_layout(boxes, face_box(edit.get("face")), edit.get("inserts"), zoom=_zoom(edit, tl))
+def _layout(boxes: list[dict], edit: dict, tl: Timeline, safe: dict = SAFE) -> list[str]:
+    """Геометрия слоя: лицо — такого размера, каким его делает зум в каждый момент (смена крупности, наезд)."""
+    return check_layout(boxes, face_box(edit.get("face")), edit.get("inserts"), safe=safe, zoom=_zoom(edit, tl))
 
 
 def _check(args: argparse.Namespace) -> None:
@@ -271,18 +291,41 @@ def _render(args: argparse.Namespace) -> None:
     _fonts_ok(job)
     edit = job.read("edit.json")
     variant = variant_b(edit) if edit.get("ab") else None  # вторая версия A/B-теста; ошибка в ab — до сборки
+    previous = job.read("result.json") if job.path("result.json").is_file() else {}
+    if previous:  # done, unsure и подпись Claude переносятся в новый result.json: кривые — ошибка до кодирования
+        validate("result.json", previous)
     step("Монтирую", "Собираю ролик: нарезка, текст, вставки, звук")
     result = render(job, job.path("out"), name=name, preset=args.preset)
     for done in (f"{name}.mp4", f"{name}.srt"):  # части прошлого push --outputs — от старого ролика
         drop_parts(job.path("out"), done)
+    for extra in ("b", "ad", "cover"):  # прежние версия B, реклама и обложка — не от этого ролика: будут — соберутся заново
+        _drop_outputs(job, f"{name}-{extra}")
     step("Проверяю", "Смотрю контрольные кадры и геометрию")
     final = job.path(f"out/{name}.mp4")
     boxes = json.loads(job.path("work/render/frames/boxes.json").read_text(encoding="utf-8"))
-    problems = _layout(boxes, edit, timeline(edit)) + check_render(final, edit, boxes, result)
+    problems = _layout(boxes, result.get("edit", edit), timeline(edit)) + check_render(final, edit, boxes, result)
     frames = control_frames(final, slot_times(boxes), job.path("qa"))
     checks = checklist(final, boxes, result)  # по гайду — для экрана «Готово»
-    second = None
+    summary = {
+        "durations": result["durations"],
+        "done": previous.get("done", []),
+        "unsure": previous.get("unsure", []),
+        "missing": result["missing"],
+        "qa": {"ok": not problems, "problems": problems},
+        **({"caption": previous["caption"]} if previous.get("caption") else {}),  # подпись к посту — от Claude
+        "checklist": checks,
+    }
+    job.write("result.json", summary)  # итоги A — сразу: упадут обложка или версия B, они уже от этого ролика
+    if edit.get("cover"):  # обложка для сетки профиля: кадр исходника и хук крупно
+        step("Монтирую", "Рисую обложку")
+        cover = job.path(f"out/{name}-cover.png")
+        problems += _cover_problems(render_cover(job, result.get("edit", edit), cover))
+        summary["qa"] = {"ok": not problems, "problems": problems}
+        job.write("result.json", summary)
+        print(f"обложка: {cover.relative_to(job.root)}")
     if variant:  # без тизера или без музыки, со своим слоем
+        if edit["ab"] == "music":  # без музыки — те же события, что встали на доли в версии A: отличается только звук
+            variant = variant_b(result.get("edit", edit))
         step("Монтирую", "Собираю вторую версию для теста")
         result_b = render(job, job.path("out"), name=f"{name}-b", preset=args.preset, edit=variant, work="work/render-b")
         for done in (f"{name}-b.mp4", f"{name}-b.srt"):
@@ -290,24 +333,25 @@ def _render(args: argparse.Namespace) -> None:
         boxes_b = json.loads(job.path("work/render-b/frames/boxes.json").read_text(encoding="utf-8"))
         final_b = job.path(f"out/{name}-b.mp4")
         problems_b = _layout(boxes_b, variant, timeline(variant)) + check_render(final_b, variant, boxes_b, result_b)
-        second = {"differs": edit["ab"], "durations": result_b["durations"], "qa": {"ok": not problems_b, "problems": problems_b}}
+        summary["ab"] = {"differs": edit["ab"], "durations": result_b["durations"], "qa": {"ok": not problems_b, "problems": problems_b}}
+        job.write("result.json", summary)
         print(f"{final_b.relative_to(job.root)}: {result_b['durations']['final']:.1f} с — версия B, {'без тизера' if edit['ab'] == 'teaser' else 'без музыки'}")
         for line in problems_b:
             print(f"  версия B: {line}")
-    previous = job.read("result.json") if job.path("result.json").is_file() else {}
-    job.write(
-        "result.json",
-        {
-            "durations": result["durations"],
-            "done": previous.get("done", []),
-            "unsure": previous.get("unsure", []),
-            "missing": result["missing"],
-            "qa": {"ok": not problems, "problems": problems},
-            **({"caption": previous["caption"]} if previous.get("caption") else {}),  # подпись к посту — от Claude
-            **({"ab": second} if second else {}),
-            "checklist": checks,
-        },
-    )
+    if edit.get("ad"):  # версия для рекламы: тот же монтаж (события на тех же долях), текст и вставки — выше кнопки рекламы
+        ads = variant_ad(result.get("edit", edit))
+        step("Монтирую", "Собираю версию для рекламы")
+        result_ad = render(job, job.path("out"), name=f"{name}-ad", preset=args.preset, edit=ads, work="work/render-ad")
+        for done in (f"{name}-ad.mp4", f"{name}-ad.srt"):
+            drop_parts(job.path("out"), done)
+        boxes_ad = json.loads(job.path("work/render-ad/frames/boxes.json").read_text(encoding="utf-8"))
+        final_ad = job.path(f"out/{name}-ad.mp4")
+        problems_ad = _layout(boxes_ad, ads, timeline(ads), safe=ADS_SAFE) + check_render(final_ad, ads, boxes_ad, result_ad)
+        summary["ad"] = {"durations": result_ad["durations"], "qa": {"ok": not problems_ad, "problems": problems_ad}}
+        job.write("result.json", summary)
+        print(f"{final_ad.relative_to(job.root)}: {result_ad['durations']['final']:.1f} с — версия для рекламы")
+        for line in problems_ad:
+            print(f"  реклама: {line}")
     print(f"{final.relative_to(job.root)}: {result['durations']['final']:.1f} с (исходник {result['durations']['source']:.1f} с)")
     print(f"контрольный лист: {frames['sheet'].relative_to(job.root)}")
     voice = result.get("voice") or {}
@@ -324,6 +368,31 @@ def _render(args: argparse.Namespace) -> None:
     print("проверка: " + ("всё в порядке" if not problems else "проблемы:"))
     for line in problems:
         print(f"  - {line}")
+
+
+def _cover_problems(report: dict) -> list[str]:
+    """Обложка — картинка 1080×1920, текст — в том, что видно в сетке профиля (кадр 3:4 по центру)."""
+    size = report.get("size")
+    if size and list(size) != [1080, 1920]:
+        return [f"обложка: картинка {size[0]}×{size[1]} вместо 1080×1920"]
+    b = report.get("box")
+    if not b:
+        return ["обложка: текста на ней нет"]
+    z = COVER_ZONE
+    if b["x"] < z["x0"] or b["x"] + b["w"] > z["x1"] or b["y"] < z["y0"] or b["y"] + b["h"] > z["y1"]:
+        return [("обложка: текст выходит за то, что видно в сетке профиля (кадр 3:4 по центру) — короче текст обложки "
+                 "(edit.cover.text)")]
+    return []
+
+
+def _drop_outputs(job: Job, base: str) -> None:
+    """Убрать из out/ файлы `<base>.*` прежнего рендера и их части (версия, которую в этот раз не собирали)."""
+    out = job.path("out")
+    if not out.is_dir():
+        return
+    for stale in out.glob(f"{base}.*"):
+        if stale.is_file():
+            stale.unlink()
 
 
 def drop_parts(out: Path, name: str) -> None:

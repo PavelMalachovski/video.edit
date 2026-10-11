@@ -6,11 +6,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { abOptions, buildAnswers, previewEnd, previewHook, type Draft } from '@/lib/answers.ts';
 import { storage } from '@/lib/client.ts';
 import { mmss } from '@/lib/format.ts';
-import { ADJUSTABLE, type AbKind, type Adjustable, type Question, type StyleChoice, type Styles } from '@/lib/jobfiles.ts';
+import { ADJUSTABLE, COVER, type AbKind, type Adjustable, type Question, type StyleChoice, type Styles } from '@/lib/jobfiles.ts';
 import { MAX_NOTE } from '@/lib/jobs.ts';
 import {
-  allowedFonts, choiceFor, clampTo, finalStyle, HOOK_SIZE, HOOK_Y, INSERT_W, insertKey, loadAb, loadChoice, loadInsertBoxes, loadSpeed, moveBox,
-  resizeBox, resolveInserts, sampleState, saveAb, saveChoice, saveInsertBoxes, saveSpeed, type InsertBox,
+  allowedFonts, choiceFor, clampTo, coverOf, finalStyle, underCaption, HOOK_SIZE, HOOK_Y, INSERT_W, insertKey, loadAb, loadAd, loadChoice, loadCover, loadInsertBoxes, loadSpeed, moveBox,
+  resizeBox, resolveInserts, sampleState, saveAb, saveAd, saveChoice, saveCover, saveInsertBoxes, saveSpeed, type CoverPick, type InsertBox,
   SPEEDS, SUB_SIZE, SUB_Y, SWATCHES,
 } from '@/lib/style.ts';
 import PreviewFrame from '../../preview-frame';
@@ -23,6 +23,7 @@ type Props = {
   jobId: string;
   styles: Styles;
   questions: Question[];
+  brief: string; // ТЗ задачи: «МУЗЫКА:» в нём — можно и версию без музыки
   draft: Draft;
   duration: number | null;
   fileUrl: (path: string) => string;
@@ -39,7 +40,7 @@ const GROW = BIG / 2; // уголок ⤢: на сколько px экрана �
 const INSERT_STEP = 20; // px ширины вставки на нажатие «A−» / «A+»
 
 type Box = { x: number; y: number; w: number; h: number };
-type LayoutBoxes = { inserts?: Box[] };
+type LayoutBoxes = { inserts?: Box[]; sub?: Box };
 const HOOK_DEFAULT = 400; // центр хука, если в стиле не задан (template/overlay.js, HOOK_Y)
 const CARD_T = 10 / 13; // с от начала карточки: уже появилась, призыв — в обычном размере (дышит с частотой 1,3 Гц)
 
@@ -49,7 +50,7 @@ const ROWS: { key: ColorKey; title: string; own: string }[] = [
   { key: 'bar', title: 'Шкала времени', own: 'Свой цвет шкалы' },
 ];
 
-export default function Previews({ jobId, styles, questions, draft, duration, fileUrl, localUrl, onBack, onAct }: Props) {
+export default function Previews({ jobId, styles, questions, draft, brief, duration, fileUrl, localUrl, onBack, onAct }: Props) {
   const [choice, setChoiceState] = useState<StyleChoice>(() => loadChoice(storage(), jobId, styles));
   useEffect(() => setChoiceState(loadChoice(storage(), jobId, styles)), [jobId, styles]); // новые варианты — выбор заново
   const setChoice = (c: StyleChoice) => {
@@ -65,8 +66,15 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
 
   // вторая версия для A/B-теста: без тизера или без музыки — что из этого есть в ответах
   const [abPick, setAbPick] = useState<AbKind | null>(() => loadAb(storage(), jobId));
-  const abChoices = useMemo(() => abOptions(questions, draft), [questions, draft]);
+  const abChoices = useMemo(() => abOptions(questions, draft, brief), [questions, draft, brief]);
   const ab = abPick && abChoices.includes(abPick) ? abPick : null;
+  // обложка: кадр из трёх, что предложил Claude, и текст — за хуком, пока Павел не впишет свой; выбор — в браузере
+  const [coverPick, setCoverPick] = useState<CoverPick | null>(() => loadCover(storage(), jobId));
+  const coverFrames = styles.cover?.frames ?? [];
+  const setCover = (p: CoverPick) => {
+    setCoverPick(p);
+    saveCover(storage(), jobId, p);
+  };
   const setAb = (x: AbKind | null) => {
     setAbPick(x);
     saveAb(storage(), jobId, x);
@@ -93,8 +101,18 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
   }, []);
 
   const hook = useMemo(() => previewHook(questions, draft, styles.sample.hook), [questions, draft, styles]);
+  const cover = coverOf(coverPick, styles, hook);
+  const coverText = cover?.text;
+  const coverState = useMemo(() => ({ inserts: [], cover: { text: coverText ?? '' } }), [coverText]); // не перерисовывать на каждом движении
   const card = useMemo(() => previewEnd(questions, draft, styles.sample.end), [questions, draft, styles]);
   const [showCard, setShowCard] = useState(false); // крупное превью — финальная карточка вместо кадра с текстом
+  const [adOn, setAdOn] = useState(() => loadAd(storage(), jobId)); // ещё версия для рекламы Reels
+  const [adsView, setAdsView] = useState(false); // крупное превью — как в версии для рекламы
+  const setAd = (on: boolean) => {
+    setAdOn(on);
+    saveAd(storage(), jobId, on);
+    if (!on) setAdsView(false);
+  };
   const [insertBoxes, setInsertBoxesState] = useState<Record<string, InsertBox>>(() => loadInsertBoxes(storage(), jobId));
   const setInsertBoxes = (next: Record<string, InsertBox>) => {
     setInsertBoxesState(next);
@@ -107,9 +125,11 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
   const spec = useMemo(() => finalStyle(styles, choice), [styles, choice]);
   const framed = useMemo(() => sampleState(spec, styles.sample, hook, inserts), [spec, styles, hook, inserts]);
   const ending = Boolean(showCard && card);
-  const state = useMemo(() => (ending && card
+  const shown = useMemo(() => (ending && card
     ? { inserts: [], end: { lines: card.lines, ...(card.handle ? { handle: card.handle } : {}), ...(card.logo ? { logo: fileUrl(card.logo) } : {}), t: CARD_T } }
     : framed), [ending, card, framed, fileUrl]);
+  const zoned = adOn && adsView; // на крупном превью — зона рекламы: ручки прячутся, двигается то, что в основном ролике
+  const state = useMemo(() => (zoned ? { ...shown, zone: 'ads' as const } : shown), [zoned, shown]);
   const progress = duration ? Math.min(1, styles.frameTime / duration) : 0.3;
   const frameUrl = fileUrl(styles.frame);
   const family = (id: string) => fonts.find((f) => f.id === id)?.family ?? id;
@@ -133,7 +153,7 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
     const claims = Object.fromEntries(Object.entries(uploads).map(([qid, u]) => [qid, { asset: u.asset, name: u.name, size: u.size, type: u.type, parts: u.parts }]));
     const keys = new Set((styles.sample.inserts ?? []).map(insertKey));
     const placed = Object.fromEntries(Object.entries(insertBoxes).filter(([k]) => keys.has(k))); // только вставки этого превью
-    void run('answers', { answers, uploads: claims, style: choice, speed, ...(Object.keys(placed).length ? { insertBoxes: placed } : {}), ...(ab ? { ab } : {}) });
+    void run('answers', { answers, uploads: claims, style: choice, speed, ...(Object.keys(placed).length ? { insertBoxes: placed } : {}), ...(ab ? { ab } : {}), ...(adOn ? { ad: true } : {}), ...(cover ? { cover } : {}) });
   }
 
   const pickFont = (kind: 'font' | 'hand', id: string) => setChoice({ ...choice, [kind]: id });
@@ -200,8 +220,8 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
       <div className="big-wrap">
         <div className="big-host">
           <PreviewFrame frameUrl={frameUrl} spec={spec} state={state} progress={progress} width={BIG} big onBoxes={(b) => setBoxes(b as LayoutBoxes)} />
-          {ending ? null : sized.map((m) => m.box ? <InsertHandle key={m.key} label={m.name} box={m.box} at={m.at} onSize={m.resize} onDrag={m.drag} /> : null)}
-          {movable.map((m) => <DragHandle key={m.name} label={m.label} y={m.y} range={m.range} onMove={m.move} size={m.size} onSize={m.resize} />)}
+          {ending || zoned ? null : sized.map((m) => m.box ? <InsertHandle key={m.key} label={m.name} box={m.box} at={m.at} onSize={m.resize} onDrag={m.drag} /> : null)}
+          {zoned ? null : movable.map((m) => <DragHandle key={m.name} label={m.label} y={m.y} range={m.range} onMove={m.move} size={m.size} onSize={m.resize} />)}
         </div>
       </div>
       {card ? (
@@ -210,8 +230,15 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
           <button type="button" className="pill" aria-pressed={ending} onClick={() => setShowCard(true)}>Финальная карточка</button>
         </div>
       ) : null}
-      <div className="sub-move" hidden={ending}>
+      {adOn ? (
+        <div className="pills center">
+          <button type="button" className="pill" aria-pressed={!zoned} onClick={() => setAdsView(false)}>Органика</button>
+          <button type="button" className="pill" aria-pressed={zoned} onClick={() => setAdsView(true)}>Реклама</button>
+        </div>
+      ) : null}
+      <div className="sub-move" hidden={ending || zoned}>
         <span className="muted small">Хук и субтитры тянутся на превью выше или ниже, вставки — куда угодно; размер — щипком двумя пальцами или уголком ⤢</span>
+        {underCaption(boxes?.sub) ? <span className="warn small">Субтитры низко: в Reels их может закрыть подпись к ролику</span> : null}
         {movable.map((m) => (
           <div key={m.name} className="sub-move-row">
             <span className="small">{m.name}</span>
@@ -279,6 +306,38 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
         <div className="muted small">Голос не меняет тон; музыка не ускоряется.</div>
       </div>
 
+      {cover ? (
+        <div className="card" data-cover>
+          <div className="caps small">Обложка</div>
+          <div className="cover-frames">
+            {coverFrames.map((f, i) => (
+              <button key={f.image} type="button" className="cover-pick" aria-pressed={cover.frame === i} aria-label={`Кадр ${i + 1}`}
+                onClick={() => setCover({ ...coverPick, frame: i })}>
+                <img src={fileUrl(f.image)} alt="" />
+              </button>
+            ))}
+          </div>
+          <input type="text" aria-label="Текст обложки" maxLength={COVER.text} value={coverPick?.text ?? cover.text} placeholder={hook ?? styles.cover?.text}
+            onChange={(e) => setCover({ frame: cover.frame, text: e.target.value })} />
+          <div className="cover-preview">
+            <PreviewFrame frameUrl={fileUrl(coverFrames[cover.frame].image)} spec={spec} state={coverState} progress={0} width={BIG} />
+          </div>
+          <div className="muted small">В сетке профиля видна середина кадра 3:4 — текст стоит в ней. PNG — на экране «Готово».</div>
+        </div>
+      ) : null}
+
+      <div className="card" data-ad>
+        <div className="caps small">Версия для рекламы</div>
+        <div className="pills">
+          <button type="button" className="pill" aria-pressed={!adOn} onClick={() => setAd(false)}>Не нужна</button>
+          <button type="button" className="pill" aria-pressed={adOn} onClick={() => setAd(true)}>Нужна</button>
+        </div>
+        <div className="muted small">
+          {adOn ? 'Соберу ещё ролик для рекламы Reels: текст и вставки — выше кнопки и подписи рекламы. Как он выглядит — «Реклама» над крупным кадром.'
+            : 'В рекламе Reels низ кадра занят кнопкой и подписью — можно собрать отдельную версию, где текст стоит выше.'}
+        </div>
+      </div>
+
       {abChoices.length ? (
         <div className="card">
           <div className="caps small">Вторая версия для теста</div>
@@ -304,7 +363,7 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
       </div>
 
       <button type="button" className="btn" disabled={busy !== null} onClick={mount}>
-        Монтировать: {choice.variant} · {family(choice.font)} · ×{speed.toFixed(1)}{ab ? ' · A/B' : ''}
+        Монтировать: {choice.variant} · {family(choice.font)} · ×{speed.toFixed(1)}{ab ? ' · A/B' : ''}{adOn ? ' · реклама' : ''}
       </button>
       {error?.at === 'answers' ? <div className="err small">{error.text}</div> : null}
     </>

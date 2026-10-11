@@ -116,7 +116,8 @@ const SCRIPT = {
   caption: { text: 'Три ошибки в чешском 🇨🇿', hashtags: ['чешский', 'языки'] },
 };
 const FIXTURE = JSON.parse(fs.readFileSync(path.resolve('../engine/tests/fixtures/style-merge.json'), 'utf8'));
-const STYLES = { ...FIXTURE.styles, sample: { ...FIXTURE.styles.sample, inserts: [{ kind: 'image', x: 70, y: 500, w: 250, question: 'logo' }] } };
+const STYLES = { ...FIXTURE.styles, sample: { ...FIXTURE.styles.sample, inserts: [{ kind: 'image', x: 70, y: 500, w: 250, question: 'logo' }] },
+  cover: { frames: [{ t: 1.2, image: 'cover-1.jpg' }, { t: 7.5, image: 'cover-2.jpg' }, { t: 21, image: 'cover-3.jpg' }], text: 'Как я учу чешский' } };
 
 /** Снимок экрана в папку E2E_SHOTS (если задана) — посмотреть вёрстку глазами. */
 async function shot(page, name) {
@@ -172,11 +173,15 @@ const segments = [
     fs.writeFileSync(source, crypto.randomBytes(30 * 1024 * 1024));
     const insert = path.join(tmp, 'logo.png');
     fs.writeFileSync(insert, PNG);
+    // озвучка: своя запись голоса, два куска; буфером — путь с кириллицей Playwright молча не ставит в поле
+    const voice = { name: 'Запись.m4a', mimeType: 'audio/x-m4a', buffer: crypto.randomBytes(5 * 1024 * 1024) };
 
     await page.setInputFiles('#source', source);
     await page.fill('#brief', 'ХУК: Как я учу чешский');
     await page.setInputFiles('#inserts', insert);
     await page.getByText('logo.png').waitFor();
+    await page.setInputFiles('#voice', voice);
+    await page.getByText('Запись.m4a').waitFor();
     await shot(page, 'upload-form');
     await page.getByRole('button', { name: 'Загрузить', exact: true }).click();
     await page.getByText('Загружаю в GitHub…').waitFor();
@@ -189,6 +194,7 @@ const segments = [
     check(await page.inputValue('#brief') === 'ХУК: Как я учу чешский', 'ТЗ не восстановилось после перезагрузки');
     await page.setInputFiles('#source', source);
     await page.setInputFiles('#inserts', insert);
+    await page.setInputFiles('#voice', voice);
     await page.getByRole('button', { name: 'Продолжить загрузку' }).waitFor();
     await shot(page, 'upload-resume');
     await page.getByRole('button', { name: 'Продолжить загрузку' }).click();
@@ -201,6 +207,8 @@ const segments = [
     const manifest = draft.sha;
     check(manifest?.brief === 'ХУК: Как я учу чешский', `ТЗ в manifest.json: ${manifest?.brief}`);
     check(manifest?.uploads?.[0]?.asset === 'upload-i1.png', `вставка в manifest.json: ${JSON.stringify(manifest?.uploads)}`);
+    check(manifest?.uploads?.[1]?.asset === 'upload-voice.m4a' && manifest.uploads[1].size === 5 * 1024 * 1024,
+      `озвучка в manifest.json: ${JSON.stringify(manifest?.uploads)}`);
     const f = await fires();
     check(f.length === 1 && f[0].step === 'analyze' && f[0].attempt === 1 && f[0].job === ctx.jobId, `запуски: ${JSON.stringify(f)}`);
     const left = await page.evaluate(() => localStorage.getItem('vm:pending'));
@@ -208,6 +216,7 @@ const segments = [
     // задача взяла копию бренда: job.json.brand и логотип в своей папке
     const job = JSON.parse((await branchFile(ctx, 'job.json')) ?? '{}');
     check(job.brand?.handle === '@pavel.malakhouski' && job.brand?.logo === 'in/brand/logo.png', `job.json.brand: ${JSON.stringify(job.brand)}`);
+    check(job.uploads?.some((u) => u.file === 'in/uploads/upload-voice.m4a' && u.kind === 'audio'), `озвучка в job.json: ${JSON.stringify(job.uploads)}`);
     check((await branchFile(ctx, 'in/brand/logo.png')) !== null, 'логотип бренда не скопирован в задачу');
   }],
 
@@ -262,7 +271,7 @@ const segments = [
     engineValidate('review.json', REVIEW);
     const waiting = { state: 'waiting_answers', phase: 'Ждёт ответов', message: 'Ответь на вопросы и выбери стиль', at: new Date().toISOString(), needs: 'answers' };
     engineValidate('status.json', waiting);
-    await session(ctx, { 'questions.json': QUESTIONS, 'styles.json': STYLES, 'review.json': REVIEW, 'frame.png': PNG, 'q-logo.png': PNG, 'status.json': waiting });
+    await session(ctx, { 'questions.json': QUESTIONS, 'styles.json': STYLES, 'review.json': REVIEW, 'frame.png': PNG, 'q-logo.png': PNG, 'cover-1.jpg': PNG, 'cover-2.jpg': PNG, 'cover-3.jpg': PNG, 'status.json': waiting });
     const cards = page.locator('[data-question]');
     await until(async () => (await cards.count()) === 8, 10_000, 'восемь карточек вопросов');
     const go = page.getByRole('button', { name: 'Показать превью' });
@@ -299,7 +308,7 @@ const segments = [
 
   ['previews', async (ctx) => {
     const { page } = ctx;
-    await until(async () => (await page.locator('iframe[data-spec]').count()) === 4, 10_000, 'три миниатюры и крупное превью');
+    await until(async () => (await page.locator('iframe[data-spec]').count()) === 5, 10_000, 'три миниатюры, крупное превью и обложка');
     const big = page.locator('iframe[data-big]');
     const bigSpec = async () => JSON.parse(await big.getAttribute('data-spec'));
     await page.getByRole('button', { name: /^B · / }).click();
@@ -464,6 +473,24 @@ const segments = [
     // вторая версия для теста: тизер Павел взял — можно собрать ролик без него; музыки нет — без музыки нельзя
     check(await page.getByRole('button', { name: 'Без музыки' }).count() === 0, 'без музыки предложено, хотя трека нет');
     await page.getByRole('button', { name: 'Без тизера' }).click();
+    // версия для рекламы: на крупном превью «Реклама» — всё выше кнопки рекламы (низ зоны — 1250)
+    await page.locator('[data-ad]').getByRole('button', { name: 'Нужна', exact: true }).click();
+    await page.getByRole('button', { name: 'Реклама', exact: true }).click();
+    const adFrame = page.frameLocator('iframe[data-big]');
+    await until(async () => {
+      const b = await adFrame.locator('body').evaluate(() => window.layoutBoxes());
+      return b.sub && b.sub.y + b.sub.h <= 1250 && b.inserts.every((i) => i.y + i.h <= 1250);
+    }, 5000, 'крупное превью в зоне рекламы');
+    await shot(page, 'previews-ads');
+    await page.getByRole('button', { name: 'Органика', exact: true }).click();
+    // обложка: второй кадр и свой текст; превью рисует её тем же шаблоном
+    const coverCard = page.locator('[data-cover]');
+    check(await coverCard.locator('.cover-pick').count() === 3, 'три кадра обложки');
+    const coverText = await coverCard.getByLabel('Текст обложки').inputValue();
+    check(coverText === 'Как я снимаю reels', `текст обложки — хук, который выбрал Павел: ${coverText}`);
+    await coverCard.getByRole('button', { name: 'Кадр 2' }).click();
+    await coverCard.getByLabel('Текст обложки').fill('Чешский за 15 минут');
+    await until(async () => (await coverCard.locator('iframe').getAttribute('src')) !== null, 5000, 'превью обложки');
     const go = page.getByRole('button', { name: /^Монтировать: B · Rubik · ×1\.3 · A\/B/ });
     await go.waitFor();
     const last = await bigSpec();
@@ -482,6 +509,8 @@ const segments = [
     check(isDeepStrictEqual(answers.answers?.stickers, ['s1']), `stickers: ${JSON.stringify(answers.answers?.stickers)}`);
     check(answers.answers?.end === 'e1', `end: ${JSON.stringify(answers.answers?.end)}`);
     check(answers.ab === 'teaser', `ab: ${JSON.stringify(answers.ab)}`);
+    check(isDeepStrictEqual(answers.cover, { frame: 1, text: 'Чешский за 15 минут' }), `cover: ${JSON.stringify(answers.cover)}`);
+    check(answers.ad === true, `ad: ${JSON.stringify(answers.ad)}`);
     check(answers.style?.subSize === grown - 4 && answers.style?.hookSize === pinched, `размеры: ${answers.style?.subSize}, ${answers.style?.hookSize}`);
     check(isDeepStrictEqual(finalStyle(restyled, answers.style), last), `стиль ответа ${JSON.stringify(answers.style)} ≠ последнему превью`);
   }],
@@ -506,7 +535,9 @@ const segments = [
       unsure: ['«Мемсон» на 0:31 — не уверен в написании'],
       missing: ['нет музыки assets/music/lofi.mp3 — ролик без неё'],
       qa: { ok: false, problems: ['хук на лице или ближе 40 px к нему (0,0–1,5 с ролика)'] },
-      caption: { text: 'Как я учу чешский по 15 минут в день и почему это работает лучше, чем курсы 🇨🇿\nСохрани, чтобы не потерять', hashtags: ['чешский', 'языки'] },
+      caption: { text: 'Как я учу чешский по 15 минут в день и почему это работает лучше, чем курсы 🇨🇿\nСохрани, чтобы не потерять', hashtags: ['чешский', 'языки'],
+        ad: 'Учу чешский по 15 минут в день — покажу как' },
+      ad: { durations: { source: 102.4, final: 76.2 }, qa: { ok: true, problems: [] } },
       ab: { differs: 'teaser', durations: { source: 102.4, final: 73.8 }, qa: { ok: false, problems: ['субтитры и вставка друг на друге (0:40)'] } },
       checklist: [
         { id: 'format', title: '9:16, 1080×1920, 30 к/с', ok: true }, { id: 'container', title: 'H.264 в MP4 без edit lists', ok: true },
@@ -521,8 +552,10 @@ const segments = [
     await asset('final.srt', Buffer.from('1\n00:00:00,000 --> 00:00:01,000\nпривет\n\n'));
     const vB = crypto.randomBytes(44 * 1024);
     await asset('final-b.mp4', vB);
+    await asset('final-cover.png', PNG);
+    await asset('final-ad.mp4', crypto.randomBytes(40 * 1024));
     await session(ctx, { 'result.json': result, 'status.json': { state: 'rendered', phase: 'Загружаю', message: 'Ролик собран, загружаю', at: iso() },
-      'out/released.json': await released(['final.mp4', 'final.srt', 'final-b.mp4']) });
+      'out/released.json': await released(['final.mp4', 'final.srt', 'final-b.mp4', 'final-ad.mp4', 'final-cover.png']) });
     await page.getByText('Что я сделал').waitFor({ timeout: 7000 });
     check(await page.getByRole('heading', { name: 'Готово' }).count() === 1, 'нет заголовка «Готово»');
     check((await page.textContent('body')).includes('было 1:42 → стало 1:16 · стиль B'), 'нет строки «было → стало · стиль»');
@@ -552,6 +585,12 @@ const segments = [
     check(got.status() === 302 && /\/__blob\/\d+$/.test(got.headers().location ?? ''), `скачивание: ${got.status()} ${got.headers().location}`);
     const bytes = Buffer.from(await (await fetch(got.headers().location)).arrayBuffer());
     check(bytes.equals(v1), 'скачанный ролик не совпал байт в байт');
+    check(/name=final-ad\.mp4$/.test((await page.locator('[data-ad-result] video').getAttribute('src')) ?? ''), 'версия для рекламы на «Готово»');
+    check((await page.locator('[data-ad-text]').textContent()).includes('Учу чешский по 15 минут в день — покажу как'), 'текст для рекламы');
+    const coverImg = page.locator('[data-cover-result] img');
+    check(/name=final-cover\.png$/.test((await coverImg.getAttribute('src')) ?? ''), 'обложка на «Готово»');
+    const coverGot = await page.request.get(`${APP}/api/jobs/${ctx.jobId}/download?name=final-cover.png`, { maxRedirects: 0 });
+    check(coverGot.status() === 302, `скачивание обложки: ${coverGot.status()}`);
     const second = await page.request.get(`${APP}/api/jobs/${ctx.jobId}/download?name=final-b.mp4`, { maxRedirects: 0 });
     check(second.status() === 302, `скачивание версии B: ${second.status()}`);
     check(Buffer.from(await (await fetch(second.headers().location)).arrayBuffer()).equals(vB), 'версия B скачалась не та');

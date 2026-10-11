@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { initialDraft, pick } from '../lib/answers.ts';
 import type { Question, StyleChoice, Styles } from '../lib/jobfiles.ts';
-import { loadAb, saveAb, allowedFonts, choiceFor, clampHookSize, insertKey, INSERT_W, loadInsertBoxes, moveBox, placedInserts, resizeBox, saveInsertBoxes, clampHookY, clampSubSize, clampSubY, finalStyle, HOOK_SIZE, HOOK_Y, SUB_SIZE, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES } from '../lib/style.ts';
+import { loadAb, saveAb, loadAd, saveAd, loadCover, saveCover, coverOf, underCaption, allowedFonts, choiceFor, clampHookSize, insertKey, INSERT_W, loadInsertBoxes, moveBox, placedInserts, resizeBox, saveInsertBoxes, clampHookY, clampSubSize, clampSubY, finalStyle, HOOK_SIZE, HOOK_Y, SUB_SIZE, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES } from '../lib/style.ts';
 import { blockedStorage, memoryStorage } from './helpers.ts';
 
 // Общая с движком фикстура: final_style в engine/vm/style.py обязан давать то же самое.
@@ -234,4 +234,51 @@ test('the A/B choice is remembered per job and junk is dropped', () => {
   store.setItem(`vm:ab:${id}`, 'colors');
   assert.equal(loadAb(store, id), null);
   assert.equal(loadAb(blockedStorage, id), null);
+});
+
+test('the cover choice is remembered per job: the frame alone, or the frame and Pavel\'s own text; junk is dropped', () => {
+  const store = memoryStorage();
+  const id = '261011-120000-c0ve';
+  assert.equal(loadCover(store, id), null);
+  saveCover(store, id, { frame: 2, text: 'Как я учу' });
+  assert.deepEqual(loadCover(store, id), { frame: 2, text: 'Как я учу' });
+  saveCover(store, id, { frame: 1 });
+  assert.deepEqual(loadCover(store, id), { frame: 1 });
+  saveCover(store, id, { frame: 1, text: '' });
+  assert.deepEqual(loadCover(store, id), { frame: 1, text: '' }, 'стёр текст — обложка снова за хуком, кадр остаётся');
+  for (const junk of [{ frame: 9, text: 'x' }, { frame: 0, text: 5 }, { frame: 0, text: 'x'.repeat(81) }]) {
+    store.setItem(`vm:cover:${id}`, JSON.stringify(junk));
+    assert.equal(loadCover(store, id), null, JSON.stringify(junk));
+  }
+});
+
+test('the cover follows the hook Pavel chose until he types his own text, and keeps his frame', () => {
+  const styles = { ...STYLES, cover: { frames: [{ t: 1, image: 'cover-1.jpg' }, { t: 2, image: 'cover-2.jpg' }, { t: 3, image: 'cover-3.jpg' }], text: 'Как я учу чешский' } };
+  assert.deepEqual(coverOf(null, styles, 'Как я снимаю reels'), { frame: 0, text: 'Как я снимаю reels' });
+  assert.deepEqual(coverOf({ frame: 2 }, styles, null), { frame: 2, text: 'Как я учу чешский' }, 'без хука — текст Claude');
+  assert.deepEqual(coverOf({ frame: 2, text: '  ' }, styles, 'Хук Павла'), { frame: 2, text: 'Хук Павла' });
+  assert.deepEqual(coverOf({ frame: 1, text: ' Свой текст ' }, styles, 'Хук Павла'), { frame: 1, text: 'Свой текст' });
+  assert.equal(coverOf({ frame: 5 }, styles, null)?.frame, 0, 'кадра с таким номером нет — первый');
+  assert.equal(coverOf(null, styles, 'x'.repeat(81))?.text, 'Как я учу чешский', 'хук длиннее обложки — текст Claude');
+  assert.equal(coverOf({ frame: 1 }, { ...STYLES, cover: undefined }, 'Хук'), null);
+});
+
+test('the ads version choice is remembered per job', () => {
+  const store = memoryStorage();
+  const id = '261011-120000-ad00';
+  assert.equal(loadAd(store, id), false);
+  saveAd(store, id, true);
+  assert.equal(loadAd(store, id), true);
+  saveAd(store, id, false);
+  assert.equal(loadAd(store, id), false);
+});
+
+test('subtitles may go down to just above the time bar; below the Reels safe zone the page says the caption may cover them', () => {
+  assert.equal(clampSubY(1900), 1760);
+  assert.equal(clampSubY(1757), 1760);
+  const high = { x: 200, y: 1400, w: 500, h: 120 };
+  const low = { ...high, y: 1450 };
+  assert.equal(underCaption(high), false);
+  assert.equal(underCaption(low), true, 'низ на 1570 — ниже 1530');
+  assert.equal(underCaption(undefined), false);
 });

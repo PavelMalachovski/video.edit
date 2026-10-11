@@ -1,7 +1,7 @@
 // Файлы задачи jobs/<id>/ в ветке claude/job-<id> — контракт страницы и сессии монтажа. Типы повторяют схемы движка
 // (engine/vm/schemas/*.json; тесты сверяют перечни с ними). Страница пишет job.json, answers.json, restyle.json,
 // fix.json; сессия — status.json, questions.json, styles.json, result.json; Action — out/released.json.
-import { isUploadFile, MAX_NOTE } from './jobs.ts';
+import { isUploadFile, isVoiceFile, MAX_NOTE } from './jobs.ts';
 import type { Step } from './routine.ts';
 import type { Brand } from './brand.ts';
 import type { ScriptRequest } from './script.ts';
@@ -101,14 +101,22 @@ export type Styles = {
   variants: { id: 'A' | 'B' | 'C'; label: string; spec: StyleSpec }[];
   /** Шрифты, в которых есть все буквы ролика (`vm fonts`); нет поля — годятся все. */
   fonts?: { main: string[]; hand: string[] };
+  /** Обложка: до трёх кадров исходника (`t` — с, `image` — картинка от папки задачи) и текст — хук. */
+  cover?: { frames: { t: number; image: string }[]; text: string };
 };
+/** Обложка: кадров на выбор и длина текста (как в схемах styles.json и answers.json). */
+export const COVER = { frames: 3, text: 80 };
+/** Выбор обложки на превью: какой кадр (номер в styles.cover.frames) и текст. */
+export type CoverChoice = { frame: number; text: string };
+export const isCoverChoice = (c: unknown): c is CoverChoice => isObject(c) && Number.isInteger(c.frame) && (c.frame as number) >= 0
+  && (c.frame as number) < COVER.frames && isStr(c.text) && c.text.trim() !== '' && c.text.trim().length <= COVER.text;
 /** Выбор Павла на превью; `subY` и `hookY` — куда он перетащил субтитры (центр блока) и хук (центр строки капсом),
  *  px кадра; `subSize` и `hookSize` — их размер, px; нет — как в варианте (пределы — ADJUST). */
 export type StyleChoice = {
   variant: 'A' | 'B' | 'C'; font: string; hand: string; colors: { text: string; accent: string; bar: string }; subY?: number; hookY?: number; subSize?: number; hookSize?: number;
 };
 /** Где могут стоять субтитры (центр блока): блок не выходит из безопасной зоны 120–1530 px. */
-export const SUB_Y = { min: 240, max: 1440 };
+export const SUB_Y = { min: 240, max: 1760 }; // ниже 1530 — под подписью Reels, но над шкалой времени: выбор Павла
 /** Где может стоять хук (центр строки капсом): его рамка — от y − 75 до y + 200 — не выходит из безопасной зоны. */
 export const HOOK_Y = { min: 200, max: 1330 };
 export const SUB_SIZE = { min: 40, max: 110 };
@@ -152,7 +160,11 @@ export function parseStyles(raw: unknown): Styles | null {
   if (raw.fonts !== undefined && !(isObject(raw.fonts) && ids(raw.fonts.main) && ids(raw.fonts.hand))) return null;
   const v = raw.variants;
   if (!Array.isArray(v) || v.length !== 3 || !v.every((x, k) => isObject(x) && x.id === 'ABC'[k] && isStr(x.label) && isSpec(x.spec))) return null;
-  return raw as Styles;
+  const { cover, ...rest } = raw;
+  const coverOk = isObject(cover) && Array.isArray(cover.frames) && cover.frames.length >= 1 && cover.frames.length <= COVER.frames
+    && cover.frames.every((f) => isObject(f) && isNum(f.t) && f.t >= 0 && isStr(f.image) && f.image !== '')
+    && isStr(cover.text) && cover.text !== '' && cover.text.length <= COVER.text;
+  return { ...rest, ...(coverOk ? { cover } : {}) } as Styles;  // кривая обложка — превью без неё, а не без стилей
 }
 
 // ---------- manifest.json и job.json ----------
@@ -163,8 +175,8 @@ export type Manifest = {
   userAgent?: string; startedAt?: number; finishedAt?: number; retries?: number; completedAt?: string;
   brief?: string; duration?: number | null; uploads?: ManifestUpload[];
 };
-/** Вставка Павла к ролику: `file` — куда её кладёт `vm fetch` (от папки задачи). */
-export type UploadRef = { file: string; asset: string; name: string; size: number; type: string; kind: 'image' | 'video' };
+/** Вставка Павла к ролику или его озвучка (`audio`): `file` — куда её кладёт `vm fetch` (от папки задачи). */
+export type UploadRef = { file: string; asset: string; name: string; size: number; type: string; kind: 'image' | 'video' | 'audio' };
 export type Run = { step: Step; attempt: number; at: string; sessionUrl?: string };
 export type JobFile = {
   id: string; name: string; size: number; type: string; duration: number | null; createdAt: string;
@@ -180,7 +192,7 @@ export function buildJobFile(m: Manifest, now: Date): JobFile {
     brief: m.brief ?? '',
     uploads: (m.uploads ?? []).map((u) => ({
       file: `in/uploads/${u.asset}`, asset: u.asset, name: u.name, size: u.size, type: u.type,
-      kind: u.type.startsWith('video/') ? 'video' : 'image',
+      kind: isVoiceFile(u.asset) ? 'audio' : u.type.startsWith('video/') ? 'video' : 'image',
     })),
     runs: [],
   };
@@ -194,11 +206,15 @@ export type AbKind = (typeof AB_KINDS)[number];
 export type AnswersFile = {
   answers: Record<string, string | string[]>; style: StyleChoice; speed?: number; insertBoxes?: Record<string, InsertBox>; uploads?: Record<string, string>; brief?: string;
   ab?: AbKind;
+  cover?: CoverChoice;
+  ad?: true; // ещё версия для рекламы Reels
 };
 export type UploadClaim = { asset: string; name: string; size: number; type: string; parts: number };
 export type ParsedAnswers = {
   answers: Record<string, string | string[]>; style: StyleChoice; speed?: number; insertBoxes?: Record<string, InsertBox>; uploads: Record<string, UploadClaim>;
   ab?: AbKind;
+  cover?: CoverChoice;
+  ad?: true; // ещё версия для рекламы Reels
 };
 /** Ширина вставки, которую Павел может выбрать на превью, px кадра (ширина безопасной зоны — 830). */
 export const INSERT_W = { min: 80, max: 830 };
@@ -275,6 +291,10 @@ export function parseAnswersBody(body: unknown, qs: Question[]): ParsedAnswers |
   }
   const ab = body.ab;
   if (ab !== undefined && !(AB_KINDS as readonly unknown[]).includes(ab)) return { error: `ab: ${AB_KINDS.join(' или ')}` };
+  const ad = body.ad;
+  if (ad !== undefined && typeof ad !== 'boolean') return { error: 'ad: true или false' };
+  const cover = body.cover;
+  if (cover !== undefined && !isCoverChoice(cover)) return { error: `cover: кадр 1–${COVER.frames} и текст до ${COVER.text} знаков` };
   const uploads: Record<string, UploadClaim> = {};
   const claims = body.uploads === undefined ? {} : body.uploads;
   if (!isObject(claims)) return { error: 'uploads: нужен объект' };
@@ -292,6 +312,8 @@ export function parseAnswersBody(body: unknown, qs: Question[]): ParsedAnswers |
     ...(speed === undefined ? {} : { speed: Math.round(speed * 100) / 100 }),
     ...(boxes === undefined ? {} : { insertBoxes: boxes as Record<string, InsertBox> }),
     ...(ab === undefined ? {} : { ab: ab as AbKind }),
+    ...(cover === undefined ? {} : { cover: { frame: cover.frame, text: cover.text.trim() } }),
+    ...(ad === true ? { ad: true as const } : {}),
   };
 }
 
@@ -302,6 +324,8 @@ export function answersFile(p: ParsedAnswers, job: JobFile): AnswersFile {
     ...(p.speed === undefined ? {} : { speed: p.speed }),
     ...(p.insertBoxes === undefined ? {} : { insertBoxes: p.insertBoxes }),
     ...(p.ab === undefined ? {} : { ab: p.ab }),
+    ...(p.cover === undefined ? {} : { cover: p.cover }),
+    ...(p.ad ? { ad: true as const } : {}),
     uploads: Object.fromEntries(Object.entries(p.uploads).map(([qid, c]) => [qid, `in/uploads/${c.asset}`])),
     brief: job.brief,
   };
@@ -332,14 +356,18 @@ export function appendFix(prev: FixFile | null, text: string, now: Date): FixFil
 
 export const wantedVersion = (fix: FixFile | null): number => 1 + (fix?.fixes.length ?? 0);
 
-/** Имена ролика версии `v` (правка 2 → final-v2); `variant` 'b' — вторая версия A/B-теста: final-b, final-v2-b. */
-export function finalNames(v: number, variant?: 'b'): { mp4: string; srt: string } {
+/** Имена ролика версии `v` (правка 2 → final-v2); `variant` 'b' — вторая версия A/B-теста (final-b, final-v2-b), 'ad' —
+ *  версия для рекламы (final-ad, final-v2-ad). */
+export function finalNames(v: number, variant?: 'b' | 'ad'): { mp4: string; srt: string } {
   const base = `${v <= 1 ? 'final' : `final-v${v}`}${variant ? `-${variant}` : ''}`;
   return { mp4: `${base}.mp4`, srt: `${base}.srt` };
 }
 
-/** Имя, которое можно скачать со страницы: всё, что даёт finalNames, и ничего больше. */
-export const isFinalName = (name: string): boolean => /^final(-v\d{1,3})?(-b)?\.(mp4|srt)$/.test(name);
+/** Обложка версии `v`: final-cover.png, final-v2-cover.png. */
+export const coverName = (v: number): string => `${v <= 1 ? 'final' : `final-v${v}`}-cover.png`;
+
+/** Имя, которое можно скачать со страницы: всё, что дают finalNames и coverName, и ничего больше. */
+export const isFinalName = (name: string): boolean => /^final(-v\d{1,3})?((-b|-ad)?\.(mp4|srt)|-cover\.png)$/.test(name);
 
 // ---------- out/released.json и result.json ----------
 
@@ -359,6 +387,7 @@ export type ResultFile = {
   qa: Qa;
   caption?: unknown; // подпись к посту — проверяет parseCaption (lib/caption.ts)
   ab?: AbResult;
+  ad?: { durations: Durations; qa: Qa }; // версия для рекламы: длительности и проверка по зоне рекламы
   checklist?: Check[];
 };
 
@@ -374,13 +403,14 @@ export function parseResult(raw: unknown): ResultFile | null {
   if (!isObject(raw) || !isDurations(raw.durations)) return null;
   const lists = ['done', 'unsure', 'missing'].every((k) => Array.isArray(raw[k]) && (raw[k] as unknown[]).every(isStr));
   if (!lists || !isQa(raw.qa)) return null;
-  const { ab, checklist, ...rest } = raw;
+  const { ab, ad, checklist, ...rest } = raw;
   const abOk = isObject(ab) && (AB_KINDS as readonly unknown[]).includes(ab.differs) && isDurations(ab.durations) && isQa(ab.qa);
   const checksOk = Array.isArray(checklist) && checklist.every(isCheck);
   return {
-    ...(rest as Omit<ResultFile, 'ab' | 'checklist'>),
+    ...(rest as Omit<ResultFile, 'ab' | 'ad' | 'checklist'>),
     ...(abOk ? { ab: ab as AbResult } : {}),
     ...(checksOk ? { checklist: checklist as Check[] } : {}),
+    ...(isObject(ad) && isDurations(ad.durations) && isQa(ad.qa) ? { ad: { durations: ad.durations, qa: ad.qa } } : {}),
   };
 }
 
@@ -399,7 +429,8 @@ export function parseReview(raw: unknown): Review | null {
 }
 
 /** Подписи двух роликов на экране «Готово»: без чего собрана версия B. */
-export function abLabels(differs: AbKind): [string, string] {
+export function abLabels(differs: AbKind | null): [string, string] {
+  if (!differs) return ['A', 'B'];
   return differs === 'music' ? ['A — с музыкой', 'B — без музыки'] : ['A — с тизером', 'B — без тизера'];
 }
 

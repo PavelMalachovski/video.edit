@@ -238,3 +238,49 @@ def test_the_end_card_is_drawn_by_the_main_font():
     assert "russo-one" in problem and "Țț" in problem
     main_text, _ = fonts.texts(e)
     assert "Mulțumesc" in main_text and "@pavel" in main_text
+
+
+def test_cli_fonts_counts_the_end_card_options_too(tmp_path, capsys):
+    # призыв финальной карточки рисуется основным шрифтом: шрифт без его букв Павлу не предлагается
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    job.write("edit.json", edit(["Ahoj."], hook={"text": "Jak stříhám", "until": 2.0}))
+    job.write("questions.json", {"questions": [{"id": "end", "type": "choice", "title": "Карточка",
+                                                "options": [{"id": "e1", "label": "«Sleduj τ»"}]}]})  # fmt: skip
+    assert main(["fonts", str(job.root)]) == 0
+    covering = json.loads(capsys.readouterr().out.splitlines()[0])
+    assert "montserrat" not in covering["main"] and "comfortaa" in covering["main"], covering["main"]
+
+
+def test_cli_fonts_skips_the_service_options_of_questions(tmp_path, capsys):
+    # «Свой», «Не надо», «Без заголовка» — подписи кнопок страницы, а не текст ролика: чешскому ролику они не закрывают
+    # шрифты без кириллицы
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    job.write("edit.json", edit(["Ahoj."], hook={"text": "Jak to dělám", "until": 2.0}))
+    job.write("questions.json", {"questions": [
+        {"id": "hook", "type": "choice", "title": "Хук", "options": [{"id": "h1", "label": "Jak to dělám"}, {"id": "own", "label": "Свой"},
+                                                                     {"id": "none", "label": "Без заголовка"}]},
+        {"id": "end", "type": "choice", "title": "Карточка", "options": [{"id": "e1", "label": "«Sleduj mě»"}, {"id": "own", "label": "Свой"},
+                                                                         {"id": "none", "label": "Не надо"}]}]})  # fmt: skip
+    assert main(["fonts", str(job.root)]) == 0
+    assert "Mohave" in json.loads(capsys.readouterr().out.splitlines()[0])["main"]
+
+
+def test_cli_fonts_counts_the_spellings_of_a_word_question(tmp_path, capsys):
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    job.write("edit.json", edit(["Ahoj."], hook={"text": "Jak to dělám", "until": 2.0}))
+    job.write("questions.json", {"questions": [{"id": "brand", "type": "word", "title": "Проверь слово",
+                                                "options": [{"id": "a", "label": "Καλό"}]}]})  # fmt: skip
+    assert main(["fonts", str(job.root)]) == 0
+    assert "montserrat" not in json.loads(capsys.readouterr().out.splitlines()[0])["main"]
+
+
+def test_the_cover_text_is_checked_like_the_hook():
+    e = edit(["ahoj"], font="russo-one")
+    e["cover"] = {"t": 1.0, "text": "Mulțumesc pentru tot"}
+    main_text, hand_text = fonts.texts(e)
+    assert "Mulțumesc pentru tot" in main_text and hand_text.split()[-1] == "tot", "последнее слово — рукописным, как у хука"
+    (problem,) = fonts.check(e)
+    assert "russo-one" in problem and "Țț" in problem

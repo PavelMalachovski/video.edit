@@ -27,10 +27,16 @@ def test_zoom_before_the_first_step_and_without_steps_is_1():
     assert zoom_at([{"t": 5.0, "level": 1.06}], WHOLE, 0.0) == 1.0
 
 
-def test_zoom_clamped_to_1_3():
-    assert zoom_at([{"t": 1.0, "level": 1.2}], WHOLE, 5.0) == pytest.approx(1.2)
-    assert zoom_at([{"t": 1.0, "level": 1.5}], WHOLE, 5.0) == pytest.approx(1.3)
+def test_zoom_goes_twice_as_close_up_to_1_16():
+    assert zoom_at([{"t": 1.0, "level": 1.14}], WHOLE, 5.0) == pytest.approx(1.14)
+    assert zoom_at([{"t": 1.0, "level": 1.3}], WHOLE, 5.0) == pytest.approx(1.16)
     assert zoom_at([{"t": 1.0, "level": 0.9}], WHOLE, 5.0) == 1.0
+
+
+def test_shot_changes_and_push_ins_go_up_to_1_3():
+    assert zoom_at([{"t": 1.0, "level": 1.25, "over": 0}], WHOLE, 5.0) == pytest.approx(1.25)
+    assert zoom_at([{"t": 1.0, "level": 1.5, "over": 0}], WHOLE, 5.0) == pytest.approx(1.3)
+    assert zoom_at([{"t": 1.0, "level": 1.22, "over": 3.0}], WHOLE, 5.0) == pytest.approx(1.22)
 
 
 def test_a_cut_step_changes_the_shot_at_once():

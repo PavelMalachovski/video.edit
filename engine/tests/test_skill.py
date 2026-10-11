@@ -178,3 +178,60 @@ def test_a_script_job_has_its_own_section_and_the_analyze_step_sends_there():
 def test_a_brief_from_a_script_feeds_the_stickers_and_the_end_card():
     rules = section("7. Вставки") + section("8. Стоп-кадр и финальная карточка")
     assert "`ТЕЗИСЫ:`" in rules and "`ПРИЗЫВ:`" in rules
+
+
+def test_the_teaser_starts_a_little_before_its_word_and_keeps_hook_until_for_version_b():
+    texts = section("6. Тексты")
+    assert "на 0,1 с раньше первого слова" in texts and "по нему идёт версия B" in texts
+
+
+def test_the_cover_has_frames_in_analyze_and_a_render_step():
+    assert "cover-1.jpg" in section("Шаг analyze") and "`cover`" in section("Стили (styles.json)")
+    render = section("Шаг render")
+    assert "обложка: `answers.cover`" in render and "-cover.png" in render
+
+
+def test_the_ads_version_reaches_the_render_step():
+    render = section("Шаг render")
+    assert "реклама: `answers.ad`" in render and "-ad.mp4" in render and "`caption.ad`" in render
+    assert "`ad` — ещё версия для рекламы" in section("Страница")
+
+
+def test_transitions_go_only_on_scene_changes_and_are_decided_in_analyze():
+    rules = section("4. Зумы и переходы")
+    assert "только на смене сцены" in rules and "не чаще раза в 3 с" in rules and "`joins`" in rules
+    for kind in ("flash", "zoom", "blur"):
+        assert f"`{kind}`" in rules, kind
+    analyze = section("Шаг analyze")
+    assert "`joins`" in analyze and '"transitions": transitions' in analyze
+    assert "`joins`" in section("Файлы задачи") and "переходы" in section("Шаг render")
+
+
+def test_a_voiceover_replaces_the_video_sound_and_the_frame_may_have_no_face():
+    sound = section("5. Звук")
+    assert "**Озвучка**" in sound and '`kind: "audio"`' in sound and "лица в кадре может не быть" in sound.lower()
+    assert "`audio`" in section("Страница") and "озвучка" in section("Файлы задачи")
+
+
+
+def test_the_ad_text_is_written_with_the_caption_and_ad_problems_have_a_way_out():
+    render = section("Шаг render")
+    answers = render[render.index("2. Ответы"):render.index("3. `vm check`")]
+    assert "caption.ad" not in answers, "подпись пишется в п. 5 — с ней и текст рекламы"
+    result = render[render.index("5. В `result.json`"):]
+    assert "`ad`" in result and "72 знак" in result
+    checks = render[render.index("4. `vm render --status`"):render.index("5. В `result.json`")]
+    assert "«реклама: …»" in checks and "`unsure`" in checks
+    assert "`ad`" in SKILL[SKILL.index("| `result.json` |"):].splitlines()[0]
+
+
+def test_restyle_keeps_the_cover_fonts_and_sample():
+    restyle = section("Шаг restyle")
+    assert "`cover`" in restyle and "`fonts`" in restyle and "`sample`" in restyle
+
+
+def test_zooms_are_twice_as_close_and_pavel_may_put_the_subtitles_low():
+    zooms = section("4. Зумы и переходы")
+    assert "1.00 / 1.08 / 1.10 / 1.14, максимум 1.16" in zooms
+    style = section("2. Стиль A — домашний стиль Павла")
+    assert "до 1760" in style and "подпись Reels" in style

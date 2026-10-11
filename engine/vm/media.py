@@ -1,4 +1,4 @@
-"""Медиа: ffprobe, нормализация исходника (поворот, HDR → SDR, склейка частей), звук и кадры.
+"""Медиа: ffprobe, нормализация исходника (поворот, HDR → SDR, склейка частей), смены сцены, звук и кадры.
 
 Всё делает ffmpeg; здесь — команды, разбор ответа ffprobe и понятные ошибки. Результаты пишутся через
 временный файл рядом: готовый файл появляется целиком или не появляется вовсе. Подписи на кадрах (время)
@@ -28,6 +28,15 @@ GRID_CELL = (108, 192)  # 10×10 клеток на кадре 1080×1920: по �
 THUMB_WIDTH = 180  # колонка контактного листа: 6 колонок — ровно 1080 px
 STDERR_LINES = 8  # столько последних строк ffmpeg/ffprobe попадает в сообщение об ошибке
 LAST_FRAME_SLACK = 0.001  # на столько t может выйти за конец клипа из-за округления, оставаясь последним кадром
+# кадр не 9:16 — по центру на своей размытой копии во весь кадр 1080×1920: так его кладёт финал (render), так же его
+# показывают кадры превью и обложка (`vm preview`, `render_cover`)
+BLUR = "boxblur=luma_radius=40:luma_power=2:chroma_radius=20:chroma_power=2,eq=brightness=-0.06"
+FILL = (f"split=2[fillbg][fillfg];[fillbg]scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,crop={WIDTH}:{HEIGHT},"
+        f"{BLUR}[fillblur];[fillblur][fillfg]overlay=(W-w)/2:(H-h)/2")
+# смена сцены — оценка `scene` ffmpeg (0–1) выше этой: стык разных планов даёт 0,5–1, движение в одном плане — до 0,2
+SCENE = 0.35
+SCENE_GAP = 0.5  # с — смена ближе к прошлой — та же (вспышка: кадр белого и обратно — одна смена, а не две)
+SCENE_WIDTH = 180  # px — оценка по уменьшенному кадру: быстро, а резкий стык виден и так
 
 
 class MediaError(RuntimeError):
@@ -223,7 +232,27 @@ def _audio_chain(index: int, streams: _Streams, frames: int) -> str:
     return f"{source},atrim=end_sample={samples},asetpts=PTS-STARTPTS[a{index}]"
 
 
-def normalize(parts: Sequence[PathLike], out: PathLike) -> Probe:
+VOICE_RATE = 8000  # Гц — длина озвучки считается по отсчётам звука такой частоты: точность 1/8000 с, мало памяти
+
+
+def voice_seconds(path: PathLike) -> float:
+    """Длина записи голоса (озвучки), с — по самому звуку: у сырого AAC (ADTS) ffprobe угадывает её по битрейту и
+    ошибается на доли секунды, и конец записи обрезался бы. Звука нет или он не читается — MediaError."""
+    if not any(s.get("codec_type") == "audio" for s in _ffprobe(path).get("streams", [])):
+        raise MediaError(f"{path}: в записи нет звука")
+    try:
+        done = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-i", str(path), "-map", "0:a:0",
+                               "-ac", "1", "-ar", str(VOICE_RATE), "-f", "s16le", "-"], capture_output=True, check=False)
+    except FileNotFoundError:
+        raise MediaError("ffmpeg not found (is ffmpeg installed?)") from None
+    seconds = len(done.stdout) / 2 / VOICE_RATE
+    if done.returncode != 0 or seconds <= 0:
+        tail = "\n".join(done.stderr.decode(errors="replace").strip().splitlines()[-STDERR_LINES:])
+        raise MediaError(f"{path}: запись не читается ({tail or 'нет звука'})")
+    return seconds
+
+
+def normalize(parts: Sequence[PathLike], out: PathLike, voice: PathLike | None = None) -> Probe:
     """Исходник для всего движка: части подряд в один файл 1080×1920 (или шириной 1080) SDR, 30 к/с, звук 48 кГц.
 
     Поворот из метаданных применён (ffmpeg поворачивает сам), HDR переведён в SDR BT.709 — только в тех
@@ -233,6 +262,9 @@ def normalize(parts: Sequence[PathLike], out: PathLike) -> Probe:
     H.264 crf 16 ultrafast — промежуточный файл (в каждой сессии он делается заново: в git его нет; на 4K HEVC
     с iPhone половина времени — декодирование, ultrafast экономит ещё ~30 % против veryfast), финал кодирует `render`. Метаданные файла (место съёмки и т. п.) не
     переносятся. Возвращает probe результата.
+
+    `voice` — озвучка (своя запись голоса Павла): звук — она, а не звук частей; ролик — длиной в неё: видео короче —
+    последний кадр держится до конца записи, длиннее — обрезается.
     """
     parts, out = [Path(p) for p in parts], Path(out)
     if not parts:
@@ -245,11 +277,25 @@ def normalize(parts: Sequence[PathLike], out: PathLike) -> Probe:
     chains = []
     for index, (info, streams) in enumerate(inspected):
         chains.append(_video_chain(index, info.hdr, streams, size))
-        chains.append(_audio_chain(index, streams, max(1, round(streams.seconds * FPS))))
-    joined = "".join(f"[v{i}][a{i}]" for i in range(len(parts))) + f"concat=n={len(parts)}:v=1:a=1[v][a]"
+        if voice is None:
+            chains.append(_audio_chain(index, streams, max(1, round(streams.seconds * FPS))))
+    if voice is None:
+        joined = "".join(f"[v{i}][a{i}]" for i in range(len(parts))) + f"concat=n={len(parts)}:v=1:a=1[v][a]"
+    else:
+        frames = max(1, round(voice_seconds(voice) * FPS))
+        samples = frames * AUDIO_RATE // FPS
+        video = sum(streams.seconds for _, streams in inspected)
+        joined = (
+            "".join(f"[v{i}]" for i in range(len(parts))) + f"concat=n={len(parts)}:v=1:a=0,"
+            # запас стоп-кадра с лишней секундой, потом ровно `frames` кадров: видео той же длины, что озвучка
+            f"tpad=stop_mode=clone:stop_duration={max(0.0, frames / FPS - video) + 1:.3f},trim=end_frame={frames},setpts=PTS-STARTPTS[v];"
+            f"[{len(parts)}:a:0]aresample={AUDIO_RATE},aformat=sample_fmts=fltp:channel_layouts=stereo,"
+            f"apad=whole_len={samples},atrim=end_sample={samples},asetpts=PTS-STARTPTS[a]"
+        )
+    inputs = [*parts, *([Path(voice)] if voice is not None else [])]
     with _atomic(out) as tmp:
         _ffmpeg(
-            *[arg for part in parts for arg in ("-i", part)],
+            *[arg for part in inputs for arg in ("-i", part)],
             "-filter_complex", ";".join([*chains, joined]),
             "-map", "[v]", "-map", "[a]",
             "-map_metadata", "-1", "-map_chapters", "-1",
@@ -261,6 +307,21 @@ def normalize(parts: Sequence[PathLike], out: PathLike) -> Probe:
     return probe(out)
 
 
+# ---------- смены сцены ----------
+
+
+def scene_cuts(src: PathLike, threshold: float = SCENE) -> list[float]:
+    """Резкие смены кадра в видео — стыки планов или склеенных частей, с по возрастанию: оценка `scene` ffmpeg (разница
+    соседних кадров) выше `threshold`; смена в пределах SCENE_GAP от прошлой — та же."""
+    done = _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-i", str(src), "-an", "-vf",
+                 f"scale={SCENE_WIDTH}:-2,select='gt(scene,{threshold})',metadata=print:file=-", "-f", "null", "-"])
+    cuts: list[float] = []
+    for t in (float(x) for x in re.findall(r"pts_time:([\d.]+)", done.stdout)):
+        if not cuts or t - cuts[-1] >= SCENE_GAP:
+            cuts.append(round(t, 3))
+    return cuts
+
+
 # ---------- контейнер ----------
 
 # коробки-контейнеры MP4, в которые заходим (у stsd, avc1 и mp4a перед детьми — свои поля, их пропускаем)
@@ -269,32 +330,38 @@ _MP4_CONTAINERS = {"moov": 0, "trak": 0, "mdia": 0, "minf": 0, "stbl": 0, "edts"
 
 
 def mp4_boxes(path: PathLike) -> list[str]:
-    """Коробки MP4 по порядку, путём от корня: `moov/trak/edts/elst`. Файл не MP4 или обрезан — MediaError."""
-    data = Path(path).read_bytes()
+    """Коробки MP4 по порядку, путём от корня: `moov/trak/edts/elst`. Файл не MP4 или обрезан — MediaError. Читаются
+    только заголовки коробок (mdat в сотни мегабайт пропускается, в память не грузится)."""
     out: list[str] = []
+    with Path(path).open("rb") as f:
+        total = f.seek(0, 2)
 
-    def walk(off: int, end: int, parent: str) -> None:
-        while off < end:
-            if end - off < 8:
-                raise MediaError(f"{path}: не MP4 — обрывок коробки на {off}")
-            size, kind = struct.unpack(">I4s", data[off:off + 8])
-            head = 8
-            if size == 1:
-                if end - off < 16:
+        def read(off: int, n: int) -> bytes:
+            f.seek(off)
+            return f.read(n)
+
+        def walk(off: int, end: int, parent: str) -> None:
+            while off < end:
+                if end - off < 8:
                     raise MediaError(f"{path}: не MP4 — обрывок коробки на {off}")
-                size, head = struct.unpack(">Q", data[off + 8:off + 16])[0], 16
-            elif size == 0:
-                size = end - off
-            name = kind.decode("latin-1")
-            if size < head or off + size > end:
-                raise MediaError(f"{path}: не MP4 — коробка {name!r} на {off} длиной {size} выходит за границу")
-            here = f"{parent}/{name}" if parent else name
-            out.append(here)
-            if name in _MP4_CONTAINERS:
-                walk(off + head + _MP4_CONTAINERS[name], off + size, here)
-            off += size
+                size, kind = struct.unpack(">I4s", read(off, 8))
+                head = 8
+                if size == 1:
+                    if end - off < 16:
+                        raise MediaError(f"{path}: не MP4 — обрывок коробки на {off}")
+                    size, head = struct.unpack(">Q", read(off + 8, 8))[0], 16
+                elif size == 0:
+                    size = end - off
+                name = kind.decode("latin-1")
+                if size < head or off + size > end:
+                    raise MediaError(f"{path}: не MP4 — коробка {name!r} на {off} длиной {size} выходит за границу")
+                here = f"{parent}/{name}" if parent else name
+                out.append(here)
+                if name in _MP4_CONTAINERS:
+                    walk(off + head + _MP4_CONTAINERS[name], off + size, here)
+                off += size
 
-    walk(0, len(data), "")
+        walk(0, total, "")
     return out
 
 
@@ -345,14 +412,20 @@ def _frame(src, t: float, out: Path, vf: str | None = None) -> Path:
     return out
 
 
-def extract_frame(src: PathLike, t: float, out: PathLike, mark: tuple[int, int, int, int] | None = None) -> Path:
-    """Кадр видео в момент t, секунд (PNG или JPEG — по расширению out). `mark` — (x, y, w, h) в px кадра: жёлтая
-    рамка 8 px, например место будущей вставки на картинке к вопросу."""
-    vf = None
+def extract_frame(src: PathLike, t: float, out: PathLike, mark: tuple[int, int, int, int] | None = None,
+                  fill: bool = False) -> Path:
+    """Кадр видео в момент t, секунд (PNG или JPEG — по расширению out). `fill` — кадр как в ролике: не 9:16 — по
+    центру на размытой копии (FILL), 1080×1920. `mark` — (x, y, w, h) в px кадра: жёлтая рамка 8 px, например место
+    будущей вставки на картинке к вопросу."""
+    steps = []
+    if fill:
+        info = probe(src)
+        if (info.width, info.height) != (WIDTH, HEIGHT):
+            steps.append(FILL)
     if mark:
         x, y, w, h = mark
-        vf = f"drawbox=x={x}:y={y}:w={w}:h={h}:color=0xFFD23F@1:t=8"
-    return _frame(src, _check_time(t), Path(out), vf)
+        steps.append(f"drawbox=x={x}:y={y}:w={w}:h={h}:color=0xFFD23F@1:t=8")
+    return _frame(src, _check_time(t), Path(out), ",".join(steps) or None)
 
 
 def _grid_filter(t: float) -> str:

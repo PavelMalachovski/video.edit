@@ -55,12 +55,35 @@ export function uploadAssetName(kind: 'i' | 'q', key: string | number, fileName:
   return `upload-q-${/^[a-z0-9_-]{1,40}$/.test(qid) ? qid : `x${fnv1a(String(key))}`}.${ext}`;
 }
 
-export const isUploadFile = (name: string): boolean => /^upload-(i\d{1,2}|q-[a-z0-9_-]{1,40})\.[a-z0-9]{1,5}$/.test(name);
+// ---------- озвучка ----------
+
+/** Озвучка — своя запись голоса Павла (диктофон): `vm prepare` ставит её вместо звука видео. */
+export const VOICE_EXT = ['m4a', 'mp3', 'wav', 'aac'] as const;
+const VOICE_TYPES: Record<string, (typeof VOICE_EXT)[number]> = {
+  'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/m4a': 'm4a', 'audio/mpeg': 'mp3', 'audio/mp3': 'mp3',
+  'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/wave': 'wav', 'audio/vnd.wave': 'wav', 'audio/aac': 'aac', 'audio/x-aac': 'aac',
+};
+const extOf = (fileName: string): string => /\.([a-z0-9]{1,5})$/.exec(fileName.toLowerCase())?.[1] ?? '';
+const isVoiceExt = (ext: string): ext is (typeof VOICE_EXT)[number] => (VOICE_EXT as readonly string[]).includes(ext);
+
+/**
+ * Ассет озвучки: `upload-voice.m4a`. Другая запись при продолжении загрузки — `upload-voice-2.m4a`: куски прежней
+ * остались в черновике, и под тем же именем их приняли бы за готовые. Расширение — из имени, иначе из типа.
+ */
+export function voiceAssetName(fileName: string, type: string, n = 1): string {
+  const ext = extOf(fileName);
+  return `upload-voice${n > 1 ? `-${n}` : ''}.${isVoiceExt(ext) ? ext : Object.hasOwn(VOICE_TYPES, type) ? VOICE_TYPES[type] : 'm4a'}`;
+}
+
+export const isVoiceFile = (name: string): boolean => /^upload-voice(-\d{1,2})?\.(m4a|mp3|wav|aac)$/.test(name);
+
+export const isUploadFile = (name: string): boolean => /^upload-(i\d{1,2}|q-[a-z0-9_-]{1,40})\.[a-z0-9]{1,5}$/.test(name) || isVoiceFile(name);
 
 // ---------- пределы ----------
 
 export const MAX_SOURCE_BYTES = 3 * 1024 ** 3;
 export const MAX_INSERT_BYTES = 200 * 1024 ** 2;
+export const MAX_VOICE_BYTES = 200 * 1024 ** 2;
 export const MAX_INSERTS = 10;
 export const MAX_UPLOAD_PARTS = 900; // у GitHub не больше 1000 ассетов в релизе; остаток — манифест, ответы, ролики
 export const MAX_ANSWER_IMAGE_BYTES = 20 * 1024 ** 2;
@@ -88,6 +111,14 @@ export function checkInsert(f: { name: string; size: number; type: string }): st
   if (f.size <= 0) return `${f.name}: пустой файл`;
   if (f.size > MAX_INSERT_BYTES) return `${f.name}: больше 200 МБ`;
   if (!(INSERT_TYPES as readonly string[]).includes(f.type)) return `${f.name}: такой тип не подходит (нужны PNG, JPEG, WebP, GIF, MP4 или MOV)`;
+  return null;
+}
+
+/** Озвучка: запись голоса M4A, MP3, WAV или AAC (по расширению или типу — браузер знает его не всегда), до 200 МБ. */
+export function checkVoice(f: { name: string; size: number; type: string }): string | null {
+  if (f.size <= 0) return `${f.name}: пустой файл`;
+  if (f.size > MAX_VOICE_BYTES) return `${f.name}: больше 200 МБ`;
+  if (!isVoiceExt(extOf(f.name)) && !Object.hasOwn(VOICE_TYPES, f.type)) return `${f.name}: нужна запись голоса — M4A, MP3, WAV или AAC`;
   return null;
 }
 

@@ -191,11 +191,11 @@ test('soft subtitles: without lines the block is split by the words of the style
   assert.deepEqual(w.map((x) => x.line), [0, 0, 1, 1, 1]);
 });
 
-test('soft subtitles: a long block shrinks to fit the safe zone', async () => {
+test('soft subtitles: a long block shrinks to fit the width of the safe zone and stays above the time bar', async () => {
   const words = Array(6).fill('достопримечательности');
   await render(spec({ sub: { size: 90, y: 1500 } }), { sub: { words, active: 0, visible: 6, lines: [3, 3], t: 1 } });
   const b = (await boxes()).sub;
-  assert.ok(insideSafe(b), JSON.stringify(b));
+  assert.ok(b.x >= SAFE.x0 && b.x + b.w <= SAFE.x1 && b.y >= SAFE.y0 && b.y + b.h <= 1820, JSON.stringify(b));
 });
 
 // ---------- акцентные фразы ----------
@@ -353,4 +353,39 @@ test('cta accent: call lines, then the code word big in the accent colour', asyn
   assert.equal(lines[1].color, 'rgb(237, 228, 193)');
   const b = (await boxes()).cta;
   assert.ok(insideSafe(b), JSON.stringify(b));
+});
+
+// ---------- зона рекламы, низкие субтитры, обложка ----------
+
+const ADS = { x0: 60, x1: 890, y0: 270, y1: 1250 };
+
+test('ads zone: soft subtitles, the accent hook and accents move up above the ad button', async () => {
+  const state = {
+    sub: { words: WORDS, active: 3, visible: 6, lines: [3, 3], t: 1 },
+    hook: { text: 'я покупаю вещи чтобы выглядеть плохо' },
+    accent: { ...ACCENT, y: 1300 },
+    zone: 'ads',
+  };
+  await render(spec({ hook: { y: 200 } }), state);
+  const b = await boxes();
+  for (const key of ['sub', 'hook', 'accent']) {
+    assert.ok(b[key].y >= ADS.y0 && b[key].y + b[key].h <= ADS.y1, `${key}: ${JSON.stringify(b[key])}`);
+  }
+});
+
+test('soft subtitles may go down to just above the time bar, like the other modes', async () => {
+  await render(spec({ sub: { y: 1700 } }), { sub: { words: ['вещи', 'это', 'обычно'], active: 0, visible: 3, lines: [3], t: 1 } });
+  const b = (await boxes()).sub;
+  assert.ok(Math.abs(b.y + b.h / 2 - 1700) < 12 && b.y + b.h <= 1820, JSON.stringify(b));
+});
+
+test('the cover of the reference style is the accent hook, big, in the middle of the profile grid crop', async () => {
+  await render(spec(), { cover: { text: 'я покупаю вещи чтобы выглядеть плохо' } });
+  const b = await boxes();
+  assert.ok(b.cover && !b.hook, JSON.stringify(b));
+  const lines = await blockLines('hook');
+  assert.deepEqual(lines.map((l) => l.text), ['я покупаю вещи', 'чтобы выглядеть', 'плохо']);
+  assert.ok(lines[2].size > 150, `крупно: ${lines[2].size}`);
+  assert.ok(Math.abs(b.cover.x + b.cover.w / 2 - 540) < 60, 'по центру кадра, а не безопасной зоны');
+  assert.ok(b.cover.y >= 240 && b.cover.y + b.cover.h <= 1680, JSON.stringify(b.cover));
 });

@@ -98,20 +98,24 @@ export function scriptBrief(s: Script, language: string | null, hook = 0): strin
 
 const BRIEF_KEY = 'vm:brief';
 
-export function saveNextBrief(storage: Storage | null, text: string): void {
+const BRIEF_TTL = 24 * 3600_000; // ТЗ сценария ждёт сутки: незаконченная загрузка не подставит его через неделю
+
+export function saveNextBrief(storage: Storage | null, text: string, now = Date.now()): void {
   try {
-    storage?.setItem(BRIEF_KEY, text);
+    storage?.setItem(BRIEF_KEY, JSON.stringify({ text, at: now }));
   } catch {
     // нет хранилища — ТЗ придётся вставить руками
   }
 }
 
-/** ТЗ, которое ждёт экран загрузки; читается один раз. */
-export function takeNextBrief(storage: Storage | null): string | null {
+/** ТЗ, которое ждёт экран загрузки; читается один раз, старше суток — нет. */
+export function takeNextBrief(storage: Storage | null, now = Date.now()): string | null {
   try {
-    const text = storage?.getItem(BRIEF_KEY) ?? null;
+    const raw = storage?.getItem(BRIEF_KEY) ?? null;
     storage?.removeItem(BRIEF_KEY);
-    return text;
+    const saved = raw === null ? null : (JSON.parse(raw) as { text?: unknown; at?: unknown });
+    const fresh = saved && typeof saved.text === 'string' && typeof saved.at === 'number' && now - saved.at <= BRIEF_TTL;
+    return fresh ? (saved.text as string) : null;
   } catch {
     return null;
   }

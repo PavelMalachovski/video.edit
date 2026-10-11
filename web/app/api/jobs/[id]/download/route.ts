@@ -23,7 +23,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     if ('location' in d) return NextResponse.redirect(d.location, 302);
     return new Response(d.response.body, {
       headers: {
-        'Content-Type': name.endsWith('.srt') ? 'application/x-subrip; charset=utf-8' : 'video/mp4',
+        'Content-Type': name.endsWith('.srt') ? 'application/x-subrip; charset=utf-8' : name.endsWith('.png') ? 'image/png' : 'video/mp4',
         'Content-Disposition': `attachment; filename="${name}"`,
       },
     });

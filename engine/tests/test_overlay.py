@@ -439,3 +439,10 @@ def test_accent_words_are_kept_in_the_srt():
     edit = make_edit(words=SIX, style=SOFT_STYLE, accents=[accent(1.9, 2.4, "чтобы выглядеть")])
     srt = to_srt([Word(w["t0"], w["t1"], w["text"]) for w in edit["words"]], timeline(edit))
     assert "чтобы выглядеть" in srt
+
+
+def test_the_ads_version_draws_every_frame_in_the_ads_zone():
+    tl = Timeline([(0.0, 4.0)], 1.0)
+    events = build_overlay_events(make_edit(zone="ads", hold=0.5, end={"seconds": 1.0, "lines": ["Сохрани"]}), tl)
+    assert events and all(e["state"].get("zone") == "ads" for e in events)
+    assert all("zone" not in e["state"] for e in build_overlay_events(make_edit(), tl)), "обычный ролик — без зоны"

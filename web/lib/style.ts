@@ -1,7 +1,7 @@
 // Стиль на экране превью: итоговый StyleSpec по выбору Павла (то же правило, что final_style движка), образец
 // состояния слоя на кадре (субтитры — по правилу build_sub_events), вставки по ответам и запомненный выбор.
 import { chosen, type Draft } from './answers.ts';
-import { AB_KINDS, ADJUST, ADJUSTABLE, HOOK_SIZE, HOOK_Y, INSERT_W, INSERT_ZONE, inRange, isInsertBox, RESERVED, SUB_SIZE, SUB_Y, type AbKind, type Adjustable, type InsertBox, type Question, type SampleInsert, type StyleChoice, type StyleSpec, type Styles } from './jobfiles.ts';
+import { AB_KINDS, ADJUST, COVER, type CoverChoice, ADJUSTABLE, HOOK_SIZE, HOOK_Y, INSERT_W, INSERT_ZONE, inRange, isInsertBox, RESERVED, SUB_SIZE, SUB_Y, type AbKind, type Adjustable, type InsertBox, type Question, type SampleInsert, type StyleChoice, type StyleSpec, type Styles } from './jobfiles.ts';
 
 export { HOOK_SIZE, HOOK_Y, INSERT_W, SUB_SIZE, SUB_Y };
 export type { InsertBox };
@@ -14,7 +14,11 @@ export type InsertState = {
   key?: string; // ключ для рамки Павла (insertKey); шаблон его не читает
 };
 export type EndState = { lines: string[]; handle?: string; logo?: string; t: number }; // финальная карточка (t — с от её начала)
-export type OverlayState = { sub?: SubState; hook?: { text: string }; cta?: { lines: string[]; word: string }; inserts: InsertState[]; end?: EndState };
+export type OverlayState = {
+  sub?: SubState; hook?: { text: string }; cta?: { lines: string[]; word: string }; inserts: InsertState[]; end?: EndState;
+  cover?: { text: string }; // обложка: хук крупно по центру кадра
+  zone?: 'ads'; // версия для рекламы: текст и вставки выше кнопки и подписи рекламы
+};
 
 type Variant = StyleChoice['variant'];
 
@@ -42,6 +46,8 @@ export function clampTo(key: Adjustable, x: number): number {
   return Math.min(range.max, Math.max(range.min, Math.round(x / step) * step));
 }
 export const clampSubY = (y: number): number => clampTo('subY', y);
+/** Субтитры ниже безопасной зоны Reels (низ рамки ниже 1530): там их может закрыть подпись к ролику — страница скажет. */
+export const underCaption = (b: { y: number; h: number } | null | undefined): boolean => !!b && b.y + b.h > INSERT_ZONE.y1;
 export const clampHookY = (y: number): number => clampTo('hookY', y);
 export const clampSubSize = (size: number): number => clampTo('subSize', size);
 export const clampHookSize = (size: number): number => clampTo('hookSize', size);
@@ -226,6 +232,70 @@ export function loadSpeed(storage: Storage | null, jobId: string): number {
 export function saveSpeed(storage: Storage | null, jobId: string, speed: number): void {
   try {
     storage?.setItem(speedKey(jobId), String(speed));
+  } catch {
+    // нет хранилища — выбор живёт до перезагрузки
+  }
+}
+
+// ---------- версия для рекламы (localStorage['vm:ad:<id>']) ----------
+
+const adKey = (jobId: string): string => `vm:ad:${jobId}`;
+
+export function loadAd(storage: Storage | null, jobId: string): boolean {
+  try {
+    return storage?.getItem(adKey(jobId)) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function saveAd(storage: Storage | null, jobId: string, on: boolean): void {
+  try {
+    if (on) storage?.setItem(adKey(jobId), '1');
+    else storage?.removeItem(adKey(jobId));
+  } catch {
+    // нет хранилища — выбор живёт до перезагрузки
+  }
+}
+
+// ---------- обложка (localStorage['vm:cover:<id>']) ----------
+
+const coverKey = (jobId: string): string => `vm:cover:${jobId}`;
+
+/** Выбор обложки в браузере: кадр и текст — если Павел его правил (нет поля или пусто — текст идёт за хуком). */
+export type CoverPick = { frame: number; text?: string };
+
+function isCoverPick(c: unknown): c is CoverPick {
+  if (typeof c !== 'object' || c === null) return false;
+  const { frame, text } = c as Record<string, unknown>;
+  return Number.isInteger(frame) && (frame as number) >= 0 && (frame as number) < COVER.frames
+    && (text === undefined || (typeof text === 'string' && text.length <= COVER.text));
+}
+
+export function loadCover(storage: Storage | null, jobId: string): CoverPick | null {
+  try {
+    const raw = storage?.getItem(coverKey(jobId));
+    const value: unknown = raw ? JSON.parse(raw) : null;
+    return isCoverPick(value) ? { frame: value.frame, ...(value.text !== undefined ? { text: value.text } : {}) } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Что на обложке: выбранный кадр (такого нет — первый) и текст — свой текст Павла, иначе хук, который он выбрал,
+ *  иначе предложение Claude (`styles.cover.text`); длиннее обложки (80 знаков) текст не берётся. Обложки нет — null. */
+export function coverOf(pick: CoverPick | null, styles: Styles, hook: string | null): CoverChoice | null {
+  if (!styles.cover) return null;
+  const fits = (t: string | null | undefined): string | null => {
+    const x = (t ?? '').trim();
+    return x && x.length <= COVER.text ? x : null;
+  };
+  return { frame: pick && pick.frame < styles.cover.frames.length ? pick.frame : 0, text: fits(pick?.text) ?? fits(hook) ?? styles.cover.text };
+}
+
+export function saveCover(storage: Storage | null, jobId: string, cover: CoverPick): void {
+  try {
+    storage?.setItem(coverKey(jobId), JSON.stringify(cover));
   } catch {
     // нет хранилища — выбор живёт до перезагрузки
   }

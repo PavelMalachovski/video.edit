@@ -114,7 +114,7 @@ def test_music_loops_to_the_end(tmp_path):
     music = synth(tmp_path / "music.wav", f"sine=f=100:r={RATE},volume=8", 2)  # короче ролика
     _, samples, rate, _ = mix(tmp_path, voice, speed=1.0, final_dur=8.0, music={"file": str(music), "gainDb": -18}, sfx=[])
     assert samples.shape[1] / rate == pytest.approx(8.0, abs=0.05)
-    assert rms_db(samples[0][int(5 * rate) : int(6 * rate)]) > -30, "short music is looped"
+    assert rms_db(samples[0][int(5 * rate) : int(6 * rate)]) > -45, "short music is looped"
 
 
 def test_sfx_lands_on_time(tmp_path):
@@ -164,13 +164,50 @@ def test_empty_music_file_is_skipped_not_hung(tmp_path):
     assert samples.shape[1] / rate == pytest.approx(3.0, abs=0.002)
 
 
-def test_music_fades_in_and_keeps_its_gain(tmp_path):
+def test_music_fades_in(tmp_path):
     voice = bursts(tmp_path / "voice.wav", 3000, 6, "lt(t,0)")  # тишина
-    music = synth(tmp_path / "music.wav", f"sine=f=100:r={RATE},volume=8", 10)  # полная шкала: RMS −3 дБ
+    music = synth(tmp_path / "music.wav", f"sine=f=100:r={RATE},volume=8", 10)
     _, samples, rate, _ = mix(tmp_path, voice, speed=1.0, final_dur=6.0, music={"file": str(music), "gainDb": -18}, sfx=[])
     low = samples[0]
     assert rms_db(low[: int(0.03 * rate)]) < rms_db(low[int(0.2 * rate) : int(0.6 * rate)]) - 6, "fade-in over 0.1 s"
-    assert rms_db(low[int(1 * rate) : int(4 * rate)]) == pytest.approx(-3 - 18, abs=1.0), "music at gainDb"
+
+
+def loudness_of(path, start: float, seconds: float) -> float:
+    err = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-nostats", "-ss", str(start), "-t", str(seconds), "-i", str(path), "-af", "ebur128",
+         "-f", "null", "-"],
+        check=True, capture_output=True, text=True,
+    ).stderr
+    return float(re.findall(r"I:\s+(-?[\d.]+) LUFS", err)[-1])
+
+
+def test_music_is_brought_to_the_voice_level_before_its_gain(tmp_path):
+    """Громкий и тихий трек (разница 10 дБ, как у треков Павла) под голосом звучат одинаково: трек сначала выравнивается
+    к громкости голоса (−14 LUFS), потом `gainDb` (−18 — на 18 дБ тише голоса, как музыка в эталоне)."""
+    voice = bursts(tmp_path / "voice.wav", 3000, 6, "lt(t,0)")  # тишина: музыка без приглушения
+    levels = []
+    for name, volume in (("loud", 8), ("quiet", 2.5)):
+        music = synth(tmp_path / f"{name}.wav", f"sine=f=440:r={RATE},volume={volume}", 10)
+        out, _, _, warnings = mix(tmp_path, voice, speed=1.0, final_dur=6.0, music={"file": str(music), "gainDb": -18}, sfx=[])
+        assert warnings == []
+        levels.append(loudness_of(out, 1.0, 4.0))
+    assert levels[0] == pytest.approx(levels[1], abs=0.5), levels
+    assert levels[0] == pytest.approx(-14 - 18, abs=1.0), levels
+
+
+def test_gain_moves_the_music_from_the_voice_level(tmp_path):
+    voice = bursts(tmp_path / "voice.wav", 3000, 6, "lt(t,0)")
+    music = synth(tmp_path / "music.wav", f"sine=f=440:r={RATE},volume=8", 10)
+    out, _, _, _ = mix(tmp_path, voice, speed=1.0, final_dur=6.0, music={"file": str(music), "gainDb": -24}, sfx=[])
+    assert loudness_of(out, 1.0, 4.0) == pytest.approx(-14 - 24, abs=1.0)
+
+
+def test_a_near_silent_track_is_not_pumped_up(tmp_path):
+    """Почти тишина (−60 LUFS) не поднимается до голоса: подъём не больше 12 дБ — иначе поднялся бы и шум."""
+    voice = bursts(tmp_path / "voice.wav", 3000, 6, "lt(t,0)")
+    music = synth(tmp_path / "music.wav", f"sine=f=440:r={RATE},volume=0.008", 10)  # ≈ −60 LUFS
+    out, _, _, _ = mix(tmp_path, voice, speed=1.0, final_dur=6.0, music={"file": str(music), "gainDb": -18}, sfx=[])
+    assert loudness_of(out, 1.0, 4.0) < -60 + 12 - 18 + 2
 
 
 def test_sfx_lands_on_time_in_both_channels_with_music(tmp_path):

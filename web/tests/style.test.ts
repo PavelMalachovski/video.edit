@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { initialDraft, pick } from '../lib/answers.ts';
 import type { Question, StyleChoice, Styles } from '../lib/jobfiles.ts';
-import { allowedFonts, choiceFor, clampHookY, clampSubY, finalStyle, HOOK_Y, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES } from '../lib/style.ts';
+import { allowedFonts, choiceFor, clampHookSize, clampHookY, clampSubSize, clampSubY, finalStyle, HOOK_SIZE, HOOK_Y, SUB_SIZE, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES } from '../lib/style.ts';
 import { blockedStorage, memoryStorage } from './helpers.ts';
 
 // Общая с движком фикстура: final_style в engine/vm/style.py обязан давать то же самое.
@@ -145,4 +145,21 @@ test('hook: Pavel moves it up or down, inside the safe zone, by 10 px', () => {
   assert.equal(loadChoice(store, id, STYLES).hookY, 700);
   saveChoice(store, id, STYLES, { ...plain, hookY: 1500 });
   assert.deepEqual(loadChoice(store, id, STYLES), choiceFor(STYLES, 'A'), 'a place outside the zone is not taken back');
+});
+
+test('sizes: Pavel makes the hook and subtitles bigger or smaller, within limits, by 2 px', () => {
+  const plain = choiceFor(STYLES, 'B');
+  const b = STYLES.variants[1].spec;
+  assert.deepEqual([finalStyle(STYLES, plain).subtitles.size, finalStyle(STYLES, plain).hook.size], [b.subtitles.size, b.hook.size]);
+  const big = finalStyle(STYLES, { ...plain, subSize: 80, hookSize: 100 });
+  assert.deepEqual([big.subtitles.size, big.hook.size], [80, 100]);
+  assert.equal(clampSubSize(71), 72);
+  assert.equal(clampSubSize(5), SUB_SIZE.min);
+  assert.equal(clampHookSize(500), HOOK_SIZE.max);
+  const store = memoryStorage();
+  const id = '261010-120000-ab97';
+  saveChoice(store, id, STYLES, { ...plain, subSize: 80, hookSize: 100 });
+  assert.deepEqual([loadChoice(store, id, STYLES).subSize, loadChoice(store, id, STYLES).hookSize], [80, 100]);
+  saveChoice(store, id, STYLES, { ...plain, hookSize: 300 });
+  assert.deepEqual(loadChoice(store, id, STYLES), choiceFor(STYLES, 'A'), 'a size out of range is not taken back');
 });

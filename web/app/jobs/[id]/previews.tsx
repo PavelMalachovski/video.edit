@@ -1,16 +1,16 @@
 'use client';
 // Экран «3 · Три превью»: три варианта стиля на настоящем кадре и крупное превью выбора Павла — всё рисует шаблон слоя;
-// шрифт и цвета меняются сразу, хук и субтитры перетаскиваются по крупному превью выше или ниже. «Ещё три варианта» — шаг
+// шрифт и цвета меняются сразу, хук и субтитры двигаются по крупному превью выше-ниже и меняют размер (щипком или уголком). «Ещё три варианта» — шаг
 // restyle; «Монтировать» — ответы, стиль и шаг render.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { buildAnswers, previewHook, type Draft } from '@/lib/answers.ts';
 import { storage } from '@/lib/client.ts';
 import { mmss } from '@/lib/format.ts';
-import type { Question, StyleChoice, Styles } from '@/lib/jobfiles.ts';
+import { ADJUSTABLE, type Adjustable, type Question, type StyleChoice, type Styles } from '@/lib/jobfiles.ts';
 import { MAX_NOTE } from '@/lib/jobs.ts';
 import {
-  allowedFonts, choiceFor, clampHookY, clampSubY, finalStyle, HOOK_Y, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed,
-  SPEEDS, SUB_Y, SWATCHES,
+  allowedFonts, choiceFor, clampTo, finalStyle, HOOK_SIZE, HOOK_Y, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed,
+  SPEEDS, SUB_SIZE, SUB_Y, SWATCHES,
 } from '@/lib/style.ts';
 import PreviewFrame from '../../preview-frame';
 import type { Act } from './job';
@@ -33,6 +33,8 @@ type Props = {
 const BIG = 270; // ширина крупного превью, px экрана
 const SCALE = BIG / 1080;
 const STEP = 20; // px кадра на нажатие «Выше» / «Ниже» и стрелку
+const SIZE_STEP = 4; // px размера на нажатие «Меньше» / «Больше»
+const GROW = BIG / 2; // уголок ⤢: на сколько px экрана потянуть вправо, чтобы размер вырос вдвое
 const HOOK_DEFAULT = 400; // центр хука, если в стиле не задан (template/overlay.js, HOOK_Y)
 
 const ROWS: { key: ColorKey; title: string; own: string }[] = [
@@ -108,20 +110,22 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
   // смена варианта сбрасывает шрифты и цвета к нему, а места хука и субтитров, которые Павел выбрал сам, остаются
   const pickVariant = (id: StyleChoice['variant']) => setChoice({
     ...choiceFor(styles, id),
-    ...(choice.subY === undefined ? {} : { subY: choice.subY }),
-    ...(choice.hookY === undefined ? {} : { hookY: choice.hookY }),
+    ...Object.fromEntries(ADJUSTABLE.filter((k) => choice[k] !== undefined).map((k) => [k, choice[k]])),
   });
-  const place = (key: 'subY' | 'hookY') => ({
-    moved: choice[key] !== undefined,
-    move: (y: number) => setChoice({ ...choice, [key]: key === 'subY' ? clampSubY(y) : clampHookY(y) }),
-    reset: () => {
-      const { [key]: _, ...rest } = choice;
-      setChoice(rest);
-    },
-  });
-  const subs = { ...place('subY'), y: spec.subtitles.y, range: SUB_Y, name: 'Субтитры', label: 'Высота субтитров' };
-  const hookPlace = { ...place('hookY'), y: spec.hook.y ?? HOOK_DEFAULT, range: HOOK_Y, name: 'Хук', label: 'Высота хука' };
-  const movable = state.hook ? [hookPlace, subs] : [subs]; // хук двигается, когда он есть на превью
+  const set = (key: Adjustable) => (x: number) => setChoice({ ...choice, [key]: clampTo(key, x) });
+  const reset = (...keys: Adjustable[]) => () =>
+    setChoice(Object.fromEntries(Object.entries(choice).filter(([k]) => !keys.includes(k as Adjustable))) as StyleChoice);
+  const subs = {
+    name: 'Субтитры', label: 'Высота субтитров', y: spec.subtitles.y, range: SUB_Y, move: set('subY'),
+    size: spec.subtitles.size, sizes: SUB_SIZE, resize: set('subSize'),
+    changed: choice.subY !== undefined || choice.subSize !== undefined, reset: reset('subY', 'subSize'),
+  };
+  const hookPart = {
+    name: 'Хук', label: 'Высота хука', y: spec.hook.y ?? HOOK_DEFAULT, range: HOOK_Y, move: set('hookY'),
+    size: spec.hook.size, sizes: HOOK_SIZE, resize: set('hookSize'),
+    changed: choice.hookY !== undefined || choice.hookSize !== undefined, reset: reset('hookY', 'hookSize'),
+  };
+  const movable = state.hook ? [hookPart, subs] : [subs]; // хук настраивается, когда он есть на превью
   const pickColor = (key: ColorKey, color: string) => setChoice({ ...choice, colors: { ...choice.colors, [key]: color.toUpperCase() } });
 
   return (
@@ -148,17 +152,19 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
       <div className="big-wrap">
         <div className="big-host">
           <PreviewFrame frameUrl={frameUrl} spec={spec} state={state} progress={progress} width={BIG} big />
-          {movable.map((m) => <DragHandle key={m.name} label={m.label} y={m.y} range={m.range} onMove={m.move} />)}
+          {movable.map((m) => <DragHandle key={m.name} label={m.label} y={m.y} range={m.range} onMove={m.move} size={m.size} onSize={m.resize} />)}
         </div>
       </div>
       <div className="sub-move">
-        <span className="muted small">Хук и субтитры можно потянуть на превью выше или ниже</span>
+        <span className="muted small">Хук и субтитры тянутся на превью выше или ниже; размер — щипком двумя пальцами или уголком ⤢</span>
         {movable.map((m) => (
           <div key={m.name} className="sub-move-row">
             <span className="small">{m.name}</span>
-            <button type="button" className="pill" aria-label={`${m.name} выше`} disabled={m.y <= m.range.min} onClick={() => m.move(m.y - STEP)}>Выше</button>
-            <button type="button" className="pill" aria-label={`${m.name} ниже`} disabled={m.y >= m.range.max} onClick={() => m.move(m.y + STEP)}>Ниже</button>
-            {m.moved ? <button type="button" className="link" aria-label={`${m.name}: как в варианте`} onClick={m.reset}>Как в варианте</button> : null}
+            <button type="button" className="pill" aria-label={`${m.name} выше`} disabled={m.y <= m.range.min} onClick={() => m.move(m.y - STEP)}>↑</button>
+            <button type="button" className="pill" aria-label={`${m.name} ниже`} disabled={m.y >= m.range.max} onClick={() => m.move(m.y + STEP)}>↓</button>
+            <button type="button" className="pill" aria-label={`${m.name} меньше`} disabled={m.size <= m.sizes.min} onClick={() => m.resize(m.size - SIZE_STEP)}>A−</button>
+            <button type="button" className="pill" aria-label={`${m.name} больше`} disabled={m.size >= m.sizes.max} onClick={() => m.resize(m.size + SIZE_STEP)}>A+</button>
+            {m.changed ? <button type="button" className="link" aria-label={`${m.name}: как в варианте`} onClick={m.reset}>Как было</button> : null}
           </div>
         ))}
       </div>
@@ -227,28 +233,63 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
   );
 }
 
-type HandleProps = { label: string; y: number; range: { min: number; max: number }; onMove: (y: number) => void };
+type HandleProps = {
+  label: string; y: number; range: { min: number; max: number }; onMove: (y: number) => void; size: number; onSize: (size: number) => void;
+};
+type Gesture =
+  | { kind: 'move'; from: number; y: number }
+  | { kind: 'grow'; from: number; size: number }
+  | { kind: 'pinch'; span: number; size: number };
 
-/** Ручка на крупном превью: полоса на высоте `y` (px кадра), тянется мышкой или пальцем, стрелками — по STEP. */
-function DragHandle({ label, y, range, onMove }: HandleProps) {
-  const drag = useRef<{ from: number; y: number } | null>(null);
+/** Ручка на крупном превью — полоса на высоте `y` (px кадра). Один палец или мышь — двигает выше-ниже; два пальца —
+ *  щипок меняет размер; уголок ⤢ мышкой вправо-влево — тоже размер; стрелки — выше-ниже по STEP. */
+function DragHandle({ label, y, range, onMove, size, onSize }: HandleProps) {
+  const points = useRef(new Map<number, number>()); // пальцы на ручке: id → x
+  const gesture = useRef<Gesture | null>(null);
+  const span = () => {
+    const [a, b] = [...points.current.values()];
+    return Math.abs(a - b);
+  };
+  const end = (id: number) => {
+    points.current.delete(id);
+    gesture.current = null; // палец убран — жест закончен: оставшийся палец не дёргает ручку
+  };
   return (
     <div className="sub-handle" role="slider" tabIndex={0} aria-label={label} aria-orientation="vertical"
-      aria-valuemin={range.min} aria-valuemax={range.max} aria-valuenow={y} title={`${label}: потяни выше или ниже`}
+      aria-valuemin={range.min} aria-valuemax={range.max} aria-valuenow={y} title={`${label}: потяни выше или ниже; размер — щипком или уголком`}
       style={{ top: y * SCALE }}
       onPointerDown={(e) => {
-        e.currentTarget.setPointerCapture(e.pointerId);
-        drag.current = { from: e.clientY, y };
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } catch {
+          // указатель уже ушёл — жест всё равно ловим
+        }
+        points.current.set(e.pointerId, e.clientX);
+        const g = gesture.current;
+        if (points.current.size >= 2) {
+          if (g?.kind === 'move') onMove(g.y); // первый палец уже сдвинул ручку — щипок только про размер
+          gesture.current = { kind: 'pinch', span: Math.max(1, span()), size };
+        } else if ((e.target as HTMLElement).closest('[data-grip]')) {
+          gesture.current = { kind: 'grow', from: e.clientX, size };
+        } else {
+          gesture.current = { kind: 'move', from: e.clientY, y };
+        }
       }}
-      onPointerMove={(e) => drag.current && onMove(drag.current.y + (e.clientY - drag.current.from) / SCALE)}
-      onPointerUp={() => { drag.current = null; }}
-      onPointerCancel={() => { drag.current = null; }}
+      onPointerMove={(e) => {
+        if (points.current.has(e.pointerId)) points.current.set(e.pointerId, e.clientX);
+        const g = gesture.current;
+        if (g?.kind === 'move') onMove(g.y + (e.clientY - g.from) / SCALE);
+        else if (g?.kind === 'grow') onSize(g.size * (1 + (e.clientX - g.from) / GROW));
+        else if (g?.kind === 'pinch' && points.current.size >= 2) onSize((g.size * span()) / g.span);
+      }}
+      onPointerUp={(e) => end(e.pointerId)}
+      onPointerCancel={(e) => end(e.pointerId)}
       onKeyDown={(e) => {
         if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
         e.preventDefault();
         onMove(y + (e.key === 'ArrowUp' ? -STEP : STEP));
       }}>
-      <span aria-hidden="true">⇅</span>
+      <span className="size-grip" data-grip aria-hidden="true">⤢</span>
     </div>
   );
 }

@@ -96,14 +96,26 @@ export type Styles = {
   fonts?: { main: string[]; hand: string[] };
 };
 /** Выбор Павла на превью; `subY` и `hookY` — куда он перетащил субтитры (центр блока) и хук (центр строки капсом),
- *  px кадра; нет — как в варианте. */
+ *  px кадра; `subSize` и `hookSize` — их размер, px; нет — как в варианте (пределы — ADJUST). */
 export type StyleChoice = {
-  variant: 'A' | 'B' | 'C'; font: string; hand: string; colors: { text: string; accent: string; bar: string }; subY?: number; hookY?: number;
+  variant: 'A' | 'B' | 'C'; font: string; hand: string; colors: { text: string; accent: string; bar: string }; subY?: number; hookY?: number; subSize?: number; hookSize?: number;
 };
 /** Где могут стоять субтитры (центр блока): блок не выходит из безопасной зоны 120–1530 px. */
 export const SUB_Y = { min: 240, max: 1440 };
 /** Где может стоять хук (центр строки капсом): его рамка — от y − 75 до y + 200 — не выходит из безопасной зоны. */
 export const HOOK_Y = { min: 200, max: 1330 };
+export const SUB_SIZE = { min: 40, max: 110 };
+export const HOOK_SIZE = { min: 48, max: 120 };
+/** Что Павел настраивает на превью: поле выбора → часть и поле StyleSpec, пределы и шаг (то же — ADJUSTED в engine/vm/style.py). */
+export const ADJUST = {
+  subY: { part: 'subtitles', field: 'y', range: SUB_Y, step: 10 },
+  hookY: { part: 'hook', field: 'y', range: HOOK_Y, step: 10 },
+  subSize: { part: 'subtitles', field: 'size', range: SUB_SIZE, step: 2 },
+  hookSize: { part: 'hook', field: 'size', range: HOOK_SIZE, step: 2 },
+} as const;
+export type Adjustable = keyof typeof ADJUST;
+export const ADJUSTABLE = Object.keys(ADJUST) as Adjustable[];
+export const inRange = (key: Adjustable, x: unknown): x is number => isNum(x) && x >= ADJUST[key].range.min && x <= ADJUST[key].range.max;
 
 function isSpec(s: unknown): s is StyleSpec {
   if (!isObject(s) || !isFontId(s.font) || !isFontId(s.hand) || !isObject(s.colors)) return false;
@@ -177,18 +189,22 @@ const isFontId = (x: unknown): x is string => isStr(x) && x.trim() !== '' && x.l
 
 function parseStyle(raw: unknown): StyleChoice | string {
   if (!isObject(raw)) return 'style: нужен объект';
-  const { variant, font, hand, colors, subY, hookY } = raw;
+  const { variant, font, hand, colors } = raw;
   if (variant !== 'A' && variant !== 'B' && variant !== 'C') return 'style.variant: A, B или C';
   if (!isFontId(font) || !isFontId(hand)) return 'style: шрифт не такой';
   if (!isObject(colors) || !['text', 'accent', 'bar'].every((k) => typeof colors[k] === 'string' && COLOR.test(colors[k] as string))) {
     return 'style.colors: нужны #RRGGBB для text, accent, bar';
   }
-  if (subY !== undefined && !(isNum(subY) && subY >= SUB_Y.min && subY <= SUB_Y.max)) return `style.subY: от ${SUB_Y.min} до ${SUB_Y.max}`;
-  if (hookY !== undefined && !(isNum(hookY) && hookY >= HOOK_Y.min && hookY <= HOOK_Y.max)) return `style.hookY: от ${HOOK_Y.min} до ${HOOK_Y.max}`;
+  const adjusted: Partial<Record<Adjustable, number>> = {};
+  for (const key of ADJUSTABLE) {
+    const x = raw[key];
+    if (x === undefined) continue;
+    if (!inRange(key, x)) return `style.${key}: от ${ADJUST[key].range.min} до ${ADJUST[key].range.max}`;
+    adjusted[key] = x;
+  }
   return {
     variant, font, hand, colors: { text: colors.text as string, accent: colors.accent as string, bar: colors.bar as string },
-    ...(subY === undefined ? {} : { subY }),
-    ...(hookY === undefined ? {} : { hookY }),
+    ...adjusted,
   };
 }
 

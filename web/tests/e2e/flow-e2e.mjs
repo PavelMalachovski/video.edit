@@ -301,6 +301,35 @@ const segments = [
     await page.mouse.move(hookBox.x + hookBox.width / 2, hookBox.y + hookBox.height / 2 + 30, { steps: 6 });
     await page.mouse.up();
     await until(async () => (await bigSpec()).hook.y === hookY + 120, 5000, `хук перетащен на ${hookY + 120}`);
+    // размер: мышкой — уголок ⤢ субтитров вправо на 27 px (×1,2); на телефоне — щипок двумя пальцами по хуку (×1,5)
+    const subSize = restyled.variants[1].spec.subtitles.size;
+    const hookSize = restyled.variants[1].spec.hook.size;
+    const grip = page.getByRole('slider', { name: 'Высота субтитров' }).locator('[data-grip]');
+    await grip.scrollIntoViewIfNeeded();
+    const g = await grip.boundingBox();
+    await page.mouse.move(g.x + g.width / 2, g.y + g.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(g.x + g.width / 2 + 27, g.y + g.height / 2, { steps: 5 });
+    await page.mouse.up();
+    const grown = Math.round((subSize * 1.2) / 2) * 2;
+    await until(async () => (await bigSpec()).subtitles.size === grown, 5000, `субтитры крупнее: ${grown}`);
+    await hookHandle.scrollIntoViewIfNeeded();
+    await hookHandle.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const y = r.top + r.height / 2;
+      const fire = (type, pointerId, x) => el.dispatchEvent(new PointerEvent(type, { pointerId, clientX: x, clientY: y, bubbles: true, pointerType: 'touch' }));
+      fire('pointerdown', 11, r.left + 100);
+      fire('pointerdown', 12, r.left + 140);
+      fire('pointermove', 12, r.left + 150);
+      fire('pointermove', 12, r.left + 160);
+      fire('pointerup', 12, r.left + 160);
+      fire('pointerup', 11, r.left + 100);
+    });
+    const pinched = Math.round((hookSize * 1.5) / 2) * 2;
+    await until(async () => (await bigSpec()).hook.size === pinched, 5000, `хук крупнее щипком: ${pinched}`);
+    await page.getByRole('button', { name: 'Субтитры меньше', exact: true }).click();
+    await until(async () => (await bigSpec()).subtitles.size === grown - 4, 5000, 'кнопка «Меньше» — на 4 px');
+    await shot(page, 'previews-resized');
     await shot(page, 'previews-subtitles-moved');
     check(await page.getByRole('button', { name: '×1.1', exact: true }).getAttribute('aria-pressed') === 'true', 'скорость по умолчанию не ×1.1');
     await page.getByRole('button', { name: '×1.3', exact: true }).click();
@@ -317,6 +346,7 @@ const segments = [
     check(answers.speed === 1.3, `speed: ${answers.speed}`);
     check(answers.style?.subY === variantY - 180, `style.subY: ${answers.style?.subY}`);
     check(answers.style?.hookY === hookY + 120, `style.hookY: ${answers.style?.hookY}`);
+    check(answers.style?.subSize === grown - 4 && answers.style?.hookSize === pinched, `размеры: ${answers.style?.subSize}, ${answers.style?.hookSize}`);
     check(isDeepStrictEqual(finalStyle(restyled, answers.style), last), `стиль ответа ${JSON.stringify(answers.style)} ≠ последнему превью`);
   }],
 

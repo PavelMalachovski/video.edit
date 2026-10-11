@@ -86,3 +86,8 @@ def test_subtitles_pavel_dragged_stay_where_he_put_them():
 def test_a_hook_pavel_dragged_stays_where_he_put_it():
     render = section("Шаг render")
     assert "hookY" in render and "unsure" in render
+
+
+def test_sizes_pavel_set_stay():
+    render = section("Шаг render")
+    assert "subSize" in render and "hookSize" in render

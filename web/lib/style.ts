@@ -1,9 +1,9 @@
 // Стиль на экране превью: итоговый StyleSpec по выбору Павла (то же правило, что final_style движка), образец
 // состояния слоя на кадре (субтитры — по правилу build_sub_events), вставки по ответам и запомненный выбор.
 import { chosen, type Draft } from './answers.ts';
-import { HOOK_Y, RESERVED, SUB_Y, type Question, type SampleInsert, type StyleChoice, type StyleSpec, type Styles } from './jobfiles.ts';
+import { ADJUST, ADJUSTABLE, HOOK_SIZE, HOOK_Y, inRange, RESERVED, SUB_SIZE, SUB_Y, type Adjustable, type Question, type SampleInsert, type StyleChoice, type StyleSpec, type Styles } from './jobfiles.ts';
 
-export { HOOK_Y, SUB_Y };
+export { HOOK_SIZE, HOOK_Y, SUB_SIZE, SUB_Y };
 
 /** Состояние слоя для window.renderState шаблона (template/overlay.js, inserts.js). */
 export type SubState = { words: string[]; active: number; visible: number };
@@ -15,7 +15,7 @@ export type OverlayState = { sub?: SubState; hook?: { text: string }; cta?: { li
 
 type Variant = StyleChoice['variant'];
 
-/** spec выбранного варианта, в нём — шрифт, рукописный, три цвета Павла и высота субтитров и хука, если он их перетащил;
+/** spec выбранного варианта, в нём — шрифт, рукописный, три цвета Павла, высота и размер субтитров и хука, если он их менял;
  *  остальное — как у варианта. */
 export function finalStyle(styles: Styles, c: StyleChoice): StyleSpec {
   const variant = styles.variants.find((v) => v.id === c.variant);
@@ -24,18 +24,24 @@ export function finalStyle(styles: Styles, c: StyleChoice): StyleSpec {
   spec.font = c.font;
   spec.hand = c.hand;
   spec.colors = { ...spec.colors, text: c.colors.text, accent: c.colors.accent, bar: c.colors.bar };
-  if (c.subY !== undefined) spec.subtitles.y = c.subY;
-  if (c.hookY !== undefined) spec.hook.y = c.hookY;
+  for (const key of ADJUSTABLE) {
+    const x = c[key];
+    if (x === undefined) continue;
+    const { part, field } = ADJUST[key];
+    (spec[part] as Record<string, unknown>)[field] = x;
+  }
   return spec;
 }
 
-const clamp = (range: { min: number; max: number }, y: number) => Math.min(range.max, Math.max(range.min, Math.round(y / 10) * 10));
-
-/** Высота субтитров при перетаскивании: внутри SUB_Y, шагом 10 px. */
-export const clampSubY = (y: number): number => clamp(SUB_Y, y);
-
-/** Высота хука при перетаскивании: внутри HOOK_Y, шагом 10 px. */
-export const clampHookY = (y: number): number => clamp(HOOK_Y, y);
+/** Значение, которое Павел тянет на превью, — внутри пределов ADJUST, с его шагом (10 px места, 2 px размера). */
+export function clampTo(key: Adjustable, x: number): number {
+  const { range, step } = ADJUST[key];
+  return Math.min(range.max, Math.max(range.min, Math.round(x / step) * step));
+}
+export const clampSubY = (y: number): number => clampTo('subY', y);
+export const clampHookY = (y: number): number => clampTo('hookY', y);
+export const clampSubSize = (size: number): number => clampTo('subSize', size);
+export const clampHookSize = (size: number): number => clampTo('hookSize', size);
 
 /** Выбор «как у варианта»: его шрифты и цвета (смена варианта сбрасывает выбор к ним). */
 export function choiceFor(styles: Styles, variant: Variant): StyleChoice {
@@ -165,8 +171,7 @@ function isChoice(x: unknown, styles: Styles): x is StyleChoice {
   return typeof c === 'object' && c !== null && styles.variants.some((v) => v.id === c.variant) && typeof c.font === 'string' && c.font !== ''
     && typeof c.hand === 'string' && c.hand !== '' && typeof c.colors === 'object' && c.colors !== null
     && ['text', 'accent', 'bar'].every((k) => COLOR.test(String((c.colors as Record<string, unknown>)[k])))
-    && (c.subY === undefined || (typeof c.subY === 'number' && c.subY >= SUB_Y.min && c.subY <= SUB_Y.max))
-    && (c.hookY === undefined || (typeof c.hookY === 'number' && c.hookY >= HOOK_Y.min && c.hookY <= HOOK_Y.max))
+    && ADJUSTABLE.every((key) => c[key] === undefined || inRange(key, c[key]))
     && [['main', c.font], ['hand', c.hand]].every(([kind, id]) => {
       const ids = styles.fonts?.[kind as 'main' | 'hand'];
       return !ids?.length || ids.includes(id);

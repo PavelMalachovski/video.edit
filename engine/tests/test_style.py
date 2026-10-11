@@ -51,3 +51,18 @@ def test_a_hook_place_outside_the_safe_zone_is_refused(tmp_path, hook_y):
     job.root.mkdir(parents=True)
     with pytest.raises(ValueError, match="hookY"):
         job.write("answers.json", {**FIXTURE["answers"], "style": {**FIXTURE["answers"]["style"], "hookY": hook_y}})
+
+
+def test_sizes_stay_as_in_the_variant_unless_pavel_changed_them():
+    style = {k: v for k, v in FIXTURE["answers"]["style"].items() if k not in ("subSize", "hookSize")}
+    variant = next(v for v in FIXTURE["styles"]["variants"] if v["id"] == style["variant"])
+    spec = final_style(FIXTURE["styles"], {**FIXTURE["answers"], "style": style})
+    assert (spec["subtitles"]["size"], spec["hook"]["size"]) == (variant["spec"]["subtitles"]["size"], variant["spec"]["hook"]["size"])
+
+
+@pytest.mark.parametrize("key, size", [("subSize", 30), ("subSize", 120), ("hookSize", 40), ("hookSize", 130), ("hookSize", "80")])
+def test_a_size_out_of_range_is_refused(tmp_path, key, size):
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    with pytest.raises(ValueError, match=key):
+        job.write("answers.json", {**FIXTURE["answers"], "style": {**FIXTURE["answers"]["style"], key: size}})

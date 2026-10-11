@@ -21,6 +21,18 @@
         "variant": { "enum": ["A", "B", "C"] },
         "font": { "type": "string", "minLength": 1 },
         "hand": { "type": "string", "minLength": 1 },
+        "subSize": {
+          "description": "Размер субтитров, который Павел выбрал на превью, px; нет — как в варианте.",
+          "type": "number",
+          "minimum": 40,
+          "maximum": 110
+        },
+        "hookSize": {
+          "description": "Размер хука (строки капсом), который Павел выбрал на превью, px; нет — как в варианте.",
+          "type": "number",
+          "minimum": 48,
+          "maximum": 120
+        },
         "hookY": {
           "description": "Куда Павел перетащил хук на превью: центр строки капсом, px кадра (титр — на той же высоте); нет — как в варианте.",
           "type": "number",

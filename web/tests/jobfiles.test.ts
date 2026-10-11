@@ -173,3 +173,13 @@ test('answers keep where Pavel dragged the hook; outside the safe zone — refus
   const { properties } = schema('answers.json').properties.style;
   assert.deepEqual([properties.hookY.minimum, properties.hookY.maximum], [200, 1330]);
 });
+
+test('answers keep the sizes Pavel set; out of range — refused', () => {
+  const p = parseAnswersBody({ answers: { hook: 'h1' }, style: { ...STYLE, subSize: 80, hookSize: 100 } }, QS);
+  assert.ok(!('error' in p) && p.style.subSize === 80 && p.style.hookSize === 100, JSON.stringify(p));
+  for (const bad of [{ subSize: 30 }, { subSize: 120 }, { hookSize: 40 }, { hookSize: 130 }, { hookSize: '80' }]) {
+    assert.ok('error' in parseAnswersBody({ answers: { hook: 'h1' }, style: { ...STYLE, ...bad } }, QS), JSON.stringify(bad));
+  }
+  const { properties } = schema('answers.json').properties.style;
+  assert.deepEqual([properties.subSize.minimum, properties.subSize.maximum, properties.hookSize.minimum, properties.hookSize.maximum], [40, 110, 48, 120]);
+});

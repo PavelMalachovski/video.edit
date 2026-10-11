@@ -139,7 +139,9 @@
         "bar": "#7CF2B0"
       },
       "subY": 1150,
-      "hookY": 520
+      "hookY": 520,
+      "subSize": 70,
+      "hookSize": 90
     },
     "uploads": {},
     "brief": ""
@@ -157,12 +159,12 @@
     "subtitles": {
       "mode": "plate",
       "words": 3,
-      "size": 60,
+      "size": 70,
       "y": 1150
     },
     "hook": {
       "mode": "outline",
-      "size": 76,
+      "size": 90,
       "y": 520
     },
     "bar": {

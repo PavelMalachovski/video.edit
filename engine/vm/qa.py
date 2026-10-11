@@ -16,8 +16,11 @@ from pathlib import Path
 
 from .media import MediaError, extract_frame, mp4_boxes, probe
 from .timeline import Timeline
+from .zoom import MAX_LEVEL
 
-SAFE = {"x0": 60, "x1": 890, "y0": 120, "y1": 1530}
+# безопасная зона; `subs_y1` — докуда Павел может опустить субтитры: над шкалой времени (ниже `y1` их может закрыть
+# подпись Reels — это его выбор, как в шаблоне); в зоне рекламы субтитры — как всё остальное
+SAFE = {"x0": 60, "x1": 890, "y0": 120, "y1": 1530, "subs_y1": 1820}
 ADS_SAFE = {"x0": 60, "x1": 890, "y0": 270, "y1": 1250}  # реклама Reels: снизу 35 % и сверху 14 % заняты (как в шаблоне)
 FACE_GAP = 40
 SUB_GAP = 20
@@ -41,13 +44,20 @@ CHECKS = {  # строки чек-листа на экране «Готово»;
 }
 
 
-def face_box(face: dict | None) -> dict | None:
-    """Рамка лица в px кадра по `edit.face` (доли): центр x, y; без w/h — 0,30 × 0,22 кадра."""
+def face_box(face: dict | None, zoom: float = 1.0) -> dict | None:
+    """Рамка лица в px кадра по `edit.face` (доли): центр x, y; без w/h — 0,30 × 0,22 кадра. `zoom` — приближение:
+    зум держит точку лица на месте, и лицо крупнее во столько же раз."""
     if not face:
         return None
-    w = round(W * face.get("w", FACE_W))
-    h = round(H * face.get("h", FACE_H))
+    w = round(W * face.get("w", FACE_W) * zoom)
+    h = round(H * face.get("h", FACE_H) * zoom)
     return {"x": round(W * face["x"] - w / 2), "y": round(H * face["y"] - h / 2), "w": w, "h": h}
+
+
+def face_of(edit: dict) -> dict | None:
+    """Рамка лица для проверок ролика по edit.json: такая, каким лицо становится при самом сильном зуме ролика."""
+    levels = [min(MAX_LEVEL, max(1.0, float(z["level"]))) for z in edit.get("zooms") or []]
+    return face_box(edit.get("face"), zoom=max(levels, default=1.0))
 
 
 def _gap(a: dict, b: dict) -> float:
@@ -106,7 +116,7 @@ def check_layout(boxes_by_event: list[dict], face: dict | None, inserts: list[di
         if boxes.get("end") and _outside(boxes["end"], safe):  # карточка — на затемнённом кадре: лицо закрывать можно
             problem(f"{NAMES['end']} вне безопасной зоны", e)
         for key, b in texts:
-            if _outside(b, safe):
+            if _outside(b, {**safe, "y1": safe.get("subs_y1", safe["y1"])} if key == "sub" else safe):
                 problem(f"{NAMES[key]} вне безопасной зоны", e)
             if face and key != "sub" and _gap(b, face) < FACE_GAP:
                 problem(f"{NAMES[key]} на лице или ближе {FACE_GAP} px к нему", e)

@@ -46,6 +46,8 @@ export function clampTo(key: Adjustable, x: number): number {
   return Math.min(range.max, Math.max(range.min, Math.round(x / step) * step));
 }
 export const clampSubY = (y: number): number => clampTo('subY', y);
+/** Субтитры ниже безопасной зоны Reels (низ рамки ниже 1530): там их может закрыть подпись к ролику — страница скажет. */
+export const underCaption = (b: { y: number; h: number } | null | undefined): boolean => !!b && b.y + b.h > INSERT_ZONE.y1;
 export const clampHookY = (y: number): number => clampTo('hookY', y);
 export const clampSubSize = (size: number): number => clampTo('subSize', size);
 export const clampHookSize = (size: number): number => clampTo('hookSize', size);

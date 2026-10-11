@@ -228,3 +228,10 @@ def test_the_ad_text_is_written_with_the_caption_and_ad_problems_have_a_way_out(
 def test_restyle_keeps_the_cover_fonts_and_sample():
     restyle = section("Шаг restyle")
     assert "`cover`" in restyle and "`fonts`" in restyle and "`sample`" in restyle
+
+
+def test_zooms_are_twice_as_close_and_pavel_may_put_the_subtitles_low():
+    zooms = section("4. Зумы и переходы")
+    assert "1.00 / 1.08 / 1.10 / 1.14, максимум 1.16" in zooms
+    style = section("2. Стиль A — домашний стиль Павла")
+    assert "до 1760" in style and "подпись Reels" in style

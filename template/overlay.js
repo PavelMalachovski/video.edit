@@ -17,8 +17,9 @@ import { drawInserts, ease } from './inserts.js';
 
 const FRAME = { w: 1080, h: 1920 };
 // безопасная зона: всё, кроме шкалы, — внутри. Для рекламы Reels (state.zone = "ads") снизу 35 % и сверху 14 % заняты
-// кнопкой CTA, подписью и шапкой — та же ширина, меньше по высоте
-const ORGANIC = { x0: 60, x1: 890, y0: 120, y1: 1530 };
+// кнопкой CTA, подписью и шапкой — та же ширина, меньше по высоте. Субтитры Павел может опустить ниже — до `subsY1`,
+// над шкалой времени: там их может закрыть подпись Reels, но это его выбор; в зоне рекламы они — как всё остальное
+const ORGANIC = { x0: 60, x1: 890, y0: 120, y1: 1530, subsY1: 1820 };
 const ADS = { x0: 60, x1: 890, y0: 270, y1: 1250 };
 let SAFE = ORGANIC;
 const CX = (SAFE.x0 + SAFE.x1) / 2; // центр безопасной зоны (справа — кнопки соцсетей)
@@ -167,9 +168,9 @@ function shift(r, dy) {
 
 /** Целый сдвиг по высоте, после которого рамка `r` стоит внутри безопасной зоны — с тем же округлением
 наружу, что и у `box`, чтобы отчётная рамка тоже не вышла за зону ни на пиксель. */
-function keepInside(r, dy) {
+function keepInside(r, dy, bottom = SAFE.y1) {
   let d = Math.round(dy);
-  if (Math.ceil(r.bottom) + d > SAFE.y1) d = SAFE.y1 - Math.ceil(r.bottom);
+  if (Math.ceil(r.bottom) + d > bottom) d = bottom - Math.ceil(r.bottom);
   if (Math.floor(r.top) + d < SAFE.y0) d = SAFE.y0 - Math.floor(r.top);
   return d;
 }
@@ -310,7 +311,7 @@ function drawSub({ spec, main }, sub) {
     below = Math.max(0, bar.bottom - (words0.bottom + ext.y));
   }
   const outer = grow(words0, ext.x, ext.y, ext.y + below);
-  const dy = keepInside(outer, Math.round(y - (words0.top + words0.bottom) / 2));
+  const dy = keepInside(outer, Math.round(y - (words0.top + words0.bottom) / 2), SAFE.subsY1 ?? SAFE.y1);
   lines.style.top = `${dy}px`;
   if (mode === 'plate') place(plate, shift(grow(words0, ext.x, ext.y), dy), { background: c.plate, borderRadius: `${Math.round(0.28 * px)}px` });
   if (bar) place(underline, shift(bar, dy), { background: c.accent, borderRadius: `${(bar.bottom - bar.top) / 2}px` });

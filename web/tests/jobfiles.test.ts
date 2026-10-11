@@ -169,11 +169,13 @@ test('answers keep where Pavel dragged the subtitles; outside the safe zone — 
   assert.ok(!('error' in p) && p.style.subY === 1100, JSON.stringify(p));
   const plain = parseAnswersBody({ answers: { hook: 'h1' }, style: STYLE }, QS);
   assert.ok(!('error' in plain) && !('subY' in plain.style));
-  for (const subY of [100, 1500, '1100', Number.NaN]) {
+  const low = parseAnswersBody({ answers: { hook: 'h1' }, style: { ...STYLE, subY: 1760 } }, QS);
+  assert.ok(!('error' in low) && low.style.subY === 1760, 'субтитры можно опустить почти до низа кадра');
+  for (const subY of [100, 1780, '1100', Number.NaN]) {
     assert.ok('error' in parseAnswersBody({ answers: { hook: 'h1' }, style: { ...STYLE, subY } }, QS), String(subY));
   }
   const { properties } = schema('answers.json').properties.style;
-  assert.deepEqual([properties.subY.minimum, properties.subY.maximum], [240, 1440]);
+  assert.deepEqual([properties.subY.minimum, properties.subY.maximum], [240, 1760]);
 });
 
 test('answers keep where Pavel dragged the hook; outside the safe zone — refused', () => {

@@ -1314,3 +1314,28 @@ def test_preview_of_a_landscape_source_is_the_9_by_16_frame_of_the_video(tmp_pat
     frame = np.frombuffer(raw, np.uint8).reshape(1920, 1080, 3).astype(int)
     assert frame[100, 540].max() > 20, "сверху — размытая копия кадра"
     assert np.abs(frame[1503, 200] - [255, 210, 63]).max() < 40, "рамка там, где встанет вставка"
+
+
+def test_render_checks_the_hook_against_the_face_as_big_as_the_strongest_zoom_makes_it(tmp_path, monkeypatch):
+    """Зум держит лицо на месте и делает его крупнее: хук в 50 px над лицом без зума при зуме 1.16 уже на лице."""
+    import vm.__main__ as cli
+    from vm.qa import face_box
+
+    face = {"x": 0.5, "y": 0.4}
+    top = face_box(face)["y"]
+    hook = {"x": 150, "y": top - 50 - 160, "w": 600, "h": 160}
+    job = Job(tmp_path / "jobs" / "abc")
+    _fake_outputs(monkeypatch, cli, job)
+    plain = cli.render
+
+    def render(job_, out_dir, name="final", preset="medium", edit=None, work="work/render"):
+        result = plain(job_, out_dir, name=name, preset=preset, edit=edit, work=work)
+        job_.path(f"{work}/frames/boxes.json").write_text(json.dumps([{"t0": 0, "t1": 2, "boxes": {"hook": hook}}]), encoding="utf-8")
+        return result
+
+    monkeypatch.setattr(cli, "render", render)
+    for level, flagged in ((1.0, False), (1.16, True)):
+        job.write("edit.json", {**EDIT_4S, "face": face, "zooms": [{"t": 0.5, "level": level}]})
+        assert main(["render", str(job.root)]) == 0
+        problems = job.read("result.json")["qa"]["problems"]
+        assert any("хук на лице" in p for p in problems) == flagged, (level, problems)

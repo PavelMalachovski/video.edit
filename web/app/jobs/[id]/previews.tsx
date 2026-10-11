@@ -9,7 +9,7 @@ import { mmss } from '@/lib/format.ts';
 import { ADJUSTABLE, COVER, type AbKind, type Adjustable, type Question, type StyleChoice, type Styles } from '@/lib/jobfiles.ts';
 import { MAX_NOTE } from '@/lib/jobs.ts';
 import {
-  allowedFonts, choiceFor, clampTo, coverOf, finalStyle, HOOK_SIZE, HOOK_Y, INSERT_W, insertKey, loadAb, loadAd, loadChoice, loadCover, loadInsertBoxes, loadSpeed, moveBox,
+  allowedFonts, choiceFor, clampTo, coverOf, finalStyle, underCaption, HOOK_SIZE, HOOK_Y, INSERT_W, insertKey, loadAb, loadAd, loadChoice, loadCover, loadInsertBoxes, loadSpeed, moveBox,
   resizeBox, resolveInserts, sampleState, saveAb, saveAd, saveChoice, saveCover, saveInsertBoxes, saveSpeed, type CoverPick, type InsertBox,
   SPEEDS, SUB_SIZE, SUB_Y, SWATCHES,
 } from '@/lib/style.ts';
@@ -40,7 +40,7 @@ const GROW = BIG / 2; // уголок ⤢: на сколько px экрана �
 const INSERT_STEP = 20; // px ширины вставки на нажатие «A−» / «A+»
 
 type Box = { x: number; y: number; w: number; h: number };
-type LayoutBoxes = { inserts?: Box[] };
+type LayoutBoxes = { inserts?: Box[]; sub?: Box };
 const HOOK_DEFAULT = 400; // центр хука, если в стиле не задан (template/overlay.js, HOOK_Y)
 const CARD_T = 10 / 13; // с от начала карточки: уже появилась, призыв — в обычном размере (дышит с частотой 1,3 Гц)
 
@@ -238,6 +238,7 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
       ) : null}
       <div className="sub-move" hidden={ending || zoned}>
         <span className="muted small">Хук и субтитры тянутся на превью выше или ниже, вставки — куда угодно; размер — щипком двумя пальцами или уголком ⤢</span>
+        {underCaption(boxes?.sub) ? <span className="warn small">Субтитры низко: в Reels их может закрыть подпись к ролику</span> : null}
         {movable.map((m) => (
           <div key={m.name} className="sub-move-row">
             <span className="small">{m.name}</span>

@@ -116,7 +116,7 @@ export type StyleChoice = {
   variant: 'A' | 'B' | 'C'; font: string; hand: string; colors: { text: string; accent: string; bar: string }; subY?: number; hookY?: number; subSize?: number; hookSize?: number;
 };
 /** Где могут стоять субтитры (центр блока): блок не выходит из безопасной зоны 120–1530 px. */
-export const SUB_Y = { min: 240, max: 1440 };
+export const SUB_Y = { min: 240, max: 1760 }; // ниже 1530 — под подписью Reels, но над шкалой времени: выбор Павла
 /** Где может стоять хук (центр строки капсом): его рамка — от y − 75 до y + 200 — не выходит из безопасной зоны. */
 export const HOOK_Y = { min: 200, max: 1330 };
 export const SUB_SIZE = { min: 40, max: 110 };

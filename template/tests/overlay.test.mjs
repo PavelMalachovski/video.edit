@@ -13,6 +13,7 @@ import { cmapCovers, contains, drawnBox } from './helpers.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const SAFE = { x0: 60, x1: 890, y0: 120, y1: 1530 };
+const SUBS_Y1 = 1820; // докуда Павел может опустить субтитры: над шкалой времени (ниже 1530 их может закрыть подпись Reels)
 
 const SPEC = {
   font: 'montserrat',
@@ -108,13 +109,18 @@ function insideSafe(b) {
   return b.x >= SAFE.x0 && b.x + b.w <= SAFE.x1 && b.y >= SAFE.y0 && b.y + b.h <= SAFE.y1;
 }
 
+/** Рамка субтитров: по ширине и сверху — безопасная зона, снизу — до SUBS_Y1. */
+function insideSubs(b) {
+  return b.x >= SAFE.x0 && b.x + b.w <= SAFE.x1 && b.y >= SAFE.y0 && b.y + b.h <= SUBS_Y1;
+}
+
 test('subtitle box inside safe zone for 6 long words', async () => {
   const words = Array(6).fill('достопримечательности');
   for (const mode of ['accumulate', 'karaoke', 'plate']) {
     await render(spec({ sub: { mode, size: 72, y: 1480 } }), { sub: { words, active: 2, visible: mode === 'accumulate' ? 3 : 6 } });
     const b = (await boxes()).sub;
     assert.ok(b, mode);
-    assert.ok(insideSafe(b), `${mode}: ${JSON.stringify(b)}`);
+    assert.ok(insideSubs(b), `${mode}: ${JSON.stringify(b)}`);
   }
 });
 
@@ -326,15 +332,21 @@ test('plate subtitles keep their size and layout whatever word is active', async
   assert.equal(new Set(looks[0].words.map(([, y]) => Math.round(y))).size, 2, 'the group takes two lines at full size');
 });
 
-test('subtitle box never crosses the safe zone, wherever y points', async () => {
+test('subtitle box stays between the top of the safe zone and just above the time bar, wherever y points', async () => {
   const words = Array(6).fill('достопримечательности');
   for (const mode of ['karaoke', 'plate', 'accumulate']) {
-    for (const y of [130, 160, 200, 1400, 1430, 1460, 1491, 1500, 1520, 1530]) {
+    for (const y of [130, 160, 200, 1400, 1530, 1700, 1760, 1800, 1900]) {
       await render(spec({ sub: { mode, size: 72, y } }), { sub: { words, active: 1, visible: 6 } });
       const b = (await boxes()).sub;
-      assert.ok(insideSafe(b), `${mode} y=${y}: ${JSON.stringify(b)}`);
+      assert.ok(insideSubs(b), `${mode} y=${y}: ${JSON.stringify(b)}`);
     }
   }
+});
+
+test('Pavel may put the subtitles low: below the Reels safe zone, down to just above the time bar', async () => {
+  await render(spec({ sub: { size: 64, y: 1760 } }), { sub: { words: ['Это', 'мои', 'субтитры'], active: 1, visible: 3 } });
+  const b = (await boxes()).sub;
+  assert.ok(b.y + b.h > SAFE.y1 + 150 && b.y + b.h <= SUBS_Y1, JSON.stringify(b));
 });
 
 test('everything drawn is inside the reported boxes (subtitles)', async () => {

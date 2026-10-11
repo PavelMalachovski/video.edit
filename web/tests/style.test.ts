@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { initialDraft, pick } from '../lib/answers.ts';
 import type { Question, StyleChoice, Styles } from '../lib/jobfiles.ts';
-import { loadAb, saveAb, loadAd, saveAd, loadCover, saveCover, coverOf, allowedFonts, choiceFor, clampHookSize, insertKey, INSERT_W, loadInsertBoxes, moveBox, placedInserts, resizeBox, saveInsertBoxes, clampHookY, clampSubSize, clampSubY, finalStyle, HOOK_SIZE, HOOK_Y, SUB_SIZE, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES } from '../lib/style.ts';
+import { loadAb, saveAb, loadAd, saveAd, loadCover, saveCover, coverOf, underCaption, allowedFonts, choiceFor, clampHookSize, insertKey, INSERT_W, loadInsertBoxes, moveBox, placedInserts, resizeBox, saveInsertBoxes, clampHookY, clampSubSize, clampSubY, finalStyle, HOOK_SIZE, HOOK_Y, SUB_SIZE, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES } from '../lib/style.ts';
 import { blockedStorage, memoryStorage } from './helpers.ts';
 
 // Общая с движком фикстура: final_style в engine/vm/style.py обязан давать то же самое.
@@ -271,4 +271,14 @@ test('the ads version choice is remembered per job', () => {
   assert.equal(loadAd(store, id), true);
   saveAd(store, id, false);
   assert.equal(loadAd(store, id), false);
+});
+
+test('subtitles may go down to just above the time bar; below the Reels safe zone the page says the caption may cover them', () => {
+  assert.equal(clampSubY(1900), 1760);
+  assert.equal(clampSubY(1757), 1760);
+  const high = { x: 200, y: 1400, w: 500, h: 120 };
+  const low = { ...high, y: 1450 };
+  assert.equal(underCaption(high), false);
+  assert.equal(underCaption(low), true, 'низ на 1570 — ниже 1530');
+  assert.equal(underCaption(undefined), false);
 });

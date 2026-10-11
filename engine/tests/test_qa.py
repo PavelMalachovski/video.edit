@@ -5,7 +5,14 @@ from itertools import pairwise
 
 import pytest
 
-from vm.qa import check_layout, check_render, checklist, control_frames, face_box
+from vm.qa import (
+    check_layout,
+    check_render,
+    checklist,
+    control_frames,
+    face_box,
+    face_of,
+)
 
 needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="нужен ffmpeg")
 
@@ -33,7 +40,7 @@ def test_hook_over_face_reported():
 
 
 def test_box_outside_safe_zone_reported():
-    low = {"x": 200, "y": 1500, "w": 500, "h": 60}  # низ на 1560 > 1530
+    low = {"x": 200, "y": 1800, "w": 500, "h": 60}  # низ на 1860: ниже, чем субтитрам можно (1820)
     wide = {"x": 40, "y": 600, "w": 300, "h": 200, "n": 0}  # левее 60
     problems = check_layout([event(0, 1.5, sub=low), event(1.5, 3, inserts=[wide])], None)
     assert len(problems) == 2
@@ -63,7 +70,7 @@ def test_texts_overlapping_reported():
 
 
 def test_a_problem_is_reported_once_with_the_first_time():
-    low = {"x": 200, "y": 1500, "w": 500, "h": 60}
+    low = {"x": 200, "y": 1800, "w": 500, "h": 60}
     events = [event(i, i + 1, sub=low) for i in range(10)]
     assert check_layout(events, None) == ["субтитры вне безопасной зоны (0,0–10,0 с ролика)"]
 
@@ -266,3 +273,19 @@ def test_the_ads_zone_is_lower_at_the_bottom_and_top():
     low = [event(0, 1, sub={"x": 200, "y": 1180, "w": 500, "h": 100})]  # низ субтитров — 1280: под кнопкой рекламы
     assert check_layout(low, None) == []
     assert any("субтитры вне безопасной зоны" in p for p in check_layout(low, None, safe=ADS_SAFE))
+
+
+def test_subtitles_may_go_down_to_just_above_the_time_bar_but_other_text_may_not():
+    sub = {"x": 200, "y": 1700, "w": 500, "h": 110}  # низ на 1810: под подписью Reels, но над шкалой — выбор Павла
+    assert check_layout([event(0, 2, sub=sub)], None) == []
+    assert any("субтитры вне безопасной зоны" in p for p in check_layout([event(0, 2, sub={**sub, "y": 1740})], None))
+    assert any("хук вне безопасной зоны" in p for p in check_layout([event(0, 2, hook={**HOOK, "y": 1500})], None))
+
+
+def test_the_face_box_grows_with_the_strongest_zoom_around_the_face():
+    face = {"x": 0.5, "y": 0.3}
+    assert face_box(face, zoom=1.16) == {"x": 352, "y": 331, "w": 376, "h": 490}
+    edit = {"face": face, "zooms": [{"t": 0.0, "level": 1.0}, {"t": 2.0, "level": 1.14}, {"t": 5.0, "level": 1.08}]}
+    assert face_of(edit) == face_box(face, zoom=1.14)
+    assert face_of({**edit, "zooms": [{"t": 1.0, "level": 1.5}]}) == face_box(face, zoom=1.16), "зум больше 1.16 движок не даёт"
+    assert face_of({**edit, "zooms": []}) == face_box(face) and face_of({"face": None, "zooms": []}) is None

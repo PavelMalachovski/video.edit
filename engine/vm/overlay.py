@@ -81,7 +81,7 @@ def build_overlay_events(edit: dict, tl: Timeline) -> list[dict]:
             piece.stop = still
             if piece.accent:  # акцент не уходит: на стоп-кадре он такой, каким был в последний кадр
                 piece.accent["leave"] = piece.stop
-                piece.accent["moving"] = [m for m in piece.accent["moving"][: len(piece.accent["frames"])]]
+                piece.accent["moving"] = piece.accent["moving"][: len(piece.accent["frames"])]
     if card:
         shown = {k: card[k] for k in ("handle", "logo") if card.get(k)}
         pieces.append(_Piece(still, last, "end", {"lines": list(card["lines"]), **shown}, timed=True))

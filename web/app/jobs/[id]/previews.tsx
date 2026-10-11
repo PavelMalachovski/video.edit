@@ -1,11 +1,14 @@
 'use client';
-// Экран «3 · Три превью»: три варианта стиля на настоящем кадре и крупное превью выбора Павла — всё рисует шаблон слоя;
-// шрифт и цвета меняются сразу, хук и субтитры двигаются по крупному превью выше-ниже, вставки — куда угодно; размер
-// у всех — щипком двумя пальцами или уголком ⤢. «Ещё три варианта» — шаг restyle; «Монтировать» — ответы, стиль и шаг render.
-import { useEffect, useMemo, useRef, useState } from 'react';
+// Экран «3 · Три превью» — редактор «Монтажки»: тулбар с «Монтировать» и чёрная сцена с крупным превью выбора Павла
+// прилипают к верху, под ними — вкладки настроек (вариант, шрифт, цвет, место, скорость, обложка, реклама, A/B). Всё на
+// превью рисует шаблон слоя; шрифт и цвета меняются сразу, хук и субтитры двигаются по крупному превью выше-ниже, вставки —
+// куда угодно; размер у всех — щипком двумя пальцами или уголком ⤢. «Ещё три варианта» — шаг restyle; «Монтировать» —
+// ответы, стиль и шаг render.
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { abOptions, buildAnswers, previewEnd, previewHook, type Draft } from '@/lib/answers.ts';
 import { storage } from '@/lib/client.ts';
 import { mmss } from '@/lib/format.ts';
+import { editorTabs, mountSummary, nextTab, STAGE, stageFit, type TabId } from '@/lib/editor.ts';
 import { ADJUSTABLE, COVER, type AbKind, type Adjustable, type Question, type StyleChoice, type Styles } from '@/lib/jobfiles.ts';
 import { MAX_NOTE } from '@/lib/jobs.ts';
 import {
@@ -13,7 +16,11 @@ import {
   resizeBox, resolveInserts, sampleState, saveAb, saveAd, saveChoice, saveCover, saveInsertBoxes, saveSpeed, type CoverPick, type InsertBox,
   SPEEDS, SUB_SIZE, SUB_Y, SWATCHES,
 } from '@/lib/style.ts';
+import {
+  FrameIcon, GaugeIcon, LayersIcon, MoveIcon, PaletteIcon, RefreshIcon, ScissorsIcon, SplitIcon, TypeIcon,
+} from '../../icons';
 import PreviewFrame from '../../preview-frame';
+import { TopBar } from '../../top-bar';
 import type { Act } from './job';
 
 type FontEntry = { id: string; family: string; file: string; kind: 'main' | 'hand' };
@@ -32,17 +39,22 @@ type Props = {
   onAct: Act;
 };
 
-const BIG = 270; // ширина крупного превью, px экрана
-const SCALE = BIG / 1080;
+// крупное превью — до 270 px экрана, на невысоком экране — уже (lib/editor.ts, stageFit); scale — px экрана на px кадра
+const RESTICK_MS = 400; // поле под сценой потеряло фокус — столько ждать, прежде чем сцена снова прилипнет (тап успеет дойти)
 const STEP = 20; // px кадра на нажатие «Выше» / «Ниже» и стрелку
 const SIZE_STEP = 4; // px размера на нажатие «Меньше» / «Больше»
-const GROW = BIG / 2; // уголок ⤢: на сколько px экрана потянуть вправо, чтобы размер вырос вдвое
+const GROW = 540; // уголок ⤢: на столько px кадра (половина его ширины) потянуть вправо, чтобы размер вырос вдвое
 const INSERT_STEP = 20; // px ширины вставки на нажатие «A−» / «A+»
 
 type Box = { x: number; y: number; w: number; h: number };
 type LayoutBoxes = { inserts?: Box[]; sub?: Box };
 const HOOK_DEFAULT = 400; // центр хука, если в стиле не задан (template/overlay.js, HOOK_Y)
 const CARD_T = 10 / 13; // с от начала карточки: уже появилась, призыв — в обычном размере (дышит с частотой 1,3 Гц)
+
+const TAB_ICONS: Record<TabId, ReactNode> = {
+  style: <LayersIcon />, font: <TypeIcon />, color: <PaletteIcon />, place: <MoveIcon />, speed: <GaugeIcon />, cover: <FrameIcon />,
+  versions: <SplitIcon />,
+};
 
 const ROWS: { key: ColorKey; title: string; own: string }[] = [
   { key: 'accent', title: 'Подсветка слова', own: 'Своя подсветка' },
@@ -57,6 +69,51 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
     setChoiceState(c);
     saveChoice(storage(), jobId, styles, c);
   };
+
+  // сцена по высоте экрана: липнет, если под ней остаётся место на инструменты; превью экран рисует только в браузере,
+  // поэтому высота известна сразу (без мигания). Пересчёт — при повороте: высота сама скачет, когда Safari прячет панель
+  const [fit, setFit] = useState(() => stageFit(typeof window === 'undefined' ? Number.NaN : window.innerHeight));
+  useEffect(() => {
+    let width = window.innerWidth;
+    const onResize = () => {
+      if (window.innerWidth === width) return;
+      width = window.innerWidth;
+      setFit(stageFit(window.innerHeight));
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  const bigW = fit.width;
+  const scale = bigW / 1080;
+  // пока печатают в поле под сценой, она не липнет (клавиатура телефона спрятала бы поле под ней); потерял поле фокус —
+  // липнет не сразу, а через RESTICK_MS: иначе тап, который увёл фокус, отпускается уже на сцене и до цели не доходит
+  const [typing, setTyping] = useState(false);
+  const restick = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (restick.current) clearTimeout(restick.current);
+  }, []);
+  const isField = (t: EventTarget | null) => (t instanceof HTMLInputElement && t.type === 'text') || t instanceof HTMLTextAreaElement;
+  const onFieldFocus = (e: React.FocusEvent) => {
+    if (!isField(e.target)) return;
+    if (restick.current) clearTimeout(restick.current);
+    setTyping(true);
+  };
+  const onFieldBlur = (e: React.FocusEvent) => {
+    if (!isField(e.target)) return;
+    if (restick.current) clearTimeout(restick.current);
+    restick.current = setTimeout(() => setTyping(false), RESTICK_MS);
+  };
+  const stuck = fit.sticky && !typing;
+  useEffect(() => {  // Tab и прокрутка к полю не прячут цель под прилипшей сценой
+    if (!stuck) return;
+    const root = document.documentElement;
+    root.style.scrollPaddingTop = `${STAGE.toolbar + fit.height + 8}px`;
+    return () => {
+      root.style.scrollPaddingTop = '';
+    };
+  }, [stuck, fit.height]);
+  const [tab, setTab] = useState<TabId>('style');
+  const tabRefs = useRef(new Map<TabId, HTMLButtonElement>());
 
   const [speed, setSpeedState] = useState<number>(() => loadSpeed(storage(), jobId));
   const setSpeed = (s: number) => {
@@ -196,182 +253,235 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
   });
   const pickColor = (key: ColorKey, color: string) => setChoice({ ...choice, colors: { ...choice.colors, [key]: color.toUpperCase() } });
 
+  const summary = mountSummary({ variant: choice.variant, font: family(choice.font), speed, ab: ab !== null, ad: adOn });
+  const tabs = editorTabs({ cover: cover !== null });
+  const current: TabId = tabs.some((t) => t.id === tab) ? tab : 'style'; // вкладки уже нет (пропала обложка) — первая
+  // на вкладке «Обложка» крупное превью — сама обложка: её видно целиком, пока правят кадр и текст
+  const coverView = current === 'cover' && cover !== null;
+  const stage = coverView && cover
+    ? { frameUrl: fileUrl(coverFrames[cover.frame].image), state: coverState, progress: 0 }
+    : { frameUrl, state, progress };
+  const keyTab = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    const next = nextTab(tabs, current, e.key);
+    if (!next) return;
+    e.preventDefault();
+    setTab(next);
+    tabRefs.current.get(next)?.focus();
+  };
+  const own = (label: string, value: string, pick: (color: string) => void) => (
+    <label className="own-color">
+      <input type="color" aria-label={label} value={value.toLowerCase()} onChange={(e) => pick(e.target.value)} />
+      Свой
+    </label>
+  );
+
   return (
-    <>
-      <button type="button" className="back link" onClick={onBack}>← Вопросы</button>
-      <header className="job-head">
-        <h1 className="screen-title">Выбери стиль</h1>
-        <div className="muted">Один кадр с {mmss(styles.frameTime)} в трёх вариантах. Шрифт и цвета меняются сразу, без ожидания.</div>
-      </header>
+    <div className={`editor${stuck ? ' stuck' : ''}`}>
+      <div className="editor-top">
+        <TopBar back={{ onClick: onBack, label: 'Вопросы' }} title="Выбери стиль" meta="шаг 4 из 5"
+          action={(
+            <button type="button" className="btn tb-action" aria-label={`Монтировать: ${summary}`} disabled={busy !== null} onClick={mount}>
+              <ScissorsIcon />
+              Монтировать
+            </button>
+          )} />
+        {error?.at === 'answers' ? <div className="editor-alert" role="alert">{error.text}</div> : null}
+        <div className="stage" style={{ height: fit.height }}>
+          <div className="big-host">
+            <PreviewFrame frameUrl={stage.frameUrl} spec={spec} state={stage.state} progress={stage.progress} width={bigW} big onBoxes={(b) => setBoxes(b as LayoutBoxes)} />
+            {ending || zoned || coverView ? null : sized.map((m) => m.box ? <InsertHandle key={m.key} label={m.name} box={m.box} at={m.at} scale={scale} onSize={m.resize} onDrag={m.drag} /> : null)}
+            {zoned || coverView ? null : movable.map((m) => <DragHandle key={m.name} label={m.label} y={m.y} range={m.range} scale={scale} onMove={m.move} size={m.size} onSize={m.resize} />)}
+          </div>
+        </div>
+      </div>
 
-      <div className="variants">
-        {thumbs.map(({ v, state: s }) => (
-          <div key={v.id} className="variant">
-            <div className={`variant-frame${choice.variant === v.id ? ' on' : ''}`}>
-              <PreviewFrame frameUrl={frameUrl} spec={v.spec} state={s} progress={progress} width={102} />
-              <button type="button" className="variant-hit" aria-pressed={choice.variant === v.id} aria-label={`${v.id} · ${v.label}`}
-                onClick={() => pickVariant(v.id)} />
+      <div className="editor-body" onFocus={onFieldFocus} onBlur={onFieldBlur}>
+        <div className="summary">{summary}</div>
+        {underCaption(boxes?.sub) && !ending && !zoned && !coverView ? <div className="warn small">Субтитры низко: в Reels их может закрыть подпись к ролику</div> : null}
+
+        <div role="tablist" aria-label="Настройки" className="tabs">
+          {tabs.map((t) => (
+            <button key={t.id} type="button" role="tab" className="tab" id={`tab-${t.id}`} aria-selected={current === t.id} aria-controls="tab-panel"
+              tabIndex={current === t.id ? 0 : -1} onClick={() => setTab(t.id)} onKeyDown={keyTab}
+              ref={(el) => { if (el) tabRefs.current.set(t.id, el); else tabRefs.current.delete(t.id); }}>
+              {TAB_ICONS[t.id]}
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        <div role="tabpanel" id="tab-panel" aria-labelledby={`tab-${current}`} className="tab-panel">
+          {current === 'style' ? (
+            <>
+              <div className="muted small">Один кадр с {mmss(styles.frameTime)} в трёх вариантах. Шрифт и цвета меняются сразу, без ожидания.</div>
+              <div className="variants">
+                {thumbs.map(({ v, state: s }) => (
+                  <div key={v.id} className="variant">
+                    <div className={`variant-frame${choice.variant === v.id ? ' on' : ''}`}>
+                      <PreviewFrame frameUrl={frameUrl} spec={v.spec} state={s} progress={progress} width={102} />
+                      <button type="button" className="variant-hit" aria-pressed={choice.variant === v.id} aria-label={`${v.id} · ${v.label}`}
+                        onClick={() => pickVariant(v.id)} />
+                    </div>
+                    <div className="variant-label">{v.id} · {v.label}</div>
+                  </div>
+                ))}
+              </div>
+              {card ? (
+                <div className="seg" role="group" aria-label="Что на крупном превью">
+                  <button type="button" aria-pressed={!ending} onClick={() => setShowCard(false)}>Кадр с текстом</button>
+                  <button type="button" aria-pressed={ending} onClick={() => setShowCard(true)}>Финальная карточка</button>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+
+          {current === 'font' ? (
+            <>
+              <div className="font-grid">
+                {offered.filter((f) => f.kind !== 'hand').map((f) => (
+                  <button key={f.id} type="button" className="font" aria-pressed={choice.font === f.id} style={{ fontFamily: `"pv-${f.id}", var(--font-ui)` }}
+                    onClick={() => pickFont('font', f.id)}>{f.family}</button>
+                ))}
+              </div>
+              <div className="caps">Рукописный — для хука и кодового слова</div>
+              <div className="font-grid">
+                {offered.filter((f) => f.kind === 'hand').map((f) => (
+                  <button key={f.id} type="button" className="font hand" aria-pressed={choice.hand === f.id} style={{ fontFamily: `"pv-${f.id}", var(--font-ui)` }}
+                    onClick={() => pickFont('hand', f.id)}>{f.family}</button>
+                ))}
+              </div>
+            </>
+          ) : null}
+
+          {current === 'color' ? ROWS.map((row) => (
+            <div key={row.key} className="swatch-row">
+              <div className="caps">{row.title}</div>
+              <div className="swatches">
+                {SWATCHES[row.key].map((sw) => (
+                  <button key={sw.color} type="button" className="swatch" aria-label={sw.name} aria-pressed={choice.colors[row.key] === sw.color}
+                    onClick={() => pickColor(row.key, sw.color)}>
+                    <span style={{ background: sw.color }} />
+                  </button>
+                ))}
+                {own(row.own, choice.colors[row.key], (c) => pickColor(row.key, c))}
+              </div>
             </div>
-            <div className="variant-label">{v.id} · {v.label}</div>
-          </div>
-        ))}
-      </div>
+          )) : null}
 
-      <div className="big-wrap">
-        <div className="big-host">
-          <PreviewFrame frameUrl={frameUrl} spec={spec} state={state} progress={progress} width={BIG} big onBoxes={(b) => setBoxes(b as LayoutBoxes)} />
-          {ending || zoned ? null : sized.map((m) => m.box ? <InsertHandle key={m.key} label={m.name} box={m.box} at={m.at} onSize={m.resize} onDrag={m.drag} /> : null)}
-          {zoned ? null : movable.map((m) => <DragHandle key={m.name} label={m.label} y={m.y} range={m.range} onMove={m.move} size={m.size} onSize={m.resize} />)}
-        </div>
-      </div>
-      {card ? (
-        <div className="pills center">
-          <button type="button" className="pill" aria-pressed={!ending} onClick={() => setShowCard(false)}>Кадр с текстом</button>
-          <button type="button" className="pill" aria-pressed={ending} onClick={() => setShowCard(true)}>Финальная карточка</button>
-        </div>
-      ) : null}
-      {adOn ? (
-        <div className="pills center">
-          <button type="button" className="pill" aria-pressed={!zoned} onClick={() => setAdsView(false)}>Органика</button>
-          <button type="button" className="pill" aria-pressed={zoned} onClick={() => setAdsView(true)}>Реклама</button>
-        </div>
-      ) : null}
-      <div className="sub-move" hidden={ending || zoned}>
-        <span className="muted small">Хук и субтитры тянутся на превью выше или ниже, вставки — куда угодно; размер — щипком двумя пальцами или уголком ⤢</span>
-        {underCaption(boxes?.sub) ? <span className="warn small">Субтитры низко: в Reels их может закрыть подпись к ролику</span> : null}
-        {movable.map((m) => (
-          <div key={m.name} className="sub-move-row">
-            <span className="small">{m.name}</span>
-            <button type="button" className="pill" aria-label={`${m.name} выше`} disabled={m.y <= m.range.min} onClick={() => m.move(m.y - STEP)}>↑</button>
-            <button type="button" className="pill" aria-label={`${m.name} ниже`} disabled={m.y >= m.range.max} onClick={() => m.move(m.y + STEP)}>↓</button>
-            <button type="button" className="pill" aria-label={`${m.name} меньше`} disabled={m.size <= m.sizes.min} onClick={() => m.resize(m.size - SIZE_STEP)}>A−</button>
-            <button type="button" className="pill" aria-label={`${m.name} больше`} disabled={m.size >= m.sizes.max} onClick={() => m.resize(m.size + SIZE_STEP)}>A+</button>
-            {m.changed ? <button type="button" className="link" aria-label={`${m.name}: как в варианте`} onClick={m.reset}>Как было</button> : null}
-          </div>
-        ))}
-        {sized.map((m) => (
-          <div key={m.key} className="sub-move-row">
-            <span className="small">{m.name}</span>
-            <button type="button" className="pill" aria-label={`${m.name} меньше`} disabled={m.w <= INSERT_W.min} onClick={() => m.resize(m.w - INSERT_STEP)}>A−</button>
-            <button type="button" className="pill" aria-label={`${m.name} больше`} disabled={m.w >= INSERT_W.max} onClick={() => m.resize(m.w + INSERT_STEP)}>A+</button>
-            {m.changed ? <button type="button" className="link" aria-label={`${m.name}: как было`} onClick={m.reset}>Как было</button> : null}
-          </div>
-        ))}
-      </div>
-
-      <div className="card">
-        <div className="caps small">Шрифт</div>
-        <div className="font-grid">
-          {offered.filter((f) => f.kind !== 'hand').map((f) => (
-            <button key={f.id} type="button" className="font" aria-pressed={choice.font === f.id} style={{ fontFamily: `"pv-${f.id}", var(--font-ui)` }}
-              onClick={() => pickFont('font', f.id)}>{f.family}</button>
-          ))}
-        </div>
-        <div className="caps small">Рукописный — для хука и кодового слова</div>
-        <div className="font-grid">
-          {offered.filter((f) => f.kind === 'hand').map((f) => (
-            <button key={f.id} type="button" className="font hand" aria-pressed={choice.hand === f.id} style={{ fontFamily: `"pv-${f.id}", var(--font-ui)` }}
-              onClick={() => pickFont('hand', f.id)}>{f.family}</button>
-          ))}
-        </div>
-      </div>
-
-      <div className="card">
-        {ROWS.map((row) => (
-          <div key={row.key} className="swatch-row">
-            <div className="caps small">{row.title}</div>
-            <div className="swatches">
-              {SWATCHES[row.key].map((s) => (
-                <button key={s.color} type="button" className="swatch" aria-label={s.name} aria-pressed={choice.colors[row.key] === s.color}
-                  onClick={() => pickColor(row.key, s.color)}>
-                  <span style={{ background: s.color }} />
-                </button>
-              ))}
-              <label className="own-color">
-                <input type="color" aria-label={row.own} value={choice.colors[row.key].toLowerCase()} onChange={(e) => pickColor(row.key, e.target.value)} />
-                Свой
-              </label>
+          {current === 'place' ? (
+            <div className="sub-move">
+              {ending || zoned ? (
+                <div className="muted small">{ending ? 'На финальной карточке двигать нечего — вернись к кадру с текстом на вкладке «Стиль».'
+                  : 'В зоне рекламы место не меняется: двигается основной ролик — включи «Органика» на вкладке «Реклама».'}</div>
+              ) : (
+                <>
+                  <span className="muted small">Хук и субтитры тянутся на превью выше или ниже, вставки — куда угодно; размер — щипком двумя пальцами или уголком ⤢</span>
+                  {movable.map((m) => (
+                    <div key={m.name} className="sub-move-row">
+                      <span className="small">{m.name}</span>
+                      <button type="button" className="pill" aria-label={`${m.name} выше`} disabled={m.y <= m.range.min} onClick={() => m.move(m.y - STEP)}>↑</button>
+                      <button type="button" className="pill" aria-label={`${m.name} ниже`} disabled={m.y >= m.range.max} onClick={() => m.move(m.y + STEP)}>↓</button>
+                      <button type="button" className="pill" aria-label={`${m.name} меньше`} disabled={m.size <= m.sizes.min} onClick={() => m.resize(m.size - SIZE_STEP)}>A−</button>
+                      <button type="button" className="pill" aria-label={`${m.name} больше`} disabled={m.size >= m.sizes.max} onClick={() => m.resize(m.size + SIZE_STEP)}>A+</button>
+                      {m.changed ? <button type="button" className="link" aria-label={`${m.name}: как в варианте`} onClick={m.reset}>Как было</button> : null}
+                    </div>
+                  ))}
+                  {sized.map((m) => (
+                    <div key={m.key} className="sub-move-row">
+                      <span className="small">{m.name}</span>
+                      <button type="button" className="pill" aria-label={`${m.name} меньше`} disabled={m.w <= INSERT_W.min} onClick={() => m.resize(m.w - INSERT_STEP)}>A−</button>
+                      <button type="button" className="pill" aria-label={`${m.name} больше`} disabled={m.w >= INSERT_W.max} onClick={() => m.resize(m.w + INSERT_STEP)}>A+</button>
+                      {m.changed ? <button type="button" className="link" aria-label={`${m.name}: как было`} onClick={m.reset}>Как было</button> : null}
+                    </div>
+                  ))}
+                </>
+              )}
             </div>
-          </div>
-        ))}
+          ) : null}
+
+          {current === 'speed' ? (
+            <>
+              <div className="pills">
+                {SPEEDS.map((sp) => (
+                  <button key={sp} type="button" className="pill mono" aria-pressed={speed === sp} onClick={() => setSpeed(sp)}>×{sp.toFixed(1)}</button>
+                ))}
+              </div>
+              <div className="muted small">Голос не меняет тон; музыка не ускоряется.</div>
+            </>
+          ) : null}
+
+          {coverView && cover ? (
+            <div className="tab-panel" data-cover>
+              <div className="cover-frames">
+                {coverFrames.map((f, i) => (
+                  <button key={f.image} type="button" className="cover-pick" aria-pressed={cover.frame === i} aria-label={`Кадр ${i + 1}`}
+                    onClick={() => setCover({ ...coverPick, frame: i })}>
+                    <img src={fileUrl(f.image)} alt="" />
+                  </button>
+                ))}
+              </div>
+              <input type="text" aria-label="Текст обложки" maxLength={COVER.text} value={coverPick?.text ?? cover.text} placeholder={hook ?? styles.cover?.text}
+                onChange={(e) => setCover({ frame: cover.frame, text: e.target.value })} />
+              <div className="muted small">Обложка — на крупном превью. В сетке профиля видна середина кадра 3:4 — текст стоит в ней. PNG — на экране «Готово».</div>
+            </div>
+          ) : null}
+
+          {current === 'versions' ? (
+            <>
+              <div className="tab-panel" data-ad>
+                <div className="caps">Версия для рекламы</div>
+                <div className="pills">
+                  <button type="button" className="pill" aria-pressed={!adOn} onClick={() => setAd(false)}>Не нужна</button>
+                  <button type="button" className="pill" aria-pressed={adOn} onClick={() => setAd(true)}>Нужна</button>
+                </div>
+                <div className="muted small">
+                  {adOn ? 'Соберу ещё ролик для рекламы Reels: текст и вставки — выше кнопки и подписи рекламы. Как он выглядит — «Реклама» ниже, на крупном превью.'
+                    : 'В рекламе Reels низ кадра занят кнопкой и подписью — можно собрать отдельную версию, где текст стоит выше.'}
+                </div>
+                {adOn ? (
+                  <div className="seg" role="group" aria-label="Какой ролик на крупном превью">
+                    <button type="button" aria-pressed={!zoned} onClick={() => setAdsView(false)}>Органика</button>
+                    <button type="button" aria-pressed={zoned} onClick={() => setAdsView(true)}>Реклама</button>
+                  </div>
+                ) : null}
+              </div>
+              {abChoices.length ? (
+                <div className="tab-panel">
+                  <div className="caps">Вторая версия для теста</div>
+                  <div className="pills">
+                    <button type="button" className="pill" aria-pressed={!ab} onClick={() => setAb(null)}>Не нужна</button>
+                    {abChoices.includes('teaser') ? <button type="button" className="pill" aria-pressed={ab === 'teaser'} onClick={() => setAb('teaser')}>Без тизера</button> : null}
+                    {abChoices.includes('music') ? <button type="button" className="pill" aria-pressed={ab === 'music'} onClick={() => setAb('music')}>Без музыки</button> : null}
+                  </div>
+                  <div className="muted small">
+                    {ab ? `Соберу два ролика: A — как выбрано, B — ${ab === 'teaser' ? 'без тизера' : 'без музыки'}. Выложи оба и сравни, какой смотрят дольше.`
+                      : 'Можно собрать второй ролик, который отличается одним, — и проверить, какой работает лучше.'}
+                  </div>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </div>
+
+        <form className="card" onSubmit={(e) => {
+          e.preventDefault();
+          if (tweak.trim() && busy === null) void run('restyle', { text: tweak.trim() });
+        }}>
+          <label htmlFor="tweak" className="label">Ни один не подходит? Скажи, что поменять</label>
+          <input id="tweak" type="text" maxLength={MAX_NOTE} placeholder="Например: заголовок без плашки" enterKeyHint="send" value={tweak} onChange={(e) => setTweak(e.target.value)} />
+          <button type="submit" className="btn outline" disabled={!tweak.trim() || busy !== null}>
+            <RefreshIcon />
+            Ещё три варианта
+          </button>
+          {error?.at === 'restyle' ? <div className="err small">{error.text}</div> : null}
+        </form>
       </div>
-
-      <div className="card">
-        <div className="caps small">Скорость ролика</div>
-        <div className="pills">
-          {SPEEDS.map((s) => (
-            <button key={s} type="button" className="pill" aria-pressed={speed === s} onClick={() => setSpeed(s)}>×{s.toFixed(1)}</button>
-          ))}
-        </div>
-        <div className="muted small">Голос не меняет тон; музыка не ускоряется.</div>
-      </div>
-
-      {cover ? (
-        <div className="card" data-cover>
-          <div className="caps small">Обложка</div>
-          <div className="cover-frames">
-            {coverFrames.map((f, i) => (
-              <button key={f.image} type="button" className="cover-pick" aria-pressed={cover.frame === i} aria-label={`Кадр ${i + 1}`}
-                onClick={() => setCover({ ...coverPick, frame: i })}>
-                <img src={fileUrl(f.image)} alt="" />
-              </button>
-            ))}
-          </div>
-          <input type="text" aria-label="Текст обложки" maxLength={COVER.text} value={coverPick?.text ?? cover.text} placeholder={hook ?? styles.cover?.text}
-            onChange={(e) => setCover({ frame: cover.frame, text: e.target.value })} />
-          <div className="cover-preview">
-            <PreviewFrame frameUrl={fileUrl(coverFrames[cover.frame].image)} spec={spec} state={coverState} progress={0} width={BIG} />
-          </div>
-          <div className="muted small">В сетке профиля видна середина кадра 3:4 — текст стоит в ней. PNG — на экране «Готово».</div>
-        </div>
-      ) : null}
-
-      <div className="card" data-ad>
-        <div className="caps small">Версия для рекламы</div>
-        <div className="pills">
-          <button type="button" className="pill" aria-pressed={!adOn} onClick={() => setAd(false)}>Не нужна</button>
-          <button type="button" className="pill" aria-pressed={adOn} onClick={() => setAd(true)}>Нужна</button>
-        </div>
-        <div className="muted small">
-          {adOn ? 'Соберу ещё ролик для рекламы Reels: текст и вставки — выше кнопки и подписи рекламы. Как он выглядит — «Реклама» над крупным кадром.'
-            : 'В рекламе Reels низ кадра занят кнопкой и подписью — можно собрать отдельную версию, где текст стоит выше.'}
-        </div>
-      </div>
-
-      {abChoices.length ? (
-        <div className="card">
-          <div className="caps small">Вторая версия для теста</div>
-          <div className="pills">
-            <button type="button" className="pill" aria-pressed={!ab} onClick={() => setAb(null)}>Не нужна</button>
-            {abChoices.includes('teaser') ? <button type="button" className="pill" aria-pressed={ab === 'teaser'} onClick={() => setAb('teaser')}>Без тизера</button> : null}
-            {abChoices.includes('music') ? <button type="button" className="pill" aria-pressed={ab === 'music'} onClick={() => setAb('music')}>Без музыки</button> : null}
-          </div>
-          <div className="muted small">
-            {ab ? `Соберу два ролика: A — как выбрано, B — ${ab === 'teaser' ? 'без тизера' : 'без музыки'}. Выложи оба и сравни, какой смотрят дольше.`
-              : 'Можно собрать второй ролик, который отличается одним, — и проверить, какой работает лучше.'}
-          </div>
-        </div>
-      ) : null}
-
-      <div className="card">
-        <label htmlFor="tweak" className="label">Ни один не подходит? Скажи, что поменять</label>
-        <input id="tweak" type="text" maxLength={MAX_NOTE} placeholder="Например: заголовок без плашки" value={tweak} onChange={(e) => setTweak(e.target.value)} />
-        <button type="button" className="btn ghost" disabled={!tweak.trim() || busy !== null} onClick={() => void run('restyle', { text: tweak.trim() })}>
-          Ещё три варианта
-        </button>
-        {error?.at === 'restyle' ? <div className="err small">{error.text}</div> : null}
-      </div>
-
-      <button type="button" className="btn" disabled={busy !== null} onClick={mount}>
-        Монтировать: {choice.variant} · {family(choice.font)} · ×{speed.toFixed(1)}{ab ? ' · A/B' : ''}{adOn ? ' · реклама' : ''}
-      </button>
-      {error?.at === 'answers' ? <div className="err small">{error.text}</div> : null}
-    </>
+    </div>
   );
 }
 
 type HandleProps = {
-  label: string; y: number; range: { min: number; max: number }; onMove: (y: number) => void; size: number; onSize: (size: number) => void;
+  label: string; y: number; range: { min: number; max: number }; scale: number; onMove: (y: number) => void; size: number; onSize: (size: number) => void;
 };
 type Gesture =
   | { kind: 'move'; from: number; y: number }
@@ -381,7 +491,7 @@ type Gesture =
 
 /** Жесты ручки: один палец или мышь — `move` (только выше-ниже) или `drag` (куда угодно); два пальца — щипок, `onSize`;
  *  уголок `[data-grip]` мышкой вправо-влево — тоже `onSize`. Палец убран — жест закончен: оставшийся палец ручку не дёргает. */
-function useGestures(size: number, onSize: (size: number) => void, move?: { y: number; onMove: (y: number) => void },
+function useGestures(scale: number, size: number, onSize: (size: number) => void, move?: { y: number; onMove: (y: number) => void },
   drag?: { x: number; y: number; onDrag: (x: number, y: number) => void }) {
   const points = useRef(new Map<number, number>()); // пальцы на ручке: id → x
   const gesture = useRef<Gesture | null>(null);
@@ -417,9 +527,9 @@ function useGestures(size: number, onSize: (size: number) => void, move?: { y: n
     onPointerMove: (e: React.PointerEvent<HTMLElement>) => {
       if (points.current.has(e.pointerId)) points.current.set(e.pointerId, e.clientX);
       const g = gesture.current;
-      if (g?.kind === 'move') move?.onMove(g.y + (e.clientY - g.from) / SCALE);
-      else if (g?.kind === 'drag') drag?.onDrag(g.x + (e.clientX - g.fromX) / SCALE, g.y + (e.clientY - g.fromY) / SCALE);
-      else if (g?.kind === 'grow') onSize(g.size * (1 + (e.clientX - g.from) / GROW));
+      if (g?.kind === 'move') move?.onMove(g.y + (e.clientY - g.from) / scale);
+      else if (g?.kind === 'drag') drag?.onDrag(g.x + (e.clientX - g.fromX) / scale, g.y + (e.clientY - g.fromY) / scale);
+      else if (g?.kind === 'grow') onSize(g.size * (1 + (e.clientX - g.from) / (GROW * scale)));
       else if (g?.kind === 'pinch' && points.current.size >= 2) onSize((g.size * span()) / g.span);
     },
     onPointerUp: (e: React.PointerEvent<HTMLElement>) => end(e.pointerId),
@@ -428,12 +538,12 @@ function useGestures(size: number, onSize: (size: number) => void, move?: { y: n
 }
 
 /** Ручка текста на крупном превью — полоса на высоте `y` (px кадра): двигает выше-ниже и меняет размер; стрелки — по STEP. */
-function DragHandle({ label, y, range, onMove, size, onSize }: HandleProps) {
-  const gestures = useGestures(size, onSize, { y, onMove });
+function DragHandle({ label, y, range, scale, onMove, size, onSize }: HandleProps) {
+  const gestures = useGestures(scale, size, onSize, { y, onMove });
   return (
     <div className="sub-handle" role="slider" tabIndex={0} aria-label={label} aria-orientation="vertical"
       aria-valuemin={range.min} aria-valuemax={range.max} aria-valuenow={y} title={`${label}: потяни выше или ниже; размер — щипком или уголком`}
-      style={{ top: y * SCALE }} {...gestures}
+      style={{ top: y * scale }} {...gestures}
       onKeyDown={(e) => {
         if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
         e.preventDefault();
@@ -445,18 +555,18 @@ function DragHandle({ label, y, range, onMove, size, onSize }: HandleProps) {
 }
 
 type InsertHandleProps = {
-  label: string; box: Box; at: InsertBox; onSize: (w: number) => void; onDrag: (x: number, y: number) => void;
+  label: string; box: Box; at: InsertBox; scale: number; onSize: (w: number) => void; onDrag: (x: number, y: number) => void;
 };
 
 /** Ручка вставки — рамка по её месту на крупном превью (от шаблона): один палец или мышь — тащит куда угодно, щипок или
  *  уголок ⤢ — ширина; стрелки — сдвиг по STEP. */
-function InsertHandle({ label, box, at, onSize, onDrag }: InsertHandleProps) {
-  const gestures = useGestures(at.w, onSize, undefined, { x: at.x, y: at.y, onDrag });
+function InsertHandle({ label, box, at, scale, onSize, onDrag }: InsertHandleProps) {
+  const gestures = useGestures(scale, at.w, onSize, undefined, { x: at.x, y: at.y, onDrag });
   const arrows: Record<string, [number, number]> = { ArrowLeft: [-STEP, 0], ArrowRight: [STEP, 0], ArrowUp: [0, -STEP], ArrowDown: [0, STEP] };
   return (
     <div className="insert-handle" role="slider" tabIndex={0} aria-label={label} aria-valuemin={INSERT_W.min} aria-valuemax={INSERT_W.max}
       aria-valuenow={at.w} aria-valuetext={`x ${at.x}, y ${at.y}, ширина ${at.w}`} title={`${label}: перетащи; размер — щипком или уголком`}
-      style={{ left: box.x * SCALE, top: box.y * SCALE, width: box.w * SCALE, height: box.h * SCALE }} {...gestures}
+      style={{ left: box.x * scale, top: box.y * scale, width: box.w * scale, height: box.h * scale }} {...gestures}
       onKeyDown={(e) => {
         const step = arrows[e.key];
         if (!step) return;

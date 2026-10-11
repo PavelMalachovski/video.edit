@@ -141,7 +141,7 @@ export default function BrandForm() {
   if (!loaded) return <div className="muted">Загружаю…</div>;
   return (
     <>
-      <div className="big-wrap">
+      <div className="screen-stage">
         <PreviewFrame frameUrl={BACKDROP} spec={spec} state={SAMPLE} progress={0.4} width={234} />
       </div>
 

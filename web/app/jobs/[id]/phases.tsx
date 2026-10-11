@@ -64,7 +64,7 @@ export default function Phases({ view, repo, onAction }: { view: JobView; repo: 
     return (
       <div className="card bad">
         <b>{status?.message ?? 'Шаг не получился'}</b>
-        {status?.error ? <div className="muted small pre">{status.error}</div> : null}
+        {status?.error ? <div className="mono muted small pre">{status.error}</div> : null}
         <ActionButton label="Повторить" action="retry" onAction={onAction} primary />
         {view.step && BACK[view.step] ? <ActionButton label={BACK[view.step]!} action="back" onAction={onAction} /> : null}
         {session}
@@ -92,14 +92,18 @@ export default function Phases({ view, repo, onAction }: { view: JobView; repo: 
       </div>
     );
   }
+  const pct = typeof status?.progress === 'number' ? Math.round(Math.min(1, Math.max(0, status.progress)) * 100) : null;
   return (
     <div className="card">
       <div className="phase">{status?.phase ?? 'Работаю'}</div>
-      {status?.message ? <div>{status.message}</div> : null}
-      {typeof status?.progress === 'number' ? (
-        <div className="bar"><div style={{ width: `${Math.round(Math.min(1, Math.max(0, status.progress)) * 100)}%` }} /></div>
+      {status?.message ? <div className="dim">{status.message}</div> : null}
+      {pct !== null ? <div className="bar"><div style={{ width: `${pct}%` }} /></div> : null}
+      {status ? (
+        <div className="row updated">
+          <span>обновлено {ago(status.at, now)}</span>
+          {pct !== null ? <span>{pct}%</span> : null}
+        </div>
       ) : null}
-      {status ? <div className="muted small">обновлено {ago(status.at, now)}</div> : null}
       {previous}
     </div>
   );

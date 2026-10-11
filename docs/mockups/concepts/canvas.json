@@ -1,0 +1,59 @@
+{
+  "v": 3,
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-10-11T18:05:00Z"
+  },
+  "title": "video.edit — 5 концептов дизайна",
+  "launch": {
+    "view": "canvas"
+  },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": { "x": 0, "y": 0, "w": 390, "h": 1400, "title": "1 Студия · Загрузка" },
+    "Studio-Previews.dc.html": { "x": 0, "y": 1600, "w": 390, "h": 2160, "title": "1 Студия · Выбери стиль" },
+    "Studio-Result.dc.html": { "x": 0, "y": 3960, "w": 390, "h": 1720, "title": "1 Студия · Готово" },
+    "Cut-Upload.dc.html": { "x": 470, "y": 0, "w": 390, "h": 1360, "title": "2 Монтажка · Загрузка" },
+    "Cut-Previews.dc.html": { "x": 470, "y": 1600, "w": 390, "h": 1380, "title": "2 Монтажка · Выбери стиль" },
+    "Cut-Result.dc.html": { "x": 470, "y": 3960, "w": 390, "h": 1620, "title": "2 Монтажка · Готово" },
+    "Neon-Upload.dc.html": { "x": 940, "y": 0, "w": 390, "h": 1480, "title": "3 Неон · Загрузка" },
+    "Neon-Previews.dc.html": { "x": 940, "y": 1600, "w": 390, "h": 2120, "title": "3 Неон · Выбери стиль" },
+    "Neon-Result.dc.html": { "x": 940, "y": 3960, "w": 390, "h": 1600, "title": "3 Неон · Готово" },
+    "Text-Upload.dc.html": { "x": 1410, "y": 0, "w": 390, "h": 1220, "title": "4 Текст · Загрузка" },
+    "Text-Previews.dc.html": { "x": 1410, "y": 1600, "w": 390, "h": 2240, "title": "4 Текст · Выбери стиль" },
+    "Text-Result.dc.html": { "x": 1410, "y": 3960, "w": 390, "h": 1680, "title": "4 Текст · Готово" },
+    "Kit-Upload.dc.html": { "x": 1880, "y": 0, "w": 390, "h": 1340, "title": "5 Конструктор · Загрузка" },
+    "Kit-Previews.dc.html": { "x": 1880, "y": 1600, "w": 390, "h": 2140, "title": "5 Конструктор · Выбери стиль" },
+    "Kit-Result.dc.html": { "x": 1880, "y": 3960, "w": 390, "h": 1800, "title": "5 Конструктор · Готово" }
+  },
+  "order": [
+    "Main.dc.html",
+    "Studio-Previews.dc.html",
+    "Studio-Result.dc.html",
+    "Cut-Upload.dc.html",
+    "Cut-Previews.dc.html",
+    "Cut-Result.dc.html",
+    "Neon-Upload.dc.html",
+    "Neon-Previews.dc.html",
+    "Neon-Result.dc.html",
+    "Text-Upload.dc.html",
+    "Text-Previews.dc.html",
+    "Text-Result.dc.html",
+    "Kit-Upload.dc.html",
+    "Kit-Previews.dc.html",
+    "Kit-Result.dc.html"
+  ],
+  "notes": {
+    "c1": { "x": 0, "y": -470, "text": "1 · Студия", "kind": "title1", "maxW": 390 },
+    "c1n": { "x": 0, "y": -330, "w": 390, "maxH": 220, "size": "m", "fill": "green", "text": "По мотивам VEED: светлая студия, крупный чёрный шрифт, чёрные кнопки-таблетки, маркер на главных словах." },
+    "c2": { "x": 470, "y": -470, "text": "2 · Монтажка", "kind": "title1", "maxW": 390 },
+    "c2n": { "x": 470, "y": -330, "w": 390, "maxH": 220, "size": "m", "fill": "teal", "text": "По мотивам CapCut: тёмный редактор, бирюзовый акцент, превью всегда на виду, инструменты — во вкладках снизу." },
+    "c3": { "x": 940, "y": -470, "text": "3 · Неон", "kind": "title1", "maxW": 390 },
+    "c3n": { "x": 940, "y": -330, "w": 390, "maxH": 220, "size": "m", "fill": "purple", "text": "По мотивам Submagic и Opus Clip: креаторский тёмный, заголовки как вирусные субтитры, кислотный акцент и фиолетовое свечение." },
+    "c4": { "x": 1410, "y": -470, "text": "4 · Текст", "kind": "title1", "maxW": 390 },
+    "c4n": { "x": 1410, "y": -330, "w": 390, "maxH": 220, "size": "m", "fill": "blue", "text": "По мотивам Descript: светлый «документ», всё через расшифровку — тайм-коды, подсветка слов, правки как комментарии." },
+    "c5": { "x": 1880, "y": -470, "text": "5 · Конструктор", "kind": "title1", "maxW": 390 },
+    "c5n": { "x": 1880, "y": -330, "w": 390, "maxH": 220, "size": "m", "fill": "orange", "text": "По мотивам Canva и Kapwing: дружелюбный и яркий, цветные плитки, крупные скругления, нижнее меню как в приложении." }
+  },
+  "designSystems": []
+}

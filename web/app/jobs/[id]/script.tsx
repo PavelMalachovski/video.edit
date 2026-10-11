@@ -7,6 +7,7 @@ import { captionCopy } from '@/lib/caption.ts';
 import { storage } from '@/lib/client.ts';
 import { mmss } from '@/lib/format.ts';
 import { PARTS, saveNextBrief, scriptBrief, STORIES, TECHNIQUES, type Script, type ScriptRequest } from '@/lib/script.ts';
+import { TopBar } from '../../top-bar';
 
 export default function ScriptView({ title, script, request }: { title: string; script: Script; request: ScriptRequest | null }) {
   const router = useRouter();
@@ -20,10 +21,8 @@ export default function ScriptView({ title, script, request }: { title: string; 
 
   return (
     <div className="script" data-script>
-      <header className="job-head">
-        <h1>{title}</h1>
-        <div className="muted">{[story, request ? `${request.length} с` : null, request?.language].filter(Boolean).join(' · ')}</div>
-      </header>
+      <TopBar back={{ href: '/', label: 'Мои видео' }} title={title}
+        meta={[story, request ? `${request.length} с` : null, request?.language].filter(Boolean).join(' · ')} />
       <div className="card">
         <div className="caps small">Хук на первые 2 секунды — выбери один</div>
         {script.hooks.map((h, i) => (
@@ -43,7 +42,7 @@ export default function ScriptView({ title, script, request }: { title: string; 
               <div className="label">{PARTS[part]}</div>
               {scenes.map((c, i) => (
                 <div key={i} className="scene" data-scene>
-                  <div className="muted small">{mmss(c.t0)}–{mmss(c.t1)}</div>
+                  <div className="mono">{mmss(c.t0)}–{mmss(c.t1)}</div>
                   <div>{c.say}</div>
                   {c.screen ? <div className="small">На экране: <b>{c.screen}</b></div> : null}
                   <div className="muted small">В кадре: {c.frame}</div>

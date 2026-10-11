@@ -1,14 +1,18 @@
 'use client';
-// Экран «4 · Готово»: ролик, скачивание видео и субтитров, итоги Claude и «Поправить» (шаг fix, новая версия ролика).
-import { useState } from 'react';
+// Экран «4 · Готово»: ролик на чёрной сцене, скачивание видео и субтитров, итоги Claude и «Поправить» (шаг fix, новая
+// версия ролика).
+import { useState, type ReactNode } from 'react';
 import { captionCopy, captionFold, parseCaption, type Caption } from '@/lib/caption.ts';
 import { mmss } from '@/lib/format.ts';
 import { abLabels, type AnswersFile, type Check, type FixFile, type ResultFile } from '@/lib/jobfiles.ts';
 import { MAX_NOTE } from '@/lib/jobs.ts';
 import type { JobView } from '@/lib/jobview.ts';
+import { CopyIcon, DownloadIcon } from '../../icons';
+import { TopBar } from '../../top-bar';
 import type { Act } from './job';
 
-type Props = { view: JobView; result: ResultFile | null; answers: AnswersFile | null; fixes: FixFile['fixes']; onAct: Act };
+/** `notice` — строки под тулбаром (GitHub просит подождать, нет связи). */
+type Props = { view: JobView; result: ResultFile | null; answers: AnswersFile | null; fixes: FixFile['fixes']; onAct: Act; notice?: ReactNode };
 
 const when = (at: string): string => new Date(at).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
 
@@ -16,8 +20,8 @@ function List({ title, items, tone }: { title: string; items: string[]; tone?: '
   if (!items.length) return null;
   return (
     <div className={`card${tone ? ` ${tone}` : ''}`}>
-      <div className="caps small">{title}</div>
-      <ul className="plain">{items.map((line, i) => <li key={i}>{line}</li>)}</ul>
+      <div className="caps">{title}</div>
+      <ul className="plain dots">{items.map((line, i) => <li key={i}>{line}</li>)}</ul>
     </div>
   );
 }
@@ -36,11 +40,11 @@ function CaptionCard({ caption }: { caption: Caption }) {
   }
   return (
     <div className="card" data-caption>
-      <div className="caps small">Подпись к посту</div>
-      <p className="lead pre"><b>{shown}</b>{hidden}</p>
-      {caption.hashtags.length ? <div className="muted">{caption.hashtags.map((t) => `#${t}`).join(' ')}</div> : null}
+      <div className="caps">Подпись к посту</div>
+      <p className="caption pre"><b>{shown}</b>{hidden}</p>
+      {caption.hashtags.length ? <div className="tags">{caption.hashtags.map((t) => `#${t}`).join(' ')}</div> : null}
       <div className="muted small">Жирное — то, что видно до «ещё».</div>
-      <button type="button" className="btn ghost" onClick={() => void copy()}>{copied === 'ok' ? 'Скопировано' : 'Скопировать подпись'}</button>
+      <button type="button" className="btn ghost" onClick={() => void copy()}><CopyIcon />{copied === 'ok' ? 'Скопировано' : 'Скопировать подпись'}</button>
       {copied === 'fail' ? <div className="err small">Не получилось скопировать — выделите текст и скопируйте вручную</div> : null}
       {caption.ad ? <AdText text={caption.ad} /> : null}
     </div>
@@ -52,8 +56,8 @@ function AdText({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="ad-text" data-ad-text>
-      <div className="caps small">Текст для рекламы</div>
-      <p className="lead">{text}</p>
+      <div className="caps">Текст для рекламы</div>
+      <p className="caption">{text}</p>
       <button type="button" className="btn ghost" onClick={() => void navigator.clipboard.writeText(text).then(() => setCopied(true), () => setCopied(false))}>
         {copied ? 'Скопировано' : 'Скопировать текст рекламы'}
       </button>
@@ -61,7 +65,7 @@ function AdText({ text }: { text: string }) {
   );
 }
 
-export default function Result({ view, result, answers, fixes, onAct }: Props) {
+export default function Result({ view, result, answers, fixes, onAct, notice }: Props) {
   const final = view.final;
   const caption = parseCaption(result?.caption);
   const [text, setText] = useState('');
@@ -90,18 +94,16 @@ export default function Result({ view, result, answers, fixes, onAct }: Props) {
 
   return (
     <>
-      <header className="job-head">
-        <h1>Готово</h1>
-        <div className="muted">{facts.join(' · ')}</div>
-      </header>
+      <TopBar back={{ href: '/', label: 'Мои видео' }} title="Готово" done meta={facts.join(' · ')} />
+      {notice}
       {b ? (
         <>
           <div className="two" data-ab>
             {[{ name: labelA, files: final }, { name: labelB, files: b }].map((v) => (
               <div key={v.files.mp4} className="ab-video">
-                <div className="caps small">{v.name}</div>
+                <div className="caps">{v.name}</div>
                 <video className="result-video small" controls playsInline preload="metadata" src={download(v.files.mp4)} />
-                <a className="btn" href={download(v.files.mp4)} download={v.files.mp4}>Скачать</a>
+                <a className="btn" href={download(v.files.mp4)} download={v.files.mp4}><DownloadIcon />Скачать</a>
                 {v.files.srt ? <a className="btn ghost" href={download(v.files.srt)} download={v.files.srt}>Субтитры .srt</a> : null}
               </div>
             ))}
@@ -110,30 +112,30 @@ export default function Result({ view, result, answers, fixes, onAct }: Props) {
         </>
       ) : (
         <>
-          <div className="big-wrap">
+          <div className="screen-stage">
             <video className="result-video" controls playsInline preload="metadata" src={download(final.mp4)} />
           </div>
           <div className="two">
-            <a className="btn" href={download(final.mp4)} download={final.mp4}>Скачать видео</a>
+            <a className="btn" href={download(final.mp4)} download={final.mp4}><DownloadIcon />Скачать видео</a>
             {final.srt ? <a className="btn ghost" href={download(final.srt)} download={final.srt}>Субтитры .srt</a> : null}
           </div>
         </>
       )}
       {final.ad ? (
         <div className="card" data-ad-result>
-          <div className="caps small">Для рекламы</div>
+          <div className="caps">Для рекламы</div>
           <video className="result-video small" controls playsInline preload="metadata" src={download(final.ad.mp4)} />
           <div className="two">
-            <a className="btn" href={download(final.ad.mp4)} download={final.ad.mp4}>Скачать</a>
+            <a className="btn" href={download(final.ad.mp4)} download={final.ad.mp4}><DownloadIcon />Скачать</a>
             {final.ad.srt ? <a className="btn ghost" href={download(final.ad.srt)} download={final.ad.srt}>Субтитры .srt</a> : null}
           </div>
         </div>
       ) : null}
       {final.cover ? (
         <div className="card" data-cover-result>
-          <div className="caps small">Обложка</div>
+          <div className="caps">Обложка</div>
           <img className="cover-img" src={download(final.cover)} alt="Обложка ролика" />
-          <a className="btn ghost" href={download(final.cover)} download={final.cover}>Скачать обложку</a>
+          <a className="btn ghost" href={download(final.cover)} download={final.cover}><DownloadIcon />Скачать обложку</a>
         </div>
       ) : null}
       {caption ? <CaptionCard caption={caption} /> : null}
@@ -144,31 +146,35 @@ export default function Result({ view, result, answers, fixes, onAct }: Props) {
           {b && result.ab && !result.ab.qa.ok ? <List title="Проверка версии B нашла" items={result.ab.qa.problems} tone="alert" /> : null}
           {final.ad && result.ad && !result.ad.qa.ok ? <List title="Проверка версии для рекламы нашла" items={result.ad.qa.problems} tone="alert" /> : null}
           <div className="card">
-            <div className="caps small">Что я сделал</div>
-            {result.done.length ? <ul className="plain">{result.done.map((line, i) => <li key={i}>{line}</li>)}</ul> : <div className="muted">Claude не оставил итогов.</div>}
+            <div className="caps">Что я сделал</div>
+            {result.done.length ? <ul className="plain dots">{result.done.map((line, i) => <li key={i}>{line}</li>)}</ul> : <div className="muted">Claude не оставил итогов.</div>}
           </div>
           <List title="Не уверен" items={result.unsure} />
           <List title="Не хватило" items={result.missing} />
         </>
       ) : null}
-      <div className="card">
+      <form className="card" onSubmit={(e) => {
+        e.preventDefault();
+        if (text.trim() && !busy) void fix();
+      }}>
         <label htmlFor="fix" className="label">Поправить</label>
-        <input id="fix" type="text" maxLength={MAX_NOTE} placeholder="Например: логотип чуть левее" value={text} onChange={(e) => setText(e.target.value)} />
-        <button type="button" className="btn ghost" disabled={!text.trim() || busy} onClick={() => void fix()}>Переделать</button>
+        <div className="prompt">
+          <input id="fix" type="text" maxLength={MAX_NOTE} placeholder="Например: логотип чуть левее" enterKeyHint="send" value={text} onChange={(e) => setText(e.target.value)} />
+          <button type="submit" className="btn" disabled={!text.trim() || busy}>Переделать</button>
+        </div>
         {error ? <div className="err small">{error}</div> : null}
-      </div>
-      {fixes.length ? (
-        <div className="card">
-          <div className="caps small">Правки</div>
-          <ul className="plain">
+        {fixes.length ? <div className="caps">Правки</div> : null}
+        {fixes.length ? (
+          <ul className="plain fixes">
             {fixes.map((f) => (
               <li key={f.version}>
-                <b>Версия {f.version}:</b> {f.text} <span className="muted small">· {when(f.at)}</span>
+                <span className="mono">версия {f.version}</span>
+                <span>{f.text} <span className="muted small">· {when(f.at)}</span></span>
               </li>
             ))}
           </ul>
-        </div>
-      ) : null}
+        ) : null}
+      </form>
     </>
   );
 }
@@ -178,8 +184,8 @@ function Checklist({ items, caption }: { items: Check[]; caption: boolean }) {
   const rows = [...items.map((c) => ({ key: c.id, title: c.title, ok: c.ok })), { key: 'caption', title: 'подпись к посту', ok: caption }];
   return (
     <div className="card" data-checklist>
-      <div className="caps small">Чек-лист по гайду</div>
-      <ul className="plain marks">
+      <div className="caps">Чек-лист по гайду</div>
+      <ul className="plain marks grid2">
         {rows.map((r) => (
           <li key={r.key} data-ok={r.ok}>
             <span className="mark" aria-label={r.ok ? 'есть' : 'нет'}>{r.ok ? '✓' : '✗'}</span>

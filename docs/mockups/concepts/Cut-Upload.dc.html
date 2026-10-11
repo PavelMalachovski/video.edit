@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Монтажка · Загрузка</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Geologica:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#ECEEF2}a:hover{color:#FFFFFF}
+textarea::placeholder{color:#9AA0AB}
+</style>
+</helmet>
+<div style="width: 390px; height: 1360px; box-sizing: border-box; background: #0B0C0F; color: #ECEEF2; font-family: Geologica, system-ui, sans-serif; padding: 12px 20px 28px; display: flex; flex-direction: column; gap: 12px; overflow: hidden">
+
+  <header style="min-height: 56px; display: flex; align-items: center; justify-content: space-between; gap: 12px">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <span style="width: 30px; height: 30px; border-radius: 9px; background: {{accent}}; display: flex; align-items: center; justify-content: center">
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="{{onAccent}}"><path d="M8 5v14l11-7z"></path></svg>
+      </span>
+      <span style="font-size: 18px; font-weight: 700; letter-spacing: -0.01em">video.edit</span>
+    </div>
+    <nav style="display: flex; gap: 6px">
+      <a href="#script" style="min-height: 44px; padding: 0 12px; border-radius: 10px; background: #15171C; display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; text-decoration: none">
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ECEEF2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14H6z"></path><path d="M14 3v5h5"></path><path d="M9 13h7"></path><path d="M9 17h5"></path></svg>
+        Сценарий
+      </a>
+      <a href="#brand" style="min-height: 44px; padding: 0 12px; border-radius: 10px; background: #15171C; display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; text-decoration: none">
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ECEEF2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.6 6 .7-4.5 4.1 1.2 6L12 16.4 6.7 19.4l1.2-6L3.4 9.3l6-.7z"></path></svg>
+        Бренд
+      </a>
+    </nav>
+  </header>
+
+  <section style="background: #15171C; border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 12px">
+    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px">
+      <h1 style="margin: 0; font-size: 17px; font-weight: 700">Новый проект</h1>
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #8F95A1">MOV · MP4 · до 3 ГБ</span>
+    </div>
+    <label style="min-height: 150px; box-sizing: border-box; border: 1.5px dashed {{accent}}; border-radius: 12px; background: #101216; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; cursor: pointer; text-align: center">
+      <span style="width: 52px; height: 52px; border-radius: 14px; background: {{accent}}; display: flex; align-items: center; justify-content: center">
+        <svg aria-hidden="true" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="{{onAccent}}" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
+      </span>
+      <span style="font-size: 17px; font-weight: 600">Выбрать видео</span>
+      <span style="font-size: 13px; color: #8F95A1">из галереи телефона</span>
+      <input type="file" accept="video/*" hidden>
+    </label>
+    <div style="display: flex; align-items: center; gap: 12px; background: #1E2127; border-radius: 12px; padding: 8px 4px 8px 8px">
+      <span style="position: relative; width: 48px; height: 64px; border-radius: 8px; overflow: hidden; flex: none; display: flex">
+        <svg aria-hidden="true" width="48" height="64" viewBox="0 0 270 360" preserveAspectRatio="xMidYMid slice"><rect width="270" height="360" fill="#6E5F55"></rect><rect x="158" y="20" width="88" height="120" rx="8" fill="#B3A595" opacity="0.5"></rect><circle cx="135" cy="170" r="54" fill="#231F1D"></circle><path d="M24 360 C 30 250, 240 250, 246 360 Z" fill="#231F1D"></path></svg>
+        <span style="position: absolute; left: 3px; bottom: 3px; background: rgba(0,0,0,0.7); border-radius: 4px; padding: 1px 4px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #FFFFFF">1:42</span>
+      </span>
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px">
+        <b style="font-size: 15px; font-weight: 600">IMG_4821.MOV</b>
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #8F95A1">184 МБ · 1:42</span>
+      </div>
+      <button type="button" aria-label="Убрать IMG_4821.MOV" style="width: 44px; height: 44px; flex: none; border: none; border-radius: 10px; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center">
+        <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8F95A1" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg>
+      </button>
+    </div>
+  </section>
+
+  <section style="background: #15171C; border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 10px">
+    <label for="c2-brief" style="font-size: 14px; font-weight: 600">ТЗ <span style="font-weight: 400; color: #8F95A1">· необязательно</span></label>
+    <textarea id="c2-brief" rows="4" placeholder="ХУК: Как я учу чешский&#10;КОДОВОЕ СЛОВО: чешский&#10;МУЗЫКА: lofi&#10;На «вот так это выглядит» — фуллскрин демо" style="box-sizing: border-box; width: 100%; border-radius: 10px; border: 1px solid #2B2F37; background: #0B0C0F; color: #ECEEF2; padding: 12px; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.6; resize: none"></textarea>
+  </section>
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+    <label style="min-height: 52px; border-radius: 12px; background: #15171C; display: flex; align-items: center; gap: 10px; padding: 0 12px; cursor: pointer">
+      <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"></rect><circle cx="9" cy="10" r="2"></circle><path d="M21 16l-5-5-9 9"></path></svg>
+      <span style="flex: 1; font-size: 14px; font-weight: 600">Вставки</span>
+      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8F95A1" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
+      <input type="file" multiple hidden>
+    </label>
+    <label style="min-height: 52px; border-radius: 12px; background: #15171C; display: flex; align-items: center; gap: 10px; padding: 0 12px; cursor: pointer">
+      <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5 11a7 7 0 0 0 14 0"></path><path d="M12 18v3"></path></svg>
+      <span style="flex: 1; font-size: 14px; font-weight: 600">Озвучка</span>
+      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8F95A1" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
+      <input type="file" accept="audio/*" hidden>
+    </label>
+  </div>
+
+  <button type="button" style="min-height: 52px; border-radius: 12px; border: none; background: {{accent}}; color: {{onAccent}}; font-family: Geologica, system-ui, sans-serif; font-size: 16px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 10px; cursor: pointer">
+    <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="{{onAccent}}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"></path><path d="M6 10l6-6 6 6"></path><path d="M4 20h16"></path></svg>
+    Загрузить
+  </button>
+
+  <div style="position: relative; padding-top: 8px">
+    <div aria-hidden="true" style="position: absolute; left: 10%; right: 10%; top: 14px; height: 2px; background: #2B2F37"></div>
+    <ol aria-label="Шаги" style="position: relative; list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px">
+      <li aria-current="step" style="display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: 11px; font-weight: 600"><span style="width: 14px; height: 14px; box-sizing: border-box; border-radius: 7px; background: {{accent}}; box-shadow: 0 0 0 4px #0B0C0F"></span>Загрузка</li>
+      <li style="display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: 11px; color: #8F95A1"><span style="width: 14px; height: 14px; box-sizing: border-box; border-radius: 7px; border: 2px solid #3A3F49; background: #0B0C0F"></span>Текст</li>
+      <li style="display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: 11px; color: #8F95A1"><span style="width: 14px; height: 14px; box-sizing: border-box; border-radius: 7px; border: 2px solid #3A3F49; background: #0B0C0F"></span>Вопросы</li>
+      <li style="display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: 11px; color: #8F95A1"><span style="width: 14px; height: 14px; box-sizing: border-box; border-radius: 7px; border: 2px solid #3A3F49; background: #0B0C0F"></span>Превью</li>
+      <li style="display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: 11px; color: #8F95A1"><span style="width: 14px; height: 14px; box-sizing: border-box; border-radius: 7px; border: 2px solid #3A3F49; background: #0B0C0F"></span>Монтаж</li>
+    </ol>
+  </div>
+
+  <section style="display: flex; flex-direction: column; gap: 12px; padding-top: 14px">
+    <div style="display: flex; align-items: center; gap: 8px">
+      <h2 style="margin: 0; font-size: 17px; font-weight: 700">Проекты</h2>
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #8F95A1; background: #15171C; border-radius: 6px; padding: 2px 7px">4</span>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+
+      <div style="display: flex; flex-direction: column; gap: 4px">
+        <a href="#job-4802" aria-label="IMG_4802.MOV — ждёт ответов" style="position: relative; height: 200px; border-radius: 12px; overflow: hidden; display: flex">
+          <svg aria-hidden="true" width="170" height="200" viewBox="0 0 270 320" preserveAspectRatio="xMidYMid slice"><rect width="270" height="320" fill="#56606E"></rect><rect x="22" y="20" width="96" height="140" rx="8" fill="#97A3B3" opacity="0.5"></rect><circle cx="150" cy="160" r="54" fill="#1E2229"></circle><path d="M40 320 C 46 230, 254 230, 260 320 Z" fill="#1E2229"></path></svg>
+          <span style="position: absolute; left: 8px; top: 8px; background: #FFC53D; color: #1A1406; border-radius: 6px; padding: 3px 7px; font-size: 11px; font-weight: 700">Ждёт ответов</span>
+          <span style="position: absolute; right: 8px; bottom: 8px; background: rgba(0,0,0,0.7); color: #FFFFFF; border-radius: 4px; padding: 1px 5px; font-family: 'JetBrains Mono', monospace; font-size: 11px">1:42</span>
+        </a>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px">
+          <span style="font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">IMG_4802.MOV</span>
+          <button type="button" aria-label="Удалить IMG_4802.MOV" style="width: 44px; height: 40px; flex: none; border: none; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: flex-end; padding: 0">
+            <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#8F95A1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"></path><path d="M9 7V4h6v3"></path><path d="M6 7l1 13h10l1-13"></path></svg>
+          </button>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 4px">
+        <a href="#job-4790" aria-label="IMG_4790.MOV — монтирую" style="position: relative; height: 200px; border-radius: 12px; overflow: hidden; display: flex">
+          <svg aria-hidden="true" width="170" height="200" viewBox="0 0 270 320" preserveAspectRatio="xMidYMid slice"><rect width="270" height="320" fill="#5E6651"></rect><rect x="150" y="16" width="100" height="150" rx="8" fill="#A9B394" opacity="0.45"></rect><circle cx="122" cy="156" r="54" fill="#20231C"></circle><path d="M14 320 C 20 226, 228 226, 234 320 Z" fill="#20231C"></path></svg>
+          <span style="position: absolute; left: 8px; top: 8px; background: rgba(11,12,15,0.8); color: #ECEEF2; border-radius: 6px; padding: 3px 7px; font-size: 11px; font-weight: 600; display: flex; gap: 5px">Монтирую <span style="font-family: 'JetBrains Mono', monospace; color: {{accent}}">42%</span></span>
+          <span style="position: absolute; right: 8px; bottom: 12px; background: rgba(0,0,0,0.7); color: #FFFFFF; border-radius: 4px; padding: 1px 5px; font-family: 'JetBrains Mono', monospace; font-size: 11px">0:58</span>
+          <span style="position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(0,0,0,0.6); display: flex"><span style="width: 42%; background: {{accent}}"></span></span>
+        </a>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px">
+          <span style="font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">IMG_4790.MOV</span>
+          <button type="button" aria-label="Удалить IMG_4790.MOV" style="width: 44px; height: 40px; flex: none; border: none; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: flex-end; padding: 0">
+            <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#8F95A1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"></path><path d="M9 7V4h6v3"></path><path d="M6 7l1 13h10l1-13"></path></svg>
+          </button>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 4px">
+        <a href="#job-4777" aria-label="IMG_4777.MOV — готово" style="position: relative; height: 200px; border-radius: 12px; overflow: hidden; display: flex">
+          <svg aria-hidden="true" width="170" height="200" viewBox="0 0 270 320" preserveAspectRatio="xMidYMid slice"><rect width="270" height="320" fill="#6E5F55"></rect><rect x="158" y="16" width="88" height="128" rx="8" fill="#B3A595" opacity="0.5"></rect><circle cx="135" cy="160" r="54" fill="#231F1D"></circle><path d="M24 320 C 30 228, 240 228, 246 320 Z" fill="#231F1D"></path></svg>
+          <span style="position: absolute; left: 0; right: 0; top: 118px; text-align: center; font-family: Geologica, sans-serif; font-weight: 700; font-size: 13px; color: #FFFFFF; text-shadow: 0 1px 3px rgba(0,0,0,0.8)">ЭТО <span style="color: #FFD23F">РАБОТАЕТ</span></span>
+          <span style="position: absolute; left: 8px; top: 8px; background: #43D68E; color: #06200F; border-radius: 6px; padding: 3px 7px; font-size: 11px; font-weight: 700">Готово</span>
+          <span style="position: absolute; right: 8px; bottom: 8px; background: rgba(0,0,0,0.7); color: #FFFFFF; border-radius: 4px; padding: 1px 5px; font-family: 'JetBrains Mono', monospace; font-size: 11px">1:16</span>
+        </a>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px">
+          <span style="font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">IMG_4777.MOV</span>
+          <button type="button" aria-label="Удалить IMG_4777.MOV" style="width: 44px; height: 40px; flex: none; border: none; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: flex-end; padding: 0">
+            <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#8F95A1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"></path><path d="M9 7V4h6v3"></path><path d="M6 7l1 13h10l1-13"></path></svg>
+          </button>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 4px">
+        <a href="#job-script" aria-label="Утренняя рутина — сценарий готов" style="position: relative; height: 200px; box-sizing: border-box; border-radius: 12px; overflow: hidden; background: #15171C; border: 1px solid #2B2F37; padding: 40px 16px 16px; display: flex; flex-direction: column; gap: 8px">
+          <span style="position: absolute; left: 8px; top: 8px; background: #43D68E; color: #06200F; border-radius: 6px; padding: 3px 7px; font-size: 11px; font-weight: 700">Сценарий готов</span>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: {{accent}}">ХУК</span>
+          <span style="height: 6px; width: 90%; border-radius: 3px; background: #2B2F37"></span>
+          <span style="height: 6px; width: 70%; border-radius: 3px; background: #2B2F37"></span>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: {{accent}}; padding-top: 6px">ТЕЗИСЫ</span>
+          <span style="height: 6px; width: 85%; border-radius: 3px; background: #2B2F37"></span>
+          <span style="height: 6px; width: 60%; border-radius: 3px; background: #2B2F37"></span>
+          <span style="height: 6px; width: 75%; border-radius: 3px; background: #2B2F37"></span>
+        </a>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px">
+          <span style="font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Утренняя рутина</span>
+          <button type="button" aria-label="Удалить «Утренняя рутина»" style="width: 44px; height: 40px; flex: none; border: none; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: flex-end; padding: 0">
+            <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#8F95A1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"></path><path d="M9 7V4h6v3"></path><path d="M6 7l1 13h10l1-13"></path></svg>
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#25E2EE","options":["#25E2EE","#FF4D8D","#B5F23D","#FFD23F"]},"$preview":{"width":390,"height":1360}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const accent = this.props.accent ?? '#25E2EE';
+    return { accent: accent, onAccent: this.ink(accent) };
+  }
+  ink(hex) {
+    const h = String(hex).replace('#', '');
+    if (h.length !== 6) return '#06121A';
+    const c = [0, 2, 4].map((i) => {
+      const v = parseInt(h.slice(i, i + 2), 16) / 255;
+      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2] > 0.18 ? '#06121A' : '#FFFFFF';
+  }
+}
+</script>
+</body>
+</html>

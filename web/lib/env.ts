@@ -1,9 +1,17 @@
 import type { GH } from './github.ts';
 import type { Routine } from './routine.ts';
 
+/** Сервис не настроен: нет переменной окружения на Vercel. Текст — для Павла: что задать и где. */
+export class ConfigError extends Error {
+  constructor(name: string) {
+    super(`Сервис не настроен: в Vercel нет переменной ${name} (Settings → Environment Variables), после неё — Redeploy`);
+    this.name = 'ConfigError';
+  }
+}
+
 export function env(name: string): string {
   const v = process.env[name];
-  if (!v) throw new Error(`env ${name} is not set`);
+  if (!v) throw new ConfigError(name);
   return v;
 }
 

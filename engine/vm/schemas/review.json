@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://video.edit/schemas/review.json",
+  "title": "review.json — разбор ролика по гайду Meta «Всё о Reels» (пишет Claude на шаге analyze; страница показывает его над вопросами)",
+  "type": "object",
+  "required": ["items"],
+  "properties": {
+    "items": {
+      "description": "5–8 пунктов гайда: что уже хорошо (ok) и что стоит поправить (warn) — и как.",
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "status", "note"],
+        "properties": {
+          "id": {
+            "description": "hook — мысль в первые 2 с; face — лицо в первые секунды; value — польза в середине; cta — призыв в конце; text — текст на экране; length — длина; sound — звук; story — тип истории.",
+            "enum": ["hook", "face", "value", "cta", "text", "length", "sound", "story"]
+          },
+          "title": { "type": "string", "minLength": 1, "maxLength": 60 },
+          "status": { "enum": ["ok", "warn"] },
+          "note": { "description": "Коротко, по-русски: что видно и что сделать.", "type": "string", "minLength": 1, "maxLength": 300 }
+        }
+      }
+    }
+  }
+}

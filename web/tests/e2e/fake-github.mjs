@@ -44,6 +44,12 @@ export async function startFake({ port = 0 } = {}) {
   /** @type {Map<string, string>} */ const refs = new Map();
   const releases = [];
   const blobs = new Map(); // id ассета → байты
+  const gitBlobs = new Map(); // sha blob-а git → байты (POST git/blobs и любой файл, отданный через contents)
+  const blobSha = (b) => {
+    const sha = crypto.createHash('sha1').update(b).digest('hex');
+    gitBlobs.set(sha, b);
+    return sha;
+  };
   let nextId = 1;
   let failed3 = false;
   /** @type {number | null} */ let failFire = null;
@@ -133,7 +139,7 @@ export async function startFake({ port = 0 } = {}) {
   const releaseJSON = (r) => ({ ...r, assets: r.assets.map((a) => ({ ...a })) });
   const fileJSON = (path, b) => ({
     type: 'file', name: path.split('/').pop(), path, size: b.length, encoding: 'base64', content: b.toString('base64'),
-    sha: crypto.createHash('sha1').update(b).digest('hex'),
+    sha: blobSha(b),
   });
   const listing = (tree, dir) => {
     const prefix = dir ? `${dir}/` : '';
@@ -189,10 +195,18 @@ export async function startFake({ port = 0 } = {}) {
       const c = commits.get(m[1]);
       return c ? send(res, 200, { sha: c.sha, message: c.message, tree: { sha: c.tree }, parents: c.parents.map((sha) => ({ sha })) }) : notFound(res);
     }
+    if (req.method === 'POST' && p === '/api/repos/o/r/git/blobs') {
+      const b = json();
+      const bytes = b.encoding === 'base64' ? Buffer.from(String(b.content ?? ''), 'base64') : Buffer.from(String(b.content ?? ''));
+      return send(res, 201, { sha: blobSha(bytes) });
+    }
     if (req.method === 'POST' && p === '/api/repos/o/r/git/trees') {
       const b = json();
       if (b.base_tree && !trees.has(b.base_tree)) return send(res, 422, { message: 'base_tree not found' });
-      const sha = makeTree(b.base_tree, (b.tree ?? []).map((e) => [e.path, e.sha === null ? null : String(e.content ?? '')]));
+      const entries = b.tree ?? [];
+      const unknown = entries.find((e) => typeof e.sha === 'string' && !gitBlobs.has(e.sha));
+      if (unknown) return send(res, 422, { message: `fake: no blob ${unknown.sha}` });
+      const sha = makeTree(b.base_tree, entries.map((e) => [e.path, e.sha === null ? null : typeof e.sha === 'string' ? gitBlobs.get(e.sha) : String(e.content ?? '')]));
       return send(res, 201, { sha });
     }
     if (req.method === 'POST' && p === '/api/repos/o/r/git/commits') {

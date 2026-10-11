@@ -392,6 +392,16 @@ def test_styles_sample_inserts_optional(job):
         job.write("styles.json", bad)
 
 
+def test_result_takes_a_post_caption(job):
+    result = {"durations": {"source": 80.2, "final": 71.0}, "done": [], "unsure": [], "missing": [], "qa": {"ok": True, "problems": []},
+              "caption": {"text": "Три ошибки новичка 🔥", "hashtags": ["монтаж", "reels"]}}
+    job.write("result.json", result)
+    for bad, field in (({"text": "", "hashtags": []}, "text"), ({"text": "x", "hashtags": ["#a b"]}, "hashtags"),
+                       ({"text": "x", "hashtags": [str(i) for i in range(31)]}, "hashtags")):
+        with pytest.raises(ValueError, match=rf"caption\.{field}"):
+            job.write("result.json", {**result, "caption": bad})
+
+
 def test_edit_face_is_fractions_of_the_frame(job):
     edit = make_edit()
     edit["face"] = {"x": 1.5, "y": 0.3}
@@ -405,6 +415,128 @@ def test_edit_face_is_fractions_of_the_frame(job):
     edit["face"] = {"x": 0.5, "y": 0.3, "w": -0.1}
     with pytest.raises(ValueError, match=r"face\.w"):
         job.write("edit.json", edit)
+
+
+def test_edit_takes_thesis_stickers_with_an_id(job):
+    edit = make_edit()
+    edit["inserts"] = [{"kind": "text", "id": "s1", "text": "3 ошибки новичка 🔥", "t0": 4.0, "t1": 6.0, "x": 120, "y": 700, "w": 420,
+                        "sfx": None, "params": {"tone": "accent"}}]
+    job.write("edit.json", edit)
+    edit["inserts"][0]["id"] = "S 1"
+    with pytest.raises(ValueError, match=r"inserts\[0\]\.id"):
+        job.write("edit.json", edit)
+
+
+def test_styles_sample_shows_thesis_stickers(job):
+    styles = json.loads((Path(__file__).parent / "fixtures" / "style-merge.json").read_text(encoding="utf-8"))["styles"]
+    styles["sample"]["inserts"] = [{"kind": "text", "id": "s1", "text": "Свет 💡", "x": 120, "y": 700, "w": 420, "params": {"tone": "light"}}]
+    job.write("styles.json", styles)
+
+
+def test_edit_takes_an_end_card(job):
+    edit = make_edit()
+    edit["end"] = {"seconds": 2.0, "lines": ["Подпишись 👇"], "handle": "@pavel", "logo": "in/brand/logo.png", "sfx": None}
+    job.write("edit.json", edit)
+    edit["end"] = None
+    job.write("edit.json", edit)
+    for bad, field in (({"seconds": 0.5, "lines": ["x"]}, "seconds"), ({"seconds": 2, "lines": []}, "lines"),
+                       ({"seconds": 2, "lines": ["a", "b", "c"]}, "lines")):
+        edit["end"] = bad
+        with pytest.raises(ValueError, match=rf"end\.{field}"):
+            job.write("edit.json", edit)
+
+
+def test_edit_takes_a_teaser(job):
+    edit = make_edit()
+    edit["teaser"] = {"t0": 30.2, "t1": 32.8, "sfx": "assets/sfx/swoosh.mp3"}
+    job.write("edit.json", edit)
+    edit["teaser"] = None
+    job.write("edit.json", edit)
+    edit["teaser"] = {"t0": 30.2}
+    with pytest.raises(ValueError, match=r"teaser"):
+        job.write("edit.json", edit)
+
+
+def test_a_b_test_is_without_the_teaser_or_without_the_music(job):
+    edit = make_edit()
+    for ab in ("teaser", "music", None):
+        job.write("edit.json", {**edit, "ab": ab})
+    with pytest.raises(ValueError, match=r"  ab: "):
+        job.write("edit.json", {**edit, "ab": "colors"})
+    answers = {"answers": {}, "style": {"variant": "A", "font": "Gilroy", "hand": "caveat",
+                                         "colors": {"text": "#FFFFFF", "accent": "#FFD23F", "bar": "#FFD23F"}}}  # fmt: skip
+    job.write("answers.json", {**answers, "ab": "music"})
+    with pytest.raises(ValueError, match=r"  ab: "):
+        job.write("answers.json", {**answers, "ab": "hook"})
+    result = {"durations": {"source": 80.2, "final": 71.0}, "done": [], "unsure": [], "missing": [], "qa": {"ok": True, "problems": []}}
+    second = {"differs": "teaser", "durations": {"source": 80.2, "final": 68.5}, "qa": {"ok": False, "problems": ["тихо"]}}
+    job.write("result.json", {**result, "ab": second})
+    with pytest.raises(ValueError, match=r"  ab\.differs: "):
+        job.write("result.json", {**result, "ab": {**second, "differs": "hook"}})
+    with pytest.raises(ValueError, match=r"  ab\.qa\.ok: "):
+        job.write("result.json", {**result, "ab": {**second, "qa": {"ok": "yes", "problems": []}}})
+
+
+def test_music_can_switch_off_the_beats(job):
+    edit = make_edit()
+    for beats in (True, False):
+        job.write("edit.json", {**edit, "music": {"file": "assets/music/a.mp3", "gainDb": -18, "beats": beats}})
+    with pytest.raises(ValueError, match=r"  music\.beats: "):
+        job.write("edit.json", {**edit, "music": {"file": "assets/music/a.mp3", "gainDb": -18, "beats": "no"}})
+
+
+def test_result_takes_the_guide_checklist(job):
+    from vm.qa import CHECKS
+
+    result = {"durations": {"source": 80.2, "final": 71.0}, "done": [], "unsure": [], "missing": [], "qa": {"ok": True, "problems": []}}
+    checks = [{"id": key, "title": title, "ok": True} for key, title in CHECKS.items()]
+    job.write("result.json", {**result, "checklist": checks})
+    assert job.read("result.json")["checklist"] == checks
+    for bad, field in (({**checks[0], "id": "fps"}, "id"), ({**checks[0], "ok": "yes"}, "ok"), ({**checks[0], "title": ""}, "title")):
+        with pytest.raises(ValueError, match=rf"  checklist\[0\]\.{field}: "):
+            job.write("result.json", {**result, "checklist": [bad]})
+
+
+def test_review_is_five_to_eight_points_of_the_guide(job):
+    items = [{"id": i, "title": "Мысль в первые 2 с", "status": "ok", "note": "Хук звучит сразу"} for i in ("hook", "face", "value", "cta", "text")]
+    job.write("review.json", {"items": items})
+    for bad, field in ((items[:4], r"items"), ([{**items[0], "status": "bad"}, *items[1:]], r"items\[0\]\.status"),
+                       ([{**items[0], "id": "music"}, *items[1:]], r"items\[0\]\.id"), ([{**items[0], "note": ""}, *items[1:]], r"items\[0\]\.note")):
+        with pytest.raises(ValueError, match=rf"  {field}: "):
+            job.write("review.json", {"items": bad})
+
+
+SCRIPT = {
+    "story": "tutorial",
+    "hooks": [{"technique": "value", "text": "3 ошибки, из-за которых чешский не идёт", "frame": "крупный план, смотрю в камеру"},
+              {"technique": "engage", "text": "Какой вы ученик: зубрила или болтун?"},
+              {"technique": "emotion", "text": "POV: полгода учишь чешский и молчишь в магазине"}],
+    "scenes": [{"part": "hook", "t0": 0, "t1": 2.5, "say": "3 ошибки…", "screen": "3 ошибки 🔥", "frame": "крупно, лицо"},
+               {"part": "hold", "t0": 2.5, "t1": 20, "say": "Первая — учить слова списком", "screen": "Слова — списком", "frame": "средний план"},
+               {"part": "reward", "t0": 20, "t1": 30, "say": "Пиши «чешский» — пришлю план", "screen": "Пиши «чешский»", "frame": "крупно",
+                "sound": "музыка громче"}],
+    "cta": "Пиши «чешский» в комментариях — пришлю план на месяц",
+    "tips": ["Лицо в кадре с первой секунды", "Снимай вертикально, 9:16"],
+    "caption": {"text": "3 ошибки в чешском 🇨🇿", "hashtags": ["чешский"]},
+}
+
+
+def test_a_script_job_ends_with_script_ready_and_a_script(job):
+    job.write("status.json", {"state": "script_ready", "phase": "Сценарий готов", "message": "Три хука и раскадровка", "at": "2026-10-11T10:00:00Z"})
+    job.write("script.json", SCRIPT)
+    assert job.read("script.json") == SCRIPT
+    for bad, field in (({**SCRIPT, "story": "vlog"}, r"story"), ({**SCRIPT, "hooks": SCRIPT["hooks"][:2]}, r"hooks"),
+                       ({**SCRIPT, "hooks": [{**SCRIPT["hooks"][0], "technique": "joke"}, *SCRIPT["hooks"][1:]]}, r"hooks\[0\]\.technique"),
+                       ({**SCRIPT, "scenes": [{**SCRIPT["scenes"][0], "part": "intro"}, *SCRIPT["scenes"][1:]]}, r"scenes\[0\]\.part"),
+                       ({**SCRIPT, "caption": {"text": "", "hashtags": []}}, r"caption\.text"), ({**SCRIPT, "tips": []}, r"tips")):
+        with pytest.raises(ValueError, match=rf"  {field}: "):
+            job.write("script.json", bad)
+
+
+def test_styles_sample_end_card_takes_an_empty_brand(job):
+    styles = json.loads((Path(__file__).parent / "fixtures" / "style-merge.json").read_text(encoding="utf-8"))["styles"]
+    styles["sample"]["end"] = {"lines": ["Подпишись 👇"], "handle": None, "logo": None}  # в бренде нет ника и логотипа
+    job.write("styles.json", styles)
 
 
 def test_edit_rejects_unknown_insert_kind(job):

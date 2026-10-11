@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { ConfigError, env } from '../lib/env.ts';
 import { errorResponse } from '../lib/http.ts';
 import { GitHubError } from '../lib/github.ts';
 import { RoutineError } from '../lib/routine.ts';
@@ -18,10 +19,22 @@ test('errorResponse never echoes a bearer token', async () => {
   assert.doesNotMatch(body.error, /github_pat_ABCDEF123/);
 });
 
-test('missing env var is reported as a configuration error (500)', async () => {
-  const r = errorResponse(new Error('env GITHUB_TOKEN is not set'));
+test('missing env var is reported as a configuration error (500) Pavel can act on', async () => {
+  delete process.env.VM_TEST_MISSING;
+  let thrown: unknown;
+  try {
+    env('VM_TEST_MISSING');
+  } catch (e) {
+    thrown = e;
+  }
+  assert.ok(thrown instanceof ConfigError);
+  const r = errorResponse(thrown);
   assert.equal(r.status, 500);
-  assert.match((await r.json()).error, /GITHUB_TOKEN/);
+  const { error } = await r.json();
+  assert.match(error, /VM_TEST_MISSING/);
+  assert.match(error, /Vercel/);
+  assert.match(error, /Redeploy/);
+  assert.doesNotMatch(error, /is not set/, 'по-русски, а не технической строкой');
 });
 
 test('rate-limited GitHub error becomes 429 with retryAfter', async () => {

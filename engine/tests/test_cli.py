@@ -646,6 +646,17 @@ def test_validate_names_bad_fields_and_missing_pictures(tmp_path, capsys):
     assert "questions.json" in capsys.readouterr().out
 
 
+def test_validate_checks_the_review_and_the_script_too(tmp_path, capsys):
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    for name, bad in (("review.json", {"items": [{"id": "hook", "title": "Мысль", "status": "maybe", "note": "…"}]}),
+                      ("script.json", {"story": "vlog", "hooks": [], "scenes": [], "cta": "", "tips": [], "caption": {}})):
+        job.path(name).write_text(json.dumps(bad), encoding="utf-8")
+        assert main(["validate", str(job.root)]) == 1, name
+        assert name in capsys.readouterr().err
+        job.path(name).unlink()
+
+
 def test_validate_finds_insert_files_of_edit_json(tmp_path, capsys):
     job = Job(tmp_path / "jobs" / "abc")
     job.root.mkdir(parents=True)
@@ -653,7 +664,8 @@ def test_validate_finds_insert_files_of_edit_json(tmp_path, capsys):
             "music": {"file": "assets/music/nope.mp3", "gainDb": -18}, "hold": 0.0, "style": STYLE,
             "inserts": [{"kind": "image", "src": "in/uploads/nope.png", "t0": 1.0, "t1": 2.5, "x": 100, "y": 600, "w": 300}]}
     job.write("edit.json", edit)
-    job.path("in").mkdir()  # после vm fetch
+    job.path("in").mkdir()
+    job.path("in/source.mov").write_bytes(b"mov")  # после vm fetch
     assert main(["validate", str(job.root)]) == 1
     err = capsys.readouterr().err
     assert "in/uploads/nope.png" in err and "assets/music/nope.mp3" in err
@@ -669,7 +681,11 @@ def test_validate_leaves_uploads_alone_until_fetch(tmp_path, capsys):
     job.write("edit.json", edit)
     assert main(["validate", str(job.root)]) == 0
     assert "in/" in capsys.readouterr().out  # сказано, что их не проверял
-    job.path("in").mkdir()  # после vm fetch — проверяются
+    job.path("in/brand").mkdir(parents=True)  # копия логотипа бренда лежит в ветке задачи — это ещё не vm fetch
+    job.path("in/brand/logo.png").write_bytes(b"png")
+    assert main(["validate", str(job.root)]) == 0
+    assert "in/uploads/upload-i1.png" in capsys.readouterr().out
+    job.path("in/source.mov").write_bytes(b"mov")  # после vm fetch — проверяются
     assert main(["validate", str(job.root)]) == 1
     assert "in/uploads/upload-i1.png" in capsys.readouterr().err
 
@@ -904,3 +920,120 @@ def test_prepare_takes_a_job_from_before_languages_as_russian(heard):
     job.path("words.json").write_text('[\n  {"t0": 0.5, "t1": 0.9, "text": "раз"}\n]\n', encoding="utf-8")
     assert main(["prepare", str(job.root), "--lang", "ru"]) == 0
     assert calls["transcribe"] == []  # старая задача и так русская — распознавать заново незачем
+
+
+# ---------- подпись к посту ----------
+
+CHECKS = [{"id": "format", "title": "9:16, 1080×1920, 30 к/с", "ok": True}, {"id": "end", "title": "финальная карточка с призывом", "ok": False}]
+
+
+def test_render_keeps_the_caption_claude_wrote(tmp_path, monkeypatch):
+    """vm render пишет result.json заново (длительности, missing, qa), а done, unsure и подпись к посту — от Claude."""
+    import vm.__main__ as cli
+
+    job = Job(tmp_path / "jobs" / "abc")
+    job.write("edit.json", {"speed": 1.0, "keep": [[0.0, 4.0]], "words": [], "hook": None, "cta": None, "inserts": [], "zooms": [],
+                            "face": {"x": 0.5, "y": 0.3}, "music": None, "hold": 0.0, "style": STYLE})
+    caption = {"text": "Три ошибки новичка в монтаже 🔥\nСохрани, чтобы не потерять", "hashtags": ["монтаж", "reels"]}
+    job.write("result.json", {"durations": {"source": 4, "final": 4}, "done": ["вырезал паузы"], "unsure": [], "missing": [],
+                              "qa": {"ok": True, "problems": []}, "caption": caption})
+    job.path("work/render/frames").mkdir(parents=True)
+    job.path("work/render/frames/boxes.json").write_text("[]", encoding="utf-8")
+    job.path("out").mkdir()
+    job.path("out/final.mp4").write_bytes(b"video")
+    monkeypatch.setattr(cli, "render", lambda *a, **k: {"durations": {"source": 4.0, "final": 4.0}, "missing": [], "warnings": [], "voice": {}})
+    monkeypatch.setattr(cli, "_fonts_ok", lambda job: None)
+    monkeypatch.setattr(cli, "check_render", lambda *a, **k: [])
+    monkeypatch.setattr(cli, "control_frames", lambda *a, **k: {"sheet": job.path("qa/qa.png")})
+    monkeypatch.setattr(cli, "checklist", lambda final, boxes, report: CHECKS)
+    assert main(["render", str(job.root)]) == 0
+    result = job.read("result.json")
+    assert result["caption"] == caption and result["done"] == ["вырезал паузы"]
+    assert result["checklist"] == CHECKS, "чек-лист по гайду — от vm render"
+
+
+# ---------- A/B ----------
+
+
+def test_version_b_is_the_same_edit_without_the_teaser_or_the_music():
+    from vm.render import RenderError, variant_b
+
+    edit = {"keep": [[0, 4]], "teaser": {"t0": 2.0, "t1": 3.0}, "music": {"file": "assets/music/a.mp3", "gainDb": -18}, "ab": "teaser"}
+    assert variant_b(edit) == {**edit, "teaser": None, "ab": None}
+    assert variant_b({**edit, "ab": "music"}) == {**edit, "music": None, "ab": None}
+    with pytest.raises(RenderError, match="тизера нет"):
+        variant_b({**edit, "teaser": None})
+    with pytest.raises(RenderError, match="ab"):
+        variant_b({**edit, "ab": "colors"})
+
+
+def test_render_builds_version_b_too_and_checks_it(tmp_path, monkeypatch):
+    import vm.__main__ as cli
+
+    job = Job(tmp_path / "jobs" / "abc")
+    job.write("edit.json", {"speed": 1.0, "keep": [[0.0, 4.0]], "words": [], "hook": None, "cta": None, "inserts": [], "zooms": [],
+                            "face": {"x": 0.5, "y": 0.3}, "music": {"file": "assets/music/a.mp3", "gainDb": -18}, "hold": 0.0,
+                            "style": STYLE, "ab": "music"})
+    calls = []
+
+    def fake_render(job_, out_dir, name="final", preset="medium", edit=None, work="work/render"):
+        calls.append((name, edit and edit.get("music"), work))
+        (job_.path(work) / "frames").mkdir(parents=True, exist_ok=True)
+        (job_.path(work) / "frames" / "boxes.json").write_text("[]", encoding="utf-8")
+        job_.path("out").mkdir(exist_ok=True)
+        job_.path(f"out/{name}.mp4").write_bytes(b"video")
+        return {"durations": {"source": 4.0, "final": 4.0}, "missing": [], "warnings": [], "voice": {}}
+
+    monkeypatch.setattr(cli, "render", fake_render)
+    monkeypatch.setattr(cli, "_fonts_ok", lambda job: None)
+    monkeypatch.setattr(cli, "check_render", lambda final, edit, boxes, report: [] if edit.get("music") else ["тихо"])
+    monkeypatch.setattr(cli, "control_frames", lambda *a, **k: {"sheet": job.path("qa/qa.png")})
+    monkeypatch.setattr(cli, "checklist", lambda final, boxes, report: CHECKS)
+    assert main(["render", str(job.root), "--version", "2"]) == 0
+    assert calls == [("final-v2", None, "work/render"), ("final-v2-b", None, "work/render-b")]
+    result = job.read("result.json")
+    assert result["ab"] == {"differs": "music", "durations": {"source": 4.0, "final": 4.0}, "qa": {"ok": False, "problems": ["тихо"]}}
+
+
+def test_version_b_without_its_part_fails_before_the_first_render(tmp_path, monkeypatch, capsys):
+    import vm.__main__ as cli
+
+    job = Job(tmp_path / "jobs" / "abc")
+    job.write("edit.json", {"speed": 1.0, "keep": [[0.0, 4.0]], "words": [], "hook": None, "cta": None, "inserts": [], "zooms": [],
+                            "face": {"x": 0.5, "y": 0.3}, "music": None, "hold": 0.0, "style": STYLE, "teaser": None, "ab": "teaser"})
+    calls = []
+    monkeypatch.setattr(cli, "render", lambda *a, **k: calls.append(a))
+    monkeypatch.setattr(cli, "_fonts_ok", lambda job: None)
+    assert main(["render", str(job.root)]) == 1
+    assert calls == [], "ошибка в ab — сразу, а не после сборки первой версии"
+    assert "тизера нет" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("beats, line", [
+    ({"bpm": 121.4, "moved": 3}, "в такт музыке (121 уд/мин): к долям подвинуто событий — 3"),
+    ({"bpm": 0.0, "moved": 0}, "в такт музыке: ровного ритма в треке нет — зумы и вставки на своих местах"),
+    (None, None),
+])
+def test_render_says_how_the_events_follow_the_beats(tmp_path, monkeypatch, capsys, beats, line):
+    import vm.__main__ as cli
+
+    job = Job(tmp_path / "jobs" / "abc")
+    job.write("edit.json", {"speed": 1.0, "keep": [[0.0, 4.0]], "words": [], "hook": None, "cta": None, "inserts": [], "zooms": [],
+                            "face": {"x": 0.5, "y": 0.3}, "music": {"file": "assets/music/a.mp3", "gainDb": -18}, "hold": 0.0,
+                            "style": STYLE})
+
+    def fake_render(job_, out_dir, name="final", preset="medium", edit=None, work="work/render"):
+        (job_.path(work) / "frames").mkdir(parents=True, exist_ok=True)
+        (job_.path(work) / "frames" / "boxes.json").write_text("[]", encoding="utf-8")
+        job_.path("out").mkdir(exist_ok=True)
+        job_.path(f"out/{name}.mp4").write_bytes(b"video")
+        return {"durations": {"source": 4.0, "final": 4.0}, "missing": [], "warnings": [], "voice": {}, "beats": beats}
+
+    monkeypatch.setattr(cli, "render", fake_render)
+    monkeypatch.setattr(cli, "_fonts_ok", lambda job: None)
+    monkeypatch.setattr(cli, "check_render", lambda *a: [])
+    monkeypatch.setattr(cli, "control_frames", lambda *a, **k: {"sheet": job.path("qa/qa.png")})
+    monkeypatch.setattr(cli, "checklist", lambda final, boxes, report: CHECKS)
+    assert main(["render", str(job.root)]) == 0
+    out = capsys.readouterr().out
+    assert (line in out) if line else ("в такт" not in out), out

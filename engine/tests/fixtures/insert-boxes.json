@@ -1,21 +1,24 @@
 {
-  "about": "Место и ширина вставок, которые Павел выбрал на превью (перетащил, растянул): ключ — question вставки, иначе src; рамка {x, y, w} — левый верхний угол и ширина, px кадра, ставится вставке как есть. Вставки без рамки и fullscreen (без x, w) — как были. Общая фикстура: engine/vm/style.py (placed_inserts) и web/lib/style.ts (placedInserts).",
+  "about": "Место и ширина вставок, которые Павел выбрал на превью (перетащил, растянул): ключ — question вставки, иначе src, иначе id (стикер-тезис); рамка {x, y, w} — левый верхний угол и ширина, px кадра, ставится вставке как есть. Вставки без рамки и fullscreen (без x, w) — как были. Общая фикстура: engine/vm/style.py (placed_inserts) и web/lib/style.ts (placedInserts).",
   "inserts": [
     {"kind": "image", "question": "insert-1", "x": 70, "y": 500, "w": 250, "t0": 1, "t1": 3},
     {"kind": "image", "src": "in/uploads/upload-i1.png", "x": 600, "y": 900, "w": 280, "t0": 4, "t1": 6},
     {"kind": "sticker", "title": "Важно", "text": "каждый день", "x": 300, "y": 1100, "w": 380, "t0": 7, "t1": 9},
+    {"kind": "text", "id": "s1", "text": "3 ошибки 🔥", "x": 120, "y": 700, "w": 420, "t0": 8, "t1": 10},
     {"kind": "fullscreen", "src": "in/uploads/clip.mp4", "t0": 10, "t1": 12}
   ],
   "boxes": {
     "insert-1": {"x": 60, "y": 420, "w": 330},
     "in/uploads/upload-i1.png": {"x": 490, "y": 960, "w": 400},
     "in/uploads/clip.mp4": {"x": 100, "y": 200, "w": 300},
-    "nobody": {"x": 100, "y": 200, "w": 300}
+    "nobody": {"x": 100, "y": 200, "w": 300},
+    "s1": {"x": 200, "y": 760, "w": 500}
   },
   "expected": [
     {"kind": "image", "question": "insert-1", "x": 60, "y": 420, "w": 330, "t0": 1, "t1": 3},
     {"kind": "image", "src": "in/uploads/upload-i1.png", "x": 490, "y": 960, "w": 400, "t0": 4, "t1": 6},
     {"kind": "sticker", "title": "Важно", "text": "каждый день", "x": 300, "y": 1100, "w": 380, "t0": 7, "t1": 9},
+    {"kind": "text", "id": "s1", "text": "3 ошибки 🔥", "x": 200, "y": 760, "w": 500, "t0": 8, "t1": 10},
     {"kind": "fullscreen", "src": "in/uploads/clip.mp4", "t0": 10, "t1": 12}
   ]
 }

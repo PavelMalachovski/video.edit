@@ -21,6 +21,7 @@ function badge(r: Row): { text: string; tone: Tone } {
     case 'working': return r.stuck ? { text: `${r.phase ?? 'Работаю'}… завис?`, tone: 'yellow' } : { text: `${r.phase ?? 'Работаю'}…`, tone: 'grey' };
     case 'questions': return { text: 'Ждёт ответов', tone: 'yellow' };
     case 'result': return { text: 'Готово', tone: 'green' };
+    case 'script': return { text: 'Сценарий готов', tone: 'green' };
     case 'error': return { text: 'Ошибка', tone: 'red' };
   }
 }

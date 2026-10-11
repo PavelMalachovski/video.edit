@@ -172,6 +172,15 @@ def test_insert_pushed_after_hook_still_shows_1_5s():
     assert (shown[0]["t0"], shown[-1]["t1"]) == pytest.approx((2.5, 4.0))
 
 
+def test_thesis_sticker_is_drawn_by_the_template():
+    sticker = {"kind": "text", "id": "s1", "text": "3 ошибки 🔥", "t0": 4.0, "t1": 7.0, "x": 120, "y": 700, "w": 420, "sfx": None,
+               "params": {"tone": "dark"}}
+    edit = make_edit(inserts=[sticker])
+    state = at(build_overlay_events(edit, timeline(edit)), 5.0)
+    assert state["inserts"] == [{"kind": "text", "text": "3 ошибки 🔥", "x": 120, "y": 700, "w": 420, "params": {"tone": "dark"},
+                                 "n": 0, "anim": 1, "t": 0}]
+
+
 def test_fullscreen_inserts_are_left_to_ffmpeg():
     edit = make_edit(inserts=[{"kind": "fullscreen", "src": "in/uploads/upload-i1.mov", "t0": 3.0, "t1": 5.0}])
     assert build_overlay_events(edit, timeline(edit)) == [{"t0": 0, "t1": pytest.approx(10.0), "state": {}}]
@@ -263,3 +272,44 @@ def test_short_subtitle_between_frames_does_not_break_the_grid():
     events = build_overlay_events(edit, timeline(edit))
     for e in events[1:]:
         assert math.isclose(e["t0"] * FPS, round(e["t0"] * FPS), abs_tol=1e-6)
+
+
+# ---------- финальная карточка ----------
+
+END = {"seconds": 2.0, "lines": ["Подпишись 👇"], "handle": "@pavel", "logo": "in/brand/logo.png", "sfx": None}
+
+
+def test_end_card_comes_after_the_hold_frame_by_frame():
+    words = [{"t0": 9.0, "t1": 9.8, "text": "конец"}]
+    edit = make_edit(hold=0.5, end=END, words=words, cta={"lines": ["ПИШИ"], "word": "план", "t0": 9.0, "t1": 10.0})
+    tl = timeline(edit)
+    events = build_overlay_events(edit, tl)
+    assert events[-1]["t1"] == pytest.approx(tl.duration + 0.5 + 2.0)
+    assert "cta" in at(events, 10.2) and "sub" in at(events, 10.2), "на стоп-кадре — то, что было в последний кадр"
+    card = [e for e in events if "end" in e["state"]]
+    assert card[0]["t0"] == pytest.approx(10.5)
+    assert len(card) == 60, "каждый кадр карточки свой: она дышит"
+    assert card[0]["state"] == {"end": {"lines": ["Подпишись 👇"], "handle": "@pavel", "logo": "in/brand/logo.png", "t": 0}}
+    assert card[1]["state"]["end"]["t"] == pytest.approx(FRAME)
+    assert all(set(e["state"]) == {"end"} for e in card), "на карточке нет ни субтитров, ни титра, ни вставок"
+
+
+def test_end_card_without_hold_starts_right_after_the_video():
+    edit = make_edit(end={**END, "seconds": 1.5, "handle": None, "logo": None})
+    events = build_overlay_events(edit, timeline(edit))
+    card = [e for e in events if "end" in e["state"]]
+    assert card[0]["t0"] == pytest.approx(10.0) and card[-1]["t1"] == pytest.approx(11.5)
+    assert card[0]["state"]["end"] == {"lines": ["Подпишись 👇"], "t": 0}
+
+
+# ---------- тизер ----------
+
+
+def test_with_a_teaser_the_hook_stays_over_the_whole_teaser_and_inserts_keep_their_phrase():
+    edit = make_edit(teaser={"t0": 6.0, "t1": 8.0, "sfx": None}, hook={"text": "Главное правило", "until": 1.0},
+                     inserts=[picture(0.5, 4.0)])
+    tl = Timeline(edit["keep"], edit["speed"], teaser=(6.0, 8.0))
+    events = build_overlay_events(edit, tl)
+    assert "hook" in at(events, 1.9) and "hook" not in at(events, 2.05), "хук — весь тизер, до 2 с"
+    assert at(events, 2.6).get("inserts") and not at(events, 2.4).get("inserts"), "вставка — на своей фразе после тизера"
+    assert events[-1]["t1"] == pytest.approx(12.0)

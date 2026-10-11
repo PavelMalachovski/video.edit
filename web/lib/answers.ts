@@ -1,7 +1,7 @@
 // Ответы на вопросы Claude в браузере: черновик (выбранные варианты, тексты, картинки к ответам) живёт в
 // localStorage['vm:draft:<id>'] и переживает перезагрузку; из него — ответы для «Монтировать» и хук для превью.
 import { isUploadFile, uploadAssetName } from './jobs.ts';
-import { ownKey, RESERVED, type Question } from './jobfiles.ts';
+import { ownKey, RESERVED, type AbKind, type Question } from './jobfiles.ts';
 
 /** Картинка к ответу «загрузить свою»: ассет черновика, его куски и готова ли; `n` — какой это выбор по счёту. */
 export type LocalUpload = { asset: string; name: string; size: number; type: string; parts: number; done: boolean; n?: number };
@@ -95,6 +95,37 @@ export function previewHook(qs: Question[], d: Draft, sampleHook?: string): stri
   if (id === RESERVED.own) return (d.texts[q.id] ?? '').trim() || null;
   const label = q.options?.find((o) => o.id === id)?.label;
   return label ? unquote(label) || null : null;
+}
+
+/** Финальная карточка на превью (`styles.sample.end`: ник и логотип бренда); призыв — по вопросу `end` (`none` — без
+ *  карточки, `own` — свой текст, иначе подпись варианта без кавычек). Вопроса нет — карточка образца. */
+export type EndCard = { lines: string[]; handle?: string; logo?: string };
+export function previewEnd(qs: Question[], d: Draft, sample?: SampleEnd): EndCard | null {
+  const q = qs.find((x) => x.id === RESERVED.end);
+  if (!q) return sample ? card(sample.lines, sample) : null;
+  const id = chosen(q, d);
+  if (!id || id === RESERVED.none || id === RESERVED.upload) return null;
+  const text = id === RESERVED.own ? (d.texts[q.id] ?? '').trim() : unquote(q.options?.find((o) => o.id === id)?.label ?? '');
+  if (!text) return null;
+  return card([text], sample);
+}
+
+/** Образец карточки из styles.json: ника или логотипа в бренде может не быть (null). */
+type SampleEnd = { lines: string[]; handle?: string | null; logo?: string | null };
+
+/** Карточка с призывом `lines`; ник и логотип — из образца, пустые не попадают. */
+const card = (lines: string[], s?: SampleEnd): EndCard => ({ ...(s?.handle ? { handle: s.handle } : {}), ...(s?.logo ? { logo: s.logo } : {}), lines });
+
+/** Чем может отличаться вторая версия A/B-теста: тизером — если Павел согласился на него (вопрос `teaser`, ответ
+ *  `yes`), музыкой — если выбрал трек (вопрос `music`, ответ не `none`). */
+export function abOptions(qs: Question[], d: Draft): AbKind[] {
+  const out: AbKind[] = [];
+  const teaser = qs.find((q) => q.id === 'teaser');
+  if (teaser && chosen(teaser, d) === 'yes') out.push('teaser');
+  const music = qs.find((q) => q.id === 'music');
+  const track = music ? chosen(music, d) : undefined;
+  if (track && track !== RESERVED.none) out.push('music');
+  return out;
 }
 
 // ---------- localStorage ----------

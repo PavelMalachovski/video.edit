@@ -74,6 +74,22 @@ body {
   white-space: nowrap;
 }
 
+/* Эмодзи — картинка 136×128 из emoji/ там же, где глиф шрифта эмодзи (кегль 109): низ на 27/109 кегля ниже
+   базовой линии. Обводка и тень текста картинку не трогают. */
+img.emo {
+  display: inline;
+  width: calc(136em / 109);
+  height: calc(128em / 109);
+  vertical-align: calc(-27em / 109);
+  margin: 0;
+  border: 0;
+}
+
+/* Слово и эмодзи после него — без переноса между ними. */
+.nobr {
+  white-space: nowrap;
+}
+
 /* Маркер базовой линии: пустой inline-block стоит низом на базовой линии строки. */
 .bl {
   display: inline-block;

@@ -5,7 +5,7 @@ from itertools import pairwise
 
 import pytest
 
-from vm.qa import check_layout, check_render, control_frames, face_box
+from vm.qa import check_layout, check_render, checklist, control_frames, face_box
 
 needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="нужен ffmpeg")
 
@@ -74,12 +74,14 @@ def test_face_box_defaults_to_a_face_sized_box():
     assert face_box(None) is None
 
 
-def make_clip(path, seconds: float, audio_filter: str | None = None):
+def make_clip(path, seconds: float, audio_filter: str | None = None, final: bool = False):
+    """Ролик 1080×1920, 30 к/с, H.264 + AAC; `final` — как у финала: стерео, без B-кадров и edit lists."""
     audio = f"sine=f=440:r=48000:d={seconds}" + (f",{audio_filter}" if audio_filter else "")
+    like_final = ["-ac", "2", "-bf", "0", "-use_editlist", "0"] if final else []
     subprocess.run(
         ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", f"testsrc2=s=1080x1920:r=30:d={seconds}",
          "-f", "lavfi", "-i", audio, "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
-         "-c:a", "aac", "-shortest", str(path)],
+         "-c:a", "aac", *like_final, "-shortest", str(path)],
         check=True,
     )
     return path
@@ -214,3 +216,45 @@ def test_slot_times_skip_intervals_shorter_than_a_tenth():
     assert times["cta"] == pytest.approx((2.033 + 3.0) / 2)
     assert times["hook"] == pytest.approx(1.0) and times["subs"] == pytest.approx(1.0)
 
+
+
+# ---------- финальная карточка ----------
+
+
+def test_end_card_must_stay_in_the_safe_zone_but_may_cover_the_face():
+    face = face_box({"x": 0.5, "y": 0.4})
+    inside = {"x": 200, "y": 600, "w": 550, "h": 500}
+    assert check_layout([event(5, 7, end=inside)], face) == [], "карточка на затемнённом кадре — лицо закрывать можно"
+    problems = check_layout([event(5, 7, end={**inside, "y": 1200, "h": 400})], face)
+    assert problems == ["финальная карточка вне безопасной зоны (5,0–7,0 с ролика)"]
+
+
+@needs_ffmpeg
+def test_check_render_flags_a_lost_end_card(tmp_path):
+    final = make_clip(tmp_path / "final.mp4", 3)
+    edit = edit_for(3.0, end={"seconds": 1.0, "lines": ["Подпишись"]})
+    assert any("финальная карточка" in p for p in check_render(final, edit, [event(0, 3)], report(3.0)))
+    assert check_render(final, edit, [event(0, 2), event(2, 3, end={"x": 200, "y": 600, "w": 550, "h": 500})], report(3.0)) == []
+
+
+# ---------- чек-лист по гайду (экран «Готово») ----------
+
+END = {"x": 140, "y": 500, "w": 660, "h": 600}
+
+
+@needs_ffmpeg
+def test_checklist_ticks_what_the_guide_asks_for(tmp_path):
+    good = make_clip(tmp_path / "good.mp4", 3, final=True)
+    boxes = [event(0, 1, hook=HOOK, sub=SUB), event(1, 2, sub=SUB), event(2, 3, end=END)]
+    items = checklist(good, boxes, report(3.0))
+    assert [i["id"] for i in items] == ["format", "container", "audio", "hook", "safe", "subtitles", "end", "length"]
+    assert all(i["ok"] and i["title"] for i in items), items
+
+
+@needs_ffmpeg
+def test_checklist_marks_what_is_missing(tmp_path):
+    plain = make_clip(tmp_path / "plain.mp4", 3)  # моно, с edit lists
+    late = [event(0, 1.5, sub=SUB), event(1.5, 3, hook={**HOOK, "x": 20})]  # хук поздно и за краем безопасной зоны
+    marks = {i["id"]: i["ok"] for i in checklist(plain, late, report(95.0))}
+    assert marks == {"format": True, "container": False, "audio": False, "hook": False, "safe": False, "subtitles": True,
+                     "end": False, "length": False}

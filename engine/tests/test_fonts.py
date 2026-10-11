@@ -143,9 +143,35 @@ def test_symbols_and_emoji_are_not_letters_of_a_font():
     assert fonts.missing(by_id("montserrat"), "♪ ahoj 🔥") == ""
 
 
-def test_emoji_in_the_text_of_the_video_is_a_problem_with_the_way_out():
-    (problem,) = fonts.check(edit(["ahoj"], hook={"text": "Jak vydělávám 🔥", "until": 2.0}))
-    assert "🔥" in problem and "убери" in problem
+def test_emoji_of_the_set_are_fine_in_the_hook_the_cta_and_inserts():
+    e = edit(
+        ["ahoj"],
+        hook={"text": "Jak vydělávám 🔥", "until": 2.0},
+        cta={"lines": ["PIŠ MI 👇"], "word": "Plán ✅", "t0": 1.0, "t1": 2.0},
+        inserts=[{"kind": "sticker", "title": "Cena 💡", "text": "❤️ zdarma 1️⃣", "t0": 1, "t1": 3, "x": 60, "y": 200, "w": 300}],
+    )
+    assert fonts.check(e) == []
+
+
+def test_a_symbol_without_a_picture_is_a_problem_with_the_way_out():
+    (problem,) = fonts.check(edit(["ahoj"], hook={"text": "Zpívám ♪ a srdce ❤", "until": 2.0}))
+    assert "♪" in problem and "❤" in problem and "убери" in problem
+    assert "U+FE0F" in problem  # ❤ без селектора — буква, а не эмодзи: подсказка, как сделать эмодзи
+
+
+def test_emoji_in_subtitles_is_a_problem():
+    (problem,) = fonts.check(edit(["ahoj", "🔥"], hook={"text": "Jak 🔥", "until": 2.0}))
+    assert "субтитр" in problem and "🔥" in problem
+
+
+def test_trailing_emoji_of_the_hook_go_with_the_handwritten_word():
+    main_text, hand_text = fonts.texts(edit(["ahoj"], hook={"text": "Tři chyby 🔥 👇", "until": 2.0}))
+    assert hand_text == "chyby 🔥 👇"
+    assert "Tři" in main_text
+
+
+def test_emoji_need_no_letters_of_a_font():
+    assert fonts.missing(by_id("russo-one"), "Огонь 🔥 1️⃣ #️⃣ ©️") == ""
 
 
 def test_cli_fonts_reads_the_draft_once_it_is_there(tmp_path, capsys):
@@ -203,3 +229,12 @@ def test_mohave_is_bold_not_the_light_default_of_the_variable_font():
     font = next(f for f in fonts.catalog() if f.id == "Mohave")
     with TTFont(font.path) as ttf:
         assert "fvar" not in ttf and ttf["OS/2"].usWeightClass == 700
+
+
+def test_the_end_card_is_drawn_by_the_main_font():
+    e = edit(["ahoj"], font="russo-one")
+    e["end"] = {"seconds": 2, "lines": ["Mulțumesc 👇"], "handle": "@pavel"}
+    (problem,) = fonts.check(e)
+    assert "russo-one" in problem and "Țț" in problem
+    main_text, _ = fonts.texts(e)
+    assert "Mulțumesc" in main_text and "@pavel" in main_text

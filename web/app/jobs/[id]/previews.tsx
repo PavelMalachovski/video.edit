@@ -3,14 +3,14 @@
 // шрифт и цвета меняются сразу, хук и субтитры двигаются по крупному превью выше-ниже, вставки — куда угодно; размер
 // у всех — щипком двумя пальцами или уголком ⤢. «Ещё три варианта» — шаг restyle; «Монтировать» — ответы, стиль и шаг render.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { buildAnswers, previewHook, type Draft } from '@/lib/answers.ts';
+import { abOptions, buildAnswers, previewEnd, previewHook, type Draft } from '@/lib/answers.ts';
 import { storage } from '@/lib/client.ts';
 import { mmss } from '@/lib/format.ts';
-import { ADJUSTABLE, type Adjustable, type Question, type StyleChoice, type Styles } from '@/lib/jobfiles.ts';
+import { ADJUSTABLE, type AbKind, type Adjustable, type Question, type StyleChoice, type Styles } from '@/lib/jobfiles.ts';
 import { MAX_NOTE } from '@/lib/jobs.ts';
 import {
-  allowedFonts, choiceFor, clampTo, finalStyle, HOOK_SIZE, HOOK_Y, INSERT_W, insertKey, loadChoice, loadInsertBoxes, loadSpeed, moveBox,
-  resizeBox, resolveInserts, sampleState, saveChoice, saveInsertBoxes, saveSpeed, type InsertBox,
+  allowedFonts, choiceFor, clampTo, finalStyle, HOOK_SIZE, HOOK_Y, INSERT_W, insertKey, loadAb, loadChoice, loadInsertBoxes, loadSpeed, moveBox,
+  resizeBox, resolveInserts, sampleState, saveAb, saveChoice, saveInsertBoxes, saveSpeed, type InsertBox,
   SPEEDS, SUB_SIZE, SUB_Y, SWATCHES,
 } from '@/lib/style.ts';
 import PreviewFrame from '../../preview-frame';
@@ -41,6 +41,7 @@ const INSERT_STEP = 20; // px ширины вставки на нажатие «
 type Box = { x: number; y: number; w: number; h: number };
 type LayoutBoxes = { inserts?: Box[] };
 const HOOK_DEFAULT = 400; // центр хука, если в стиле не задан (template/overlay.js, HOOK_Y)
+const CARD_T = 10 / 13; // с от начала карточки: уже появилась, призыв — в обычном размере (дышит с частотой 1,3 Гц)
 
 const ROWS: { key: ColorKey; title: string; own: string }[] = [
   { key: 'accent', title: 'Подсветка слова', own: 'Своя подсветка' },
@@ -60,6 +61,15 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
   const setSpeed = (s: number) => {
     setSpeedState(s);
     saveSpeed(storage(), jobId, s);
+  };
+
+  // вторая версия для A/B-теста: без тизера или без музыки — что из этого есть в ответах
+  const [abPick, setAbPick] = useState<AbKind | null>(() => loadAb(storage(), jobId));
+  const abChoices = useMemo(() => abOptions(questions, draft), [questions, draft]);
+  const ab = abPick && abChoices.includes(abPick) ? abPick : null;
+  const setAb = (x: AbKind | null) => {
+    setAbPick(x);
+    saveAb(storage(), jobId, x);
   };
 
   const [fonts, setFonts] = useState<FontEntry[]>([]);
@@ -83,6 +93,8 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
   }, []);
 
   const hook = useMemo(() => previewHook(questions, draft, styles.sample.hook), [questions, draft, styles]);
+  const card = useMemo(() => previewEnd(questions, draft, styles.sample.end), [questions, draft, styles]);
+  const [showCard, setShowCard] = useState(false); // крупное превью — финальная карточка вместо кадра с текстом
   const [insertBoxes, setInsertBoxesState] = useState<Record<string, InsertBox>>(() => loadInsertBoxes(storage(), jobId));
   const setInsertBoxes = (next: Record<string, InsertBox>) => {
     setInsertBoxesState(next);
@@ -93,7 +105,11 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
   const [boxes, setBoxes] = useState<LayoutBoxes | null>(null); // рамки крупного превью от шаблона: по ним ручки вставок
   const thumbs = useMemo(() => styles.variants.map((v) => ({ v, state: sampleState(v.spec, styles.sample, hook, inserts) })), [styles, hook, inserts]);
   const spec = useMemo(() => finalStyle(styles, choice), [styles, choice]);
-  const state = useMemo(() => sampleState(spec, styles.sample, hook, inserts), [spec, styles, hook, inserts]);
+  const framed = useMemo(() => sampleState(spec, styles.sample, hook, inserts), [spec, styles, hook, inserts]);
+  const ending = Boolean(showCard && card);
+  const state = useMemo(() => (ending && card
+    ? { inserts: [], end: { lines: card.lines, ...(card.handle ? { handle: card.handle } : {}), ...(card.logo ? { logo: fileUrl(card.logo) } : {}), t: CARD_T } }
+    : framed), [ending, card, framed, fileUrl]);
   const progress = duration ? Math.min(1, styles.frameTime / duration) : 0.3;
   const frameUrl = fileUrl(styles.frame);
   const family = (id: string) => fonts.find((f) => f.id === id)?.family ?? id;
@@ -117,7 +133,7 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
     const claims = Object.fromEntries(Object.entries(uploads).map(([qid, u]) => [qid, { asset: u.asset, name: u.name, size: u.size, type: u.type, parts: u.parts }]));
     const keys = new Set((styles.sample.inserts ?? []).map(insertKey));
     const placed = Object.fromEntries(Object.entries(insertBoxes).filter(([k]) => keys.has(k))); // только вставки этого превью
-    void run('answers', { answers, uploads: claims, style: choice, speed, ...(Object.keys(placed).length ? { insertBoxes: placed } : {}) });
+    void run('answers', { answers, uploads: claims, style: choice, speed, ...(Object.keys(placed).length ? { insertBoxes: placed } : {}), ...(ab ? { ab } : {}) });
   }
 
   const pickFont = (kind: 'font' | 'hand', id: string) => setChoice({ ...choice, [kind]: id });
@@ -139,19 +155,20 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
     size: spec.hook.size, sizes: HOOK_SIZE, resize: set('hookSize'),
     changed: choice.hookY !== undefined || choice.hookSize !== undefined, reset: reset('hookY', 'hookSize'),
   };
-  const movable = state.hook ? [hookPart, subs] : [subs]; // хук настраивается, когда он есть на превью
-  // вставки на крупном превью, у которых есть ключ (question или src): перетаскиваются куда угодно; размер — щипком,
-  // уголком и кнопками. Рамка — от шаблона (вместе с тенью), высота — по ней
+  const movable = ending ? [] : state.hook ? [hookPart, subs] : [subs]; // хук настраивается, когда он есть на превью
+  // вставки на крупном превью, у которых есть ключ (question, src или id стикера-тезиса): перетаскиваются куда угодно;
+  // размер — щипком, уголком и кнопками. Рамка — от шаблона (вместе с тенью), высота — по ней
   const sized = state.inserts.flatMap((ins, i) => {
     if (!ins.key) return [];
     const key = ins.key;
-    const n = state.inserts.slice(0, i + 1).filter((x) => x.key).length;
+    const sticker = ins.kind === 'text';
+    const n = state.inserts.slice(0, i + 1).filter((x) => x.key && (x.kind === 'text') === sticker).length;
     const drawn = boxes?.inserts?.[i] ?? null;
     const now: InsertBox = { x: ins.x, y: ins.y, w: ins.w };
     const h = drawn?.h ?? ins.w;
     const place = (b: InsertBox) => setInsertBoxes({ ...insertBoxes, [key]: b });
     return [{
-      key, name: `Вставка ${n}`, w: ins.w, at: now, box: drawn, changed: key in insertBoxes,
+      key, name: `${sticker ? 'Стикер' : 'Вставка'} ${n}`, w: ins.w, at: now, box: drawn, changed: key in insertBoxes,
       resize: (w: number) => place(resizeBox(now, w, h)),
       drag: (x: number, y: number) => place(moveBox(now, x, y, h)),
       reset: () => setInsertBoxes(Object.fromEntries(Object.entries(insertBoxes).filter(([k]) => k !== key))),
@@ -183,11 +200,17 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
       <div className="big-wrap">
         <div className="big-host">
           <PreviewFrame frameUrl={frameUrl} spec={spec} state={state} progress={progress} width={BIG} big onBoxes={(b) => setBoxes(b as LayoutBoxes)} />
-          {sized.map((m) => m.box ? <InsertHandle key={m.key} label={m.name} box={m.box} at={m.at} onSize={m.resize} onDrag={m.drag} /> : null)}
+          {ending ? null : sized.map((m) => m.box ? <InsertHandle key={m.key} label={m.name} box={m.box} at={m.at} onSize={m.resize} onDrag={m.drag} /> : null)}
           {movable.map((m) => <DragHandle key={m.name} label={m.label} y={m.y} range={m.range} onMove={m.move} size={m.size} onSize={m.resize} />)}
         </div>
       </div>
-      <div className="sub-move">
+      {card ? (
+        <div className="pills center">
+          <button type="button" className="pill" aria-pressed={!ending} onClick={() => setShowCard(false)}>Кадр с текстом</button>
+          <button type="button" className="pill" aria-pressed={ending} onClick={() => setShowCard(true)}>Финальная карточка</button>
+        </div>
+      ) : null}
+      <div className="sub-move" hidden={ending}>
         <span className="muted small">Хук и субтитры тянутся на превью выше или ниже, вставки — куда угодно; размер — щипком двумя пальцами или уголком ⤢</span>
         {movable.map((m) => (
           <div key={m.name} className="sub-move-row">
@@ -256,6 +279,21 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
         <div className="muted small">Голос не меняет тон; музыка не ускоряется.</div>
       </div>
 
+      {abChoices.length ? (
+        <div className="card">
+          <div className="caps small">Вторая версия для теста</div>
+          <div className="pills">
+            <button type="button" className="pill" aria-pressed={!ab} onClick={() => setAb(null)}>Не нужна</button>
+            {abChoices.includes('teaser') ? <button type="button" className="pill" aria-pressed={ab === 'teaser'} onClick={() => setAb('teaser')}>Без тизера</button> : null}
+            {abChoices.includes('music') ? <button type="button" className="pill" aria-pressed={ab === 'music'} onClick={() => setAb('music')}>Без музыки</button> : null}
+          </div>
+          <div className="muted small">
+            {ab ? `Соберу два ролика: A — как выбрано, B — ${ab === 'teaser' ? 'без тизера' : 'без музыки'}. Выложи оба и сравни, какой смотрят дольше.`
+              : 'Можно собрать второй ролик, который отличается одним, — и проверить, какой работает лучше.'}
+          </div>
+        </div>
+      ) : null}
+
       <div className="card">
         <label htmlFor="tweak" className="label">Ни один не подходит? Скажи, что поменять</label>
         <input id="tweak" type="text" maxLength={MAX_NOTE} placeholder="Например: заголовок без плашки" value={tweak} onChange={(e) => setTweak(e.target.value)} />
@@ -266,7 +304,7 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
       </div>
 
       <button type="button" className="btn" disabled={busy !== null} onClick={mount}>
-        Монтировать: {choice.variant} · {family(choice.font)} · ×{speed.toFixed(1)}
+        Монтировать: {choice.variant} · {family(choice.font)} · ×{speed.toFixed(1)}{ab ? ' · A/B' : ''}
       </button>
       {error?.at === 'answers' ? <div className="err small">{error.text}</div> : null}
     </>

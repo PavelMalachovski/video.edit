@@ -506,3 +506,26 @@ def test_random_input_gives_ordered_numbered_srt_inside_the_final():
             assert len(text.split(" ")) <= max_words, where
         for (_, _, before_end, _), (_, after_start, _, _) in pairwise(cues):
             assert before_end <= after_start, where
+
+
+# ---------- тизер ----------
+
+
+def test_teaser_words_show_at_the_start_and_again_in_their_place():
+    words = speech((0.5, 0.9, "Привет,"), (1.0, 1.4, "друзья."), (6.0, 6.5, "Главное"), (6.6, 7.2, "правило."), (8.0, 8.4, "Конец."))
+    tl = Timeline([(0.0, 10.0)], 1.0, teaser=(5.9, 7.3))
+    events = build_sub_events(words, tl, "karaoke", 3)
+    texts = [(round(e["t0"], 3), e["words"][e["active"]]) for e in events]
+    assert texts[:2] == [(0.1, "Главное"), (0.7, "правило.")], "тизер — первые слова ролика"
+    assert texts[2] == (1.9, "Привет,")
+    assert (7.4, "Главное") in texts and (8.0, "правило.") in texts, "и ещё раз на своём месте"
+    assert events[1]["words"] == ["Главное", "правило."], "тизер — своя фраза, без начала ролика"
+    assert events[1]["t1"] <= 1.4 + 1e-6, "показ тизера не заходит за его конец"
+
+
+def test_teaser_words_are_in_the_srt_too():
+    words = speech((0.5, 0.9, "Привет."), (6.0, 6.5, "Главное"), (6.6, 7.2, "правило."))
+    srt = to_srt(words, Timeline([(0.0, 10.0)], 1.0, teaser=(5.9, 7.3)))
+    blocks = srt.strip().split("\n\n")
+    assert blocks[0].endswith("Главное правило.") and blocks[0].split("\n")[1].startswith("00:00:00,100")
+    assert "Привет." in blocks[1] and "Главное правило." in blocks[2]

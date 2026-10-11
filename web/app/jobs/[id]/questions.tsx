@@ -3,7 +3,7 @@
 // Черновик ответов живёт у страницы задачи (его же читают превью); «Показать превью» — без запроса к серверу.
 import { useMemo, useState } from 'react';
 import { buildAnswers, pick, pictureAsset, type Draft, type LocalUpload } from '@/lib/answers.ts';
-import { RESERVED, type Question } from '@/lib/jobfiles.ts';
+import { RESERVED, type Question, type Review } from '@/lib/jobfiles.ts';
 import { MAX_ANSWER_IMAGE_BYTES } from '@/lib/jobs.ts';
 import { planChunks, runUpload } from '@/lib/uploader.ts';
 
@@ -15,6 +15,7 @@ type Props = {
   jobId: string;
   releaseId: number;
   questions: Question[];
+  review: Review | null;
   draft: Draft;
   onDraft: ChangeDraft;
   fileUrl: (path: string) => string;
@@ -23,7 +24,7 @@ type Props = {
   onPreview: () => void;
 };
 
-export default function Questions({ jobId, releaseId, questions, draft, onDraft, fileUrl, localUrls, onLocalUrl, onPreview }: Props) {
+export default function Questions({ jobId, releaseId, questions, review, draft, onDraft, fileUrl, localUrls, onLocalUrl, onPreview }: Props) {
   const { missing } = useMemo(() => buildAnswers(questions, draft), [questions, draft]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState<Record<string, number>>({}); // доля загруженного по вопросам
@@ -73,6 +74,7 @@ export default function Questions({ jobId, releaseId, questions, draft, onDraft,
   return (
     <>
       <p className="lead">Посмотрел видео. Ответь на вопросы — и я покажу три варианта кадра.</p>
+      {review ? <ReviewCard review={review} /> : null}
       {questions.map((q, i) => (
         <QuestionCard key={q.id} q={q} n={i + 1} draft={draft} onDraft={onDraft} need={missing.includes(q.id)} fileUrl={fileUrl}
           localUrl={localUrls[q.id] ?? null} loading={loading[q.id]} error={errors[q.id] ?? ''} onPicture={(f) => void uploadPicture(q, f)} />
@@ -80,6 +82,23 @@ export default function Questions({ jobId, releaseId, questions, draft, onDraft,
       <button type="button" className="btn" disabled={missing.length > 0} onClick={onPreview}>Показать превью</button>
       {missing.length ? <div className="muted small">Нужен ответ: {missing.length === 1 ? 'один вопрос' : `вопросов — ${missing.length}`} (подсвечены)</div> : null}
     </>
+  );
+}
+
+/** «Разбор по гайду» (review.json): что по гайду Meta уже хорошо и что стоит поправить. */
+function ReviewCard({ review }: { review: Review }) {
+  return (
+    <div className="card" data-review>
+      <div className="caps small">Разбор по гайду</div>
+      <ul className="plain marks">
+        {review.items.map((it) => (
+          <li key={it.id} data-status={it.status}>
+            <span className="mark" aria-label={it.status === 'ok' ? 'по гайду' : 'стоит поправить'}>{it.status === 'ok' ? '✓' : '!'}</span>
+            <div><b>{it.title}</b><div className="muted small">{it.note}</div></div>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

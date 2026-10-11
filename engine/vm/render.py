@@ -2,9 +2,11 @@
 
 Кадр: вырезка отрезков `keep` (по целым кадрам исходника; звук — с микро-фейдами 10 мс на стыках) → ускорение →
 лёгкий цветокор → зум (якорь — лицо) → у невертикального исходника фон из размытой копии кадра → полноэкранные
-перебивки (масштаб с обрезкой по центру, без своего звука) → стоп-кадр в конце (`hold`) → слой PNG (субтитры, хук,
+перебивки (масштаб с обрезкой по центру, без своего звука) → стоп-кадр в конце (`hold` и финальная карточка
+`end.seconds`: её затемнение, призыв, ник и логотип рисует слой) → слой PNG (субтитры, хук,
 титр, вставки; кадры рисует template/render-frames.mjs тем же шаблоном, что и превью) → шкала времени → H.264/AAC
-с метками BT.709. Звук — граф `audio_graph`: голос, музыка, звуки вставок.
+с метками BT.709, без B-кадров и edit lists (их не принимает Meta). Звук — граф `audio_graph`: голос, музыка, звуки
+вставок.
 
 Цвет считается по BT.709 явно: цветокор — прямо в YUV (`eq`, `lutyuv`), слой и шкала переводятся из RGB по BT.709
 (по умолчанию ffmpeg взял бы BT.601, и жёлтый субтитров на ролике отличался бы от превью). Шкала — полоса, которая
@@ -16,7 +18,8 @@
 с предупреждением.
 
 Слой рисует `draw_layer` — он же нужен проверке до рендера (`vm check`); если ни события слоя, ни стиль, ни файлы
-картинок не поменялись, уже нарисованные кадры берутся как есть.
+картинок не поменялись, уже нарисованные кадры берутся как есть. С музыкой смены зума и появления вставок сначала
+встают на доли трека (`on_beats`, монтаж в такт): и слой, и зум, и звуки вставок берут один и тот же сдвинутый edit.
 
 Рабочие файлы — в `work/render/` задачи (в git не попадают); в `out_dir` — только ролик и субтитры, и появляются
 они там только целиком.
@@ -29,8 +32,9 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import beats
 from .asr import Word
-from .audio import QUIET_LUFS, audio_graph
+from .audio import MIN_MUSIC, QUIET_LUFS, audio_graph
 from .job import Job, validate
 from .media import HDR_TO_SDR, MediaError, Probe, loudness, probe
 from .overlay import FPS, build_overlay_events, insert_spans
@@ -50,7 +54,13 @@ FADE = 0.01  # с — микро-фейд звука на стыке отрез�
 COLOR = "eq=brightness=-0.02:contrast=1.03,lutyuv=u='clip(val-3,16,240)':v='clip(val+3,16,240)'"
 BLUR = "boxblur=luma_radius=40:luma_power=2:chroma_radius=20:chroma_power=2,eq=brightness=-0.06"
 TO_709 = "scale=out_color_matrix=bt709:out_range=tv"
+# Meta не принимает edit lists в контейнере (гайд «Всё о Reels», стр. 63). Без них плеер играет приминг кодера AAC
+# ffmpeg — 1024 отсчёта в начале, поэтому на вход кодера звук идёт с 1024-го отсчёта: приминг занимает его место, и
+# отсчёт n звучит ровно в n. B-кадров нет (`-bf 0`): с ними картинка начиналась бы на 2 кадра позже звука.
+AAC_PRIMING = 1024
 IMAGES = {".png", ".jpg", ".jpeg", ".webp"}  # картинка держится всё окно перебивки; GIF крутится по кругу
+TEXTUAL = ("sticker", "text")  # вставки из одного текста: картинка им не нужна
+AB = ("teaser", "music")  # чем вторая версия A/B-теста отличается от первой: без тизера или без музыки
 LOOPED = {".gif"}
 
 
@@ -59,18 +69,20 @@ class RenderError(RuntimeError):
 
 
 def timeline(edit: dict, limit: float | None = None) -> Timeline:
-    """Шкала финала по edit.json: границы отрезков `keep` — на целых кадрах исходника (30 к/с), иначе субтитры
+    """Шкала финала по edit.json: границы отрезков `keep` и тизера — на целых кадрах исходника (30 к/с), иначе субтитры
     и звук разошлись бы с картинкой на долю кадра на каждом стыке. `limit` — длина исходника, с: кадров после его
     последнего целого кадра в отрезках нет (длина файла бывает чуть больше видео — из-за кадра AAC)."""
     last = math.floor(limit * FPS + 0.01) if limit is not None else None
-    keep = []
-    for a, b in edit["keep"]:
+
+    def frames(a: float, b: float) -> tuple[float, float] | None:
         fa, fb = round(a * FPS), round(b * FPS)
         if last is not None:
             fb = min(fb, last)
-        if fb > fa:
-            keep.append((fa / FPS, fb / FPS))
-    return Timeline(keep, edit["speed"])
+        return (fa / FPS, fb / FPS) if fb > fa else None
+
+    keep = [span for a, b in edit["keep"] if (span := frames(a, b))]
+    teaser = edit.get("teaser") or None
+    return Timeline(keep, edit["speed"], teaser=frames(teaser["t0"], teaser["t1"]) if teaser else None)
 
 
 @dataclass
@@ -83,13 +95,48 @@ class Layer:
     frames: Path  # frames.ffconcat
     boxes: list[dict]  # boxes.json: [{t0, t1, frame, boxes}]
     warnings: list[str]
+    beats: dict | None = None  # монтаж в такт: {bpm, moved}; без музыки — None
 
 
-def draw_layer(job: Job) -> Layer:
-    """edit.json (по схеме) → шкала по исходнику → кадры слоя в work/render/frames."""
-    edit = job.read("edit.json")
+def variant_b(edit: dict) -> dict:
+    """Вторая версия A/B-теста (`edit.ab`): та же, но без тизера или без музыки."""
+    kind = edit.get("ab")
+    if kind not in AB:
+        raise RenderError(f"edit.json: ab — {' или '.join(AB)}, а не {kind!r}")
+    if not edit.get(kind):
+        what = "тизера" if kind == "teaser" else "музыки"
+        raise RenderError(f"edit.json: ab = {kind}, а {what} нет — версия B вышла бы такой же: убери ab")
+    return {**edit, kind: None, "ab": None}
+
+
+def on_beats(job: Job, edit: dict, tl: Timeline) -> tuple[dict, dict | None]:
+    """Монтаж в такт: с музыкой (и без `music.beats: false`) смены зума и появления вставок встают на её доли
+    (`beats.snap_edit`, не дальше 0,25 с). Трек звучит с начала ролика и по кругу — доли повторяются с ним.
+    → (edit со сдвигами, {bpm, moved}); без музыки, файла или ритма в нём — (edit как был, None)."""
+    music = edit.get("music")
+    path = _resolve(job, music["file"]) if music and music.get("beats", True) else None
+    if path is None:
+        return edit, None
+    want = tl.duration + 2.0  # доли дальше ролика не нужны; запас — чтобы последняя доля нашлась
+    try:
+        y = beats.load(path, seconds=want)
+    except (subprocess.SubprocessError, OSError):
+        return edit, None  # не читается — микс скажет об этом в missing
+    length = len(y) / beats.SR
+    if length < MIN_MUSIC:
+        return edit, None
+    grid = beats.track(y)
+    loops = 1 if length >= want - 0.05 else math.ceil(tl.duration / length)  # короче — весь трек, и он по кругу
+    snapped, moved = beats.snap_edit(edit, tl, [t + k * length for k in range(loops) for t in grid.times])
+    return snapped, {"bpm": grid.bpm, "moved": moved}
+
+
+def draw_layer(job: Job, edit: dict | None = None, work: str = "work/render") -> Layer:
+    """edit.json (по схеме; `edit` — вместо него, например версия B) → шкала по исходнику → события на доли музыки
+    (`on_beats`) → кадры слоя в `<work>/frames`."""
+    edit = job.read("edit.json") if edit is None else edit
     validate("edit.json", edit)  # файл пишет Claude: ошибка называет поле, а не падает KeyError где-то в графе
-    waiting = [ins["question"] for ins in edit["inserts"] if ins.get("question") and not ins.get("src") and ins["kind"] != "sticker"]
+    waiting = [ins["question"] for ins in edit["inserts"] if ins.get("question") and not ins.get("src") and ins["kind"] not in TEXTUAL]
     if waiting:
         raise RenderError(
             "edit.json: вставки ждут ответа на вопросы " + ", ".join(f"«{q}»" for q in waiting)
@@ -103,21 +150,25 @@ def draw_layer(job: Job) -> Layer:
     beyond = (timeline(edit).duration - tl.duration) * edit["speed"]
     if beyond > 0.1:
         warnings.append(f"keep заходит за конец исходника ({info.duration:.1f} с): {beyond:.1f} с отрезков отброшено")
-    frames = _layer(job, edit, tl, job.path("work/render"))
+    edit, beat = on_beats(job, edit, tl)
+    frames = _layer(job, edit, tl, job.path(work))
     boxes = json.loads((frames.parent / "boxes.json").read_text(encoding="utf-8"))
-    return Layer(edit, info, tl, frames, boxes, warnings)
+    return Layer(edit, info, tl, frames, boxes, warnings, beat)
 
 
-def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium") -> dict:
+def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium", edit: dict | None = None,
+           work: str = "work/render") -> dict:
     """Пишет `out_dir/<name>.mp4` и `out_dir/<name>.srt` (без речи `.srt` нет: пустой ассет GitHub не примет и не
     отдаст ролик). → `{durations, missing, warnings, music, voice}`; `missing` Павел читает на странице — по-русски;
-    `voice` — громкость исходника и было ли шумоподавление (тихая запись)."""
-    drawn = draw_layer(job)
+    `voice` — громкость исходника и было ли шумоподавление (тихая запись); `beats` — монтаж в такт: темп и сколько
+    событий встало на доли (без музыки — None). `edit` — вместо edit.json (версия B A/B-теста), `work` — папка её
+    слоя."""
+    drawn = draw_layer(job, edit, work)
     edit, info, tl, layer = drawn.edit, drawn.info, drawn.tl, drawn.frames
     source = job.path("source.mp4")
     missing: list[str] = []
     warnings = list(drawn.warnings)
-    hold = float(edit.get("hold") or 0.0)
+    hold = float(edit.get("hold") or 0.0) + _card_seconds(edit)  # карточка стоит на том же стоп-кадре
     total = tl.duration + hold
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -142,13 +193,14 @@ def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium")
     extra, sound, notes = audio_graph("[ac]", edit["speed"], total, music, sfx, inputs_offset=_count(inputs), denoise=quiet)
     inputs += extra
     chains.append(sound)
+    chains.append(f"[aout]atrim=start_sample={AAC_PRIMING}[aenc]")
     missing += notes
 
     video, subs = out_dir / f".{name}.part.mp4", out_dir / f".{name}.part.srt"
     try:  # ролик и субтитры появляются в out/ только целиком; от упавшей сборки не остаётся ничего
         if srt:
             subs.write_text(srt, encoding="utf-8")
-        _ffmpeg([*inputs, "-filter_complex", ";".join(chains), "-map", "[vout]", "-map", "[aout]", *_encode(preset),
+        _ffmpeg([*inputs, "-filter_complex", ";".join(chains), "-map", "[vout]", "-map", "[aenc]", *_encode(preset),
                  "-t", f"{total:.6f}", str(video)], timeout=max(900, 30 * total))
         os.replace(video, out_dir / f"{name}.mp4")
         if srt:
@@ -164,6 +216,7 @@ def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium")
         "warnings": warnings,
         "music": music["file"] if music else None,  # файл, отданный в микс (для проверки качества)
         "voice": {"lufs": None if lufs is None or math.isinf(lufs) else round(lufs, 1), "denoise": quiet},
+        "beats": drawn.beats,
     }
 
 
@@ -301,6 +354,12 @@ def _picture(job, edit, tl, info, index, hold, missing, warnings) -> tuple[list[
     return chains, inputs, skipped
 
 
+def _card_seconds(edit: dict) -> float:
+    """Секунды финальной карточки (`edit.end`); её нет — 0."""
+    card = edit.get("end") or None
+    return float(card["seconds"]) if card else 0.0
+
+
 def _decodes(path: Path) -> bool:
     """Из файла декодируется хотя бы один кадр. Битая картинка с `-loop 1` или GIF без кадров по кругу иначе
     вешают ffmpeg до таймаута (ffprobe такой GIF пропускает)."""
@@ -350,6 +409,20 @@ def _sounds(job: Job, edit: dict, tl: Timeline, skip: set[int]) -> tuple[list, d
             sfx.append((first / FPS, path))
     if silent and not (SFX.is_dir() and any(p.suffix.lower() in SOUNDS for p in SFX.iterdir())):
         notes.append("в assets/sfx нет звуков — вставки без звука появления")
+    teaser = edit.get("teaser") or None
+    if teaser and teaser.get("sfx") and tl.teaser:  # звук на стыке тизера с началом ролика
+        path = _resolve(job, teaser["sfx"])
+        if path is None:
+            notes.append(f"нет звука {teaser['sfx']} — тизер без звука на стыке")
+        else:
+            sfx.append((tl.teaser_duration, path))
+    card = edit.get("end") or None
+    if card and card.get("sfx"):  # звук появления карточки — сразу после стоп-кадра
+        path = _resolve(job, card["sfx"])
+        if path is None:
+            notes.append(f"нет звука {card['sfx']} — финальная карточка без звука появления")
+        else:
+            sfx.append((tl.duration + float(edit.get("hold") or 0.0), path))
     music = edit.get("music")
     if music:
         path = _resolve(job, music["file"])
@@ -374,9 +447,9 @@ def _resolve(job: Job, rel: str | None) -> Path | None:
 
 def _encode(preset: str) -> list[str]:
     return [
-        "-c:v", "libx264", "-crf", "18", "-preset", preset, "-pix_fmt", "yuv420p", "-r", str(FPS),
+        "-c:v", "libx264", "-crf", "18", "-preset", preset, "-bf", "0", "-pix_fmt", "yuv420p", "-r", str(FPS),
         "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv",
-        "-c:a", "aac", "-b:a", "192k", "-ar", str(RATE), "-movflags", "+faststart",
+        "-c:a", "aac", "-b:a", "192k", "-ar", str(RATE), "-movflags", "+faststart", "-use_editlist", "0",
     ]
 
 

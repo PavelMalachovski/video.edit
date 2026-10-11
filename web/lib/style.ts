@@ -1,7 +1,7 @@
 // Стиль на экране превью: итоговый StyleSpec по выбору Павла (то же правило, что final_style движка), образец
 // состояния слоя на кадре (субтитры — по правилу build_sub_events), вставки по ответам и запомненный выбор.
 import { chosen, type Draft } from './answers.ts';
-import { ADJUST, ADJUSTABLE, HOOK_SIZE, HOOK_Y, INSERT_W, INSERT_ZONE, inRange, isInsertBox, RESERVED, SUB_SIZE, SUB_Y, type Adjustable, type InsertBox, type Question, type SampleInsert, type StyleChoice, type StyleSpec, type Styles } from './jobfiles.ts';
+import { AB_KINDS, ADJUST, ADJUSTABLE, HOOK_SIZE, HOOK_Y, INSERT_W, INSERT_ZONE, inRange, isInsertBox, RESERVED, SUB_SIZE, SUB_Y, type AbKind, type Adjustable, type InsertBox, type Question, type SampleInsert, type StyleChoice, type StyleSpec, type Styles } from './jobfiles.ts';
 
 export { HOOK_SIZE, HOOK_Y, INSERT_W, SUB_SIZE, SUB_Y };
 export type { InsertBox };
@@ -13,7 +13,8 @@ export type InsertState = {
   params?: Record<string, unknown>;
   key?: string; // ключ для рамки Павла (insertKey); шаблон его не читает
 };
-export type OverlayState = { sub?: SubState; hook?: { text: string }; cta?: { lines: string[]; word: string }; inserts: InsertState[] };
+export type EndState = { lines: string[]; handle?: string; logo?: string; t: number }; // финальная карточка (t — с от её начала)
+export type OverlayState = { sub?: SubState; hook?: { text: string }; cta?: { lines: string[]; word: string }; inserts: InsertState[]; end?: EndState };
 
 type Variant = StyleChoice['variant'];
 
@@ -117,10 +118,12 @@ export function resolveInserts(sample: Styles['sample'], qs: Question[], d: Draf
   localUrl: (qid: string) => string | null, boxes: Record<string, InsertBox> = {}): InsertState[] {
   const out: InsertState[] = [];
   for (const s of placedInserts(sample.inserts ?? [], boxes)) {
+    if (s.id && unticked(s.id, qs, d)) continue;
     const key = insertKey(s);
     const base: InsertState = { kind: s.kind, x: s.x, y: s.y, w: s.w, anim: 1, t: 0, ...(key ? { key } : {}) };
     if (s.text !== undefined) base.text = s.text;
     if (s.title !== undefined) base.title = s.title;
+    if (s.params !== undefined) base.params = s.params;
     if (!s.question) {
       out.push(s.src ? { ...base, src: urlFor(s.src) } : base);
       continue;
@@ -139,16 +142,24 @@ export function resolveInserts(sample: Styles['sample'], qs: Question[], d: Draf
   return out;
 }
 
+/** Стикер `id` снят в вопросе `stickers` (как его читает шаг render; варианты других вопросов могут иметь те же id). */
+function unticked(id: string, qs: Question[], d: Draft): boolean {
+  const q = qs.find((x) => x.id === 'stickers' && x.type === 'multi');
+  if (!q || !(q.options ?? []).some((o) => o.id === id)) return false;
+  const picked = d.picks[q.id] ?? (Array.isArray(q.default) ? q.default : q.default === undefined ? [] : [q.default]);
+  return !picked.includes(id);
+}
+
 // ---------- место и размер вставок (localStorage['vm:inserts:<id>']) ----------
 
-/** Ключ вставки для рамки Павла: её question («добавь сюда»), иначе src; ни того ни другого — null. */
-export function insertKey(s: { question?: string; src?: string }): string | null {
-  return s.question || s.src || null;
+/** Ключ вставки для рамки Павла: её question («добавь сюда»), иначе src, иначе id (стикер-тезис); ничего — null. */
+export function insertKey(s: { question?: string; src?: string; id?: string }): string | null {
+  return s.question || s.src || s.id || null;
 }
 
 /** Вставки с рамками, которые выбрал Павел (как есть). То же правило — placed_inserts в engine/vm/style.py
  *  (общая фикстура engine/tests/fixtures/insert-boxes.json). */
-export function placedInserts<T extends { x?: number; y?: number; w?: number; question?: string; src?: string }>(
+export function placedInserts<T extends { x?: number; y?: number; w?: number; question?: string; src?: string; id?: string }>(
   list: T[], boxes: Record<string, InsertBox>): T[] {
   return list.map((s) => {
     const key = insertKey(s);
@@ -215,6 +226,28 @@ export function loadSpeed(storage: Storage | null, jobId: string): number {
 export function saveSpeed(storage: Storage | null, jobId: string, speed: number): void {
   try {
     storage?.setItem(speedKey(jobId), String(speed));
+  } catch {
+    // нет хранилища — выбор живёт до перезагрузки
+  }
+}
+
+// ---------- вторая версия для A/B-теста (localStorage['vm:ab:<id>']) ----------
+
+const abKey = (jobId: string): string => `vm:ab:${jobId}`;
+
+export function loadAb(storage: Storage | null, jobId: string): AbKind | null {
+  try {
+    const value = storage?.getItem(abKey(jobId));
+    return (AB_KINDS as readonly (string | null | undefined)[]).includes(value) ? (value as AbKind) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveAb(storage: Storage | null, jobId: string, ab: AbKind | null): void {
+  try {
+    if (ab) storage?.setItem(abKey(jobId), ab);
+    else storage?.removeItem(abKey(jobId));
   } catch {
     // нет хранилища — выбор живёт до перезагрузки
   }

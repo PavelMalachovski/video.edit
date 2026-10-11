@@ -155,3 +155,27 @@ button.back.link { background: none; border: none; padding: 0; color: var(--acce
 .two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .two .btn { font-size: 16px; padding: 0 12px; }
 ul.plain { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 15px; line-height: 1.55; }
+
+/* мой бренд */
+.top-link { font-size: 14px; font-weight: 700; color: var(--text); text-decoration: none; min-height: 44px; display: flex; align-items: center;
+  padding: 0 14px; border: 1px solid var(--line); border-radius: 22px; }
+.brand-logo { max-width: 160px; max-height: 96px; border-radius: 10px; background: repeating-conic-gradient(#2a2c31 0 25%, #1f2125 0 50%) 0 0 / 16px 16px; }
+.ok { color: var(--ok); }
+.pills.center { justify-content: center; }
+.ab-video { display: flex; flex-direction: column; gap: 8px; align-items: stretch; min-width: 0; }
+.result-video.small { width: 100%; height: auto; aspect-ratio: 9 / 16; }
+/* разбор по гайду и чек-лист: значок слева — зелёная галочка, жёлтый «!», красный крестик */
+ul.marks li { display: flex; gap: 10px; align-items: flex-start; }
+ul.marks .mark { flex: none; width: 22px; height: 22px; border-radius: 11px; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 800; margin-top: 2px; background: var(--ok); color: var(--ok-ink); }
+ul.marks li[data-status=warn] .mark { background: var(--accent); color: var(--ink); }
+ul.marks li[data-ok=false] .mark { background: var(--bad); color: var(--bad-ink); }
+/* сценарий до съёмки: ссылки в шапке, выбор хука, сцены по частям */
+.top-links { display: flex; gap: 16px; }
+.script { display: flex; flex-direction: column; gap: 22px; } /* как main: экран сценария — одна обёртка */
+.hook-pick { display: flex; flex-direction: column; gap: 4px; text-align: left; padding: 12px 14px; border-radius: 14px;
+  border: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; cursor: pointer; }
+.hook-pick[aria-pressed=true] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.scene-part { display: flex; flex-direction: column; gap: 8px; }
+.scene { display: flex; flex-direction: column; gap: 2px; padding-left: 12px; border-left: 2px solid var(--line); }
+.pre { white-space: pre-line; }

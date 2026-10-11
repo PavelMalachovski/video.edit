@@ -83,7 +83,38 @@ const QUESTIONS = { questions: [
     options: [{ id: 'logo-a', label: 'Логотип', image: '../../assets/logos/logo.png' }, { id: 'upload', label: 'Загрузить свою' }, { id: 'none', label: 'Не надо' }] },
   { id: 'stars', type: 'multi', title: 'Звёздочки в субтитрах', body: 'Нашёл: р*бли, беспл*тно, подп*ска.',
     options: [{ id: 'r', label: 'р*бли' }, { id: 'b', label: 'беспл*тно' }, { id: 'p', label: 'подп*ска' }], default: ['r', 'b', 'p'] },
+  { id: 'stickers', type: 'multi', title: 'Стикеры-тезисы', body: 'Поставлю на ключевые мысли — сними лишние.',
+    options: [{ id: 's1', label: '0:12 — «3 ошибки 🔥»' }], default: ['s1'] },
+  { id: 'end', type: 'choice', title: 'Финальная карточка', body: 'Последние 2 секунды: призыв, твой ник и логотип.',
+    options: [{ id: 'e1', label: '«Подпишись, чтобы не пропустить 👇»' }, { id: 'own', label: 'Свой' }, { id: 'none', label: 'Не надо' }], default: 'e1' },
+  { id: 'teaser', type: 'choice', title: 'Начать с самой сильной фразы?', body: '«Учу по 15 минут в день» звучит на 0:21.',
+    options: [{ id: 'yes', label: 'Да: «Учу по 15 минут в день»' }, { id: 'no', label: 'Нет' }], default: 'yes' },
 ] };
+const REVIEW = { items: [
+  { id: 'hook', title: 'Мысль в первые 2 с', status: 'warn', note: 'Мысль звучит на 0:21 — предлагаю начать с неё (вопрос «тизер»)' },
+  { id: 'face', title: 'Лицо в первые секунды', status: 'ok', note: 'Лицо крупно с первого кадра' },
+  { id: 'value', title: 'Польза в середине', status: 'ok', note: 'Три шага, каждый с примером' },
+  { id: 'cta', title: 'Призыв в конце', status: 'ok', note: 'Кодовое слово в конце — титр и финальная карточка' },
+  { id: 'length', title: 'Длина', status: 'ok', note: '1:16 после резки — до 90 с' },
+] };
+const SCRIPT = {
+  story: 'tutorial',
+  hooks: [
+    { technique: 'value', text: '3 ошибки, из-за которых чешский не идёт', frame: 'Крупно, смотрю в камеру' },
+    { technique: 'engage', text: 'Какой вы ученик: зубрила или болтун?' },
+    { technique: 'emotion', text: 'POV: полгода учишь чешский и молчишь в магазине' },
+  ],
+  scenes: [
+    { part: 'hook', t0: 0, t1: 2.5, say: 'Три ошибки, из-за которых чешский не идёт', screen: '3 ошибки 🔥', frame: 'Крупно, лицо' },
+    { part: 'hold', t0: 2.5, t1: 20, say: 'Первая — учить слова списком', screen: 'Слова — списком', frame: 'Средний план, тетрадь в руке' },
+    { part: 'hold', t0: 20, t1: 40, say: 'Вторая — молчать', screen: '', frame: 'Переход взмахом руки' },
+    { part: 'hold', t0: 40, t1: 52, say: 'Третья — учить без повторов', screen: 'Без повторов', frame: 'Крупно' },
+    { part: 'reward', t0: 52, t1: 60, say: 'Пиши «план» — пришлю', screen: 'Пиши «план»', frame: 'Крупно', sound: 'Музыка громче' },
+  ],
+  cta: 'Пиши «план» в комментариях',
+  tips: ['Лицо в кадре с первой секунды', 'Снимай у окна: свет спереди'],
+  caption: { text: 'Три ошибки в чешском 🇨🇿', hashtags: ['чешский', 'языки'] },
+};
 const FIXTURE = JSON.parse(fs.readFileSync(path.resolve('../engine/tests/fixtures/style-merge.json'), 'utf8'));
 const STYLES = { ...FIXTURE.styles, sample: { ...FIXTURE.styles.sample, inserts: [{ kind: 'image', x: 70, y: 500, w: 250, question: 'logo' }] } };
 
@@ -103,6 +134,35 @@ const segments = [
     check((await page.textContent('body')).includes('Неверный пароль'), 'неверный пароль принят');
     await page.fill('#password', 'pw');
     await page.click('button[type=submit]');
+    await page.waitForURL(`${APP}/`);
+  }],
+
+  ['brand', async ({ page, tmp }) => {
+    await page.getByRole('link', { name: 'Мой бренд' }).click();
+    await page.waitForURL(`${APP}/brand`);
+    await page.locator('#handle').waitFor();
+    await page.fill('#handle', 'pavel.malakhouski');
+    const logo = path.join(tmp, 'brand-logo.png');
+    fs.writeFileSync(logo, PNG);
+    await page.setInputFiles('input[type=file]', logo);
+    await page.getByRole('img', { name: 'Логотип' }).waitFor();
+    await page.getByRole('button', { name: 'Розовый' }).first().click();
+    await page.getByRole('button', { name: 'Rubik', exact: true }).click();
+    await page.fill('#signature', 'Пишите в директ — отвечу лично');
+    await page.fill('#hashtags', '#монтаж reels');
+    await page.waitForFunction(() => document.querySelector('iframe')?.contentWindow?.layoutBoxes?.().hook);
+    await shot(page, 'brand');
+    await page.getByRole('button', { name: 'Сохранить' }).click();
+    await page.getByText('Сохранено').waitFor();
+    const r = await fetch(`${FAKE}/__file?ref=claude/brand&path=brand/brand.json`);
+    check(r.ok, `brand.json: ${r.status}`);
+    const brand = await r.json();
+    check(brand.handle === '@pavel.malakhouski' && brand.colors?.accent === '#FF5C8A' && brand.font === 'rubik' && brand.logo === 'logo.png'
+      && isDeepStrictEqual(brand.hashtags, ['монтаж', 'reels']) && brand.signature === 'Пишите в директ — отвечу лично', `brand.json: ${JSON.stringify(brand)}`);
+    await page.reload();
+    check(await page.inputValue('#handle') === '@pavel.malakhouski', 'бренд не прочитался после перезагрузки');
+    await page.getByRole('img', { name: 'Логотип' }).waitFor();
+    await page.getByRole('link', { name: '← Мои видео' }).click();
     await page.waitForURL(`${APP}/`);
   }],
 
@@ -145,6 +205,10 @@ const segments = [
     check(f.length === 1 && f[0].step === 'analyze' && f[0].attempt === 1 && f[0].job === ctx.jobId, `запуски: ${JSON.stringify(f)}`);
     const left = await page.evaluate(() => localStorage.getItem('vm:pending'));
     check(left === null, 'vm:pending не удалён');
+    // задача взяла копию бренда: job.json.brand и логотип в своей папке
+    const job = JSON.parse((await branchFile(ctx, 'job.json')) ?? '{}');
+    check(job.brand?.handle === '@pavel.malakhouski' && job.brand?.logo === 'in/brand/logo.png', `job.json.brand: ${JSON.stringify(job.brand)}`);
+    check((await branchFile(ctx, 'in/brand/logo.png')) !== null, 'логотип бренда не скопирован в задачу');
   }],
 
   ['list', async (ctx) => {
@@ -195,13 +259,20 @@ const segments = [
     const { page, tmp } = ctx;
     engineValidate('questions.json', QUESTIONS);
     engineValidate('styles.json', STYLES);
+    engineValidate('review.json', REVIEW);
     const waiting = { state: 'waiting_answers', phase: 'Ждёт ответов', message: 'Ответь на вопросы и выбери стиль', at: new Date().toISOString(), needs: 'answers' };
     engineValidate('status.json', waiting);
-    await session(ctx, { 'questions.json': QUESTIONS, 'styles.json': STYLES, 'frame.png': PNG, 'q-logo.png': PNG, 'status.json': waiting });
+    await session(ctx, { 'questions.json': QUESTIONS, 'styles.json': STYLES, 'review.json': REVIEW, 'frame.png': PNG, 'q-logo.png': PNG, 'status.json': waiting });
     const cards = page.locator('[data-question]');
-    await until(async () => (await cards.count()) === 5, 10_000, 'пять карточек вопросов');
+    await until(async () => (await cards.count()) === 8, 10_000, 'восемь карточек вопросов');
     const go = page.getByRole('button', { name: 'Показать превью' });
     check(await go.isDisabled(), '«Показать превью» включена, хотя brand и logo без ответа');
+    // разбор по гайду — над вопросами: что хорошо и что поправить
+    const review = page.locator('[data-review]');
+    check(await review.count() === 1, 'нет карточки «Разбор по гайду»');
+    const reviewText = await review.textContent();
+    check(reviewText.includes('Разбор по гайду') && reviewText.includes('Мысль звучит на 0:21'), `разбор: ${reviewText}`);
+    check(await review.locator('li[data-status=warn]').count() === 1 && await review.locator('li[data-status=ok]').count() === 4, 'пункты ok и warn');
     await shot(page, 'questions');
 
     const card = (id) => page.locator(`[data-question="${id}"]`);
@@ -216,7 +287,7 @@ const segments = [
     check(!(await go.isDisabled()), '«Показать превью» выключена после всех ответов');
 
     await page.reload();
-    await until(async () => (await cards.count()) === 5, 10_000, 'карточки после перезагрузки');
+    await until(async () => (await cards.count()) === 8, 10_000, 'карточки после перезагрузки');
     check(await card('hook').getByLabel('Или напиши свой').inputValue() === 'Как я снимаю reels', 'свой хук пропал');
     check(await card('stars').getByRole('button', { name: 'беспл*тно' }).getAttribute('aria-pressed') === 'false', 'снятая звёздочка вернулась');
     check(await card('brand').getByRole('button', { name: 'Copilot' }).getAttribute('aria-pressed') === 'true', 'выбор написания пропал');
@@ -265,7 +336,9 @@ const segments = [
       ...STYLES,
       sample: {
         ...STYLES.sample, hook: 'Cum învăț limbi', words: ['Vă', 'mulțumesc', 'pentru', 'întrebare'], spoken: 1,
-        inserts: [...STYLES.sample.inserts, { kind: 'image', src: 'q-logo.png', x: 600, y: 900, w: 250 }], // вставка из ТЗ: её размер меняет Павел
+        end: { lines: ['Abonează-te 👇'], handle: '@pavel.malakhouski', logo: 'q-logo.png' },
+        inserts: [...STYLES.sample.inserts, { kind: 'image', src: 'q-logo.png', x: 600, y: 900, w: 250 }, // вставка из ТЗ: её размер меняет Павел
+          { kind: 'text', id: 's1', text: '3 ошибки 🔥', x: 120, y: 1100, w: 420 }], // стикер-тезис
       },
       variants: STYLES.variants.map((v) => ({ ...v, label: `${v.label} — без плашки` })),
       fonts: { main: ['montserrat', 'unbounded', 'rubik', 'oswald', 'comfortaa'], hand: ['caveat', 'bad-script'] },
@@ -279,6 +352,16 @@ const segments = [
       check(await page.getByRole('button', { name: lacking, exact: true }).count() === 0, `${lacking} без «ț» предложен Павлу`);
     }
     await shot(page, 'previews-romanian');
+
+    // финальная карточка: призыв — из ответа на вопрос end, ник и логотип — из образца (бренд Павла)
+    await page.getByRole('button', { name: 'Финальная карточка' }).click();
+    await until(async () => JSON.parse(await big.getAttribute('data-state')).end?.lines?.[0] === 'Подпишись, чтобы не пропустить 👇', 5000, 'карточка на превью');
+    const cardState = JSON.parse(await big.getAttribute('data-state')).end;
+    check(cardState.handle === '@pavel.malakhouski' && /q-logo\.png/.test(cardState.logo ?? ''), `карточка: ${JSON.stringify(cardState)}`);
+    check(await page.getByRole('slider', { name: 'Высота субтитров' }).count() === 0, 'на карточке нет ручек текста');
+    await shot(page, 'previews-end-card');
+    await page.getByRole('button', { name: 'Кадр с текстом' }).click();
+    await page.getByRole('slider', { name: 'Высота субтитров' }).waitFor();
 
     await page.getByRole('button', { name: /^B · / }).click();
     await page.getByRole('button', { name: 'Rubik', exact: true }).click();
@@ -359,12 +442,29 @@ const segments = [
     const placed = { x: before.x - 160, y: before.y - 240, w: before.w };
     await until(async () => { const i = await bigInsert(); return i.x === placed.x && i.y === placed.y && i.w === placed.w; }, 5000,
       `вставка перетащена в ${JSON.stringify(placed)}`);
+    // стикер-тезис двигается так же: 30 px вправо и 20 px вверх — 120 и 80 px кадра
+    const bigSticker = async () => JSON.parse(await big.getAttribute('data-state')).inserts.find((i) => i.key === 's1');
+    const st = await bigSticker();
+    check(st?.kind === 'text' && st.text === '3 ошибки 🔥', `стикер на превью: ${JSON.stringify(st)}`);
+    const stickerHandle = page.getByRole('slider', { name: 'Стикер 1' });
+    await stickerHandle.scrollIntoViewIfNeeded();
+    const sb = await stickerHandle.boundingBox();
+    await page.mouse.move(sb.x + sb.width / 2, sb.y + sb.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(sb.x + sb.width / 2 + 30, sb.y + sb.height / 2 - 20, { steps: 5 });
+    await page.mouse.up();
+    const stickerPlaced = { x: st.x + 120, y: st.y - 80, w: st.w };
+    await until(async () => { const i = await bigSticker(); return i.x === stickerPlaced.x && i.y === stickerPlaced.y; }, 5000,
+      `стикер перетащен в ${JSON.stringify(stickerPlaced)}`);
     await shot(page, 'previews-insert-moved');
     await shot(page, 'previews-resized');
     await shot(page, 'previews-subtitles-moved');
     check(await page.getByRole('button', { name: '×1.1', exact: true }).getAttribute('aria-pressed') === 'true', 'скорость по умолчанию не ×1.1');
     await page.getByRole('button', { name: '×1.3', exact: true }).click();
-    const go = page.getByRole('button', { name: /^Монтировать: B · Rubik · ×1\.3/ });
+    // вторая версия для теста: тизер Павел взял — можно собрать ролик без него; музыки нет — без музыки нельзя
+    check(await page.getByRole('button', { name: 'Без музыки' }).count() === 0, 'без музыки предложено, хотя трека нет');
+    await page.getByRole('button', { name: 'Без тизера' }).click();
+    const go = page.getByRole('button', { name: /^Монтировать: B · Rubik · ×1\.3 · A\/B/ });
     await go.waitFor();
     const last = await bigSpec();
     await go.click();
@@ -378,6 +478,10 @@ const segments = [
     check(answers.style?.subY === variantY - 180, `style.subY: ${answers.style?.subY}`);
     check(answers.style?.hookY === hookY + 120, `style.hookY: ${answers.style?.hookY}`);
     check(isDeepStrictEqual(answers.insertBoxes?.['q-logo.png'], placed), `insertBoxes: ${JSON.stringify(answers.insertBoxes)}`);
+    check(isDeepStrictEqual(answers.insertBoxes?.s1, stickerPlaced), `стикер в insertBoxes: ${JSON.stringify(answers.insertBoxes)}`);
+    check(isDeepStrictEqual(answers.answers?.stickers, ['s1']), `stickers: ${JSON.stringify(answers.answers?.stickers)}`);
+    check(answers.answers?.end === 'e1', `end: ${JSON.stringify(answers.answers?.end)}`);
+    check(answers.ab === 'teaser', `ab: ${JSON.stringify(answers.ab)}`);
     check(answers.style?.subSize === grown - 4 && answers.style?.hookSize === pinched, `размеры: ${answers.style?.subSize}, ${answers.style?.hookSize}`);
     check(isDeepStrictEqual(finalStyle(restyled, answers.style), last), `стиль ответа ${JSON.stringify(answers.style)} ≠ последнему превью`);
   }],
@@ -402,22 +506,55 @@ const segments = [
       unsure: ['«Мемсон» на 0:31 — не уверен в написании'],
       missing: ['нет музыки assets/music/lofi.mp3 — ролик без неё'],
       qa: { ok: false, problems: ['хук на лице или ближе 40 px к нему (0,0–1,5 с ролика)'] },
+      caption: { text: 'Как я учу чешский по 15 минут в день и почему это работает лучше, чем курсы 🇨🇿\nСохрани, чтобы не потерять', hashtags: ['чешский', 'языки'] },
+      ab: { differs: 'teaser', durations: { source: 102.4, final: 73.8 }, qa: { ok: false, problems: ['субтитры и вставка друг на друге (0:40)'] } },
+      checklist: [
+        { id: 'format', title: '9:16, 1080×1920, 30 к/с', ok: true }, { id: 'container', title: 'H.264 в MP4 без edit lists', ok: true },
+        { id: 'audio', title: 'звук стерео AAC', ok: true }, { id: 'hook', title: 'хук с первой секунды', ok: true },
+        { id: 'safe', title: 'текст в безопасных зонах', ok: false }, { id: 'subtitles', title: 'субтитры', ok: true },
+        { id: 'end', title: 'финальная карточка с призывом', ok: true }, { id: 'length', title: 'длина до 90 с', ok: true },
+      ],
     };
     engineValidate('result.json', result);
     const v1 = crypto.randomBytes(48 * 1024);
     await asset('final.mp4', v1);
     await asset('final.srt', Buffer.from('1\n00:00:00,000 --> 00:00:01,000\nпривет\n\n'));
+    const vB = crypto.randomBytes(44 * 1024);
+    await asset('final-b.mp4', vB);
     await session(ctx, { 'result.json': result, 'status.json': { state: 'rendered', phase: 'Загружаю', message: 'Ролик собран, загружаю', at: iso() },
-      'out/released.json': await released(['final.mp4', 'final.srt']) });
+      'out/released.json': await released(['final.mp4', 'final.srt', 'final-b.mp4']) });
     await page.getByText('Что я сделал').waitFor({ timeout: 7000 });
     check(await page.getByRole('heading', { name: 'Готово' }).count() === 1, 'нет заголовка «Готово»');
     check((await page.textContent('body')).includes('было 1:42 → стало 1:16 · стиль B'), 'нет строки «было → стало · стиль»');
+    // A/B: два ролика с подписями, у каждого своя кнопка
+    const pair = page.locator('[data-ab]');
+    check(await pair.locator('video').count() === 2, 'не два ролика');
+    check((await pair.textContent()).includes('A — с тизером') && (await pair.textContent()).includes('B — без тизера'), 'подписи A и B');
+    check(/name=final-b\.mp4$/.test((await pair.locator('video').nth(1).getAttribute('src')) ?? ''), 'второй ролик — final-b.mp4');
+    const body = await page.textContent('body');
+    check(body.includes('Проверка версии A нашла') && body.includes('Проверка версии B нашла') && body.includes('субтитры и вставка друг на друге'),
+      'проверки обеих версий');
+    // чек-лист по гайду: строки vm render и подпись к посту (она есть)
+    const list = page.locator('[data-checklist]');
+    check(await list.locator('li').count() === 9, `строк чек-листа: ${await list.locator('li').count()}`);
+    check(await list.locator('li[data-ok=false]').count() === 1 && (await list.locator('li[data-ok=false]').textContent()).includes('безопасных зонах'), 'не пройдено — зоны');
+    check((await list.locator('li[data-ok=true]').last().textContent()).includes('подпись к посту'), 'строка подписи к посту');
     await shot(page, 'result');
+    // подпись к посту: жирное — первые 72 знака, кнопка копирует текст и хэштеги
+    const card = page.locator('[data-caption]');
+    check([...((await card.locator('b').textContent()) ?? '')].length === 72, 'до «ещё» — 72 знака');
+    await card.getByRole('button', { name: 'Скопировать подпись' }).click();
+    await card.getByRole('button', { name: 'Скопировано' }).waitFor();
+    const copied = await page.evaluate(() => navigator.clipboard.readText());
+    check(copied === `${result.caption.text}\n\n#чешский #языки`, `скопировано: ${copied}`);
 
     const got = await page.request.get(`${APP}/api/jobs/${ctx.jobId}/download?name=final.mp4`, { maxRedirects: 0 });
     check(got.status() === 302 && /\/__blob\/\d+$/.test(got.headers().location ?? ''), `скачивание: ${got.status()} ${got.headers().location}`);
     const bytes = Buffer.from(await (await fetch(got.headers().location)).arrayBuffer());
     check(bytes.equals(v1), 'скачанный ролик не совпал байт в байт');
+    const second = await page.request.get(`${APP}/api/jobs/${ctx.jobId}/download?name=final-b.mp4`, { maxRedirects: 0 });
+    check(second.status() === 302, `скачивание версии B: ${second.status()}`);
+    check(Buffer.from(await (await fetch(second.headers().location)).arrayBuffer()).equals(vB), 'версия B скачалась не та');
 
     await page.getByLabel('Поправить').fill('логотип левее');
     await page.getByRole('button', { name: 'Переделать' }).click();
@@ -448,12 +585,58 @@ const segments = [
     check(fixes.length === 1 && fixes[0].text === 'логотип левее', `fix.json после «Вернуть»: ${JSON.stringify(fixes)}`);
     check((await fires()).filter((f) => f.step === 'fix').length === 2, '«Вернуть» ничего не запускает');
   }],
+
+  ['script', async (ctx) => {
+    const { page } = ctx;
+    const topic = 'Как я учу чешский по 15 минут в день';
+    await page.goto(`${APP}/`);
+    await page.getByRole('link', { name: 'Сценарий' }).click();
+    await page.waitForURL(`${APP}/script`);
+    const go = page.getByRole('button', { name: 'Написать сценарий' });
+    check(await go.isDisabled(), '«Написать сценарий» включена без темы');
+    await page.fill('#topic', topic);
+    await page.getByRole('button', { name: 'Заявки', exact: true }).click();
+    await page.getByRole('button', { name: 'Обучающий', exact: true }).click();
+    await page.getByRole('button', { name: '60 с', exact: true }).click();
+    await page.getByRole('button', { name: 'чешский', exact: true }).click();
+    await shot(page, 'script-form');
+    await go.click();
+    await page.waitForURL(/\/jobs\/\d{6}-\d{6}-[0-9a-z]{4}$/, { timeout: 20_000 });
+    ctx.jobId = page.url().split('/').pop();
+    const job = JSON.parse((await branchFile(ctx, 'job.json')) ?? '{}');
+    check(job.kind === 'script' && isDeepStrictEqual(job.script, { topic, goal: 'leads', story: 'tutorial', length: 60, language: 'чешский' }),
+      `job.json задачи-сценария: ${JSON.stringify({ kind: job.kind, script: job.script })}`);
+    check((await fires()).some((f) => f.job === ctx.jobId && f.step === 'analyze' && f.attempt === 1), 'анализ сценария не запущен');
+    await page.getByText('Пишу сценарий').or(page.getByText('Запускаю сессию')).first().waitFor({ timeout: 7000 });
+
+    engineValidate('script.json', SCRIPT);
+    await session(ctx, { 'script.json': SCRIPT,
+      'status.json': { state: 'script_ready', phase: 'Сценарий готов', message: 'Три хука и раскадровка — можно снимать', at: new Date().toISOString() } });
+    const view = page.locator('[data-script]');
+    await view.waitFor({ timeout: 7000 });
+    check(await view.locator('[data-hook]').count() === 3, 'не три хука');
+    check(await view.locator('[data-scene]').count() === SCRIPT.scenes.length, 'сцены раскадровки');
+    const text = await view.textContent();
+    for (const part of ['Обучающий', 'Зацепить', 'Удержать', 'Вознаградить', 'Пиши «план» в комментариях', 'Лицо в кадре с первой секунды', '#чешский']) {
+      check(text.includes(part), `на экране сценария нет «${part}»`);
+    }
+    await shot(page, 'script');
+    await view.locator('[data-hook]').nth(1).click();
+    await page.getByRole('button', { name: 'Снять по сценарию' }).click();
+    await page.waitForURL(`${APP}/`);
+    const brief = await until(async () => page.inputValue('#brief').catch(() => ''), 7000, 'ТЗ по сценарию в форме загрузки');
+    check(brief === 'ХУК: Какой вы ученик: зубрила или болтун?\nТЕЗИСЫ: Слова — списком; Без повторов\nПРИЗЫВ: Пиши «план» в комментариях\nЯЗЫК: чешский',
+      `ТЗ по сценарию: ${JSON.stringify(brief)}`);
+    await page.locator(`[data-job="${ctx.jobId}"]`).getByText('Сценарий готов').waitFor();
+    await page.reload();
+    check(await page.inputValue('#brief') === '', 'ТЗ сценария подставилось второй раз');
+  }],
 ];
 
 // ---------- прогон ----------
 
 const browser = await chromium.launch();
-const page = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage(); // контекст — чтобы открыть вторую вкладку с тем же входом
+const page = await (await browser.newContext({ viewport: { width: 390, height: 844 }, permissions: ['clipboard-read', 'clipboard-write'] })).newPage(); // контекст — чтобы открыть вторую вкладку с тем же входом
 const ctx = { page, browser, tmp: fs.mkdtempSync(path.join(os.tmpdir(), 'vm-e2e-')), jobId: null, fires, state, branchFile, session, until, check };
 let code = 0;
 for (const [name, run] of segments) {

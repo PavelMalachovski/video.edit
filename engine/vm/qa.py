@@ -5,14 +5,16 @@
 и титры не ближе 40 px к лицу, вставки не ближе 20 px к субтитрам и не на хуке или титре, тексты не пересекаются.
 Субтитры с лицом не сверяются: их высоту задаёт выбранный стиль. Вставку называют её номером в edit.inserts (с 1)
 и подписью. `check_render` — «не отдавать»: формат, длительность, хук и титр из edit.json есть в ролике, выбранная
-музыка попала в микс и не начинается с тишины. `control_frames` — контрольные кадры готового ролика и лист 2×2;
-`compose_frames` — такие же кадры до рендера: кадр исходника и слой этого момента (`vm check`).
+музыка попала в микс и не начинается с тишины. `checklist` — чек-лист по гайду Meta для экрана «Готово» (формат,
+звук, хук, безопасные зоны, субтитры, финальная карточка, длина). `control_frames` — контрольные кадры готового ролика
+и лист 2×2; `compose_frames` — такие же кадры до рендера: кадр исходника и слой этого момента (`vm check`).
 """
+import json
 import re
 import subprocess
 from pathlib import Path
 
-from .media import MediaError, extract_frame, probe
+from .media import MediaError, extract_frame, mp4_boxes, probe
 from .timeline import Timeline
 
 SAFE = {"x0": 60, "x1": 890, "y0": 120, "y1": 1530}
@@ -23,7 +25,19 @@ W, H = 1080, 1920
 SLOTS = ("hook", "subs", "insert", "cta")  # порядок клеток листа: слева направо, сверху вниз
 HEAD = 0.5  # с — начало музыки, которое должно звучать
 SILENT_DB = -50.0  # пик тише этого — тишина
-NAMES = {"sub": "субтитры", "hook": "хук", "cta": "титр"}
+NAMES = {"sub": "субтитры", "hook": "хук", "cta": "титр", "end": "финальная карточка"}
+HOOK_BY = 1.0  # с — хук на экране не позже: мысль ролика — в первые 2 с (гайд «Всё о Reels»)
+MAX_LENGTH = 90.0  # с — длина, которую советует гайд
+CHECKS = {  # строки чек-листа на экране «Готово»; подпись к посту Claude пишет после рендера — её строку ставит страница
+    "format": "9:16, 1080×1920, 30 к/с",
+    "container": "H.264 в MP4 без edit lists",
+    "audio": "звук стерео AAC",
+    "hook": "хук с первой секунды",
+    "safe": "текст в безопасных зонах",
+    "subtitles": "субтитры",
+    "end": "финальная карточка с призывом",
+    "length": "длина до 90 с",
+}
 
 
 def face_box(face: dict | None) -> dict | None:
@@ -87,6 +101,8 @@ def check_layout(boxes_by_event: list[dict], face: dict | None, inserts: list[di
         boxes = e.get("boxes") or {}
         texts = [(key, boxes[key]) for key in ("sub", "hook", "cta") if boxes.get(key)]
         shown = [(_insert_name(b, inserts), b) for b in boxes.get("inserts") or []]
+        if boxes.get("end") and _outside(boxes["end"]):  # карточка — на затемнённом кадре: лицо закрывать можно
+            problem(f"{NAMES['end']} вне безопасной зоны", e)
         for key, b in texts:
             if _outside(b):
                 problem(f"{NAMES[key]} вне безопасной зоны", e)
@@ -142,11 +158,13 @@ def check_render(final: Path, edit: dict, boxes_by_event: list[dict], report: di
     expected = report["durations"]["final"]
     if abs(info.duration - expected) > 0.1:
         problems.append(f"длительность {_sec(info.duration)} с вместо {_sec(expected)} с")
-    shown = {key for e in boxes_by_event for key in ("hook", "cta") if (e.get("boxes") or {}).get(key)}
+    shown = {key for e in boxes_by_event for key in ("hook", "cta", "end") if (e.get("boxes") or {}).get(key)}
     if edit.get("hook") and "hook" not in shown:
         problems.append("хук есть в edit.json, но в ролике его нет")
     if edit.get("cta") and "cta" not in shown:
         problems.append("титр с кодовым словом есть в edit.json, но в ролике его нет")
+    if edit.get("end") and "end" not in shown:
+        problems.append("финальная карточка есть в edit.json, но в ролике её нет")
     music = edit.get("music")
     if music:  # по миксу не проверить: голос с первого кадра заглушает отсутствие музыки
         lost = [m for m in report.get("missing", []) if Path(music["file"]).name in m]
@@ -155,6 +173,42 @@ def check_render(final: Path, edit: dict, boxes_by_event: list[dict], report: di
         elif _head_volume(Path(report["music"])) < SILENT_DB:
             problems.append(f"музыка выбрана, но начинается с тишины — первые {_sec(HEAD)} с её не слышно")
     return problems
+
+
+def _codecs(path: Path) -> dict:
+    """Кодек первой видеодорожки, кодек и каналы первой звуковой (ffprobe)."""
+    done = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,codec_name,channels", "-of", "json",
+                           str(path)], capture_output=True, text=True, check=False, timeout=60)
+    if done.returncode != 0:
+        raise MediaError(f"{path}: ffprobe не прочитал дорожки (код {done.returncode})")
+    streams = json.loads(done.stdout or "{}").get("streams", [])
+    video = next((s for s in streams if s.get("codec_type") == "video"), {})
+    audio = next((s for s in streams if s.get("codec_type") == "audio"), {})
+    return {"video": video.get("codec_name"), "audio": audio.get("codec_name"), "channels": audio.get("channels")}
+
+
+def checklist(final: Path, boxes_by_event: list[dict], report: dict) -> list[dict]:
+    """Чек-лист по гайду для экрана «Готово»: что видно по готовому ролику и его слою → `[{id, title, ok}]` в порядке
+    CHECKS. `report` — что вернул `render` (длительность)."""
+    info = probe(final)
+    codecs = _codecs(final)
+
+    def shown(key: str) -> list[dict]:
+        return [e for e in boxes_by_event if (e.get("boxes") or {}).get(key)]
+
+    every = [b for e in boxes_by_event for b in [*((e.get("boxes") or {}).get(k) for k in NAMES), *((e.get("boxes") or {}).get("inserts") or [])] if b]
+    hook = shown("hook")
+    ok = {
+        "format": (info.width, info.height) == (W, H) and round(info.fps) == 30,
+        "container": codecs["video"] == "h264" and not any(box.endswith("/elst") for box in mp4_boxes(final)),
+        "audio": codecs["audio"] == "aac" and codecs["channels"] == 2,
+        "hook": bool(hook) and min(e["t0"] for e in hook) <= HOOK_BY,
+        "safe": not any(_outside(b) for b in every),
+        "subtitles": bool(shown("sub")),
+        "end": bool(shown("end")),
+        "length": report["durations"]["final"] <= MAX_LENGTH,
+    }
+    return [{"id": key, "title": title, "ok": ok[key]} for key, title in CHECKS.items()]
 
 
 def slot_times(boxes_by_event: list[dict]) -> dict[str, float]:

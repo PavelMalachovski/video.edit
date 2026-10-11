@@ -10,6 +10,7 @@ import {
   clearPending, loadPending, matchPending, planChunks, resumeDone, runUpload, savePending, type Pending, type PendingInsert,
 } from '@/lib/uploader.ts';
 import { keepScreenOn } from '@/lib/wakelock.ts';
+import { takeNextBrief } from '@/lib/script.ts';
 import { CloseIcon, PlayIcon, PlusIcon, UploadIcon } from './icons';
 import { JOBS_CHANGED } from './jobs-list';
 
@@ -79,10 +80,12 @@ export default function Uploader() {
 
   useEffect(() => {
     const p = loadPending(storage());
-    if (!p) return;
-    setPending(p);
-    setBrief(p.brief);
-    briefRef.current = p.brief;
+    const next = p ? null : takeNextBrief(storage()); // ТЗ от «Снять по сценарию» — если не продолжаем загрузку
+    const text = p?.brief ?? next;
+    if (p) setPending(p);
+    if (text === null || text === undefined) return;
+    setBrief(text);
+    briefRef.current = text;
   }, []);
 
   const busy = phase === 'uploading' || phase === 'completing' || phase === 'launching';

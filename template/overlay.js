@@ -3,15 +3,17 @@
 // (Chromium через Playwright) — поэтому превью совпадает с роликом по шрифту, размеру, цвету и месту.
 //
 //   await window.renderState(spec, state, {bar: {progress}, background})
-//     state = {sub?: {words, active, visible}, hook?: {text}, cta?: {lines, word}, inserts?}
-//   window.layoutBoxes() → {sub?, hook?, cta?, inserts: [...]} — рамки {x, y, w, h} в px кадра 1080×1920,
-//     вместе с обводкой, тенью и плашкой. Вставки рисует inserts.js.
+//     state = {sub?: {words, active, visible}, hook?: {text}, cta?: {lines, word}, inserts?,
+//              end?: {lines, handle?, logo?, t}}  — end: финальная карточка, t — секунды от её начала
+//   window.layoutBoxes() → {sub?, hook?, cta?, end?, inserts: [...]} — рамки {x, y, w, h} в px кадра 1080×1920,
+//     вместе с обводкой, тенью и плашкой (у карточки — без затемнения кадра). Вставки рисует inserts.js.
 //
 // Шрифты — из fonts.json рядом с этим файлом. Свои шрифты Павла (assets/fonts) дописывает в fonts.json
 // тот, кто отдаёт шаблон. Шрифта нет в списке — ошибка: подменять его другим нельзя, иначе превью
-// разойдётся с финалом.
+// разойдётся с финалом. Эмодзи в хуке, титре и вставках — картинки (emoji.js), а не буквы шрифта.
 
-import { drawInserts } from './inserts.js';
+import { appendText, emojiImages, emojiOnly, glueEmoji, loadEmoji, stripEmoji } from './emoji.js';
+import { drawInserts, ease } from './inserts.js';
 
 const FRAME = { w: 1080, h: 1920 };
 const SAFE = { x0: 60, x1: 890, y0: 120, y1: 1530 }; // безопасная зона: всё, кроме шкалы, — внутри
@@ -69,10 +71,11 @@ function font(id) {
 const measure = document.createElement('canvas').getContext('2d');
 
 /** Настоящие границы букв текста относительно базовой линии (а не высота строки шрифта): подъём, спуск,
-свесы влево и вправо за ширину набора (у рукописных шрифтов — заметные) и подъём шрифта по метрикам. */
+свесы влево и вправо за ширину набора (у рукописных шрифтов — заметные) и подъём шрифта по метрикам. Эмодзи —
+картинки, их рамки считаются отдельно (`emojiRects`). */
 function ink(f, size, text) {
   measure.font = `${f.weight} ${size}px "${f.family}"`;
-  const m = measure.measureText(text);
+  const m = measure.measureText(stripEmoji(text));
   return {
     ascent: m.actualBoundingBoxAscent,
     descent: m.actualBoundingBoxDescent,
@@ -118,6 +121,17 @@ function glue(text) {
     out = out.replace(/(^|[\s\u00A0])([А-Яа-яЁёA-Za-z]{1,2}) +(?=\S)/gu, '$1$2\u00A0');
   }
   return out;
+}
+
+/** Строка текста в узел: слово из одних эмодзи держится за слово перед ним — оба в одном куске без переноса
+(неразрывного пробела мало: Chromium переносит строку между ним и картинкой), строка с эмодзи не начинается. */
+function appendWords(node, text) {
+  glueEmoji(String(text).split(/ +/).filter(Boolean)).forEach((word, i) => {
+    if (i) node.append(' ');
+    if (word.includes(' ')) node.append(appendText(el('span', 'nobr'), word));
+    else appendText(node, word);
+  });
+  return node;
 }
 
 /** Маркер базовой линии в конце (или начале) узла: его верх — базовая линия строки. */
@@ -177,8 +191,8 @@ function lineCount(rects) {
   return new Set(rects.map((r) => Math.round(r.top))).size;
 }
 
-/** Рамки кусков текста узла по строкам — только текст, без рамок блочных детей. */
-function textRects(node) {
+/** Рамки кусков текста узла по строкам — только буквы, без картинок эмодзи и рамок блочных детей. */
+function letterRects(node) {
   const rects = [];
   const walk = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
   for (let t = walk.nextNode(); t; t = walk.nextNode()) {
@@ -187,6 +201,28 @@ function textRects(node) {
     rects.push(...[...range.getClientRects()].filter((r) => r.width > 0));
   }
   return rects;
+}
+
+/** Рамки всего, что нарисовано в узле: буквы и картинки эмодзи (для границ). */
+function textRects(node) {
+  return [...letterRects(node), ...emojiRects(node)];
+}
+
+/** Строки текста узла: по буквам; картинка эмодзи — своя строка, только если рядом с ней букв нет (у картинки верх
+не там, где у букв, — по нему она считалась бы лишней строкой). */
+function textLines(node) {
+  const letters = letterRects(node);
+  const tops = new Set(letters.map((r) => Math.round(r.top)));
+  for (const r of emojiRects(node)) {
+    const mid = (r.top + r.bottom) / 2;
+    if (!letters.some((q) => q.top <= mid && q.bottom >= mid)) tops.add(Math.round(r.top));
+  }
+  return tops.size;
+}
+
+/** Рамки картинок эмодзи в узле. */
+function emojiRects(node) {
+  return emojiImages(node).map((img) => img.getBoundingClientRect());
 }
 
 function stroke(node, width, color) {
@@ -279,12 +315,15 @@ function drawSub({ spec, main }, sub) {
 
 // ---------- хук и титр с кодовым словом ----------
 
-/** Хук: все слова, кроме последнего, — строка капсом; последнее — рукописное. */
+/** Хук: все слова, кроме последнего, — строка капсом; последнее — рукописное. Эмодзи в конце идут вместе с ним:
+рукописным становится последнее слово с буквами и всё, что после него. */
 function hookTitle(hook) {
   if (!hook || typeof hook.text !== 'string') return null;
   const words = hook.text.trim().split(/\s+/).filter(Boolean);
   if (words.length === 0) return null;
-  const word = words.pop();
+  let last = words.length - 1;
+  while (last > 0 && emojiOnly(words[last])) last -= 1;
+  const word = words.splice(last).join(' ');
   return { lines: words.length ? [words.join(' ')] : [], word, wrap: 2 };
 }
 
@@ -315,10 +354,10 @@ function drawTitle(id, { spec, main, hand }, title) {
   const plate = el('div', 'plate');
   plate.hidden = mode !== 'plate' || title.lines.length === 0;
   const caps = el('div', 'caps');
-  for (const text of title.lines) caps.append(el('div', 'line', upper(glue(text))));
+  for (const text of title.lines) caps.append(appendWords(el('div', 'line'), upper(glue(text))));
   const handBox = el('div', 'hand');
   handBox.hidden = !title.word;
-  const handText = el('span', null, title.word);
+  const handText = appendText(el('span'), title.word);
   handBox.append(handText);
   root.append(plate, caps, handBox);
   const first = caps.firstElementChild;
@@ -351,7 +390,7 @@ function drawTitle(id, { spec, main, hand }, title) {
     const capsOver = first ? ink(main, px, upper(title.lines.join(' '))) : null;
     const capsFit = [...caps.children].every((line) => {
       const r = union(textRects(line));
-      return line.scrollWidth <= capsWidth + 0.5 && lineCount(textRects(line)) <= title.wrap && (!r || r.right - r.left + capsOver.left + capsOver.right <= capsWidth + 0.5);
+      return line.scrollWidth <= capsWidth + 0.5 && textLines(line) <= title.wrap && (!r || r.right - r.left + capsOver.left + capsOver.right <= capsWidth + 0.5);
     });
     const handOver = title.word ? ink(hand, px * HAND, title.word) : null;
     const handFit = !title.word || handText.getBoundingClientRect().width + handOver.left + handOver.right <= handWidth + 0.5;
@@ -365,19 +404,19 @@ function drawTitle(id, { spec, main, hand }, title) {
   if (first) {
     const m = ink(main, px, upper(title.lines.join(' ')));
     const sides = union(textRects(caps));
-    capsInk = {
+    capsInk = union([{
       left: sides.left - m.left,
       right: sides.right + m.right,
       top: capsTop.getBoundingClientRect().top - m.ascent,
       bottom: capsBottom.getBoundingClientRect().top + m.descent,
-    };
+    }, ...emojiRects(caps)]);
   }
   let handInk = null;
   if (title.word) {
     const m = ink(hand, handPx, title.word);
     const r = handText.getBoundingClientRect();
     const base = handMark.getBoundingClientRect().top;
-    handInk = { left: r.left - m.left, right: r.right + m.right, top: base - m.ascent, bottom: base + m.descent };
+    handInk = union([{ left: r.left - m.left, right: r.right + m.right, top: base - m.ascent, bottom: base + m.descent }, ...emojiRects(handText)]);
   }
 
   let capsDy = 0;
@@ -397,6 +436,104 @@ function drawTitle(id, { spec, main, hand }, title) {
   handBox.style.top = `${handDy + dy}px`;
   if (!plate.hidden) place(plate, shift(capsOuter, dy), { background: c.plate, borderRadius: `${Math.round(0.2 * px)}px` });
   return box(shift(outer, dy));
+}
+
+// ---------- финальная карточка ----------
+
+// Затемнённый стоп-кадр, по центру безопасной зоны — логотип (не больше 300×300), призыв на плашке цвета подсветки
+// (кегль 72, строки переносятся по словам до ширины 700, ужимается, только если не влезает слово; дышит: ±3,5 %
+// 1,3 раза в секунду) и ник. Появляется за 0,2 с.
+const END = { y: 800, logo: 300, gap: 44, size: 72, wrap: 700, handle: 54, dim: 0.55, fade: 0.2, pulse: 0.035, hz: 1.3 };
+const logos = new Map();
+
+/** Логотип карточки, загруженный (src — как у вставок: путь от корня, который отдаёт сервер шаблона). */
+function logoImage(src) {
+  if (!logos.has(src)) {
+    const img = new Image();
+    img.src = src;
+    const ready = img.decode().then(() => img, () => {
+      throw new Error(`логотип карточки не загрузился: ${src}`);
+    });
+    ready.catch(() => logos.delete(src));
+    logos.set(src, ready);
+  }
+  return logos.get(src);
+}
+
+function drawEnd({ spec, main }, end, logo) {
+  const root = layer('end');
+  const lines = (end?.lines ?? []).map(String).filter((l) => l.trim());
+  if (!end || lines.length === 0) return null;
+  root.hidden = false;
+  const c = spec.colors;
+  const t = Math.max(0, Number(end.t) || 0);
+  root.style.opacity = String(ease(Math.min(1, (t + 1 / 30) / END.fade)));
+  const dim = el('div', 'dim');
+  place(dim, { left: 0, top: 0, right: FRAME.w, bottom: FRAME.h }, { background: `rgba(0, 0, 0, ${END.dim})` });
+  root.append(dim);
+
+  const parts = []; // [узел, ширина, высота] сверху вниз
+  if (logo) {
+    const k = Math.min(1, END.logo / logo.naturalWidth, END.logo / logo.naturalHeight);
+    const img = el('img', 'logo');
+    img.src = logo.src;
+    img.alt = '';
+    const w = Math.round(logo.naturalWidth * k);
+    const h = Math.round(logo.naturalHeight * k);
+    Object.assign(img.style, { position: 'absolute', width: `${w}px`, height: `${h}px`, borderRadius: '18px' });
+    root.append(img);
+    parts.push([img, w, h]);
+  }
+  const call = el('div', 'call');
+  for (const line of lines) call.append(appendWords(el('div', 'line'), line));
+  Object.assign(call.style, {
+    position: 'absolute', left: '0px', top: '0px', maxWidth: `${END.wrap}px`, boxSizing: 'border-box', textAlign: 'center',
+    lineHeight: '1.12', wordBreak: 'keep-all', overflowWrap: 'normal',
+    fontFamily: `"${main.family}"`, fontWeight: String(main.weight), color: c.plate, background: c.accent,
+  });
+  root.append(call);
+  let size = END.size;
+  for (;;) {
+    Object.assign(call.style, { fontSize: `${size}px`, padding: `${0.28 * size}px ${0.5 * size}px`, borderRadius: `${0.34 * size}px` });
+    if ([...call.children].every((line) => line.scrollWidth <= line.clientWidth + 0.5) || size <= END.size * MIN_SCALE) break;
+    size *= SHRINK;
+  }
+  const plate = call.getBoundingClientRect();
+  parts.push([call, plate.width, plate.height]);
+  let handle = null;
+  if (end.handle) {
+    handle = el('div', 'handle', String(end.handle));
+    Object.assign(handle.style, {
+      position: 'absolute', whiteSpace: 'nowrap', fontFamily: `"${main.family}"`, fontWeight: String(main.weight),
+      fontSize: `${END.handle}px`, lineHeight: '1', color: c.text, textShadow: '0 3px 12px rgba(0, 0, 0, 0.6)',
+    });
+    root.append(handle);
+    const r = handle.getBoundingClientRect();
+    parts.push([handle, r.width, r.height]);
+  }
+
+  const height = parts.reduce((sum, [, , h]) => sum + h, 0) + END.gap * (parts.length - 1);
+  let top = Math.round(Math.min(Math.max(END.y - height / 2, SAFE.y0 + 40), SAFE.y1 - 40 - height));
+  const rects = [];
+  for (const [node, w, h] of parts) {
+    const left = Math.round(CX - w / 2);
+    Object.assign(node.style, { left: `${left}px`, top: `${top}px` });
+    rects.push({ left, top, right: left + w, bottom: top + h });
+    top += h + END.gap;
+  }
+  const scale = 1 + END.pulse * Math.sin(2 * Math.PI * END.hz * t);
+  call.style.transform = `scale(${scale})`;
+  call.style.transformOrigin = '50% 50%';
+  const plateAt = rects[logo ? 1 : 0];
+  const breathe = { x: (END.pulse * (plateAt.right - plateAt.left)) / 2 + 2, y: (END.pulse * (plateAt.bottom - plateAt.top)) / 2 + 2 };
+  const all = [grow(plateAt, breathe.x, breathe.y)];
+  if (logo) all.push(rects[0]);
+  if (handle) {
+    const r = rects.at(-1);
+    const m = ink(main, END.handle, String(end.handle));
+    all.push(grow({ left: r.left - m.left, top: r.top, right: r.right + m.right, bottom: r.bottom }, 12, 9, 15)); // тень ника
+  }
+  return box(union(all));
 }
 
 // ---------- шкала времени ----------
@@ -424,8 +561,14 @@ window.renderState = function renderState(spec, state = {}, opts = {}) {
   return run;
 };
 
+/** Тексты состояния, где могут быть эмодзи: хук, титр, тексты вставок. */
+function texts(s) {
+  const cta = s.cta ?? {};
+  return [s.hook?.text, ...(cta.lines ?? []), cta.word, ...(s.inserts ?? []).flatMap((i) => [i.text, i.title]), ...(s.end?.lines ?? [])];
+}
+
 async function draw(spec, state, opts) {
-  const [main, hand] = await Promise.all([font(spec.font), font(spec.hand)]);
+  const [main, hand] = await Promise.all([font(spec.font), font(spec.hand), loadEmoji(texts(state ?? {}))]);
   await document.fonts.ready;
   const look = { spec, main, hand };
   const s = state ?? {};
@@ -437,6 +580,8 @@ async function draw(spec, state, opts) {
   if (hook) boxes.hook = hook;
   const cta = drawTitle('cta', look, ctaTitle(s.cta));
   if (cta) boxes.cta = cta;
+  const card = drawEnd(look, s.end, s.end?.logo ? await logoImage(s.end.logo) : null);
+  if (card) boxes.end = card;
   drawBar(spec, opts?.bar);
   lastBoxes = boxes;
 }

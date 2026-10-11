@@ -13,7 +13,8 @@ import numpy as np
 import pytest
 
 from vm.job import Job
-from vm.render import RenderError, _ffmpeg, render, timeline
+from vm.media import mp4_boxes
+from vm.render import RenderError, _ffmpeg, _sounds, render, timeline, variant_b
 
 pytestmark = [
     pytest.mark.slow,
@@ -139,6 +140,134 @@ def test_render_end_to_end(tmp_path, sources):
     srt = (out / "final.srt").read_text(encoding="utf-8")
     assert "раз" in srt and "три" in srt
     assert not any(p.suffix == ".png" for p in out.iterdir()), "work files stay out of out/"
+
+
+def test_final_has_no_edit_lists_and_stays_in_sync(tmp_path, sources):
+    """Meta (гайд «Всё о Reels», стр. 63): в контейнере нет edit lists. Без них B-кадры сдвинули бы картинку на
+    2 кадра, а приминг AAC — звук на 21 мс: оба потока начинаются с нуля, кадры ровно 30 к/с, всплеск звука
+    исходника (синус с 1,0 с) — на 1,0 с ролика."""
+    job = make_job(tmp_path, sources["short"], keep=[[0.0, 4.0]])
+    render(job, job.path("out"), preset="ultrafast")
+    final = job.path("out/final.mp4")
+    assert not [b for b in mp4_boxes(final) if b.split("/")[-1] in ("edts", "elst")]
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,start_time,avg_frame_rate", "-of", "json", str(final)],
+        check=True, capture_output=True, text=True,
+    ).stdout
+    streams = {s["codec_type"]: s for s in json.loads(out)["streams"]}
+    assert float(streams["video"]["start_time"]) == 0 and float(streams["audio"]["start_time"]) == 0
+    assert streams["video"]["avg_frame_rate"] == "30/1"
+    raw = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(final), "-map", "0:a", "-ac", "1", "-ar", "48000",
+         "-f", "f32le", "-"],
+        check=True, capture_output=True,
+    ).stdout
+    pcm = np.frombuffer(raw, np.float32)
+    after = pcm[int(0.75 * 48000):int(1.25 * 48000)]
+    onset = 0.75 + int(np.argmax(np.abs(after) > 0.05)) / 48000
+    assert onset == pytest.approx(1.0, abs=0.004), f"синус вернулся на {onset:.4f} с"
+
+
+def test_end_card_freezes_the_last_frame_darker_with_the_call_to_action(tmp_path, sources):
+    """Финальная карточка: после стоп-кадра ещё seconds того же кадра, затемнённого; поверх — призыв на плашке цвета
+    подсветки, ник и логотип; звук появления — в её начало."""
+    job = make_job(tmp_path, sources["short"], keep=[[0.0, 3.0]], hold=0.5,
+                   end={"seconds": 1.5, "lines": ["Подпишись 👇"], "handle": "@pavel", "logo": "in/uploads/upload-i1.png",
+                        "sfx": None})
+    result = render(job, job.path("out"), preset="ultrafast")
+    final = job.path("out/final.mp4")
+    assert result["durations"]["final"] == pytest.approx(3.0 + 0.5 + 1.5, abs=0.01)
+    assert float(probe(final)["format"]["duration"]) == pytest.approx(5.0, abs=0.05)
+    held, card = frame(final, 3.3), frame(final, 4.6)
+    assert card[300:1500].mean() < 0.75 * held[300:1500].mean(), "карточка затемняет кадр"
+    accent = np.all(np.abs(card.astype(int) - (0xFF, 0xD2, 0x3F)) <= 16, axis=2)
+    assert accent[200:1500, 60:890].sum() > 5000, "плашка призыва цвета подсветки"
+    blue = np.all(np.abs(card.astype(int) - (0x33, 0x66, 0xFF)) <= 20, axis=2)
+    assert blue[120:1530, 60:890].sum() > 2000, "логотип (синий квадрат из загрузки) на карточке"
+
+
+def test_end_card_sound_plays_when_it_appears(tmp_path):
+    job = Job(tmp_path / "jobs" / "abc")
+    job.path("in/uploads").mkdir(parents=True)
+    ffmpeg("-f", "lavfi", "-i", "sine=f=900:d=0.3", job.path("in/uploads/pop.wav"))
+    edit = {"speed": 1.0, "keep": [[0.0, 6.0]], "hook": None, "music": None, "inserts": [], "hold": 0.5,
+            "end": {"seconds": 2.0, "lines": ["Подпишись"], "sfx": "in/uploads/pop.wav"}}
+    sfx, _, notes = _sounds(job, edit, timeline(edit), skip=set())
+    assert sfx == [(6.5, job.path("in/uploads/pop.wav").resolve())] and notes == []
+
+
+def test_teaser_plays_its_phrase_first_then_the_video_from_the_start(tmp_path, sources):
+    """Тизер: фраза из середины (2,0–3,0 с исходника) — в самом начале ролика, звук и картинка вместе; потом ролик с
+    начала. Синус исходника звучит первые полсекунды каждой секунды."""
+    job = make_job(tmp_path, sources["short"], keep=[[0.0, 4.0]], teaser={"t0": 2.0, "t1": 3.0, "sfx": None})
+    result = render(job, job.path("out"), preset="ultrafast")
+    final = job.path("out/final.mp4")
+    assert result["durations"]["final"] == pytest.approx(5.0, abs=0.01)
+    raw = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(final), "-map", "0:a", "-ac", "1", "-ar", "48000",
+                          "-f", "f32le", "-"], check=True, capture_output=True).stdout
+    pcm = np.abs(np.frombuffer(raw, np.float32))
+    loud = lambda t: float(pcm[int((t - 0.1) * 48000):int((t + 0.1) * 48000)].mean())
+    assert loud(0.25) > 4 * loud(0.75), "тизер: звучит фраза 2,0–2,5 с исходника, потом пауза"
+    assert loud(1.25) > 4 * loud(1.75), "дальше ролик с начала"
+    src = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", "2.1", "-i", str(sources["short"]), "-frames:v", "1",
+                          "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], check=True, capture_output=True).stdout
+    source = np.frombuffer(src, np.uint8).reshape(1920, 1080, 3).astype(int)
+    assert np.abs(frame(final, 0.1).astype(int)[300:1200] - source[300:1200]).mean() < 12, "первый кадр — из тизера"
+
+
+def test_version_b_is_rendered_without_the_teaser_beside_version_a(tmp_path, sources):
+    """A/B-тест: версия B — тот же монтаж без тизера, со своим слоем (work/render-b); слой и ролик A остаются."""
+    job = make_job(tmp_path, sources["short"], keep=[[0.0, 4.0]], teaser={"t0": 2.0, "t1": 3.0, "sfx": None}, ab="teaser")
+    a = render(job, job.path("out"), preset="ultrafast")
+    b = render(job, job.path("out"), name="final-b", preset="ultrafast", edit=variant_b(job.read("edit.json")), work="work/render-b")
+    assert a["durations"]["final"] == pytest.approx(5.0, abs=0.01) and b["durations"]["final"] == pytest.approx(4.0, abs=0.01)
+    assert float(probe(job.path("out/final.mp4"))["format"]["duration"]) == pytest.approx(5.0, abs=0.05)
+    assert float(probe(job.path("out/final-b.mp4"))["format"]["duration"]) == pytest.approx(4.0, abs=0.05)
+    ends = [max(e["t1"] for e in json.loads(job.path(f"{work}/frames/boxes.json").read_text(encoding="utf-8")))
+            for work in ("work/render", "work/render-b")]
+    assert ends == pytest.approx([5.0, 4.0], abs=0.04), "у каждой версии свой слой"
+    src = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", "0.1", "-i", str(sources["short"]), "-frames:v", "1",
+                          "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], check=True, capture_output=True).stdout
+    source = np.frombuffer(src, np.uint8).reshape(1920, 1080, 3).astype(int)
+    assert np.abs(frame(job.path("out/final-b.mp4"), 0.1).astype(int)[300:1200] - source[300:1200]).mean() < 12, "B — с начала"
+
+
+def test_with_music_the_insert_appears_on_its_beat(tmp_path, sources):
+    """Монтаж в такт: вставка с 2,45 с встаёт на долю трека 2,6 с (щелчки 120 уд/мин с 0,1 с); слой и звук — по ней."""
+    import soundfile
+
+    job = make_job(tmp_path, sources["short"], keep=[[0.0, 6.0]],
+                   music={"file": "in/uploads/beat.wav", "gainDb": -18},
+                   inserts=[{"kind": "image", "src": "in/uploads/upload-i1.png", "t0": 2.45, "t1": 4.5, "x": 100, "y": 600, "w": 300,
+                             "sfx": None, "params": {}}])
+    n = int(0.03 * 22050)
+    burst = np.exp(-np.arange(n) / (0.005 * 22050)) * np.sin(2 * np.pi * 1000 * np.arange(n) / 22050)
+    y = np.zeros(8 * 22050, dtype=np.float32)
+    for k in range(15):
+        start = int((0.1 + 0.5 * k) * 22050)
+        y[start:start + n] += burst.astype(np.float32)
+    soundfile.write(job.path("in/uploads/beat.wav"), y, 22050)
+    result = render(job, job.path("out"), preset="ultrafast")
+    assert result["beats"]["moved"] == 1 and 117 <= result["beats"]["bpm"] <= 123, result["beats"]
+    boxes = json.loads(job.path("work/render/frames/boxes.json").read_text(encoding="utf-8"))
+    shown = min(e["t0"] for e in boxes if (e.get("boxes") or {}).get("inserts"))
+    assert shown == pytest.approx(2.6, abs=0.04), "вставка появилась на доле"
+    assert job.read("edit.json")["inserts"][0]["t0"] == 2.45, "edit.json не меняется"
+
+
+def test_teaser_sound_plays_at_the_seam(tmp_path):
+    job = Job(tmp_path / "jobs" / "abc")
+    job.path("in/uploads").mkdir(parents=True)
+    ffmpeg("-f", "lavfi", "-i", "sine=f=900:d=0.3", job.path("in/uploads/swoosh.wav"))
+    edit = {"speed": 1.0, "keep": [[0.0, 6.0]], "hook": None, "music": None, "inserts": [], "hold": 0.0,
+            "teaser": {"t0": 2.0, "t1": 3.5, "sfx": "in/uploads/swoosh.wav"}}
+    sfx, _, notes = _sounds(job, edit, timeline(edit), skip=set())
+    assert sfx == [(1.5, job.path("in/uploads/swoosh.wav").resolve())] and notes == []
+
+
+def test_render_timeline_keeps_the_teaser_on_whole_frames():
+    tl = timeline({"keep": [[0.0, 6.0]], "speed": 1.0, "teaser": {"t0": 2.01, "t1": 3.02}})
+    assert tl.teaser == pytest.approx((2.0, 3.0333333)) and timeline({"keep": [[0.0, 6.0]], "speed": 1.0}).teaser is None
 
 
 def test_render_without_words_has_no_subs(tmp_path, sources):

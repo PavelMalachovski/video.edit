@@ -3,10 +3,12 @@
 // fix.json; сессия — status.json, questions.json, styles.json, result.json; Action — out/released.json.
 import { isUploadFile, MAX_NOTE } from './jobs.ts';
 import type { Step } from './routine.ts';
+import type { Brand } from './brand.ts';
+import type { ScriptRequest } from './script.ts';
 
 // ---------- status.json ----------
 
-export const STATES = ['uploading', 'queued', 'analyzing', 'waiting_answers', 'rendering', 'rendered', 'error'] as const;
+export const STATES = ['uploading', 'queued', 'analyzing', 'waiting_answers', 'rendering', 'rendered', 'script_ready', 'error'] as const;
 export type State = (typeof STATES)[number];
 export type Status = {
   state: State;
@@ -59,7 +61,7 @@ export type Option = { id: string; label: string; image?: string };
 export type Question = { id: string; type: QuestionType; title: string; body?: string; options?: Option[]; default?: string | string[]; image?: string };
 
 /** Зарезервированные id: вопрос `hook` (его ответ — хук превью); варианты «свой текст», «своя картинка», «не надо». */
-export const RESERVED = { hook: 'hook', own: 'own', upload: 'upload', none: 'none' } as const;
+export const RESERVED = { hook: 'hook', end: 'end', own: 'own', upload: 'upload', none: 'none' } as const;
 export const ownKey = (qid: string): string => `${qid}.own`;
 
 /** questions.json сессии → вопросы; не та форма — null (страница скажет, что вопросов нет, и даст повторить шаг). */
@@ -86,11 +88,16 @@ export type StyleSpec = {
   hook: { mode: 'plate' | 'outline' | 'shadow'; size: number; y?: number };
   bar: { pos: 'bottom' | 'top'; height: number };
 };
-export type SampleInsert = { kind: 'image' | 'badge' | 'sticker' | 'anim'; src?: string; text?: string; title?: string; x: number; y: number; w: number; question?: string };
+export const SAMPLE_INSERT_KINDS = ['image', 'badge', 'sticker', 'text', 'anim'] as const;
+/** Вставка на кадре превью; `id` — у стикера-тезиса (kind text): ключ рамки Павла и вариант вопроса stickers. */
+export type SampleInsert = {
+  kind: (typeof SAMPLE_INSERT_KINDS)[number]; src?: string; text?: string; title?: string; x: number; y: number; w: number; question?: string;
+  id?: string; params?: Record<string, unknown>;
+};
 export type Styles = {
   frame: string;
   frameTime: number;
-  sample: { hook?: string; words: string[]; spoken: number; inserts?: SampleInsert[] };
+  sample: { hook?: string; words: string[]; spoken: number; inserts?: SampleInsert[]; end?: { lines: string[]; handle?: string | null; logo?: string | null } };
   variants: { id: 'A' | 'B' | 'C'; label: string; spec: StyleSpec }[];
   /** Шрифты, в которых есть все буквы ролика (`vm fonts`); нет поля — годятся все. */
   fonts?: { main: string[]; hand: string[] };
@@ -135,8 +142,12 @@ export function parseStyles(raw: unknown): Styles | null {
   const sample = raw.sample;
   if (!isObject(sample) || !Array.isArray(sample.words) || !sample.words.every(isStr) || !Number.isInteger(sample.spoken) || (sample.spoken as number) < 0) return null;
   if (sample.hook !== undefined && !isStr(sample.hook)) return null;
-  const insertOk = (i: unknown) => isObject(i) && ['image', 'badge', 'sticker', 'anim'].includes(i.kind as string) && isNum(i.x) && isNum(i.y) && isNum(i.w) && i.w > 0;
+  const insertOk = (i: unknown) => isObject(i) && (SAMPLE_INSERT_KINDS as readonly string[]).includes(i.kind as string) && isNum(i.x) && isNum(i.y) && isNum(i.w) && i.w > 0
+    && (i.id === undefined || (isStr(i.id) && /^[a-z0-9_-]{1,24}$/.test(i.id))) && (i.params === undefined || isObject(i.params));
   if (sample.inserts !== undefined && !(Array.isArray(sample.inserts) && sample.inserts.every(insertOk))) return null;
+  const end = sample.end;
+  if (end !== undefined && !(isObject(end) && Array.isArray(end.lines) && end.lines.length >= 1 && end.lines.length <= 2 && end.lines.every((l) => isStr(l) && l !== '')
+    && (end.handle == null || isStr(end.handle)) && (end.logo == null || isStr(end.logo)))) return null;  // null — поля нет в бренде
   const ids = (x: unknown) => Array.isArray(x) && x.every((i) => isStr(i) && i !== '');
   if (raw.fonts !== undefined && !(isObject(raw.fonts) && ids(raw.fonts.main) && ids(raw.fonts.hand))) return null;
   const v = raw.variants;
@@ -158,6 +169,9 @@ export type Run = { step: Step; attempt: number; at: string; sessionUrl?: string
 export type JobFile = {
   id: string; name: string; size: number; type: string; duration: number | null; createdAt: string;
   brief: string; uploads: UploadRef[]; runs: Run[];
+  brand?: Brand; // копия «Моего бренда» на момент старта; логотип — путь от папки задачи (in/brand/logo.png)
+  kind?: 'script'; // задача-сценарий: видео нет, сессия пишет script.json (нет поля — видео)
+  script?: ScriptRequest; // запрос сценария с экрана «Новый сценарий»
 };
 
 export function buildJobFile(m: Manifest, now: Date): JobFile {
@@ -174,12 +188,17 @@ export function buildJobFile(m: Manifest, now: Date): JobFile {
 
 // ---------- answers.json ----------
 
+/** Вторая версия для A/B-теста: чем она отличается от первой — без тизера или без музыки. */
+export const AB_KINDS = ['teaser', 'music'] as const;
+export type AbKind = (typeof AB_KINDS)[number];
 export type AnswersFile = {
   answers: Record<string, string | string[]>; style: StyleChoice; speed?: number; insertBoxes?: Record<string, InsertBox>; uploads?: Record<string, string>; brief?: string;
+  ab?: AbKind;
 };
 export type UploadClaim = { asset: string; name: string; size: number; type: string; parts: number };
 export type ParsedAnswers = {
   answers: Record<string, string | string[]>; style: StyleChoice; speed?: number; insertBoxes?: Record<string, InsertBox>; uploads: Record<string, UploadClaim>;
+  ab?: AbKind;
 };
 /** Ширина вставки, которую Павел может выбрать на превью, px кадра (ширина безопасной зоны — 830). */
 export const INSERT_W = { min: 80, max: 830 };
@@ -254,6 +273,8 @@ export function parseAnswersBody(body: unknown, qs: Question[]): ParsedAnswers |
   if (speed !== undefined && !(isNum(speed) && speed >= SPEED_RANGE.min && speed <= SPEED_RANGE.max)) {
     return { error: `speed: нужно число от ${SPEED_RANGE.min} до ${SPEED_RANGE.max}` };
   }
+  const ab = body.ab;
+  if (ab !== undefined && !(AB_KINDS as readonly unknown[]).includes(ab)) return { error: `ab: ${AB_KINDS.join(' или ')}` };
   const uploads: Record<string, UploadClaim> = {};
   const claims = body.uploads === undefined ? {} : body.uploads;
   if (!isObject(claims)) return { error: 'uploads: нужен объект' };
@@ -270,6 +291,7 @@ export function parseAnswersBody(body: unknown, qs: Question[]): ParsedAnswers |
     answers, style, uploads,
     ...(speed === undefined ? {} : { speed: Math.round(speed * 100) / 100 }),
     ...(boxes === undefined ? {} : { insertBoxes: boxes as Record<string, InsertBox> }),
+    ...(ab === undefined ? {} : { ab: ab as AbKind }),
   };
 }
 
@@ -279,6 +301,7 @@ export function answersFile(p: ParsedAnswers, job: JobFile): AnswersFile {
     style: p.style,
     ...(p.speed === undefined ? {} : { speed: p.speed }),
     ...(p.insertBoxes === undefined ? {} : { insertBoxes: p.insertBoxes }),
+    ...(p.ab === undefined ? {} : { ab: p.ab }),
     uploads: Object.fromEntries(Object.entries(p.uploads).map(([qid, c]) => [qid, `in/uploads/${c.asset}`])),
     brief: job.brief,
   };
@@ -309,28 +332,74 @@ export function appendFix(prev: FixFile | null, text: string, now: Date): FixFil
 
 export const wantedVersion = (fix: FixFile | null): number => 1 + (fix?.fixes.length ?? 0);
 
-export function finalNames(v: number): { mp4: string; srt: string } {
-  const base = v <= 1 ? 'final' : `final-v${v}`;
+/** Имена ролика версии `v` (правка 2 → final-v2); `variant` 'b' — вторая версия A/B-теста: final-b, final-v2-b. */
+export function finalNames(v: number, variant?: 'b'): { mp4: string; srt: string } {
+  const base = `${v <= 1 ? 'final' : `final-v${v}`}${variant ? `-${variant}` : ''}`;
   return { mp4: `${base}.mp4`, srt: `${base}.srt` };
 }
+
+/** Имя, которое можно скачать со страницы: всё, что даёт finalNames, и ничего больше. */
+export const isFinalName = (name: string): boolean => /^final(-v\d{1,3})?(-b)?\.(mp4|srt)$/.test(name);
 
 // ---------- out/released.json и result.json ----------
 
 export type Released = { release_id: number; assets: { name: string; id: number; size: number }[]; at: string };
+type Durations = { source: number; final: number };
+type Qa = { ok: boolean; problems: string[] };
+/** Чек-лист по гайду (пишет `vm render`, vm.qa.CHECKS): что видно по готовому ролику; подпись к посту — строка страницы. */
+export const CHECK_IDS = ['format', 'container', 'audio', 'hook', 'safe', 'subtitles', 'end', 'length'] as const;
+export type Check = { id: (typeof CHECK_IDS)[number]; title: string; ok: boolean };
+/** Вторая версия A/B-теста: её собирает и проверяет `vm render` (чем отличается, длительности, проверка). */
+export type AbResult = { differs: AbKind; durations: Durations; qa: Qa };
 export type ResultFile = {
-  durations: { source: number; final: number };
+  durations: Durations;
   done: string[];
   unsure: string[];
   missing: string[];
-  qa: { ok: boolean; problems: string[] };
+  qa: Qa;
+  caption?: unknown; // подпись к посту — проверяет parseCaption (lib/caption.ts)
+  ab?: AbResult;
+  checklist?: Check[];
 };
 
-/** result.json (его дописывает и сессия) → итоги; не та форма — null: экран «Готово» покажет ролик без итогов. */
+const isDurations = (d: unknown): d is Durations => isObject(d) && isNum(d.source) && isNum(d.final);
+const isQa = (qa: unknown): qa is Qa => isObject(qa) && typeof qa.ok === 'boolean' && Array.isArray(qa.problems) && qa.problems.every(isStr);
+
+const isCheck = (c: unknown): c is Check =>
+  isObject(c) && (CHECK_IDS as readonly unknown[]).includes(c.id) && isStr(c.title) && typeof c.ok === 'boolean';
+
+/** result.json (его дописывает и сессия) → итоги; не та форма — null: экран «Готово» покажет ролик без итогов.
+ *  Не та форма у `ab` или `checklist` — его нет, остальное остаётся. */
 export function parseResult(raw: unknown): ResultFile | null {
-  if (!isObject(raw) || !isObject(raw.durations) || !isNum(raw.durations.source) || !isNum(raw.durations.final)) return null;
+  if (!isObject(raw) || !isDurations(raw.durations)) return null;
   const lists = ['done', 'unsure', 'missing'].every((k) => Array.isArray(raw[k]) && (raw[k] as unknown[]).every(isStr));
-  const qa = raw.qa;
-  if (!lists || !isObject(qa) || typeof qa.ok !== 'boolean' || !Array.isArray(qa.problems) || !qa.problems.every(isStr)) return null;
-  return raw as ResultFile;
+  if (!lists || !isQa(raw.qa)) return null;
+  const { ab, checklist, ...rest } = raw;
+  const abOk = isObject(ab) && (AB_KINDS as readonly unknown[]).includes(ab.differs) && isDurations(ab.durations) && isQa(ab.qa);
+  const checksOk = Array.isArray(checklist) && checklist.every(isCheck);
+  return {
+    ...(rest as Omit<ResultFile, 'ab' | 'checklist'>),
+    ...(abOk ? { ab: ab as AbResult } : {}),
+    ...(checksOk ? { checklist: checklist as Check[] } : {}),
+  };
+}
+
+// ---------- review.json (разбор по гайду: пишет сессия на шаге analyze, страница показывает над вопросами) ----------
+
+export const REVIEW_IDS = ['hook', 'face', 'value', 'cta', 'text', 'length', 'sound', 'story'] as const;
+export type ReviewItem = { id: (typeof REVIEW_IDS)[number]; title: string; status: 'ok' | 'warn'; note: string };
+export type Review = { items: ReviewItem[] };
+
+/** review.json → разбор; не та форма — null: экран вопросов покажет вопросы без разбора. */
+export function parseReview(raw: unknown): Review | null {
+  if (!isObject(raw) || !Array.isArray(raw.items) || raw.items.length === 0) return null;
+  const good = raw.items.every((it) => isObject(it) && (REVIEW_IDS as readonly unknown[]).includes(it.id) && isStr(it.title) && it.title !== ''
+    && (it.status === 'ok' || it.status === 'warn') && isStr(it.note));
+  return good ? { items: raw.items as ReviewItem[] } : null;
+}
+
+/** Подписи двух роликов на экране «Готово»: без чего собрана версия B. */
+export function abLabels(differs: AbKind): [string, string] {
+  return differs === 'music' ? ['A — с музыкой', 'B — без музыки'] : ['A — с тизером', 'B — без тизера'];
 }
 

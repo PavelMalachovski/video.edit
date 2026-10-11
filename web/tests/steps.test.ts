@@ -4,7 +4,7 @@ import { getHead } from '../lib/branch.ts';
 import { findReleaseByTag } from '../lib/github.ts';
 import { appendFix } from '../lib/jobfiles.ts';
 import { fireText } from '../lib/routine.ts';
-import { backStep, deleteJob, retryStep, runStep, startJob, type Deps } from '../lib/steps.ts';
+import { backStep, deleteJob, retryStep, runStep, startJob, startScript, type Deps } from '../lib/steps.ts';
 import { withFake } from './helpers.ts';
 
 const ID = '261010-070509-abcd';
@@ -131,4 +131,26 @@ test('back after a failed analyze is refused', () => withFake(async ({ fake, gh,
   const d: Deps = { gh, routine, now: () => NOW };
   await startJob(d, ID);
   await assert.rejects(backStep(d, ID), /некуда/);
+}));
+
+test('startScript makes a draft without video and a script job with the brand but no logo, then fires analyze #1', () => withFake(async ({ fake, gh, routine }) => {
+  fake.commit('claude/brand', { 'brand/brand.json': JSON.stringify({ handle: '@pavel', signature: 'Подписывайся', hashtags: ['чешский'], logo: 'logo.png' }),
+    'brand/logo.png': 'png' });
+  const d: Deps = { gh, routine, now: () => NOW };
+  const request = { topic: 'Как я учу чешский', goal: 'followers', story: 'any', length: 30, language: 'русский' } as const;
+  const r = await startScript(d, request);
+  assert.match(r.jobId, /^\d{6}-\d{6}-[0-9a-z]{4}$/);
+  assert.equal(r.attempt, 1);
+  const release = await findReleaseByTag(gh, `job-${r.jobId}`);
+  assert.equal(release?.name, 'Сценарий: Как я учу чешский');
+  const branch = `claude/job-${r.jobId}`;
+  const job = JSON.parse(fake.read(branch, `jobs/${r.jobId}/job.json`) ?? 'null');
+  assert.equal(job.kind, 'script');
+  assert.deepEqual(job.script, request);
+  assert.equal(job.brand.handle, '@pavel');
+  assert.equal(job.brand.logo, null, 'логотип сценарию не нужен');
+  assert.equal(fake.read(branch, `jobs/${r.jobId}/in/brand/logo.png`), null);
+  assert.deepEqual(job.runs.map((x: { step: string; attempt: number }) => [x.step, x.attempt]), [['analyze', 1]]);
+  assert.equal(JSON.parse(fake.read(branch, `jobs/${r.jobId}/status.json`) ?? 'null').state, 'queued');
+  assert.deepEqual([fake.fires.at(-1)?.step, fake.fires.at(-1)?.attempt], ['analyze', 1]);
 }));

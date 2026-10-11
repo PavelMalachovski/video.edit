@@ -25,7 +25,7 @@ export async function POST(request: Request) {
   }
 }
 
-const ORDER: Record<Screen, number> = { working: 0, questions: 1, not_started: 2, uploading: 2, error: 3, result: 4 };
+const ORDER: Record<Screen, number> = { working: 0, questions: 1, not_started: 2, uploading: 2, error: 3, result: 4, script: 4 };
 
 /** `fn` над `items` не больше `limit` за раз, порядок результатов — как у `items`. */
 async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {

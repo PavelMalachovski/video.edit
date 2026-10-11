@@ -96,3 +96,85 @@ def test_sizes_pavel_set_stay():
 def test_insert_sizes_pavel_set_reach_the_video():
     render = section("Шаг render")
     assert "insertBoxes" in render and "placed_inserts" in render
+
+
+def test_emoji_are_allowed_as_pictures_but_not_in_subtitles():
+    texts = section("6. Тексты")
+    assert "Эмодзи" in texts and "картинками" in texts and "U+FE0F" in texts
+    assert "В субтитрах\n  эмодзи нет" in texts or "В субтитрах эмодзи нет" in texts
+    assert "убери их (и из своего\n  хука" not in texts  # старое «эмодзи — убери всегда» ушло
+
+
+def test_style_a_follows_pavels_brand():
+    style = section("2. Стиль A — домашний стиль Павла")
+    assert "job.json.brand" in style and "vm fonts" in style
+    page = section("Страница")
+    assert "brand" in page and "in/brand/logo.png" in page and "hashtags" in page
+    assert "бренда Павла" in section("Стили (styles.json)")
+
+
+def test_thesis_stickers_have_rules_a_question_and_a_render_step():
+    inserts = section("7. Вставки")
+    assert "`text` — стикер-тезис" in inserts and "`id`" in inserts and "2–5 на ролик" in inserts
+    assert "`stickers` (multi)" in section("Вопросы (questions.json)")
+    assert "стикеры-тезисы" in section("Шаг render") and "`stickers`" in section("Шаг render")
+    assert "стикеры-тезисы" in section("Страница")
+
+
+def test_the_end_card_has_a_rule_a_question_a_sample_and_a_render_step():
+    rules = section("8. Стоп-кадр и финальная карточка")
+    assert "end: {seconds, lines, handle, logo, sfx}" in rules and "только здесь" in rules
+    assert "`end` (choice)" in section("Вопросы (questions.json)")
+    assert "sample.end" in section("Стили (styles.json)")
+    render = section("Шаг render")
+    assert "финальная карточка" in render and 'answers["end.own"]' in render
+
+
+def test_the_post_caption_has_a_rule_and_a_place_in_the_render_step():
+    texts = section("6. Тексты")
+    assert "Подпись к посту" in texts and "72 знаках" in texts and "brand.signature" in texts
+    render = section("Шаг render")
+    assert "`caption`" in render and "`done`, `unsure` и `caption` сохраняет" in render
+
+
+def test_the_teaser_has_a_rule_a_question_and_a_render_step():
+    texts = section("6. Тексты")
+    assert "**Тизер**" in texts and "teaser: {t0, t1, sfx}" in texts and "Хук стоит на тизере" in texts
+    assert "`teaser` (choice)" in section("Вопросы (questions.json)")
+    assert "тизер: ответ `teaser`" in section("Шаг render")
+
+
+def test_the_second_version_for_an_a_b_test_reaches_the_render_step():
+    assert "`ab` — вторая версия для A/B-теста" in section("Страница")
+    render = section("Шаг render")
+    assert "A/B-тест: `answers.ab` → `edit.json.ab`" in render and "final-b.mp4" in render and "result.json.ab" in render
+    assert "final-v<version>-b.mp4" in section("Шаг fix"), "правка — в обеих версиях"
+
+
+def test_beats_have_a_rule_and_a_way_to_switch_them_off():
+    sound = section("5. Звук")
+    assert "**В такт**" in sound and "`music.beats: false`" in sound and "0,25 с" in sound
+    assert "в такт музыке" in section("Шаг render")
+
+
+def test_the_analyze_step_writes_the_guide_review_and_render_writes_the_checklist():
+    analyze = section("Шаг analyze")
+    assert "`review.json`" in analyze and "`status`" in analyze and "`warn`" in analyze
+    for key in ("hook", "face", "value", "cta", "text", "length", "sound", "story"):
+        assert f"`{key}`" in analyze, key
+    files = section("Файлы задачи")
+    assert "| `review.json` |" in files and "`checklist`" in files
+
+
+def test_a_script_job_has_its_own_section_and_the_analyze_step_sends_there():
+    script = section("Сценарий (задача без видео)")
+    assert "`script.json`" in script and "`script_ready`" in script and "`job.json.script`" in script
+    for key in ("hook", "hold", "reward", "sound", "motion", "engage", "value", "emotion", "tutorial", "before_after"):
+        assert f"`{key}`" in script, key
+    assert "раздел «Сценарий (задача без видео)»" in section("Шаг analyze")
+    assert "| `script.json` |" in section("Файлы задачи") and "`kind`" in section("Файлы задачи")
+
+
+def test_a_brief_from_a_script_feeds_the_stickers_and_the_end_card():
+    rules = section("7. Вставки") + section("8. Стоп-кадр и финальная карточка")
+    assert "`ТЕЗИСЫ:`" in rules and "`ПРИЗЫВ:`" in rules

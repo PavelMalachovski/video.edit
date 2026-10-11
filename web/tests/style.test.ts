@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { initialDraft, pick } from '../lib/answers.ts';
 import type { Question, StyleChoice, Styles } from '../lib/jobfiles.ts';
-import { allowedFonts, choiceFor, clampHookSize, insertKey, INSERT_W, loadInsertBoxes, moveBox, placedInserts, resizeBox, saveInsertBoxes, clampHookY, clampSubSize, clampSubY, finalStyle, HOOK_SIZE, HOOK_Y, SUB_SIZE, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES } from '../lib/style.ts';
+import { loadAb, saveAb, allowedFonts, choiceFor, clampHookSize, insertKey, INSERT_W, loadInsertBoxes, moveBox, placedInserts, resizeBox, saveInsertBoxes, clampHookY, clampSubSize, clampSubY, finalStyle, HOOK_SIZE, HOOK_Y, SUB_SIZE, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES } from '../lib/style.ts';
 import { blockedStorage, memoryStorage } from './helpers.ts';
 
 // Общая с движком фикстура: final_style в engine/vm/style.py обязан давать то же самое.
@@ -198,4 +198,40 @@ test('insert boxes are remembered per job; junk is dropped', () => {
   store.setItem(`vm:inserts:${id}`, JSON.stringify({ old: 330, big: { x: 60, y: 420, w: 5000 }, ok: { x: 100, y: 200, w: 200 } }));
   assert.deepEqual(loadInsertBoxes(store, id), { ok: { x: 100, y: 200, w: 200 } });
   assert.deepEqual(loadInsertBoxes(blockedStorage, id), {});
+});
+
+test('a thesis sticker keeps its text and tone on the preview, moves by its id and hides when Pavel unticks it', () => {
+  const sample = {
+    words: [], spoken: 0,
+    inserts: [
+      { kind: 'text' as const, id: 's1', text: '3 ошибки 🔥', x: 120, y: 700, w: 420, params: { tone: 'dark' } },
+      { kind: 'text' as const, id: 's2', text: '1. Свет', x: 120, y: 900, w: 300 },
+    ],
+  };
+  const stickers = { id: 'stickers', type: 'multi' as const, title: 'Стикеры', options: [{ id: 's1', label: '0:12 — 3 ошибки' }, { id: 's2', label: '0:20 — Свет' }], default: ['s1', 's2'] };
+  const url = (p: string) => `/f/${p}`;
+  const all = resolveInserts(sample, [stickers], initialDraft([stickers]), url, () => null, { s1: { x: 200, y: 760, w: 500 } });
+  assert.deepEqual(all.map((i) => [i.key, i.kind, i.text, i.x, i.w, i.params?.tone]), [['s1', 'text', '3 ошибки 🔥', 200, 500, 'dark'], ['s2', 'text', '1. Свет', 120, 300, undefined]]);
+  const one = resolveInserts(sample, [stickers], pick(initialDraft([stickers]), stickers, 's1'), url, () => null);
+  assert.deepEqual(one.map((i) => i.key), ['s2'], 'снятый стикер не рисуется');
+  assert.deepEqual(resolveInserts(sample, [], initialDraft([]), url, () => null).map((i) => i.key), ['s1', 's2'], 'без вопроса — все');
+  // другой вопрос с несколькими ответами и тем же id варианта (звёздочки «s1») стикеры не трогает — как в ролике
+  const stars = { id: 'stars', type: 'multi' as const, title: 'Звёздочки', options: [{ id: 's1', label: 'бл*н' }], default: ['s1'] };
+  const qs = [stars, stickers];
+  const noStar = pick(initialDraft(qs), stars, 's1');
+  assert.deepEqual(resolveInserts(sample, qs, noStar, url, () => null).map((i) => i.key), ['s1', 's2'], 'снятая звёздочка не прячет стикер');
+  assert.deepEqual(resolveInserts(sample, qs, pick(initialDraft(qs), stickers, 's1'), url, () => null).map((i) => i.key), ['s2']);
+});
+
+test('the A/B choice is remembered per job and junk is dropped', () => {
+  const store = memoryStorage();
+  const id = '261011-120000-ab95';
+  assert.equal(loadAb(store, id), null);
+  saveAb(store, id, 'music');
+  assert.equal(loadAb(store, id), 'music');
+  saveAb(store, id, null);
+  assert.equal(loadAb(store, id), null);
+  store.setItem(`vm:ab:${id}`, 'colors');
+  assert.equal(loadAb(store, id), null);
+  assert.equal(loadAb(blockedStorage, id), null);
 });

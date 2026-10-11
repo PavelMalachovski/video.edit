@@ -401,3 +401,168 @@ test('every font in fonts.json loads and has Cyrillic', async () => {
     assert.ok(ok, f.id);
   }
 });
+
+// ---------- эмодзи ----------
+
+/** Картинки эмодзи внутри узла: имя файла, загружена ли и рамка. */
+function emojiIn(selector) {
+  return page.evaluate((sel) =>
+    [...document.querySelectorAll(`${sel} img.emo`)].map((img) => ({
+      file: img.src.split('/emoji/')[1],
+      natural: [img.naturalWidth, img.naturalHeight],
+      done: img.complete,
+      alt: img.alt,
+      ...img.getBoundingClientRect().toJSON(),
+    })), selector);
+}
+
+/** Доля «огненных» пикселей (оранжевый и жёлтый, как у 🔥) в прямоугольнике. */
+async function fiery(r) {
+  const data = await pixels(clipOf({ x: r.x, y: r.y, w: r.width, h: r.height }));
+  let hit = 0;
+  for (let k = 0; k < data.length; k += 4) {
+    if (data[k + 3] > 200 && data[k] > 200 && data[k + 1] > 60 && data[k + 1] < 215 && data[k + 2] < 110) hit++;
+  }
+  return hit / (data.length / 4);
+}
+
+test('emoji in the hook are pictures from emoji/, the trailing one goes with the handwritten word', async () => {
+  await render(spec(), { hook: { text: 'Три ошибки 🔥' } });
+  const hook = await page.evaluate(() => ({
+    caps: document.querySelector('#hook .caps').textContent.replace(/ /g, ' '),
+    hand: document.querySelector('#hook .hand').textContent,
+  }));
+  assert.equal(hook.caps, 'ТРИ');
+  assert.equal(hook.hand.trim(), 'ошибки');
+  const [fire, ...rest] = await emojiIn('#hook .hand');
+  assert.equal(rest.length, 0);
+  assert.equal(fire.file, '1f525.png');
+  assert.deepEqual(fire.natural, [136, 128]);
+  assert.equal(fire.alt, '🔥');
+  assert.ok((await fiery(fire)) > 0.1, 'огонь нарисован картинкой');
+  const handSize = await page.evaluate(() => parseFloat(getComputedStyle(document.querySelector('#hook .hand')).fontSize));
+  assert.ok(Math.abs(fire.height / handSize - 128 / 109) < 0.02, `высота эмодзи — как у глифа шрифта: ${fire.height} при ${handSize}`);
+  assert.ok(contains((await boxes()).hook, { x: fire.x, y: fire.y, w: fire.width, h: fire.height }));
+});
+
+test('emoji in caps and in the cta stay where the text is', async () => {
+  await render(spec(), { hook: { text: '🔥 Как я монтирую' } });
+  assert.equal((await emojiIn('#hook .caps')).length, 1);
+  assert.equal((await page.evaluate(() => document.querySelector('#hook .caps').textContent)).replace(/ /g, ' ').trim(), 'КАК Я');
+  assert.equal((await page.evaluate(() => document.querySelector('#hook .hand').textContent)), 'монтирую');
+  await render(spec(), { cta: { lines: ['Пиши в директ 👇'], word: 'План ✅' } });
+  assert.deepEqual((await emojiIn('#cta .caps')).map((e) => e.file), ['1f447.png']);
+  assert.deepEqual((await emojiIn('#cta .hand')).map((e) => e.file), ['2705.png']);
+});
+
+test('everything drawn is inside the reported boxes (emoji)', async () => {
+  for (const mode of ['plate', 'outline', 'shadow']) {
+    for (const text of ['Три ошибки 🔥', '🔥🔥 Огонь', 'Сердце ❤️', '👨‍👩‍👧 семья 🇨🇿']) {
+      await render(spec({ hook: { mode, size: 100 } }), { hook: { text } });
+      const seen = await drawnBox(page, scratch, 64);
+      const b = (await boxes()).hook;
+      assert.ok(contains(b, seen), `${mode} «${text}»: drawn ${JSON.stringify(seen)} outside ${JSON.stringify(b)}`);
+      assert.ok(insideSafe(b), `${mode} «${text}»: ${JSON.stringify(b)}`);
+    }
+  }
+});
+
+test('a text-default sign without FE0F stays a letter, not a picture', async () => {
+  await render(spec(), { hook: { text: 'Цена 100 € ©' } });
+  assert.equal((await emojiIn('#hook')).length, 0);
+});
+
+test('an emoji does not count as an extra caps line: the hook keeps its size', async () => {
+  const size = async (text) => {
+    await render(spec(), { hook: { text } });
+    return page.evaluate(() => parseFloat(getComputedStyle(document.querySelector('#hook .caps')).fontSize));
+  };
+  const plain = await size('Как я монтирую ролики на телефоне конец');
+  const fire = await size('Как я 🔥 монтирую ролики на телефоне конец');
+  assert.ok(fire >= 0.9 * plain, `с эмодзи ${fire}px, без — ${plain}px`);
+});
+
+test('a caps line never starts with an emoji: it stays with the word before it', async () => {
+  for (const text of ['Мой способ снимать 🔥 видео каждый день конец', 'Три ошибки которые делает 🔥 каждый новичок конец']) {
+    await render(spec(), { hook: { text } });
+    const alone = await page.evaluate(() => {
+      const caps = document.querySelector('#hook .caps');
+      const letters = [];
+      const walk = document.createTreeWalker(caps, NodeFilter.SHOW_TEXT);
+      for (let t = walk.nextNode(); t; t = walk.nextNode()) {
+        const range = document.createRange();
+        range.selectNodeContents(t);
+        letters.push(...[...range.getClientRects()].filter((q) => q.width > 1));
+      }
+      return [...caps.querySelectorAll('img.emo')].filter((img) => {
+        const r = img.getBoundingClientRect();
+        const mid = (r.top + r.bottom) / 2;
+        return !letters.some((q) => q.top < mid && q.bottom > mid && q.right <= r.left + 1);
+      }).length;
+    });
+    assert.equal(alone, 0, text);
+  }
+});
+
+// ---------- финальная карточка ----------
+
+const CARD = { lines: ['Подпишись, чтобы не пропустить 👇'], handle: '@pavel.malakhouski', logo: 'emoji/1f4f7.png' };
+
+test('the end card dims the whole frame and puts the call to action, the handle and the logo in the safe zone', async () => {
+  await render(spec(), { end: { ...CARD, t: 1 } });
+  const corner = await pixels({ x: 2, y: 2, width: 4, height: 4 });
+  assert.ok(corner[3] > 100 && corner[3] < 200 && corner[0] < 10, `кадр затемнён полупрозрачным чёрным: ${corner.slice(0, 4)}`);
+  const b = (await boxes()).end;
+  assert.ok(b && insideSafe(b), JSON.stringify(b));
+  const parts = await page.evaluate(() => ({
+    logo: document.querySelector('#end img.logo')?.getBoundingClientRect().toJSON(),
+    plate: document.querySelector('#end .call')?.getBoundingClientRect().toJSON(),
+    handle: document.querySelector('#end .handle')?.textContent,
+    emoji: document.querySelectorAll('#end .call img.emo').length,
+  }));
+  assert.ok(parts.logo && parts.logo.width > 100, `логотип: ${JSON.stringify(parts.logo)}`);
+  assert.equal(parts.handle, '@pavel.malakhouski');
+  assert.equal(parts.emoji, 1);
+  for (const r of [parts.logo, parts.plate]) assert.ok(contains(b, { x: r.x, y: r.y, w: r.width, h: r.height }), JSON.stringify(r));
+  assert.ok((await shareColor(parts.plate, SPEC.colors.accent)) > 0.4, 'плашка призыва — цвета подсветки');
+  // всё непрозрачное (кроме затемнения) — внутри рамки
+  assert.ok(contains(b, await drawnBox(page, scratch, 230)), 'нарисованное внутри рамки карточки');
+});
+
+test('the call to action breathes: bigger and smaller over time, always inside its box', async () => {
+  const widths = [];
+  for (const t of [0.5, 0.69, 0.88]) {
+    await render(spec(), { end: { ...CARD, t } });
+    const b = (await boxes()).end;
+    const seen = await drawnBox(page, scratch, 230);
+    assert.ok(contains(b, seen), `t=${t}: ${JSON.stringify(seen)} вне ${JSON.stringify(b)}`);
+    widths.push(await page.evaluate(() => document.querySelector('#end .call').getBoundingClientRect().width));
+  }
+  assert.ok(Math.max(...widths) - Math.min(...widths) > 8, `призыв не дышит: ${widths}`);
+});
+
+test('the end card appears quickly and without the handle and logo it is just the call', async () => {
+  await render(spec(), { end: { lines: ['Сохрани ✅'], t: 0 } });
+  const first = await page.evaluate(() => Number(getComputedStyle(document.querySelector('#end')).opacity));
+  assert.ok(first > 0 && first < 1, `первый кадр — уже видно, но не целиком: ${first}`);
+  await render(spec(), { end: { lines: ['Сохрани ✅'], t: 1 } });
+  assert.equal(await page.evaluate(() => document.querySelectorAll('#end img.logo, #end .handle').length), 0);
+  assert.ok(insideSafe((await boxes()).end));
+});
+
+/** Доля пикселей цвета `hex` (±12) в рамке. */
+async function shareColor(r, hex) {
+  return share(await pixels(clipOf({ x: r.x, y: r.y, w: r.width, h: r.height })), hex);
+}
+
+test('a long call to action wraps instead of shrinking', async () => {
+  await render(spec(), { end: { lines: ['Подпишись, чтобы не пропустить новые ролики про монтаж 👇'], t: 1 } });
+  const call = await page.evaluate(() => {
+    const el = document.querySelector('#end .call');
+    return { size: parseFloat(getComputedStyle(el).fontSize), width: el.offsetWidth, height: el.offsetHeight }; // без «дыхания»
+  });
+  assert.ok(call.size >= 0.9 * 72, `кегль ${call.size}`);
+  assert.ok(call.width <= 700 + 1, `ширина ${call.width}`);
+  assert.ok(call.height > 2 * call.size, `в несколько строк: ${call.height}`);
+  assert.ok(insideSafe((await boxes()).end));
+});

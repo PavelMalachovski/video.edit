@@ -2,8 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  answersFile, appendFix, appendRestyle, buildJobFile, errorStatus, finalNames, parseAnswersBody, parseNote, parseStatus, parseStyles,
+  abLabels, answersFile, appendFix, appendRestyle, buildJobFile, errorStatus, finalNames, isFinalName, parseAnswersBody, parseNote, parseResult, parseStatus, parseStyles,
   QUESTION_TYPES, queuedStatus, STATES, wantedVersion, type Manifest, type Question,
+  AB_KINDS, CHECK_IDS, parseReview, REVIEW_IDS, SAMPLE_INSERT_KINDS,
 } from '../lib/jobfiles.ts';
 import { STEPS } from '../lib/routine.ts';
 
@@ -13,6 +14,7 @@ const NOW = new Date(Date.UTC(2026, 9, 10, 7, 5, 9));
 test('states and question types match the engine schemas', () => {
   assert.deepEqual([...STATES], schema('status.json').properties.state.enum);
   assert.deepEqual([...QUESTION_TYPES], schema('questions.json').properties.questions.items.properties.type.enum);
+  assert.deepEqual([...SAMPLE_INSERT_KINDS], schema('styles.json').properties.sample.properties.inserts.items.properties.kind.enum);
   assert.deepEqual(schema('answers.json').required, ['answers', 'style']);
 });
 
@@ -198,4 +200,84 @@ test('answers keep insert boxes Pavel set; out of the safe zone or junk — refu
   }
   const props = schema('answers.json').properties.insertBoxes.additionalProperties.properties;
   assert.deepEqual([props.x.minimum, props.x.maximum, props.y.minimum, props.y.maximum, props.w.minimum, props.w.maximum], [60, 810, 120, 1490, 80, 830]);
+});
+
+test('parseStyles takes the end card sample and refuses a broken one', () => {
+  const fx = JSON.parse(readFileSync(new URL('../../engine/tests/fixtures/style-merge.json', import.meta.url), 'utf8')).styles;
+  const end = { lines: ['Подпишись 👇'], handle: '@pavel', logo: 'in/brand/logo.png' };
+  assert.deepEqual(parseStyles({ ...fx, sample: { ...fx.sample, end } })?.sample.end, end);
+  assert.equal(parseStyles({ ...fx, sample: { ...fx.sample, end: { lines: [] } } }), null);
+  assert.equal(parseStyles({ ...fx, sample: { ...fx.sample, end: { lines: ['a'], logo: 5 } } }), null);
+  // ника или логотипа в бренде нет — в job.json.brand это null; тот же null в образце карточки — не поломка стилей
+  const bare = { lines: ['Подпишись 👇'], handle: null, logo: null };
+  assert.deepEqual(parseStyles({ ...fx, sample: { ...fx.sample, end: bare } })?.sample.end, bare);
+});
+
+test('A/B: the answers take ab — teaser or music — and version B has its own file names', () => {
+  assert.deepEqual(finalNames(1, 'b'), { mp4: 'final-b.mp4', srt: 'final-b.srt' });
+  assert.deepEqual(finalNames(3, 'b'), { mp4: 'final-v3-b.mp4', srt: 'final-v3-b.srt' });
+  for (const ab of ['teaser', 'music'] as const) {
+    const p = parseAnswersBody({ answers: {}, style: STYLE, ab }, QS);
+    assert.ok(!('error' in p) && p.ab === ab, JSON.stringify(p));
+    if (!('error' in p)) {
+      const job = buildJobFile({ job: '261010-070509-abcd', name: 'a', size: 1, type: 'video/mp4', lastModified: 1, parts: 1, chunkSize: 4 }, NOW);
+      assert.equal(answersFile(p, job).ab, ab);
+    }
+  }
+  assert.ok('error' in parseAnswersBody({ answers: {}, style: STYLE, ab: 'colors' }, QS));
+  const none = parseAnswersBody({ answers: {}, style: STYLE }, QS);
+  assert.ok(!('error' in none) && none.ab === undefined);
+});
+
+test('A/B: result.json ab — what version B differs in and its check; a broken ab is dropped, the rest stays', () => {
+  const result = { durations: { source: 80.2, final: 71 }, done: [], unsure: [], missing: [], qa: { ok: true, problems: [] } };
+  const ab = { differs: 'teaser', durations: { source: 80.2, final: 68.5 }, qa: { ok: false, problems: ['хук на лице'] } };
+  assert.deepEqual(parseResult({ ...result, ab })?.ab, ab);
+  assert.equal(parseResult(result)?.ab, undefined);
+  for (const bad of [{ ...ab, differs: 'hook' }, { ...ab, qa: { ok: 'no', problems: [] } }, { ...ab, durations: null }, 'teaser']) {
+    const parsed = parseResult({ ...result, ab: bad });
+    assert.ok(parsed && parsed.ab === undefined, JSON.stringify(bad));
+  }
+  assert.deepEqual(schema('result.json').properties.ab.properties.differs.enum, [...AB_KINDS]);
+});
+
+test('A/B: labels follow what version B was built without', () => {
+  assert.deepEqual(abLabels('teaser'), ['A — с тизером', 'B — без тизера']);
+  assert.deepEqual(abLabels('music'), ['A — с музыкой', 'B — без музыки']);
+});
+
+test('review.json: points of the guide, ok or warn, with a note; a broken file reads as no review', () => {
+  const items = [
+    { id: 'hook', title: 'Мысль в первые 2 с', status: 'warn', note: 'Мысль звучит на 0:21 — предлагаю начать с неё' },
+    ...['face', 'value', 'cta', 'text'].map((id) => ({ id, title: id, status: 'ok', note: 'по гайду' })),
+  ];
+  assert.deepEqual(parseReview({ items }), { items });
+  for (const bad of [{ items: [] }, { items: [{ ...items[0], status: 'bad' }] }, { items: [{ ...items[0], id: 'music' }] },
+    { items: [{ ...items[0], note: 5 }] }, null, 'x']) {
+    assert.equal(parseReview(bad), null, JSON.stringify(bad));
+  }
+  assert.deepEqual([...REVIEW_IDS], schema('review.json').properties.items.items.properties.id.enum);
+});
+
+test('result.json checklist: lines of the guide check; a broken one is dropped, the rest of the result stays', () => {
+  const result = { durations: { source: 80.2, final: 71 }, done: [], unsure: [], missing: [], qa: { ok: true, problems: [] } };
+  const checks = [{ id: 'format', title: '9:16, 1080×1920, 30 к/с', ok: true }, { id: 'end', title: 'финальная карточка с призывом', ok: false }];
+  assert.deepEqual(parseResult({ ...result, checklist: checks })?.checklist, checks);
+  for (const bad of [[{ ...checks[0], ok: 'yes' }], [{ ...checks[0], id: 'fps' }], 'x']) {
+    const parsed = parseResult({ ...result, checklist: bad });
+    assert.ok(parsed && parsed.checklist === undefined, JSON.stringify(bad));
+  }
+  assert.deepEqual([...CHECK_IDS], schema('result.json').properties.checklist.items.properties.id.enum);
+});
+
+test('download takes every name finalNames gives — version B too — and nothing else', () => {
+  for (const v of [1, 2, 13]) {
+    for (const variant of [undefined, 'b'] as const) {
+      const { mp4, srt } = finalNames(v, variant);
+      assert.ok(isFinalName(mp4) && isFinalName(srt), `${mp4}, ${srt}`);
+    }
+  }
+  for (const bad of ['final-c.mp4', 'final-b-v2.mp4', 'final.mov', '../final.mp4', 'final-v1234.mp4', 'released.json', '']) {
+    assert.equal(isFinalName(bad), false, bad);
+  }
 });

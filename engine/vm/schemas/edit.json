@@ -108,12 +108,17 @@
       "type": "object",
       "required": ["kind", "t0", "t1"],
       "properties": {
-        "kind": { "enum": ["image", "badge", "sticker", "anim", "fullscreen"] },
+        "kind": { "enum": ["image", "badge", "sticker", "text", "anim", "fullscreen"] },
         "src": { "type": "string" },
         "question": {
           "description": "id вопроса insert-<n> из questions.json: место и время вставки «добавь сюда» решены на шаге analyze, src (или стикер) — по ответу Павла на шаге render. Без src такая вставка в монтаж не идёт.",
           "type": "string",
           "minLength": 1
+        },
+        "id": {
+          "description": "Ключ вставки без question и src — стикера-тезиса (kind text): s1, s2… По нему страница помнит, куда Павел передвинул вставку, а вопрос stickers включает и выключает её.",
+          "type": "string",
+          "pattern": "^[a-z0-9_-]{1,24}$"
         },
         "text": { "type": "string" },
         "title": { "type": "string" },

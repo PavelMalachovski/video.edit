@@ -83,6 +83,8 @@ const QUESTIONS = { questions: [
     options: [{ id: 'logo-a', label: 'Логотип', image: '../../assets/logos/logo.png' }, { id: 'upload', label: 'Загрузить свою' }, { id: 'none', label: 'Не надо' }] },
   { id: 'stars', type: 'multi', title: 'Звёздочки в субтитрах', body: 'Нашёл: р*бли, беспл*тно, подп*ска.',
     options: [{ id: 'r', label: 'р*бли' }, { id: 'b', label: 'беспл*тно' }, { id: 'p', label: 'подп*ска' }], default: ['r', 'b', 'p'] },
+  { id: 'stickers', type: 'multi', title: 'Стикеры-тезисы', body: 'Поставлю на ключевые мысли — сними лишние.',
+    options: [{ id: 's1', label: '0:12 — «3 ошибки 🔥»' }], default: ['s1'] },
 ] };
 const FIXTURE = JSON.parse(fs.readFileSync(path.resolve('../engine/tests/fixtures/style-merge.json'), 'utf8'));
 const STYLES = { ...FIXTURE.styles, sample: { ...FIXTURE.styles.sample, inserts: [{ kind: 'image', x: 70, y: 500, w: 250, question: 'logo' }] } };
@@ -232,7 +234,7 @@ const segments = [
     engineValidate('status.json', waiting);
     await session(ctx, { 'questions.json': QUESTIONS, 'styles.json': STYLES, 'frame.png': PNG, 'q-logo.png': PNG, 'status.json': waiting });
     const cards = page.locator('[data-question]');
-    await until(async () => (await cards.count()) === 5, 10_000, 'пять карточек вопросов');
+    await until(async () => (await cards.count()) === 6, 10_000, 'шесть карточек вопросов');
     const go = page.getByRole('button', { name: 'Показать превью' });
     check(await go.isDisabled(), '«Показать превью» включена, хотя brand и logo без ответа');
     await shot(page, 'questions');
@@ -249,7 +251,7 @@ const segments = [
     check(!(await go.isDisabled()), '«Показать превью» выключена после всех ответов');
 
     await page.reload();
-    await until(async () => (await cards.count()) === 5, 10_000, 'карточки после перезагрузки');
+    await until(async () => (await cards.count()) === 6, 10_000, 'карточки после перезагрузки');
     check(await card('hook').getByLabel('Или напиши свой').inputValue() === 'Как я снимаю reels', 'свой хук пропал');
     check(await card('stars').getByRole('button', { name: 'беспл*тно' }).getAttribute('aria-pressed') === 'false', 'снятая звёздочка вернулась');
     check(await card('brand').getByRole('button', { name: 'Copilot' }).getAttribute('aria-pressed') === 'true', 'выбор написания пропал');
@@ -298,7 +300,8 @@ const segments = [
       ...STYLES,
       sample: {
         ...STYLES.sample, hook: 'Cum învăț limbi', words: ['Vă', 'mulțumesc', 'pentru', 'întrebare'], spoken: 1,
-        inserts: [...STYLES.sample.inserts, { kind: 'image', src: 'q-logo.png', x: 600, y: 900, w: 250 }], // вставка из ТЗ: её размер меняет Павел
+        inserts: [...STYLES.sample.inserts, { kind: 'image', src: 'q-logo.png', x: 600, y: 900, w: 250 }, // вставка из ТЗ: её размер меняет Павел
+          { kind: 'text', id: 's1', text: '3 ошибки 🔥', x: 120, y: 1100, w: 420 }], // стикер-тезис
       },
       variants: STYLES.variants.map((v) => ({ ...v, label: `${v.label} — без плашки` })),
       fonts: { main: ['montserrat', 'unbounded', 'rubik', 'oswald', 'comfortaa'], hand: ['caveat', 'bad-script'] },
@@ -392,6 +395,20 @@ const segments = [
     const placed = { x: before.x - 160, y: before.y - 240, w: before.w };
     await until(async () => { const i = await bigInsert(); return i.x === placed.x && i.y === placed.y && i.w === placed.w; }, 5000,
       `вставка перетащена в ${JSON.stringify(placed)}`);
+    // стикер-тезис двигается так же: 30 px вправо и 20 px вверх — 120 и 80 px кадра
+    const bigSticker = async () => JSON.parse(await big.getAttribute('data-state')).inserts.find((i) => i.key === 's1');
+    const st = await bigSticker();
+    check(st?.kind === 'text' && st.text === '3 ошибки 🔥', `стикер на превью: ${JSON.stringify(st)}`);
+    const stickerHandle = page.getByRole('slider', { name: 'Стикер 1' });
+    await stickerHandle.scrollIntoViewIfNeeded();
+    const sb = await stickerHandle.boundingBox();
+    await page.mouse.move(sb.x + sb.width / 2, sb.y + sb.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(sb.x + sb.width / 2 + 30, sb.y + sb.height / 2 - 20, { steps: 5 });
+    await page.mouse.up();
+    const stickerPlaced = { x: st.x + 120, y: st.y - 80, w: st.w };
+    await until(async () => { const i = await bigSticker(); return i.x === stickerPlaced.x && i.y === stickerPlaced.y; }, 5000,
+      `стикер перетащен в ${JSON.stringify(stickerPlaced)}`);
     await shot(page, 'previews-insert-moved');
     await shot(page, 'previews-resized');
     await shot(page, 'previews-subtitles-moved');
@@ -411,6 +428,8 @@ const segments = [
     check(answers.style?.subY === variantY - 180, `style.subY: ${answers.style?.subY}`);
     check(answers.style?.hookY === hookY + 120, `style.hookY: ${answers.style?.hookY}`);
     check(isDeepStrictEqual(answers.insertBoxes?.['q-logo.png'], placed), `insertBoxes: ${JSON.stringify(answers.insertBoxes)}`);
+    check(isDeepStrictEqual(answers.insertBoxes?.s1, stickerPlaced), `стикер в insertBoxes: ${JSON.stringify(answers.insertBoxes)}`);
+    check(isDeepStrictEqual(answers.answers?.stickers, ['s1']), `stickers: ${JSON.stringify(answers.answers?.stickers)}`);
     check(answers.style?.subSize === grown - 4 && answers.style?.hookSize === pinched, `размеры: ${answers.style?.subSize}, ${answers.style?.hookSize}`);
     check(isDeepStrictEqual(finalStyle(restyled, answers.style), last), `стиль ответа ${JSON.stringify(answers.style)} ≠ последнему превью`);
   }],

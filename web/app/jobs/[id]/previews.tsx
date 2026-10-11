@@ -140,18 +140,19 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
     changed: choice.hookY !== undefined || choice.hookSize !== undefined, reset: reset('hookY', 'hookSize'),
   };
   const movable = state.hook ? [hookPart, subs] : [subs]; // хук настраивается, когда он есть на превью
-  // вставки на крупном превью, у которых есть ключ (question или src): перетаскиваются куда угодно; размер — щипком,
-  // уголком и кнопками. Рамка — от шаблона (вместе с тенью), высота — по ней
+  // вставки на крупном превью, у которых есть ключ (question, src или id стикера-тезиса): перетаскиваются куда угодно;
+  // размер — щипком, уголком и кнопками. Рамка — от шаблона (вместе с тенью), высота — по ней
   const sized = state.inserts.flatMap((ins, i) => {
     if (!ins.key) return [];
     const key = ins.key;
-    const n = state.inserts.slice(0, i + 1).filter((x) => x.key).length;
+    const sticker = ins.kind === 'text';
+    const n = state.inserts.slice(0, i + 1).filter((x) => x.key && (x.kind === 'text') === sticker).length;
     const drawn = boxes?.inserts?.[i] ?? null;
     const now: InsertBox = { x: ins.x, y: ins.y, w: ins.w };
     const h = drawn?.h ?? ins.w;
     const place = (b: InsertBox) => setInsertBoxes({ ...insertBoxes, [key]: b });
     return [{
-      key, name: `Вставка ${n}`, w: ins.w, at: now, box: drawn, changed: key in insertBoxes,
+      key, name: `${sticker ? 'Стикер' : 'Вставка'} ${n}`, w: ins.w, at: now, box: drawn, changed: key in insertBoxes,
       resize: (w: number) => place(resizeBox(now, w, h)),
       drag: (x: number, y: number) => place(moveBox(now, x, y, h)),
       reset: () => setInsertBoxes(Object.fromEntries(Object.entries(insertBoxes).filter(([k]) => k !== key))),

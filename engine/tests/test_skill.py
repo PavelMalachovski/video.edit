@@ -111,3 +111,11 @@ def test_style_a_follows_pavels_brand():
     page = section("Страница")
     assert "brand" in page and "in/brand/logo.png" in page and "hashtags" in page
     assert "бренда Павла" in section("Стили (styles.json)")
+
+
+def test_thesis_stickers_have_rules_a_question_and_a_render_step():
+    inserts = section("7. Вставки")
+    assert "`text` — стикер-тезис" in inserts and "`id`" in inserts and "2–5 на ролик" in inserts
+    assert "`stickers` (multi)" in section("Вопросы (questions.json)")
+    assert "стикеры-тезисы" in section("Шаг render") and "`stickers`" in section("Шаг render")
+    assert "стикеры-тезисы" in section("Страница")

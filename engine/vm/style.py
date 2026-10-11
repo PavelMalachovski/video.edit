@@ -12,8 +12,8 @@ ADJUSTED = {"subY": ("subtitles", "y"), "hookY": ("hook", "y"), "subSize": ("sub
 
 
 def insert_key(insert: dict) -> str | None:
-    """Ключ вставки для рамки Павла: её question («добавь сюда»), иначе src; ни того ни другого — None."""
-    return insert.get("question") or insert.get("src") or None
+    """Ключ вставки для рамки Павла: её question («добавь сюда»), иначе src, иначе id (стикер-тезис); ничего — None."""
+    return insert.get("question") or insert.get("src") or insert.get("id") or None
 
 
 def placed_inserts(inserts: list[dict], boxes: dict[str, dict]) -> list[dict]:

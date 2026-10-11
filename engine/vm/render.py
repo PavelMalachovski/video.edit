@@ -56,6 +56,7 @@ TO_709 = "scale=out_color_matrix=bt709:out_range=tv"
 # отсчёт n звучит ровно в n. B-кадров нет (`-bf 0`): с ними картинка начиналась бы на 2 кадра позже звука.
 AAC_PRIMING = 1024
 IMAGES = {".png", ".jpg", ".jpeg", ".webp"}  # картинка держится всё окно перебивки; GIF крутится по кругу
+TEXTUAL = ("sticker", "text")  # вставки из одного текста: картинка им не нужна
 LOOPED = {".gif"}
 
 
@@ -94,7 +95,7 @@ def draw_layer(job: Job) -> Layer:
     """edit.json (по схеме) → шкала по исходнику → кадры слоя в work/render/frames."""
     edit = job.read("edit.json")
     validate("edit.json", edit)  # файл пишет Claude: ошибка называет поле, а не падает KeyError где-то в графе
-    waiting = [ins["question"] for ins in edit["inserts"] if ins.get("question") and not ins.get("src") and ins["kind"] != "sticker"]
+    waiting = [ins["question"] for ins in edit["inserts"] if ins.get("question") and not ins.get("src") and ins["kind"] not in TEXTUAL]
     if waiting:
         raise RenderError(
             "edit.json: вставки ждут ответа на вопросы " + ", ".join(f"«{q}»" for q in waiting)

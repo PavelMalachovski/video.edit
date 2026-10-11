@@ -199,3 +199,20 @@ test('insert boxes are remembered per job; junk is dropped', () => {
   assert.deepEqual(loadInsertBoxes(store, id), { ok: { x: 100, y: 200, w: 200 } });
   assert.deepEqual(loadInsertBoxes(blockedStorage, id), {});
 });
+
+test('a thesis sticker keeps its text and tone on the preview, moves by its id and hides when Pavel unticks it', () => {
+  const sample = {
+    words: [], spoken: 0,
+    inserts: [
+      { kind: 'text' as const, id: 's1', text: '3 ошибки 🔥', x: 120, y: 700, w: 420, params: { tone: 'dark' } },
+      { kind: 'text' as const, id: 's2', text: '1. Свет', x: 120, y: 900, w: 300 },
+    ],
+  };
+  const stickers = { id: 'stickers', type: 'multi' as const, title: 'Стикеры', options: [{ id: 's1', label: '0:12 — 3 ошибки' }, { id: 's2', label: '0:20 — Свет' }], default: ['s1', 's2'] };
+  const url = (p: string) => `/f/${p}`;
+  const all = resolveInserts(sample, [stickers], initialDraft([stickers]), url, () => null, { s1: { x: 200, y: 760, w: 500 } });
+  assert.deepEqual(all.map((i) => [i.key, i.kind, i.text, i.x, i.w, i.params?.tone]), [['s1', 'text', '3 ошибки 🔥', 200, 500, 'dark'], ['s2', 'text', '1. Свет', 120, 300, undefined]]);
+  const one = resolveInserts(sample, [stickers], pick(initialDraft([stickers]), stickers, 's1'), url, () => null);
+  assert.deepEqual(one.map((i) => i.key), ['s2'], 'снятый стикер не рисуется');
+  assert.deepEqual(resolveInserts(sample, [], initialDraft([]), url, () => null).map((i) => i.key), ['s1', 's2'], 'без вопроса — все');
+});

@@ -117,10 +117,12 @@ export function resolveInserts(sample: Styles['sample'], qs: Question[], d: Draf
   localUrl: (qid: string) => string | null, boxes: Record<string, InsertBox> = {}): InsertState[] {
   const out: InsertState[] = [];
   for (const s of placedInserts(sample.inserts ?? [], boxes)) {
+    if (s.id && unticked(s.id, qs, d)) continue;
     const key = insertKey(s);
     const base: InsertState = { kind: s.kind, x: s.x, y: s.y, w: s.w, anim: 1, t: 0, ...(key ? { key } : {}) };
     if (s.text !== undefined) base.text = s.text;
     if (s.title !== undefined) base.title = s.title;
+    if (s.params !== undefined) base.params = s.params;
     if (!s.question) {
       out.push(s.src ? { ...base, src: urlFor(s.src) } : base);
       continue;
@@ -139,16 +141,24 @@ export function resolveInserts(sample: Styles['sample'], qs: Question[], d: Draf
   return out;
 }
 
+/** Стикер `id` снят: есть вопрос с несколькими ответами, где он — вариант, и он не выбран (вопрос stickers). */
+function unticked(id: string, qs: Question[], d: Draft): boolean {
+  const q = qs.find((x) => x.type === 'multi' && (x.options ?? []).some((o) => o.id === id));
+  if (!q) return false;
+  const picked = d.picks[q.id] ?? (Array.isArray(q.default) ? q.default : q.default === undefined ? [] : [q.default]);
+  return !picked.includes(id);
+}
+
 // ---------- место и размер вставок (localStorage['vm:inserts:<id>']) ----------
 
-/** Ключ вставки для рамки Павла: её question («добавь сюда»), иначе src; ни того ни другого — null. */
-export function insertKey(s: { question?: string; src?: string }): string | null {
-  return s.question || s.src || null;
+/** Ключ вставки для рамки Павла: её question («добавь сюда»), иначе src, иначе id (стикер-тезис); ничего — null. */
+export function insertKey(s: { question?: string; src?: string; id?: string }): string | null {
+  return s.question || s.src || s.id || null;
 }
 
 /** Вставки с рамками, которые выбрал Павел (как есть). То же правило — placed_inserts в engine/vm/style.py
  *  (общая фикстура engine/tests/fixtures/insert-boxes.json). */
-export function placedInserts<T extends { x?: number; y?: number; w?: number; question?: string; src?: string }>(
+export function placedInserts<T extends { x?: number; y?: number; w?: number; question?: string; src?: string; id?: string }>(
   list: T[], boxes: Record<string, InsertBox>): T[] {
   return list.map((s) => {
     const key = insertKey(s);

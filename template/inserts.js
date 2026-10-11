@@ -1,17 +1,20 @@
-// Вставки слоя: картинки (прямоугольные и PNG без фона), бейдж, стикер и анимация (танцующая пара).
+// Вставки слоя: картинки (прямоугольные и PNG без фона), бейдж, стикер, стикер-тезис и анимация (танцующая пара).
 // Бейдж, стикер и пара перенесены из legacy/video-montage/scripts/overlay/overlay.html (DRAW.badge,
 // sticker, bachata) — без наклонов, покачивания и «пружины»: по правилам вставки не поворачиваются,
 // а появляются резко (85 мс в кадрах, здесь — по `anim` 0..1).
 //
-//   InsertState = {kind: "image"|"badge"|"sticker"|"anim", src?, text?, title?, x, y, w,
+//   InsertState = {kind: "image"|"badge"|"sticker"|"text"|"anim", src?, text?, title?, x, y, w,
 //                  anim /* 0..1 — прогресс появления */, t /* с от начала показа, для anim */, params?}
 //   x, y — левый верхний угол вставки в кадре, w — её ширина (у бейджа — наибольшая: плашка по тексту);
 //   высоту задаёт содержимое. src — адрес картинки (относительно overlay.html или полный); у бейджа — значок.
 //   params: image — cutout (PNG без фона: контур по силуэту вместо рамки); badge — height, colors;
-//   sticker — textSize, titleSize, colors; anim — name ("bachata"), scale, titleSize, colors.
-//   colors — 2–3 цвета градиента карточки.
+//   sticker — textSize, titleSize, colors; text — tone: "accent" (плашка цвета подсветки, текст цвета plate; так по
+//   умолчанию), "dark" (плашка plate, белый текст), "light" (белая плашка, тёмный текст); anim — name ("bachata"), scale,
+//   titleSize, colors. colors — 2–3 цвета градиента карточки.
+//   Стикер-тезис (text) — короткая мысль на плашке, как текстовый стикер Instagram: строки раскладываются при кегле 64
+//   (до 560 px), потом всё масштабируется до ширины w — шире рамка, крупнее текст, строки те же.
 
-import { fillText, measureText, strokeText } from './emoji.js';
+import { fillText, glueEmoji, measureText, strokeText } from './emoji.js';
 
 /** Плавное замедление появления: быстро в начале, мягко в конце. */
 export function ease(x) {
@@ -25,6 +28,14 @@ const CUTOUT_EXT = { x: 1, top: 1, bottom: 1 }; // контур 1 px по сил
 const CARD_SHADOW = { blur: 24, dy: 8, color: 'rgba(0, 0, 0, 0.3)' };
 const CARD_EXT = { x: CARD_SHADOW.blur, top: CARD_SHADOW.blur - CARD_SHADOW.dy, bottom: CARD_SHADOW.blur + CARD_SHADOW.dy };
 const MARGIN = 48; // поле холста вокруг карточки — под тень
+const THESIS = { size: 64, wrap: 560, padX: 0.5, padY: 0.3, radius: 0.34, line: 1.12 }; // доли кегля; размер — по w
+const THESIS_SHADOW = { blur: 18, dy: 6, color: 'rgba(0, 0, 0, 0.28)' };
+const THESIS_EXT = { x: THESIS_SHADOW.blur, top: THESIS_SHADOW.blur - THESIS_SHADOW.dy, bottom: THESIS_SHADOW.blur + THESIS_SHADOW.dy };
+const TONES = {
+  accent: (c) => ({ bg: c.accent, fg: c.plate }),
+  dark: (c) => ({ bg: c.plate, fg: '#FFFFFF' }),
+  light: () => ({ bg: '#FFFFFF', fg: '#111111' }),
+};
 
 // ---------- картинки ----------
 
@@ -81,7 +92,7 @@ function fontOf(main, size) {
 function wrap(ctx, text, maxW, size) {
   const out = [];
   let line = '';
-  for (const word of String(text).split(/\s+/).filter(Boolean)) {
+  for (const word of glueEmoji(String(text).split(/\s+/).filter(Boolean))) {
     const next = line ? `${line} ${word}` : word;
     if (measureText(ctx, next, size) > maxW && line) {
       out.push(line);
@@ -220,6 +231,39 @@ async function badge(ins, main) {
   fillText(ctx, ins.text ?? '', start, h / 2 + 3, size);
   ctx.restore();
   return { node: canvas, w, h, ext: CARD_EXT };
+}
+
+/** Стикер-тезис: плашка по ширине w, текст по центру; эмодзи — картинками. */
+function thesis(ins, { spec, main }) {
+  const tone = ins.params?.tone ?? 'accent';
+  const colors = Object.hasOwn(TONES, tone) ? TONES[tone](spec.colors) : null;
+  if (!colors) throw new Error(`стикер-тезис: неизвестный tone «${tone}» (accent, dark, light)`);
+  const base = THESIS.size;
+  probe.font = fontOf(main, base);
+  const lines = wrap(probe, ins.text ?? '', THESIS.wrap, base);
+  if (!lines.length) throw new Error('у стикера-тезиса нет текста');
+  const natural = Math.max(...lines.map((l) => measureText(probe, l, base))) + 2 * THESIS.padX * base;
+  const w = ins.w;
+  const size = (base * w) / natural;
+  const lh = size * THESIS.line;
+  const padY = THESIS.padY * size;
+  const h = Math.round(lines.length * lh + 2 * padY);
+  const { canvas, ctx } = canvasFor(w, h);
+  ctx.save();
+  ctx.shadowColor = THESIS_SHADOW.color;
+  ctx.shadowBlur = THESIS_SHADOW.blur;
+  ctx.shadowOffsetY = THESIS_SHADOW.dy;
+  ctx.fillStyle = colors.bg;
+  ctx.beginPath();
+  ctx.roundRect(0, 0, w, h, THESIS.radius * size);
+  ctx.fill();
+  ctx.restore();
+  ctx.font = fontOf(main, size);
+  ctx.fillStyle = colors.fg;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  lines.forEach((l, i) => fillText(ctx, l, w / 2, padY + lh * (i + 0.5), size));
+  return { node: canvas, w, h, ext: THESIS_EXT };
 }
 
 // ---------- танцующая пара (базовый шаг бачаты) ----------
@@ -420,7 +464,8 @@ const ANIMS = {
 
 // ---------- вход ----------
 
-async function content(ins, main) {
+async function content(ins, look) {
+  const { main } = look;
   switch (ins.kind) {
     case 'image':
       return photo(ins);
@@ -428,6 +473,8 @@ async function content(ins, main) {
       return badge(ins, main);
     case 'sticker':
       return sticker(ins, main);
+    case 'text':
+      return thesis(ins, look);
     case 'anim': {
       const name = ins.params?.name ?? 'bachata';
       const draw = ANIMS[name];
@@ -445,8 +492,8 @@ async function content(ins, main) {
  * если у вставки в состоянии есть номер `n` (её место в edit.inserts), рамка несёт его же — по нему проверка
  * качества называет вставку.
  */
-export async function drawInserts(root, inserts, { main }) {
-  const made = await Promise.all((inserts ?? []).map((ins) => content(ins, main)));
+export async function drawInserts(root, inserts, look) {
+  const made = await Promise.all((inserts ?? []).map((ins) => content(ins, look)));
   root.replaceChildren();
   return made.map((m, i) => {
     const ins = inserts[i];

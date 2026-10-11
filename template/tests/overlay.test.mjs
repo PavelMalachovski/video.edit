@@ -471,3 +471,35 @@ test('a text-default sign without FE0F stays a letter, not a picture', async () 
   await render(spec(), { hook: { text: 'Цена 100 € ©' } });
   assert.equal((await emojiIn('#hook')).length, 0);
 });
+
+test('an emoji does not count as an extra caps line: the hook keeps its size', async () => {
+  const size = async (text) => {
+    await render(spec(), { hook: { text } });
+    return page.evaluate(() => parseFloat(getComputedStyle(document.querySelector('#hook .caps')).fontSize));
+  };
+  const plain = await size('Как я монтирую ролики на телефоне конец');
+  const fire = await size('Как я 🔥 монтирую ролики на телефоне конец');
+  assert.ok(fire >= 0.9 * plain, `с эмодзи ${fire}px, без — ${plain}px`);
+});
+
+test('a caps line never starts with an emoji: it stays with the word before it', async () => {
+  for (const text of ['Мой способ снимать 🔥 видео каждый день конец', 'Три ошибки которые делает 🔥 каждый новичок конец']) {
+    await render(spec(), { hook: { text } });
+    const alone = await page.evaluate(() => {
+      const caps = document.querySelector('#hook .caps');
+      const letters = [];
+      const walk = document.createTreeWalker(caps, NodeFilter.SHOW_TEXT);
+      for (let t = walk.nextNode(); t; t = walk.nextNode()) {
+        const range = document.createRange();
+        range.selectNodeContents(t);
+        letters.push(...[...range.getClientRects()].filter((q) => q.width > 1));
+      }
+      return [...caps.querySelectorAll('img.emo')].filter((img) => {
+        const r = img.getBoundingClientRect();
+        const mid = (r.top + r.bottom) / 2;
+        return !letters.some((q) => q.top < mid && q.bottom > mid && q.right <= r.left + 1);
+      }).length;
+    });
+    assert.equal(alone, 0, text);
+  }
+});

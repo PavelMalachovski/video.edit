@@ -407,6 +407,22 @@ def test_edit_face_is_fractions_of_the_frame(job):
         job.write("edit.json", edit)
 
 
+def test_edit_takes_thesis_stickers_with_an_id(job):
+    edit = make_edit()
+    edit["inserts"] = [{"kind": "text", "id": "s1", "text": "3 ошибки новичка 🔥", "t0": 4.0, "t1": 6.0, "x": 120, "y": 700, "w": 420,
+                        "sfx": None, "params": {"tone": "accent"}}]
+    job.write("edit.json", edit)
+    edit["inserts"][0]["id"] = "S 1"
+    with pytest.raises(ValueError, match=r"inserts\[0\]\.id"):
+        job.write("edit.json", edit)
+
+
+def test_styles_sample_shows_thesis_stickers(job):
+    styles = json.loads((Path(__file__).parent / "fixtures" / "style-merge.json").read_text(encoding="utf-8"))["styles"]
+    styles["sample"]["inserts"] = [{"kind": "text", "id": "s1", "text": "Свет 💡", "x": 120, "y": 700, "w": 420, "params": {"tone": "light"}}]
+    job.write("styles.json", styles)
+
+
 def test_edit_rejects_unknown_insert_kind(job):
     edit = make_edit()
     edit["inserts"][0]["kind"] = "gif"

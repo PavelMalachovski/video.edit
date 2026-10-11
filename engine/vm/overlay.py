@@ -22,7 +22,7 @@ from .timeline import Timeline
 FPS = 30
 APPEAR = 3  # кадров появления вставки
 MIN_SHOW = 1.5  # с — вставка показывается не короче
-DRAWN = ("image", "badge", "sticker", "anim")  # что рисует шаблон; fullscreen — ffmpeg
+DRAWN = ("image", "badge", "sticker", "text", "anim")  # что рисует шаблон; fullscreen — ffmpeg
 INSERT_FIELDS = ("kind", "src", "text", "title", "x", "y", "w", "params")
 
 

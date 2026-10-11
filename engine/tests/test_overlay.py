@@ -172,6 +172,15 @@ def test_insert_pushed_after_hook_still_shows_1_5s():
     assert (shown[0]["t0"], shown[-1]["t1"]) == pytest.approx((2.5, 4.0))
 
 
+def test_thesis_sticker_is_drawn_by_the_template():
+    sticker = {"kind": "text", "id": "s1", "text": "3 ошибки 🔥", "t0": 4.0, "t1": 7.0, "x": 120, "y": 700, "w": 420, "sfx": None,
+               "params": {"tone": "dark"}}
+    edit = make_edit(inserts=[sticker])
+    state = at(build_overlay_events(edit, timeline(edit)), 5.0)
+    assert state["inserts"] == [{"kind": "text", "text": "3 ошибки 🔥", "x": 120, "y": 700, "w": 420, "params": {"tone": "dark"},
+                                 "n": 0, "anim": 1, "t": 0}]
+
+
 def test_fullscreen_inserts_are_left_to_ffmpeg():
     edit = make_edit(inserts=[{"kind": "fullscreen", "src": "in/uploads/upload-i1.mov", "t0": 3.0, "t1": 5.0}])
     assert build_overlay_events(edit, timeline(edit)) == [{"t0": 0, "t1": pytest.approx(10.0), "state": {}}]
@@ -263,3 +272,4 @@ def test_short_subtitle_between_frames_does_not_break_the_grid():
     events = build_overlay_events(edit, timeline(edit))
     for e in events[1:]:
         assert math.isclose(e["t0"] * FPS, round(e["t0"] * FPS), abs_tol=1e-6)
+

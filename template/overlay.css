@@ -85,6 +85,11 @@ img.emo {
   border: 0;
 }
 
+/* Слово и эмодзи после него — без переноса между ними. */
+.nobr {
+  white-space: nowrap;
+}
+
 /* Маркер базовой линии: пустой inline-block стоит низом на базовой линии строки. */
 .bl {
   display: inline-block;

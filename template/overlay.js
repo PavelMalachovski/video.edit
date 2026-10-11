@@ -11,7 +11,7 @@
 // тот, кто отдаёт шаблон. Шрифта нет в списке — ошибка: подменять его другим нельзя, иначе превью
 // разойдётся с финалом. Эмодзи в хуке, титре и вставках — картинки (emoji.js), а не буквы шрифта.
 
-import { appendText, emojiImages, emojiOnly, loadEmoji, stripEmoji } from './emoji.js';
+import { appendText, emojiImages, emojiOnly, glueEmoji, loadEmoji, stripEmoji } from './emoji.js';
 import { drawInserts } from './inserts.js';
 
 const FRAME = { w: 1080, h: 1920 };
@@ -122,6 +122,17 @@ function glue(text) {
   return out;
 }
 
+/** Строка текста в узел: слово из одних эмодзи держится за слово перед ним — оба в одном куске без переноса
+(неразрывного пробела мало: Chromium переносит строку между ним и картинкой), строка с эмодзи не начинается. */
+function appendWords(node, text) {
+  glueEmoji(String(text).split(/ +/).filter(Boolean)).forEach((word, i) => {
+    if (i) node.append(' ');
+    if (word.includes(' ')) node.append(appendText(el('span', 'nobr'), word));
+    else appendText(node, word);
+  });
+  return node;
+}
+
 /** Маркер базовой линии в конце (или начале) узла: его верх — базовая линия строки. */
 function baseline(node, atStart = false) {
   const mark = el('span', 'bl');
@@ -179,8 +190,8 @@ function lineCount(rects) {
   return new Set(rects.map((r) => Math.round(r.top))).size;
 }
 
-/** Рамки кусков текста узла по строкам — текст и картинки эмодзи, без рамок блочных детей. */
-function textRects(node) {
+/** Рамки кусков текста узла по строкам — только буквы, без картинок эмодзи и рамок блочных детей. */
+function letterRects(node) {
   const rects = [];
   const walk = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
   for (let t = walk.nextNode(); t; t = walk.nextNode()) {
@@ -188,7 +199,24 @@ function textRects(node) {
     range.selectNodeContents(t);
     rects.push(...[...range.getClientRects()].filter((r) => r.width > 0));
   }
-  return [...rects, ...emojiRects(node)];
+  return rects;
+}
+
+/** Рамки всего, что нарисовано в узле: буквы и картинки эмодзи (для границ). */
+function textRects(node) {
+  return [...letterRects(node), ...emojiRects(node)];
+}
+
+/** Строки текста узла: по буквам; картинка эмодзи — своя строка, только если рядом с ней букв нет (у картинки верх
+не там, где у букв, — по нему она считалась бы лишней строкой). */
+function textLines(node) {
+  const letters = letterRects(node);
+  const tops = new Set(letters.map((r) => Math.round(r.top)));
+  for (const r of emojiRects(node)) {
+    const mid = (r.top + r.bottom) / 2;
+    if (!letters.some((q) => q.top <= mid && q.bottom >= mid)) tops.add(Math.round(r.top));
+  }
+  return tops.size;
 }
 
 /** Рамки картинок эмодзи в узле. */
@@ -325,7 +353,7 @@ function drawTitle(id, { spec, main, hand }, title) {
   const plate = el('div', 'plate');
   plate.hidden = mode !== 'plate' || title.lines.length === 0;
   const caps = el('div', 'caps');
-  for (const text of title.lines) caps.append(appendText(el('div', 'line'), upper(glue(text))));
+  for (const text of title.lines) caps.append(appendWords(el('div', 'line'), upper(glue(text))));
   const handBox = el('div', 'hand');
   handBox.hidden = !title.word;
   const handText = appendText(el('span'), title.word);
@@ -361,7 +389,7 @@ function drawTitle(id, { spec, main, hand }, title) {
     const capsOver = first ? ink(main, px, upper(title.lines.join(' '))) : null;
     const capsFit = [...caps.children].every((line) => {
       const r = union(textRects(line));
-      return line.scrollWidth <= capsWidth + 0.5 && lineCount(textRects(line)) <= title.wrap && (!r || r.right - r.left + capsOver.left + capsOver.right <= capsWidth + 0.5);
+      return line.scrollWidth <= capsWidth + 0.5 && textLines(line) <= title.wrap && (!r || r.right - r.left + capsOver.left + capsOver.right <= capsWidth + 0.5);
     });
     const handOver = title.word ? ink(hand, px * HAND, title.word) : null;
     const handFit = !title.word || handText.getBoundingClientRect().width + handOver.left + handOver.right <= handWidth + 0.5;

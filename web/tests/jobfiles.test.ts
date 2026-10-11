@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import {
   answersFile, appendFix, appendRestyle, buildJobFile, errorStatus, finalNames, parseAnswersBody, parseNote, parseStatus, parseStyles,
   QUESTION_TYPES, queuedStatus, STATES, wantedVersion, type Manifest, type Question,
+  SAMPLE_INSERT_KINDS,
 } from '../lib/jobfiles.ts';
 import { STEPS } from '../lib/routine.ts';
 
@@ -13,6 +14,7 @@ const NOW = new Date(Date.UTC(2026, 9, 10, 7, 5, 9));
 test('states and question types match the engine schemas', () => {
   assert.deepEqual([...STATES], schema('status.json').properties.state.enum);
   assert.deepEqual([...QUESTION_TYPES], schema('questions.json').properties.questions.items.properties.type.enum);
+  assert.deepEqual([...SAMPLE_INSERT_KINDS], schema('styles.json').properties.sample.properties.inserts.items.properties.kind.enum);
   assert.deepEqual(schema('answers.json').required, ['answers', 'style']);
 });
 

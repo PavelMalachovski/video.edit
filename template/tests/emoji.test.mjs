@@ -6,7 +6,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { emojiRuns, emojiTable, mayHaveEmoji } from '../emoji.js';
+import { emojiRuns, emojiTable, glueEmoji, mayHaveEmoji } from '../emoji.js';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const index = JSON.parse(await readFile(path.join(ROOT, 'emoji', 'index.json'), 'utf8'));
@@ -36,4 +36,11 @@ test('the quick check sees every emoji of the list and skips plain text', () => 
 
 test('without a table every text is one text run', () => {
   assert.deepEqual(emojiRuns('Огонь 🔥', null), [['text', 'Огонь 🔥']]);
+});
+
+test('an emoji-only word holds on to the word before it, so a line never starts with it', () => {
+  assert.deepEqual(glueEmoji(['100', '%', 'органика', '✅'], table), ['100', '%', 'органика ✅']);
+  assert.deepEqual(glueEmoji(['🔥', 'Огонь', '🔥🔥'], table), ['🔥', 'Огонь 🔥🔥']);
+  assert.deepEqual(glueEmoji(['Огонь🔥', 'да'], table), ['Огонь🔥', 'да']);
+  assert.deepEqual(glueEmoji(['a', '✅'], null), ['a', '✅'], 'без списка эмодзи не видно');
 });

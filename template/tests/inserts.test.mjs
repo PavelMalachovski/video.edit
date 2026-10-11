@@ -222,6 +222,8 @@ test('everything drawn stays inside the reported box, at any appearance step', a
     { kind: 'sticker', title: 'Главная ошибка', text: 'Учите по 15 минут в день', x: 100, y: 300, w: 420, t: 0 },
     { kind: 'sticker', title: 'Очень длинный заголовок вставки', text: 'текст', x: 100, y: 300, w: 420, t: 0 },
     { kind: 'anim', title: 'Важный совет', x: 100, y: 300, w: 300, t: 0.4, params: { name: 'bachata' } },
+    { kind: 'text', text: '3 ошибки новичка 🔥', x: 100, y: 300, w: 420, t: 0 },
+    { kind: 'text', text: '1. Свет', x: 100, y: 300, w: 300, t: 0, params: { tone: 'light' } },
   ];
   for (const ins of kinds) {
     for (const anim of [0.3, 1]) {
@@ -281,4 +283,67 @@ test('emoji in sticker and badge texts are pictures from emoji/, not a system fo
     });
     await page.reload();
   }
+});
+
+// ---------- стикер-тезис ----------
+
+/** Доля пикселей цвета `hex` (±12 по каналу) среди непрозрачных в прямоугольнике. */
+async function shareOf(clip, hex) {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const px = await pixels(clip);
+  let hit = 0;
+  let solid = 0;
+  for (let k = 0; k < px.length; k += 4) {
+    if (px[k + 3] < 250) continue;
+    solid++;
+    if (Math.abs(px[k] - r) <= 12 && Math.abs(px[k + 1] - g) <= 12 && Math.abs(px[k + 2] - b) <= 12) hit++;
+  }
+  return solid ? hit / solid : 0;
+}
+
+/** Ширина и высота плашки — по непрозрачным пикселям цвета `hex`. */
+async function plate(box, hex) {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const px = await pixels({ x: box.x, y: box.y, width: box.w, height: box.h });
+  let x0 = Infinity;
+  let x1 = -Infinity;
+  let y0 = Infinity;
+  let y1 = -Infinity;
+  for (let k = 0, i = 0; k < px.length; k += 4, i++) {
+    if (px[k + 3] < 250 || Math.abs(px[k] - r) > 12 || Math.abs(px[k + 1] - g) > 12 || Math.abs(px[k + 2] - b) > 12) continue;
+    const x = i % box.w;
+    const y = Math.floor(i / box.w);
+    x0 = Math.min(x0, x);
+    x1 = Math.max(x1, x + 1);
+    y0 = Math.min(y0, y);
+    y1 = Math.max(y1, y + 1);
+  }
+  return { x: box.x + x0, y: box.y + y0, w: x1 - x0, h: y1 - y0 };
+}
+
+test('a thesis sticker is an accent plate exactly w wide, and its size follows w', async () => {
+  await render([{ kind: 'text', text: '3 ошибки новичка', x: 120, y: 700, w: 420, anim: 1, t: 0 }]);
+  const [box] = (await boxes()).inserts;
+  const p = await plate(box, SPEC.colors.accent);
+  assert.ok(Math.abs(p.x - 120) <= 1 && Math.abs(p.w - 420) <= 2 && Math.abs(p.y - 700) <= 1, `plate ${JSON.stringify(p)}`);
+  assert.ok((await shareOf({ x: p.x, y: p.y, width: p.w, height: p.h }, SPEC.colors.accent)) > 0.5, 'плашка цвета подсветки');
+  await render([{ kind: 'text', text: '3 ошибки новичка', x: 120, y: 700, w: 630, anim: 1, t: 0 }]);
+  const [wide] = (await boxes()).inserts;
+  const q = await plate(wide, SPEC.colors.accent);
+  assert.ok(Math.abs(q.w - 630) <= 2, `wide plate ${JSON.stringify(q)}`);
+  assert.ok(Math.abs(q.h / p.h - 1.5) < 0.06, `те же строки, крупнее: ${p.h} → ${q.h}`);
+});
+
+test('thesis sticker tones: dark plate with light text, light plate', async () => {
+  await render([{ kind: 'text', text: 'Свет', x: 120, y: 700, w: 300, anim: 1, t: 0, params: { tone: 'dark' } }]);
+  let [box] = (await boxes()).inserts;
+  assert.ok(Math.abs((await plate(box, SPEC.colors.plate)).w - 300) <= 2, 'тёмная плашка — цвета plate');
+  await render([{ kind: 'text', text: 'Свет', x: 120, y: 700, w: 300, anim: 1, t: 0, params: { tone: 'light' } }]);
+  [box] = (await boxes()).inserts;
+  assert.ok(Math.abs((await plate(box, '#FFFFFF')).w - 300) <= 2, 'светлая плашка — белая');
+});
+
+test('an unknown sticker tone is an error', async () => {
+  await assert.rejects(render([{ kind: 'text', text: 'Свет', x: 120, y: 700, w: 300, anim: 1, t: 0, params: { tone: 'neon' } }]), /tone/);
+  await page.reload();
 });

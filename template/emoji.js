@@ -92,9 +92,19 @@ export function stripEmoji(text) {
 }
 
 /** В тексте есть эмодзи и нет ничего, кроме эмодзи и пробелов. */
-export function emojiOnly(text) {
-  const runs = emojiRuns(text);
+export function emojiOnly(text, t = table) {
+  const runs = emojiRuns(text, t);
   return runs.some(([kind]) => kind === 'emoji') && runs.every(([kind, s]) => kind === 'emoji' || !s.trim());
+}
+
+/** Слова для переноса строк: слово из одних эмодзи держится за слово перед ним — строка с эмодзи не начинается. */
+export function glueEmoji(words, t = table) {
+  const out = [];
+  for (const word of words) {
+    if (out.length && emojiOnly(word, t)) out[out.length - 1] += ` ${word}`;
+    else out.push(word);
+  }
+  return out;
 }
 
 function picture(name) {

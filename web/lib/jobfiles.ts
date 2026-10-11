@@ -87,7 +87,12 @@ export type StyleSpec = {
   hook: { mode: 'plate' | 'outline' | 'shadow'; size: number; y?: number };
   bar: { pos: 'bottom' | 'top'; height: number };
 };
-export type SampleInsert = { kind: 'image' | 'badge' | 'sticker' | 'anim'; src?: string; text?: string; title?: string; x: number; y: number; w: number; question?: string };
+export const SAMPLE_INSERT_KINDS = ['image', 'badge', 'sticker', 'text', 'anim'] as const;
+/** Вставка на кадре превью; `id` — у стикера-тезиса (kind text): ключ рамки Павла и вариант вопроса stickers. */
+export type SampleInsert = {
+  kind: (typeof SAMPLE_INSERT_KINDS)[number]; src?: string; text?: string; title?: string; x: number; y: number; w: number; question?: string;
+  id?: string; params?: Record<string, unknown>;
+};
 export type Styles = {
   frame: string;
   frameTime: number;
@@ -136,7 +141,8 @@ export function parseStyles(raw: unknown): Styles | null {
   const sample = raw.sample;
   if (!isObject(sample) || !Array.isArray(sample.words) || !sample.words.every(isStr) || !Number.isInteger(sample.spoken) || (sample.spoken as number) < 0) return null;
   if (sample.hook !== undefined && !isStr(sample.hook)) return null;
-  const insertOk = (i: unknown) => isObject(i) && ['image', 'badge', 'sticker', 'anim'].includes(i.kind as string) && isNum(i.x) && isNum(i.y) && isNum(i.w) && i.w > 0;
+  const insertOk = (i: unknown) => isObject(i) && (SAMPLE_INSERT_KINDS as readonly string[]).includes(i.kind as string) && isNum(i.x) && isNum(i.y) && isNum(i.w) && i.w > 0
+    && (i.id === undefined || (isStr(i.id) && /^[a-z0-9_-]{1,24}$/.test(i.id))) && (i.params === undefined || isObject(i.params));
   if (sample.inserts !== undefined && !(Array.isArray(sample.inserts) && sample.inserts.every(insertOk))) return null;
   const ids = (x: unknown) => Array.isArray(x) && x.every((i) => isStr(i) && i !== '');
   if (raw.fonts !== undefined && !(isObject(raw.fonts) && ids(raw.fonts.main) && ids(raw.fonts.hand))) return null;

@@ -207,12 +207,14 @@ export type AnswersFile = {
   answers: Record<string, string | string[]>; style: StyleChoice; speed?: number; insertBoxes?: Record<string, InsertBox>; uploads?: Record<string, string>; brief?: string;
   ab?: AbKind;
   cover?: CoverChoice;
+  ad?: true; // ещё версия для рекламы Reels
 };
 export type UploadClaim = { asset: string; name: string; size: number; type: string; parts: number };
 export type ParsedAnswers = {
   answers: Record<string, string | string[]>; style: StyleChoice; speed?: number; insertBoxes?: Record<string, InsertBox>; uploads: Record<string, UploadClaim>;
   ab?: AbKind;
   cover?: CoverChoice;
+  ad?: true; // ещё версия для рекламы Reels
 };
 /** Ширина вставки, которую Павел может выбрать на превью, px кадра (ширина безопасной зоны — 830). */
 export const INSERT_W = { min: 80, max: 830 };
@@ -289,6 +291,8 @@ export function parseAnswersBody(body: unknown, qs: Question[]): ParsedAnswers |
   }
   const ab = body.ab;
   if (ab !== undefined && !(AB_KINDS as readonly unknown[]).includes(ab)) return { error: `ab: ${AB_KINDS.join(' или ')}` };
+  const ad = body.ad;
+  if (ad !== undefined && typeof ad !== 'boolean') return { error: 'ad: true или false' };
   const cover = body.cover;
   if (cover !== undefined && !isCoverChoice(cover)) return { error: `cover: кадр 1–${COVER.frames} и текст до ${COVER.text} знаков` };
   const uploads: Record<string, UploadClaim> = {};
@@ -309,6 +313,7 @@ export function parseAnswersBody(body: unknown, qs: Question[]): ParsedAnswers |
     ...(boxes === undefined ? {} : { insertBoxes: boxes as Record<string, InsertBox> }),
     ...(ab === undefined ? {} : { ab: ab as AbKind }),
     ...(cover === undefined ? {} : { cover: { frame: cover.frame, text: cover.text.trim() } }),
+    ...(ad === true ? { ad: true as const } : {}),
   };
 }
 
@@ -320,6 +325,7 @@ export function answersFile(p: ParsedAnswers, job: JobFile): AnswersFile {
     ...(p.insertBoxes === undefined ? {} : { insertBoxes: p.insertBoxes }),
     ...(p.ab === undefined ? {} : { ab: p.ab }),
     ...(p.cover === undefined ? {} : { cover: p.cover }),
+    ...(p.ad ? { ad: true as const } : {}),
     uploads: Object.fromEntries(Object.entries(p.uploads).map(([qid, c]) => [qid, `in/uploads/${c.asset}`])),
     brief: job.brief,
   };
@@ -350,8 +356,9 @@ export function appendFix(prev: FixFile | null, text: string, now: Date): FixFil
 
 export const wantedVersion = (fix: FixFile | null): number => 1 + (fix?.fixes.length ?? 0);
 
-/** Имена ролика версии `v` (правка 2 → final-v2); `variant` 'b' — вторая версия A/B-теста: final-b, final-v2-b. */
-export function finalNames(v: number, variant?: 'b'): { mp4: string; srt: string } {
+/** Имена ролика версии `v` (правка 2 → final-v2); `variant` 'b' — вторая версия A/B-теста (final-b, final-v2-b), 'ad' —
+ *  версия для рекламы (final-ad, final-v2-ad). */
+export function finalNames(v: number, variant?: 'b' | 'ad'): { mp4: string; srt: string } {
   const base = `${v <= 1 ? 'final' : `final-v${v}`}${variant ? `-${variant}` : ''}`;
   return { mp4: `${base}.mp4`, srt: `${base}.srt` };
 }
@@ -360,7 +367,7 @@ export function finalNames(v: number, variant?: 'b'): { mp4: string; srt: string
 export const coverName = (v: number): string => `${v <= 1 ? 'final' : `final-v${v}`}-cover.png`;
 
 /** Имя, которое можно скачать со страницы: всё, что дают finalNames и coverName, и ничего больше. */
-export const isFinalName = (name: string): boolean => /^final(-v\d{1,3})?((-b)?\.(mp4|srt)|-cover\.png)$/.test(name);
+export const isFinalName = (name: string): boolean => /^final(-v\d{1,3})?((-b|-ad)?\.(mp4|srt)|-cover\.png)$/.test(name);
 
 // ---------- out/released.json и result.json ----------
 
@@ -380,6 +387,7 @@ export type ResultFile = {
   qa: Qa;
   caption?: unknown; // подпись к посту — проверяет parseCaption (lib/caption.ts)
   ab?: AbResult;
+  ad?: { durations: Durations; qa: Qa }; // версия для рекламы: длительности и проверка по зоне рекламы
   checklist?: Check[];
 };
 
@@ -395,13 +403,14 @@ export function parseResult(raw: unknown): ResultFile | null {
   if (!isObject(raw) || !isDurations(raw.durations)) return null;
   const lists = ['done', 'unsure', 'missing'].every((k) => Array.isArray(raw[k]) && (raw[k] as unknown[]).every(isStr));
   if (!lists || !isQa(raw.qa)) return null;
-  const { ab, checklist, ...rest } = raw;
+  const { ab, ad, checklist, ...rest } = raw;
   const abOk = isObject(ab) && (AB_KINDS as readonly unknown[]).includes(ab.differs) && isDurations(ab.durations) && isQa(ab.qa);
   const checksOk = Array.isArray(checklist) && checklist.every(isCheck);
   return {
-    ...(rest as Omit<ResultFile, 'ab' | 'checklist'>),
+    ...(rest as Omit<ResultFile, 'ab' | 'ad' | 'checklist'>),
     ...(abOk ? { ab: ab as AbResult } : {}),
     ...(checksOk ? { checklist: checklist as Check[] } : {}),
+    ...(isObject(ad) && isDurations(ad.durations) && isQa(ad.qa) ? { ad: { durations: ad.durations, qa: ad.qa } } : {}),
   };
 }
 

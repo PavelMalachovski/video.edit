@@ -108,6 +108,14 @@
         "text": { "type": "string", "minLength": 1, "maxLength": 80 }
       }
     },
+    "ad": {
+      "description": "Ещё версия для рекламы Reels (ответ Павла answers.ad): vm render соберёт <имя>-ad — тот же монтаж, текст и вставки в зоне рекламы (y 270–1250). Нет поля или false — без неё.",
+      "type": "boolean"
+    },
+    "zone": {
+      "description": "Служебное: зона текста. ads — версия для рекламы (её ставит vm render, в edit.json не пиши).",
+      "enum": ["ads", null]
+    },
     "ab": {
       "description": "Вторая версия для A/B-теста (ответ Павла answers.ab): vm render соберёт ещё ролик <имя>-b без тизера (teaser) или без музыки (music). null или нет поля — один ролик.",
       "enum": ["teaser", "music", null]

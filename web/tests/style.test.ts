@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { initialDraft, pick } from '../lib/answers.ts';
 import type { Question, StyleChoice, Styles } from '../lib/jobfiles.ts';
-import { loadAb, saveAb, loadCover, saveCover, allowedFonts, choiceFor, clampHookSize, insertKey, INSERT_W, loadInsertBoxes, moveBox, placedInserts, resizeBox, saveInsertBoxes, clampHookY, clampSubSize, clampSubY, finalStyle, HOOK_SIZE, HOOK_Y, SUB_SIZE, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES } from '../lib/style.ts';
+import { loadAb, saveAb, loadAd, saveAd, loadCover, saveCover, allowedFonts, choiceFor, clampHookSize, insertKey, INSERT_W, loadInsertBoxes, moveBox, placedInserts, resizeBox, saveInsertBoxes, clampHookY, clampSubSize, clampSubY, finalStyle, HOOK_SIZE, HOOK_Y, SUB_SIZE, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES } from '../lib/style.ts';
 import { blockedStorage, memoryStorage } from './helpers.ts';
 
 // Общая с движком фикстура: final_style в engine/vm/style.py обязан давать то же самое.
@@ -244,4 +244,14 @@ test('the cover choice is remembered per job; junk is dropped', () => {
   assert.deepEqual(loadCover(store, id), { frame: 2, text: 'Как я учу' });
   store.setItem(`vm:cover:${id}`, JSON.stringify({ frame: 9, text: 5 }));
   assert.equal(loadCover(store, id), null);
+});
+
+test('the ads version choice is remembered per job', () => {
+  const store = memoryStorage();
+  const id = '261011-120000-ad00';
+  assert.equal(loadAd(store, id), false);
+  saveAd(store, id, true);
+  assert.equal(loadAd(store, id), true);
+  saveAd(store, id, false);
+  assert.equal(loadAd(store, id), false);
 });

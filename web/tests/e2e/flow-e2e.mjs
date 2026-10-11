@@ -465,6 +465,16 @@ const segments = [
     // вторая версия для теста: тизер Павел взял — можно собрать ролик без него; музыки нет — без музыки нельзя
     check(await page.getByRole('button', { name: 'Без музыки' }).count() === 0, 'без музыки предложено, хотя трека нет');
     await page.getByRole('button', { name: 'Без тизера' }).click();
+    // версия для рекламы: на крупном превью «Реклама» — всё выше кнопки рекламы (низ зоны — 1250)
+    await page.locator('[data-ad]').getByRole('button', { name: 'Нужна', exact: true }).click();
+    await page.getByRole('button', { name: 'Реклама', exact: true }).click();
+    const adFrame = page.frameLocator('iframe[data-big]');
+    await until(async () => {
+      const b = await adFrame.locator('body').evaluate(() => window.layoutBoxes());
+      return b.sub && b.sub.y + b.sub.h <= 1250 && b.inserts.every((i) => i.y + i.h <= 1250);
+    }, 5000, 'крупное превью в зоне рекламы');
+    await shot(page, 'previews-ads');
+    await page.getByRole('button', { name: 'Органика', exact: true }).click();
     // обложка: второй кадр и свой текст; превью рисует её тем же шаблоном
     const coverCard = page.locator('[data-cover]');
     check(await coverCard.locator('.cover-pick').count() === 3, 'три кадра обложки');
@@ -490,6 +500,7 @@ const segments = [
     check(answers.answers?.end === 'e1', `end: ${JSON.stringify(answers.answers?.end)}`);
     check(answers.ab === 'teaser', `ab: ${JSON.stringify(answers.ab)}`);
     check(isDeepStrictEqual(answers.cover, { frame: 1, text: 'Чешский за 15 минут' }), `cover: ${JSON.stringify(answers.cover)}`);
+    check(answers.ad === true, `ad: ${JSON.stringify(answers.ad)}`);
     check(answers.style?.subSize === grown - 4 && answers.style?.hookSize === pinched, `размеры: ${answers.style?.subSize}, ${answers.style?.hookSize}`);
     check(isDeepStrictEqual(finalStyle(restyled, answers.style), last), `стиль ответа ${JSON.stringify(answers.style)} ≠ последнему превью`);
   }],
@@ -514,7 +525,9 @@ const segments = [
       unsure: ['«Мемсон» на 0:31 — не уверен в написании'],
       missing: ['нет музыки assets/music/lofi.mp3 — ролик без неё'],
       qa: { ok: false, problems: ['хук на лице или ближе 40 px к нему (0,0–1,5 с ролика)'] },
-      caption: { text: 'Как я учу чешский по 15 минут в день и почему это работает лучше, чем курсы 🇨🇿\nСохрани, чтобы не потерять', hashtags: ['чешский', 'языки'] },
+      caption: { text: 'Как я учу чешский по 15 минут в день и почему это работает лучше, чем курсы 🇨🇿\nСохрани, чтобы не потерять', hashtags: ['чешский', 'языки'],
+        ad: 'Учу чешский по 15 минут в день — покажу как' },
+      ad: { durations: { source: 102.4, final: 76.2 }, qa: { ok: true, problems: [] } },
       ab: { differs: 'teaser', durations: { source: 102.4, final: 73.8 }, qa: { ok: false, problems: ['субтитры и вставка друг на друге (0:40)'] } },
       checklist: [
         { id: 'format', title: '9:16, 1080×1920, 30 к/с', ok: true }, { id: 'container', title: 'H.264 в MP4 без edit lists', ok: true },
@@ -530,8 +543,9 @@ const segments = [
     const vB = crypto.randomBytes(44 * 1024);
     await asset('final-b.mp4', vB);
     await asset('final-cover.png', PNG);
+    await asset('final-ad.mp4', crypto.randomBytes(40 * 1024));
     await session(ctx, { 'result.json': result, 'status.json': { state: 'rendered', phase: 'Загружаю', message: 'Ролик собран, загружаю', at: iso() },
-      'out/released.json': await released(['final.mp4', 'final.srt', 'final-b.mp4', 'final-cover.png']) });
+      'out/released.json': await released(['final.mp4', 'final.srt', 'final-b.mp4', 'final-ad.mp4', 'final-cover.png']) });
     await page.getByText('Что я сделал').waitFor({ timeout: 7000 });
     check(await page.getByRole('heading', { name: 'Готово' }).count() === 1, 'нет заголовка «Готово»');
     check((await page.textContent('body')).includes('было 1:42 → стало 1:16 · стиль B'), 'нет строки «было → стало · стиль»');
@@ -561,6 +575,8 @@ const segments = [
     check(got.status() === 302 && /\/__blob\/\d+$/.test(got.headers().location ?? ''), `скачивание: ${got.status()} ${got.headers().location}`);
     const bytes = Buffer.from(await (await fetch(got.headers().location)).arrayBuffer());
     check(bytes.equals(v1), 'скачанный ролик не совпал байт в байт');
+    check(/name=final-ad\.mp4$/.test((await page.locator('[data-ad-result] video').getAttribute('src')) ?? ''), 'версия для рекламы на «Готово»');
+    check((await page.locator('[data-ad-text]').textContent()).includes('Учу чешский по 15 минут в день — покажу как'), 'текст для рекламы');
     const coverImg = page.locator('[data-cover-result] img');
     check(/name=final-cover\.png$/.test((await coverImg.getAttribute('src')) ?? ''), 'обложка на «Готово»');
     const coverGot = await page.request.get(`${APP}/api/jobs/${ctx.jobId}/download?name=final-cover.png`, { maxRedirects: 0 });

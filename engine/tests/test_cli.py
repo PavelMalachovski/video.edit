@@ -1181,3 +1181,28 @@ def test_validate_finds_a_missing_cover_frame(tmp_path, capsys):
     assert "cover-1.jpg" in capsys.readouterr().err
     job.path("cover-1.jpg").write_bytes(b"jpg")
     assert main(["validate", str(job.root)]) == 0
+
+
+def test_render_makes_the_ads_version_in_the_ads_zone_and_drops_an_old_one(tmp_path, monkeypatch):
+    import vm.__main__ as cli
+    from vm.qa import ADS_SAFE, SAFE
+
+    job = Job(tmp_path / "jobs" / "abc")
+    job.write("edit.json", {**EDIT_4S, "ad": True})
+    _fake_outputs(monkeypatch, cli, job)
+    seen, zones = [], []
+    plain = cli.render
+
+    def render(job_, out_dir, name="final", preset="medium", edit=None, work="work/render"):
+        seen.append((name, (edit or {}).get("zone"), work))
+        return plain(job_, out_dir, name=name, preset=preset, edit=edit, work=work)
+
+    monkeypatch.setattr(cli, "render", render)
+    monkeypatch.setattr(cli, "check_layout", lambda boxes, face, inserts=None, safe=SAFE: zones.append(safe) or [])
+    assert main(["render", str(job.root)]) == 0
+    assert seen == [("final", None, "work/render"), ("final-ad", "ads", "work/render-ad")]
+    assert zones == [SAFE, ADS_SAFE]
+    assert job.read("result.json")["ad"] == {"durations": {"source": 4.0, "final": 3.5}, "qa": {"ok": True, "problems": []}}
+    job.write("edit.json", EDIT_4S)
+    assert main(["render", str(job.root)]) == 0
+    assert not job.path("out/final-ad.mp4").exists()

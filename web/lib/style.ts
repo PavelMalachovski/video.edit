@@ -17,6 +17,7 @@ export type EndState = { lines: string[]; handle?: string; logo?: string; t: num
 export type OverlayState = {
   sub?: SubState; hook?: { text: string }; cta?: { lines: string[]; word: string }; inserts: InsertState[]; end?: EndState;
   cover?: { text: string }; // обложка: хук крупно по центру кадра
+  zone?: 'ads'; // версия для рекламы: текст и вставки выше кнопки и подписи рекламы
 };
 
 type Variant = StyleChoice['variant'];
@@ -229,6 +230,27 @@ export function loadSpeed(storage: Storage | null, jobId: string): number {
 export function saveSpeed(storage: Storage | null, jobId: string, speed: number): void {
   try {
     storage?.setItem(speedKey(jobId), String(speed));
+  } catch {
+    // нет хранилища — выбор живёт до перезагрузки
+  }
+}
+
+// ---------- версия для рекламы (localStorage['vm:ad:<id>']) ----------
+
+const adKey = (jobId: string): string => `vm:ad:${jobId}`;
+
+export function loadAd(storage: Storage | null, jobId: string): boolean {
+  try {
+    return storage?.getItem(adKey(jobId)) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function saveAd(storage: Storage | null, jobId: string, on: boolean): void {
+  try {
+    if (on) storage?.setItem(adKey(jobId), '1');
+    else storage?.removeItem(adKey(jobId));
   } catch {
     // нет хранилища — выбор живёт до перезагрузки
   }

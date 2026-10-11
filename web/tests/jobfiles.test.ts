@@ -307,3 +307,22 @@ test('cover: styles offer up to three frames and a text; the answer picks a fram
   for (const name of ['final-cover.png', 'final-v3-cover.png']) assert.ok(isFinalName(name), name);
   for (const name of ['final-b-cover.png', 'cover.png', 'final-cover.jpg']) assert.equal(isFinalName(name), false, name);
 });
+
+test('ads version: the answers ask for it, it has its own file names and its check in result.json', () => {
+  const p = parseAnswersBody({ answers: {}, style: STYLE, ad: true }, QS);
+  assert.ok(!('error' in p) && p.ad === true, JSON.stringify(p));
+  if (!('error' in p)) {
+    const job = buildJobFile({ job: '261010-070509-abcd', name: 'a', size: 1, type: 'video/mp4', lastModified: 1, parts: 1, chunkSize: 4 }, NOW);
+    assert.equal(answersFile(p, job).ad, true);
+  }
+  assert.ok('error' in parseAnswersBody({ answers: {}, style: STYLE, ad: 'yes' }, QS));
+  const none = parseAnswersBody({ answers: {}, style: STYLE, ad: false }, QS);
+  assert.ok(!('error' in none) && none.ad === undefined, 'false — как нет');
+  assert.deepEqual(finalNames(2, 'ad'), { mp4: 'final-v2-ad.mp4', srt: 'final-v2-ad.srt' });
+  for (const name of ['final-ad.mp4', 'final-v2-ad.srt']) assert.ok(isFinalName(name), name);
+  assert.equal(isFinalName('final-b-ad.mp4'), false);
+  const result = { durations: { source: 80.2, final: 71 }, done: [], unsure: [], missing: [], qa: { ok: true, problems: [] } };
+  const ad = { durations: { source: 80.2, final: 71 }, qa: { ok: false, problems: ['вставка 1 вне безопасной зоны'] } };
+  assert.deepEqual(parseResult({ ...result, ad })?.ad, ad);
+  assert.equal(parseResult({ ...result, ad: { qa: 1 } })?.ad, undefined);
+});

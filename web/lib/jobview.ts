@@ -44,7 +44,7 @@ export type JobView = {
   sessionUrl: string | null;
   version: number;
   /** Готовый ролик; `b` — вторая версия A/B-теста, если она тоже доставлена. */
-  final: { mp4: string; srt: string | null; b?: { mp4: string; srt: string | null }; cover?: string } | null;
+  final: { mp4: string; srt: string | null; b?: { mp4: string; srt: string | null }; ad?: { mp4: string; srt: string | null }; cover?: string } | null;
   previous: string | null;
 };
 export type Action = 'start' | 'answers' | 'restyle' | 'fix' | 'retry' | 'back' | 'delete';
@@ -183,7 +183,9 @@ export function deriveView(release: Release, files: JobFiles | null, now: number
     const b = finalNames(version, 'b');
     const second = delivered.includes(b.mp4) ? { b: { mp4: b.mp4, srt: delivered.includes(b.srt) ? b.srt : null } } : {};
     const cover = delivered.includes(coverName(version)) ? { cover: coverName(version) } : {};
-    return { ...view, screen: 'result', final: { mp4: names.mp4, srt: delivered.includes(names.srt) ? names.srt : null, ...second, ...cover } };
+    const a = finalNames(version, 'ad');
+    const ad = delivered.includes(a.mp4) ? { ad: { mp4: a.mp4, srt: delivered.includes(a.srt) ? a.srt : null } } : {};
+    return { ...view, screen: 'result', final: { mp4: names.mp4, srt: delivered.includes(names.srt) ? names.srt : null, ...second, ...ad, ...cover } };
   }
   const status = files.status;
   if (!status) {

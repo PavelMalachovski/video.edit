@@ -71,6 +71,10 @@
         }
       }
     },
+    "ad": {
+      "description": "Павел попросил ещё версию для рекламы Reels.",
+      "type": "boolean"
+    },
     "cover": {
       "description": "Обложка, которую Павел выбрал на превью: номер кадра в styles.json cover.frames (с 0) и текст.",
       "type": "object",

@@ -31,6 +31,7 @@ from .job import Job, set_status, states, validate
 from .media import extract_frame, grid_frames
 from .prepare import prepare
 from .qa import (
+    ADS_SAFE,
     check_layout,
     check_render,
     checklist,
@@ -39,7 +40,7 @@ from .qa import (
     face_box,
     slot_times,
 )
-from .render import COVER_ZONE, _resolve, draw_layer, render, render_cover, variant_b
+from .render import COVER_ZONE, _resolve, draw_layer, render, render_cover, variant_ad, variant_b
 from .style import final_style
 
 SERVICE = ("own", "none", "upload")  # служебные варианты вопросов: их подписи — интерфейс страницы
@@ -276,6 +277,8 @@ def _render(args: argparse.Namespace) -> None:
         drop_parts(job.path("out"), done)
     if not variant:  # версии B в этот раз нет — её прежние файлы не от этого ролика
         _drop_outputs(job, f"{name}-b")
+    if not edit.get("ad"):
+        _drop_outputs(job, f"{name}-ad")
     step("Проверяю", "Смотрю контрольные кадры и геометрию")
     final = job.path(f"out/{name}.mp4")
     boxes = json.loads(job.path("work/render/frames/boxes.json").read_text(encoding="utf-8"))
@@ -314,6 +317,21 @@ def _render(args: argparse.Namespace) -> None:
         print(f"{final_b.relative_to(job.root)}: {result_b['durations']['final']:.1f} с — версия B, {'без тизера' if edit['ab'] == 'teaser' else 'без музыки'}")
         for line in problems_b:
             print(f"  версия B: {line}")
+    if edit.get("ad"):  # версия для рекламы: тот же монтаж (события на тех же долях), текст и вставки — выше кнопки рекламы
+        ads = variant_ad(result.get("edit", edit))
+        step("Монтирую", "Собираю версию для рекламы")
+        result_ad = render(job, job.path("out"), name=f"{name}-ad", preset=args.preset, edit=ads, work="work/render-ad")
+        for done in (f"{name}-ad.mp4", f"{name}-ad.srt"):
+            drop_parts(job.path("out"), done)
+        boxes_ad = json.loads(job.path("work/render-ad/frames/boxes.json").read_text(encoding="utf-8"))
+        final_ad = job.path(f"out/{name}-ad.mp4")
+        problems_ad = (check_layout(boxes_ad, face_box(ads.get("face")), ads.get("inserts"), safe=ADS_SAFE)
+                       + check_render(final_ad, ads, boxes_ad, result_ad))
+        summary["ad"] = {"durations": result_ad["durations"], "qa": {"ok": not problems_ad, "problems": problems_ad}}
+        job.write("result.json", summary)
+        print(f"{final_ad.relative_to(job.root)}: {result_ad['durations']['final']:.1f} с — версия для рекламы")
+        for line in problems_ad:
+            print(f"  реклама: {line}")
     print(f"{final.relative_to(job.root)}: {result['durations']['final']:.1f} с (исходник {result['durations']['source']:.1f} с)")
     print(f"контрольный лист: {frames['sheet'].relative_to(job.root)}")
     voice = result.get("voice") or {}

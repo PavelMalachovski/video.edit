@@ -554,6 +554,20 @@ def test_cover_frames_in_styles_the_choice_in_answers_and_the_frame_in_edit(job)
         job.write("edit.json", {**make_edit(), "cover": {"t": 7.5, "text": ""}})
 
 
+def test_the_ads_version_is_asked_in_answers_set_in_edit_and_has_a_short_ad_text(job):
+    answers = {"answers": {}, "style": {"variant": "A", "font": "Gilroy", "hand": "caveat",
+                                         "colors": {"text": "#FFFFFF", "accent": "#FFD23F", "bar": "#FFD23F"}}}  # fmt: skip
+    job.write("answers.json", {**answers, "ad": True})
+    job.write("edit.json", {**make_edit(), "ad": True})
+    with pytest.raises(ValueError, match=r"  ad: "):
+        job.write("edit.json", {**make_edit(), "ad": "yes"})
+    result = {"durations": {"source": 80.2, "final": 71.0}, "done": [], "unsure": [], "missing": [], "qa": {"ok": True, "problems": []}}
+    caption = {"text": "Три ошибки новичка", "hashtags": ["монтаж"], "ad": "Учу чешский по 15 минут — узнай как"}
+    job.write("result.json", {**result, "caption": caption, "ad": {"durations": {"source": 80.2, "final": 71.0}, "qa": {"ok": True, "problems": []}}})
+    with pytest.raises(ValueError, match=r"  caption\.ad: "):
+        job.write("result.json", {**result, "caption": {**caption, "ad": "x" * 73}})
+
+
 def test_edit_rejects_unknown_insert_kind(job):
     edit = make_edit()
     edit["inserts"][0]["kind"] = "gif"

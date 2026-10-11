@@ -143,6 +143,11 @@ def on_beats(job: Job, edit: dict, tl: Timeline) -> tuple[dict, dict | None]:
     return snapped, {"bpm": grid.bpm, "moved": moved}
 
 
+def variant_ad(edit: dict) -> dict:
+    """Версия для рекламы Reels (`edit.ad`): тот же монтаж, текст и вставки — в зоне рекламы (`zone: "ads"`)."""
+    return {**edit, "ab": None, "ad": False, "zone": "ads"}
+
+
 def draw_layer(job: Job, edit: dict | None = None, work: str = "work/render") -> Layer:
     """edit.json (по схеме; `edit` — вместо него, например версия B) → шкала по исходнику → события на доли музыки
     (`on_beats`) → кадры слоя в `<work>/frames`."""

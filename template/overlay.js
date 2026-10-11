@@ -16,7 +16,11 @@ import { appendText, emojiImages, emojiOnly, glueEmoji, loadEmoji, stripEmoji } 
 import { drawInserts, ease } from './inserts.js';
 
 const FRAME = { w: 1080, h: 1920 };
-const SAFE = { x0: 60, x1: 890, y0: 120, y1: 1530 }; // безопасная зона: всё, кроме шкалы, — внутри
+// безопасная зона: всё, кроме шкалы, — внутри. Для рекламы Reels (state.zone = "ads") снизу 35 % и сверху 14 % заняты
+// кнопкой CTA, подписью и шапкой — та же ширина, меньше по высоте
+const ORGANIC = { x0: 60, x1: 890, y0: 120, y1: 1530 };
+const ADS = { x0: 60, x1: 890, y0: 270, y1: 1250 };
+let SAFE = ORGANIC;
 const CX = (SAFE.x0 + SAFE.x1) / 2; // центр безопасной зоны (справа — кнопки соцсетей)
 const WIDTH = SAFE.x1 - SAFE.x0;
 const HOOK_Y = 400; // центр хука по высоте, если в стиле не задан hook.y
@@ -590,8 +594,9 @@ function texts(s) {
 async function draw(spec, state, opts) {
   const [main, hand] = await Promise.all([font(spec.font), font(spec.hand), loadEmoji(texts(state ?? {}))]);
   await document.fonts.ready;
-  const look = { spec, main, hand };
   const s = state ?? {};
+  SAFE = s.zone === 'ads' ? ADS : ORGANIC;
+  const look = { spec, main, hand, zone: s.zone === 'ads' ? ADS : null };
   document.getElementById('frame').style.background = opts?.background ?? 'transparent';
   const boxes = { inserts: await drawInserts(document.getElementById('inserts'), s.inserts ?? [], look) };
   const sub = drawSub(look, s.sub);

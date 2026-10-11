@@ -22,6 +22,7 @@ from vm.render import (
     render,
     render_cover,
     timeline,
+    variant_ad,
     variant_b,
 )
 
@@ -553,3 +554,20 @@ def test_cover_is_the_source_frame_with_the_hook_in_big_letters(tmp_path, source
     text = (slice(b["y"], b["y"] + b["h"]), slice(b["x"], b["x"] + b["w"]))
     assert np.abs(picture.astype(int)[text] - source[text]).mean() > 20, "на кадре — текст обложки"
     assert np.abs(picture.astype(int)[1750:1900, 100:1000] - source[1750:1900, 100:1000]).mean() < 12, "ниже — кадр исходника"
+
+
+# ---------- версия для рекламы ----------
+
+
+def test_the_ads_version_keeps_every_box_above_the_ad_button(tmp_path, sources):
+    from vm.qa import ADS_SAFE, check_layout
+
+    words = [{"t0": 0.5 + 0.4 * i, "t1": 0.8 + 0.4 * i, "text": w} for i, w in enumerate("это мои субтитры внизу кадра".split())]
+    job = make_job(tmp_path, sources["short"], keep=[[0.0, 4.0]], words=words, ad=True,
+                   inserts=[{"kind": "text", "id": "s1", "text": "3 ошибки", "t0": 1.0, "t1": 3.0, "x": 120, "y": 1300, "w": 420,
+                             "sfx": None, "params": {}}])
+    render(job, job.path("out"), name="final-ad", preset="ultrafast", edit=variant_ad(job.read("edit.json")), work="work/render-ad")
+    boxes = json.loads(job.path("work/render-ad/frames/boxes.json").read_text(encoding="utf-8"))
+    drawn = [b for e in boxes for k, v in (e.get("boxes") or {}).items() for b in (v if k == "inserts" else [v]) if b]
+    assert drawn and all(b["y"] >= ADS_SAFE["y0"] and b["y"] + b["h"] <= ADS_SAFE["y1"] for b in drawn), drawn
+    assert not [p for p in check_layout(boxes, None, safe=ADS_SAFE) if "безопасной зоны" in p]

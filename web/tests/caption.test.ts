@@ -22,3 +22,8 @@ test('parseCaption takes a sane caption and drops a broken one', () => {
   assert.equal(parseCaption({ text: 'Текст', hashtags: 'a b' }), null);
   assert.equal(parseCaption(undefined), null);
 });
+
+test('the ad text rides with the caption: up to 72 characters, otherwise it is dropped and the caption stays', () => {
+  assert.deepEqual(parseCaption({ text: 'Подпись', hashtags: [], ad: 'Учу чешский по 15 минут' }), { text: 'Подпись', hashtags: [], ad: 'Учу чешский по 15 минут' });
+  assert.deepEqual(parseCaption({ text: 'Подпись', hashtags: [], ad: 'x'.repeat(73) }), { text: 'Подпись', hashtags: [] });
+});

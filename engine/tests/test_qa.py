@@ -258,3 +258,11 @@ def test_checklist_marks_what_is_missing(tmp_path):
     marks = {i["id"]: i["ok"] for i in checklist(plain, late, report(95.0))}
     assert marks == {"format": True, "container": False, "audio": False, "hook": False, "safe": False, "subtitles": True,
                      "end": False, "length": False}
+
+
+def test_the_ads_zone_is_lower_at_the_bottom_and_top():
+    from vm.qa import ADS_SAFE
+
+    low = [event(0, 1, sub={"x": 200, "y": 1180, "w": 500, "h": 100})]  # низ субтитров — 1280: под кнопкой рекламы
+    assert check_layout(low, None) == []
+    assert any("субтитры вне безопасной зоны" in p for p in check_layout(low, None, safe=ADS_SAFE))

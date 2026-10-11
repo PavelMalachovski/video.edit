@@ -189,3 +189,9 @@ def test_the_cover_has_frames_in_analyze_and_a_render_step():
     assert "cover-1.jpg" in section("Шаг analyze") and "`cover`" in section("Стили (styles.json)")
     render = section("Шаг render")
     assert "обложка: `answers.cover`" in render and "-cover.png" in render
+
+
+def test_the_ads_version_reaches_the_render_step():
+    render = section("Шаг render")
+    assert "реклама: `answers.ad`" in render and "-ad.mp4" in render and "`caption.ad`" in render
+    assert "`ad` — ещё версия для рекламы" in section("Страница")

@@ -1,16 +1,17 @@
 // Подпись к посту (result.json.caption — пишет Claude на шаге render): текст на языке ролика и хэштеги без «#».
 // Instagram до «ещё» показывает 72 знака первой строки — экран «Готово» выделяет их.
 
-export type Caption = { text: string; hashtags: string[] };
+export type Caption = { text: string; hashtags: string[]; ad?: string }; // ad — основной текст рекламы, до 72 знаков
 
 export const FOLD = 72; // знаков подписи видно до «ещё» (гайд Meta «Всё о Reels», стр. 63)
 
 /** caption из result.json → подпись; нет или не та форма — null (экран её не покажет). */
 export function parseCaption(raw: unknown): Caption | null {
   if (typeof raw !== 'object' || raw === null) return null;
-  const { text, hashtags } = raw as Record<string, unknown>;
+  const { text, hashtags, ad } = raw as Record<string, unknown>;
   if (typeof text !== 'string' || !text.trim() || !Array.isArray(hashtags) || !hashtags.every((t) => typeof t === 'string')) return null;
-  return { text, hashtags };
+  const adOk = typeof ad === 'string' && ad.trim() !== '' && [...ad].length <= FOLD;
+  return { text, hashtags, ...(adOk ? { ad } : {}) };
 }
 
 /** Что копирует кнопка: текст, пустая строка и хэштеги через пробел (хэштегов нет — только текст). */

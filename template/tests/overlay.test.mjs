@@ -587,3 +587,25 @@ test('the cover puts the hook in big letters in the middle of the profile grid c
   assert.ok(size > SPEC.hook.size, `крупнее хука: ${size}`);
   assert.ok(await page.evaluate(() => document.querySelector('#bar')?.hidden !== false || !document.querySelector('#bar')?.children.length), 'без шкалы');
 });
+
+// ---------- зона рекламы ----------
+
+const ADS = { x0: 60, x1: 890, y0: 270, y1: 1250 }; // Reels Ads: сверху 14 %, снизу 35 % — под кнопку и подпись
+
+test('in the ads zone subtitles, a low sticker and the end card move up above the ad button', async () => {
+  const state = {
+    sub: { words: ['Это', 'мои', 'субтитры'], active: 1, visible: 3 },
+    inserts: [{ kind: 'text', text: '3 ошибки 🔥', x: 120, y: 1300, w: 420, anim: 1 }],
+  };
+  await render(spec({ sub: { y: 1400 } }), state);
+  const organic = await boxes();
+  assert.ok(organic.sub.y + organic.sub.h > ADS.y1, 'без зоны рекламы субтитры внизу');
+  await render(spec({ sub: { y: 1400 } }), { ...state, zone: 'ads' });
+  const ads = await boxes();
+  for (const b of [ads.sub, ...ads.inserts]) {
+    assert.ok(b.y >= ADS.y0 && b.y + b.h <= ADS.y1, JSON.stringify(b));
+  }
+  await render(spec(), { end: { lines: ['Сохрани ✅'], handle: '@pavel', t: 1 }, inserts: [], zone: 'ads' });
+  const card = (await boxes()).end;
+  assert.ok(card.y >= ADS.y0 && card.y + card.h <= ADS.y1, JSON.stringify(card));
+});

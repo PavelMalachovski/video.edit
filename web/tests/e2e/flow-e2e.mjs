@@ -173,11 +173,15 @@ const segments = [
     fs.writeFileSync(source, crypto.randomBytes(30 * 1024 * 1024));
     const insert = path.join(tmp, 'logo.png');
     fs.writeFileSync(insert, PNG);
+    // озвучка: своя запись голоса, два куска; буфером — путь с кириллицей Playwright молча не ставит в поле
+    const voice = { name: 'Запись.m4a', mimeType: 'audio/x-m4a', buffer: crypto.randomBytes(5 * 1024 * 1024) };
 
     await page.setInputFiles('#source', source);
     await page.fill('#brief', 'ХУК: Как я учу чешский');
     await page.setInputFiles('#inserts', insert);
     await page.getByText('logo.png').waitFor();
+    await page.setInputFiles('#voice', voice);
+    await page.getByText('Запись.m4a').waitFor();
     await shot(page, 'upload-form');
     await page.getByRole('button', { name: 'Загрузить', exact: true }).click();
     await page.getByText('Загружаю в GitHub…').waitFor();
@@ -190,6 +194,7 @@ const segments = [
     check(await page.inputValue('#brief') === 'ХУК: Как я учу чешский', 'ТЗ не восстановилось после перезагрузки');
     await page.setInputFiles('#source', source);
     await page.setInputFiles('#inserts', insert);
+    await page.setInputFiles('#voice', voice);
     await page.getByRole('button', { name: 'Продолжить загрузку' }).waitFor();
     await shot(page, 'upload-resume');
     await page.getByRole('button', { name: 'Продолжить загрузку' }).click();
@@ -202,6 +207,8 @@ const segments = [
     const manifest = draft.sha;
     check(manifest?.brief === 'ХУК: Как я учу чешский', `ТЗ в manifest.json: ${manifest?.brief}`);
     check(manifest?.uploads?.[0]?.asset === 'upload-i1.png', `вставка в manifest.json: ${JSON.stringify(manifest?.uploads)}`);
+    check(manifest?.uploads?.[1]?.asset === 'upload-voice.m4a' && manifest.uploads[1].size === 5 * 1024 * 1024,
+      `озвучка в manifest.json: ${JSON.stringify(manifest?.uploads)}`);
     const f = await fires();
     check(f.length === 1 && f[0].step === 'analyze' && f[0].attempt === 1 && f[0].job === ctx.jobId, `запуски: ${JSON.stringify(f)}`);
     const left = await page.evaluate(() => localStorage.getItem('vm:pending'));
@@ -209,6 +216,7 @@ const segments = [
     // задача взяла копию бренда: job.json.brand и логотип в своей папке
     const job = JSON.parse((await branchFile(ctx, 'job.json')) ?? '{}');
     check(job.brand?.handle === '@pavel.malakhouski' && job.brand?.logo === 'in/brand/logo.png', `job.json.brand: ${JSON.stringify(job.brand)}`);
+    check(job.uploads?.some((u) => u.file === 'in/uploads/upload-voice.m4a' && u.kind === 'audio'), `озвучка в job.json: ${JSON.stringify(job.uploads)}`);
     check((await branchFile(ctx, 'in/brand/logo.png')) !== null, 'логотип бренда не скопирован в задачу');
   }],
 

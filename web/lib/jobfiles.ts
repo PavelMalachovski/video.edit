@@ -1,7 +1,7 @@
 // Файлы задачи jobs/<id>/ в ветке claude/job-<id> — контракт страницы и сессии монтажа. Типы повторяют схемы движка
 // (engine/vm/schemas/*.json; тесты сверяют перечни с ними). Страница пишет job.json, answers.json, restyle.json,
 // fix.json; сессия — status.json, questions.json, styles.json, result.json; Action — out/released.json.
-import { isUploadFile, MAX_NOTE } from './jobs.ts';
+import { isUploadFile, isVoiceFile, MAX_NOTE } from './jobs.ts';
 import type { Step } from './routine.ts';
 import type { Brand } from './brand.ts';
 import type { ScriptRequest } from './script.ts';
@@ -175,8 +175,8 @@ export type Manifest = {
   userAgent?: string; startedAt?: number; finishedAt?: number; retries?: number; completedAt?: string;
   brief?: string; duration?: number | null; uploads?: ManifestUpload[];
 };
-/** Вставка Павла к ролику: `file` — куда её кладёт `vm fetch` (от папки задачи). */
-export type UploadRef = { file: string; asset: string; name: string; size: number; type: string; kind: 'image' | 'video' };
+/** Вставка Павла к ролику или его озвучка (`audio`): `file` — куда её кладёт `vm fetch` (от папки задачи). */
+export type UploadRef = { file: string; asset: string; name: string; size: number; type: string; kind: 'image' | 'video' | 'audio' };
 export type Run = { step: Step; attempt: number; at: string; sessionUrl?: string };
 export type JobFile = {
   id: string; name: string; size: number; type: string; duration: number | null; createdAt: string;
@@ -192,7 +192,7 @@ export function buildJobFile(m: Manifest, now: Date): JobFile {
     brief: m.brief ?? '',
     uploads: (m.uploads ?? []).map((u) => ({
       file: `in/uploads/${u.asset}`, asset: u.asset, name: u.name, size: u.size, type: u.type,
-      kind: u.type.startsWith('video/') ? 'video' : 'image',
+      kind: isVoiceFile(u.asset) ? 'audio' : u.type.startsWith('video/') ? 'video' : 'image',
     })),
     runs: [],
   };

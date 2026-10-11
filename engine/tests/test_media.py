@@ -448,6 +448,43 @@ def test_normalize_pads_audio_that_ends_before_its_video(tmp_path, part_b, short
     assert np.abs(samples[int(3.6 * 48000) :]).max() < 1e-3  # а после него — тишина
 
 
+@pytest.fixture(scope="module")
+def voice_long(tmp_path_factory) -> Path:
+    """Озвучка 3,5 с: 700 Гц моно 44,1 кГц, M4A — длиннее части 1 (2,5 с)."""
+    path = tmp_path_factory.mktemp("voice") / "voice.m4a"
+    ff("-f", "lavfi", "-i", "sine=frequency=700:sample_rate=44100:duration=3.5", "-c:a", "aac", "-ac", "1", path)
+    return path
+
+
+def test_normalize_puts_the_voiceover_instead_of_the_video_sound_and_holds_the_last_frame(tmp_path, part_a, voice_long):
+    out = tmp_path / "source.mp4"
+    result = normalize([part_a], out, voice=voice_long)
+    video, audio = stream_of(out, "video"), stream_of(out, "audio")
+    assert result.duration == pytest.approx(3.5, abs=0.1)
+    assert abs(float(video["duration"]) - float(audio["duration"])) <= FRAME
+    assert audio["channels"] == 2 and int(audio["sample_rate"]) == 48000
+    samples = audio_mono(out)
+    assert dominant_hz(samples[48000 : 48000 + 4800], 48000) == pytest.approx(700, abs=15), "звук — озвучка, а не 440 Гц видео"
+    assert dominant_hz(samples[3 * 48000 : 3 * 48000 + 4800], 48000) == pytest.approx(700, abs=15), "и после конца видео"
+    frames = frame_colors(out)
+    assert len(frames) == pytest.approx(105, abs=1) and frames[-1] == pytest.approx(RED, abs=COLOR_TOLERANCE), "последний кадр держится"
+
+
+def test_normalize_cuts_the_video_to_a_shorter_voiceover(tmp_path, colors):
+    voice = tmp_path / "short.wav"
+    ff("-f", "lavfi", "-i", "sine=frequency=700:sample_rate=48000:duration=1.5", "-c:a", "pcm_s16le", voice)
+    result = normalize([colors], tmp_path / "source.mp4", voice=voice)
+    assert result.duration == pytest.approx(1.5, abs=0.1)
+    frames = frame_colors(tmp_path / "source.mp4")
+    assert len(frames) == pytest.approx(45, abs=1) and frames[-1] == pytest.approx(GREEN, abs=COLOR_TOLERANCE)
+
+
+def test_normalize_rejects_a_voiceover_without_sound(tmp_path, part_a, silent):
+    with pytest.raises(MediaError, match="в записи нет звука"):
+        normalize([part_a], tmp_path / "source.mp4", voice=silent)
+    assert not (tmp_path / "source.mp4").exists()
+
+
 def test_normalize_rejects_no_parts(tmp_path):
     with pytest.raises(ValueError, match="no parts"):
         normalize([], tmp_path / "source.mp4")

@@ -1,23 +1,25 @@
 'use client';
-// Экран «1 · Загрузка»: видео, ТЗ и вставки → черновик job-<id> кусками → manifest.json → запуск анализа.
+// Экран «1 · Загрузка»: видео, ТЗ, вставки и озвучка → черновик job-<id> кусками → manifest.json → запуск анализа.
 // Незаконченная загрузка помнится в localStorage: после перезагрузки тот же файл продолжает с недостающих кусков.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { errorText, message, post, storage } from '@/lib/client.ts';
 import { bytes, mmss } from '@/lib/format.ts';
-import { checkInsert, checkSource, checkTotal, INSERT_TYPES, LONG_VIDEO_SEC, MAX_BRIEF, MAX_INSERTS, uploadAssetName } from '@/lib/jobs.ts';
+import {
+  checkInsert, checkSource, checkTotal, checkVoice, INSERT_TYPES, LONG_VIDEO_SEC, MAX_BRIEF, MAX_INSERTS, uploadAssetName, VOICE_EXT, voiceAssetName,
+} from '@/lib/jobs.ts';
 import {
   clearPending, loadPending, matchPending, planChunks, resumeDone, runUpload, savePending, type Pending, type PendingInsert,
 } from '@/lib/uploader.ts';
 import { keepScreenOn } from '@/lib/wakelock.ts';
 import { takeNextBrief } from '@/lib/script.ts';
-import { CloseIcon, PlayIcon, PlusIcon, UploadIcon } from './icons';
+import { CloseIcon, MicIcon, PlayIcon, PlusIcon, UploadIcon } from './icons';
 import { JOBS_CHANGED } from './jobs-list';
 
 const BRIEF_HINT = 'ХУК: Как я учу чешский\nКОДОВОЕ СЛОВО: чешский\nМУЗЫКА: lofi\nКогда говорю «приложение» — покажи логотип\nНа «вот так это выглядит» — фуллскрин демо';
 
 type Phase = 'idle' | 'uploading' | 'completing' | 'launching' | 'failed' | 'launch_failed';
-type Active = { p: Pending; files: Map<string, File> }; // files: 'source' и ассеты вставок → файлы
+type Active = { p: Pending; files: Map<string, File> }; // files: 'source', ассеты вставок и озвучки → файлы
 
 /** Длительность по метаданным `<video>`; не узнал за 5 с (или файл не читается) — null. */
 function videoDuration(file: File, timeoutMs = 5000): Promise<number | null> {
@@ -68,6 +70,8 @@ export default function Uploader() {
   const [brief, setBrief] = useState('');
   const [inserts, setInserts] = useState<File[]>([]);
   const [insertError, setInsertError] = useState('');
+  const [voice, setVoice] = useState<File | null>(null); // озвучка — своя запись голоса вместо звука видео
+  const [voiceError, setVoiceError] = useState('');
   const [pending, setPending] = useState<Pending | null>(null);
   const [phase, setPhase] = useState<Phase>('idle');
   const [sent, setSent] = useState(0);
@@ -89,9 +93,9 @@ export default function Uploader() {
   }, []);
 
   const busy = phase === 'uploading' || phase === 'completing' || phase === 'launching';
-  const match = useMemo(() => (pending && source && !busy ? matchPending(pending, source, inserts) : null), [pending, source, inserts, busy]);
+  const match = useMemo(() => (pending && source && !busy ? matchPending(pending, source, inserts, voice) : null), [pending, source, inserts, voice, busy]);
   const sourceError = source ? checkSource(source.size) : null;
-  const totalError = source ? checkTotal(source.size, inserts.map((f) => f.size)) : null;
+  const totalError = source ? checkTotal(source.size, [...inserts, ...(voice ? [voice] : [])].map((f) => f.size)) : null;
   const measuring = !!source && duration === undefined;
   const canStart = !!source && !sourceError && !totalError && !busy && !measuring;
 
@@ -122,6 +126,13 @@ export default function Uploader() {
     setInsertError(problems.join('\n'));
   }
 
+  function pickVoice(f: File | null) {
+    if (!f) return; // выбор отменили — прежняя запись остаётся
+    const why = checkVoice(f);
+    setVoiceError(why ?? '');
+    if (!why) setVoice(f);
+  }
+
   function changeBrief(text: string) {
     setBrief(text);
     briefRef.current = text;
@@ -142,15 +153,19 @@ export default function Uploader() {
       const { jobId, releaseId } = (await r.json()) as { jobId: string; releaseId: number };
       window.dispatchEvent(new Event(JOBS_CHANGED));
       const list: PendingInsert[] = inserts.map((f, k) => ({ asset: uploadAssetName('i', k + 1, f.name, f.type), name: f.name, size: f.size, type: f.type, lastModified: f.lastModified }));
-      const p: Pending = { jobId, releaseId, source: { name: source.name, size: source.size, lastModified: source.lastModified }, brief: briefRef.current, duration: duration ?? null, inserts: list };
-      await upload({ p, files: new Map<string, File>([['source', source], ...list.map((i, k) => [i.asset, inserts[k]] as [string, File])]) }, new Set());
+      const said = voice ? { asset: voiceAssetName(voice.name, voice.type), name: voice.name, size: voice.size, type: voice.type, lastModified: voice.lastModified } : undefined;
+      const p: Pending = { jobId, releaseId, source: { name: source.name, size: source.size, lastModified: source.lastModified }, brief: briefRef.current, duration: duration ?? null, inserts: list, voice: said };
+      const files = new Map<string, File>([['source', source], ...list.map((i, k) => [i.asset, inserts[k]] as [string, File])]);
+      if (said && voice) files.set(said.asset, voice);
+      await upload({ p, files }, new Set());
     } catch (e) {
       setError(message(e));
       setPhase('failed');
     }
   }
 
-  /** Тот же файл после перезагрузки: заново выбранные вставки — те же ассеты, новые — следующие номера. */
+  /** Тот же файл после перезагрузки: заново выбранные вставки — те же ассеты, новые — следующие номера; та же
+   *  озвучка — тот же ассет, другая — следующий номер (куски прежней остались в черновике). */
   async function resume() {
     if (!pending || !source || !match?.ok) return;
     const kept = pending.inserts.filter((i) => match.inserts.has(i.asset));
@@ -158,8 +173,13 @@ export default function Uploader() {
     const extras = inserts.filter((f) => !reused.has(f));
     let n = Math.max(0, ...pending.inserts.map((i) => Number(/^upload-i(\d+)/.exec(i.asset)?.[1] ?? 0)));
     const added: PendingInsert[] = extras.map((f) => ({ asset: uploadAssetName('i', ++n, f.name, f.type), name: f.name, size: f.size, type: f.type, lastModified: f.lastModified }));
-    const p: Pending = { ...pending, brief: briefRef.current, duration: duration ?? pending.duration, inserts: [...kept, ...added] };
-    await upload({ p, files: new Map<string, File>([['source', source], ...match.inserts, ...added.map((a, k) => [a.asset, extras[k]] as [string, File])]) }, null);
+    const last = pending.voice ? Number(/^upload-voice-(\d+)/.exec(pending.voice.asset)?.[1] ?? 1) : 0;
+    const said = match.voice ? pending.voice : voice
+      ? { asset: voiceAssetName(voice.name, voice.type, last + 1), name: voice.name, size: voice.size, type: voice.type, lastModified: voice.lastModified } : undefined;
+    const p: Pending = { ...pending, brief: briefRef.current, duration: duration ?? pending.duration, inserts: [...kept, ...added], voice: said };
+    const files = new Map<string, File>([['source', source], ...match.inserts, ...added.map((a, k) => [a.asset, extras[k]] as [string, File])]);
+    if (said && voice) files.set(said.asset, voice);
+    await upload({ p, files }, null);
   }
 
   /** Куски (`known` — уже готовые; null — спросить черновик), проверка → manifest.json, запуск анализа. */
@@ -172,7 +192,8 @@ export default function Uploader() {
     const release = keepScreenOn(navigator as Parameters<typeof keepScreenOn>[0], document); // экран не гаснет до конца загрузки
     const { p, files } = a;
     try {
-      const chunks = planChunks([{ asset: 'source', size: p.source.size }, ...p.inserts.map((i) => ({ asset: i.asset, size: i.size }))]);
+      const extra = [...p.inserts, ...(p.voice ? [p.voice] : [])]; // вставки и озвучка — одной очередью после исходника
+      const chunks = planChunks([{ asset: 'source', size: p.source.size }, ...extra.map((i) => ({ asset: i.asset, size: i.size }))]);
       let done = known;
       if (!done) {
         const r = await fetch(`/api/jobs/${p.jobId}/parts?release=${p.releaseId}`, { cache: 'no-store' });
@@ -204,7 +225,7 @@ export default function Uploader() {
       const c = await post(`/api/jobs/${p.jobId}/complete`, {
         releaseId: p.releaseId, name: p.source.name, size: p.source.size, type: files.get('source')!.type, lastModified: p.source.lastModified,
         parts: partsOf('source'), userAgent: navigator.userAgent, brief: briefRef.current.trim(), duration: p.duration,
-        uploads: p.inserts.map((i) => ({ asset: i.asset, name: i.name, size: i.size, type: i.type, parts: partsOf(i.asset) })),
+        uploads: extra.map((i) => ({ asset: i.asset, name: i.name, size: i.size, type: i.type, parts: partsOf(i.asset) })),
       });
       if (!c.ok) throw new Error(await errorText(c, 'Проверка загрузки не прошла'));
       clearPending(storage()); // всё в черновике — продолжать больше нечего, запуск повторяется и со страницы задачи
@@ -315,6 +336,30 @@ export default function Uploader() {
           </ul>
         ) : null}
         {insertError ? <div className="err pre">{insertError}</div> : null}
+      </div>
+
+      <div className="card">
+        <div className="label">Озвучка <span className="muted">— необязательно</span></div>
+        <div className="muted small">Своя запись голоса с диктофона — пойдёт вместо звука видео. M4A, MP3, WAV или AAC, до 200 МБ.</div>
+        <label className={`btn ghost${busy ? ' off' : ''}`}>
+          <PlusIcon />
+          {voice ? 'Выбрать другую запись' : 'Добавить озвучку'}
+          <input id="voice" type="file" accept={['audio/*', ...VOICE_EXT.map((e) => `.${e}`)].join(',')} disabled={busy} hidden
+            onChange={(e) => { pickVoice(e.target.files?.[0] ?? null); e.target.value = ''; }} />
+        </label>
+        {voice ? (
+          <ul className="files">
+            <li>
+              <span className="thumb"><MicIcon /></span>
+              <span className="grow">{voice.name}</span>
+              <span className="muted small">{bytes(voice.size)}</span>
+              <button type="button" className="icon" aria-label={`Убрать ${voice.name}`} disabled={busy} onClick={() => setVoice(null)}>
+                <CloseIcon />
+              </button>
+            </li>
+          </ul>
+        ) : null}
+        {voiceError ? <div className="err">{voiceError}</div> : null}
       </div>
 
       {error ? <div className="err">{error}</div> : null}

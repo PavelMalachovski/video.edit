@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   newJobId, partName, chunkCount, CHUNK_SIZE, jobTag, jobBranch, jobDir, chunkName, uploadAssetName, isUploadFile, resolveJobPath,
   imageType, checkSource, checkInsert, checkTotal, partsOf, verifyParts, MAX_SOURCE_BYTES, MAX_INSERT_BYTES,
+  checkVoice, isVoiceFile, MAX_VOICE_BYTES, voiceAssetName,
 } from '../lib/jobs.ts';
 
 test('job id is UTC date-time plus 4 base36 chars', () => {
@@ -97,3 +98,17 @@ test('verifyParts reports missing parts and size mismatch', () => {
   assert.deepEqual(verifyParts(assets, 'upload-i1.png', 1, 9), { missing: [], total: 9 });
 });
 
+
+test('a voiceover is one audio file up to 200 MB under its own asset name', () => {
+  assert.equal(voiceAssetName('Запись 12.M4A', 'audio/x-m4a'), 'upload-voice.m4a');
+  assert.equal(voiceAssetName('voice', 'audio/mpeg'), 'upload-voice.mp3');
+  assert.equal(voiceAssetName('take.wav', 'audio/wav', 2), 'upload-voice-2.wav');
+  for (const n of ['upload-voice.m4a', 'upload-voice-2.wav', 'upload-voice.aac']) assert.ok(isUploadFile(n) && isVoiceFile(n), n);
+  for (const n of ['upload-i1.png', 'upload-voice.exe', 'upload-voice-x.mp3']) assert.ok(!isVoiceFile(n), n);
+  assert.equal(checkVoice({ name: 'Запись.m4a', size: 5 * 1024 ** 2, type: 'audio/x-m4a' }), null);
+  assert.equal(checkVoice({ name: 'take.mp3', size: 5, type: '' }), null, 'тип браузер не знает — по расширению');
+  assert.equal(checkVoice({ name: 'voice', size: 5, type: 'audio/aac' }), null);
+  assert.match(checkVoice({ name: 'clip.mov', size: 5, type: 'video/quicktime' }) ?? '', /clip\.mov: нужна запись голоса — M4A, MP3, WAV или AAC/);
+  assert.match(checkVoice({ name: 'big.wav', size: MAX_VOICE_BYTES + 1, type: 'audio/wav' }) ?? '', /big\.wav: больше 200 МБ/);
+  assert.match(checkVoice({ name: 'e.m4a', size: 0, type: 'audio/mp4' }) ?? '', /e\.m4a: пустой файл/);
+});

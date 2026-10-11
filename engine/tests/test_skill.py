@@ -205,3 +205,9 @@ def test_transitions_go_only_on_scene_changes_and_are_decided_in_analyze():
     analyze = section("Шаг analyze")
     assert "`joins`" in analyze and '"transitions": transitions' in analyze
     assert "`joins`" in section("Файлы задачи") and "переходы" in section("Шаг render")
+
+
+def test_a_voiceover_replaces_the_video_sound_and_the_frame_may_have_no_face():
+    sound = section("5. Звук")
+    assert "**Озвучка**" in sound and '`kind: "audio"`' in sound and "лица в кадре может не быть" in sound.lower()
+    assert "`audio`" in section("Страница") and "озвучка" in section("Файлы задачи")

@@ -227,7 +227,19 @@ def _audio_chain(index: int, streams: _Streams, frames: int) -> str:
     return f"{source},atrim=end_sample={samples},asetpts=PTS-STARTPTS[a{index}]"
 
 
-def normalize(parts: Sequence[PathLike], out: PathLike) -> Probe:
+def voice_seconds(path: PathLike) -> float:
+    """Длина записи голоса (озвучки), с; звука в файле нет или длина не ясна — MediaError."""
+    data = _ffprobe(path)
+    audio = next((s for s in data.get("streams", []) if s.get("codec_type") == "audio"), None)
+    if audio is None:
+        raise MediaError(f"{path}: в записи нет звука")
+    seconds = _seconds(audio.get("duration")) or _seconds(data.get("format", {}).get("duration"))
+    if not seconds:
+        raise MediaError(f"{path}: не понял длину записи")
+    return seconds
+
+
+def normalize(parts: Sequence[PathLike], out: PathLike, voice: PathLike | None = None) -> Probe:
     """Исходник для всего движка: части подряд в один файл 1080×1920 (или шириной 1080) SDR, 30 к/с, звук 48 кГц.
 
     Поворот из метаданных применён (ffmpeg поворачивает сам), HDR переведён в SDR BT.709 — только в тех
@@ -237,6 +249,9 @@ def normalize(parts: Sequence[PathLike], out: PathLike) -> Probe:
     H.264 crf 16 ultrafast — промежуточный файл (в каждой сессии он делается заново: в git его нет; на 4K HEVC
     с iPhone половина времени — декодирование, ultrafast экономит ещё ~30 % против veryfast), финал кодирует `render`. Метаданные файла (место съёмки и т. п.) не
     переносятся. Возвращает probe результата.
+
+    `voice` — озвучка (своя запись голоса Павла): звук — она, а не звук частей; ролик — длиной в неё: видео короче —
+    последний кадр держится до конца записи, длиннее — обрезается.
     """
     parts, out = [Path(p) for p in parts], Path(out)
     if not parts:
@@ -249,11 +264,25 @@ def normalize(parts: Sequence[PathLike], out: PathLike) -> Probe:
     chains = []
     for index, (info, streams) in enumerate(inspected):
         chains.append(_video_chain(index, info.hdr, streams, size))
-        chains.append(_audio_chain(index, streams, max(1, round(streams.seconds * FPS))))
-    joined = "".join(f"[v{i}][a{i}]" for i in range(len(parts))) + f"concat=n={len(parts)}:v=1:a=1[v][a]"
+        if voice is None:
+            chains.append(_audio_chain(index, streams, max(1, round(streams.seconds * FPS))))
+    if voice is None:
+        joined = "".join(f"[v{i}][a{i}]" for i in range(len(parts))) + f"concat=n={len(parts)}:v=1:a=1[v][a]"
+    else:
+        frames = max(1, round(voice_seconds(voice) * FPS))
+        samples = frames * AUDIO_RATE // FPS
+        video = sum(streams.seconds for _, streams in inspected)
+        joined = (
+            "".join(f"[v{i}]" for i in range(len(parts))) + f"concat=n={len(parts)}:v=1:a=0,"
+            # запас стоп-кадра с лишней секундой, потом ровно `frames` кадров: видео той же длины, что озвучка
+            f"tpad=stop_mode=clone:stop_duration={max(0.0, frames / FPS - video) + 1:.3f},trim=end_frame={frames},setpts=PTS-STARTPTS[v];"
+            f"[{len(parts)}:a:0]aresample={AUDIO_RATE},aformat=sample_fmts=fltp:channel_layouts=stereo,"
+            f"apad=whole_len={samples},atrim=end_sample={samples},asetpts=PTS-STARTPTS[a]"
+        )
+    inputs = [*parts, *([Path(voice)] if voice is not None else [])]
     with _atomic(out) as tmp:
         _ffmpeg(
-            *[arg for part in parts for arg in ("-i", part)],
+            *[arg for part in inputs for arg in ("-i", part)],
             "-filter_complex", ";".join([*chains, joined]),
             "-map", "[v]", "-map", "[a]",
             "-map_metadata", "-1", "-map_chapters", "-1",

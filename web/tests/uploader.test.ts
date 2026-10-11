@@ -117,6 +117,22 @@ test('matchPending resumes re-picked files and drops the rest', () => {
   assert.equal(matchPending(pending, file('other.mov', 10, 111), [a]).ok, false);
 });
 
+test('a voiceover resumes when picked again; another file or none is not the pending one', () => {
+  const p: Pending = { ...pending, voice: { asset: 'upload-voice.m4a', name: 'take.m4a', size: 7, type: 'audio/mp4', lastModified: 1 } };
+  const v = file('take.m4a', 7, 42);
+  assert.equal(matchPending(p, file('clip.mov', 10, 111), [], v).voice, v);
+  const none = matchPending(p, file('clip.mov', 10, 111), [], null);
+  assert.equal(none.voice, null);
+  assert.ok(none.dropped.includes('take.m4a'), 'озвучку не выбрали заново — её не будет');
+  assert.equal(matchPending(p, file('clip.mov', 10, 111), [], file('new.m4a', 9, 1)).voice, null);
+  assert.equal(matchPending(pending, file('clip.mov', 10, 111), [], v).voice, null, 'в прошлой загрузке озвучки не было');
+  const store = memoryStorage();
+  savePending(store, p);
+  assert.deepEqual(loadPending(store), p);
+  store.setItem('vm:pending', JSON.stringify({ ...p, voice: { ...p.voice, asset: 'upload-i1.png' } }));
+  assert.equal(loadPending(store), null);
+});
+
 test('pending upload survives in storage; corrupt or blocked storage gives null', () => {
   const store = memoryStorage();
   savePending(store, pending);

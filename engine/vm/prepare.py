@@ -1,6 +1,7 @@
 """Подготовка задачи к монтажу: исходник, звук, слова, план мягкой резки, контактный лист — и сводка для Claude.
 
-Видео из `in/` (`in/source.*`, как кладёт fetch; иначе все видео по имени) → `source.mp4` (1080×1920 SDR 30 к/с)
+Видео из `in/` (`in/source.*`, как кладёт fetch; иначе все видео по имени) → `source.mp4` (1080×1920 SDR 30 к/с;
+озвучка Павла — upload `kind: "audio"` в job.json — вместо звука видео, ролик длиной в неё)
 → `work/source.wav` (16 кГц) → `language.json` (язык ролика: `ЯЗЫК:` в ТЗ, ответ Павла `--lang` или Whisper по
 речи) → `reference.txt` (сплошной текст Whisper, по нему Claude правит слова) → `words.json` (слова с временем:
 GigaAM для русского, Parakeet для 25 европейских языков, иначе Whisper по фразам), `speech.json` (где речь по VAD:
@@ -22,7 +23,14 @@ from pathlib import Path
 from . import asr, lang
 from .cuts import plan_keep
 from .job import Job, _atomic_write
-from .media import contact_sheet, extract_wav, normalize, probe, scene_cuts
+from .media import (
+    contact_sheet,
+    extract_wav,
+    normalize,
+    probe,
+    scene_cuts,
+    voice_seconds,
+)
 
 VIDEO = {".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi", ".3gp", ".hevc"}
 SHEET_THUMBS = 60  # кадров на контактном листе — не больше, иначе лист выходит в десятки тысяч пикселей
@@ -56,6 +64,32 @@ def _engine(code: str, have: dict[str, bool], hint: str = "") -> str:
 def _brief(job: Job) -> str:
     path = job.path("job.json")
     return str(json.loads(path.read_text(encoding="utf-8")).get("brief") or "") if path.is_file() else ""
+
+
+def _voice(job: Job) -> tuple[Path, str] | None:
+    """Озвучка Павла — upload `kind: "audio"` в job.json: (файл, как он назывался у Павла); нет — None. В job.json есть,
+    а файла нет — ValueError: без неё ролик собрался бы со звуком видео."""
+    path = job.path("job.json")
+    uploads = json.loads(path.read_text(encoding="utf-8")).get("uploads") or [] if path.is_file() else []
+    up = next((u for u in uploads if isinstance(u, dict) and u.get("kind") == "audio"), None)
+    if up is None:
+        return None
+    file = job.path(str(up.get("file") or ""))
+    if not (file.is_file() and file.is_relative_to(job.path("in"))):
+        raise ValueError(f"озвучки {up.get('name')} нет ({up.get('file')}) — сначала vm fetch {job.root}")
+    return file, str(up.get("name") or file.name)
+
+
+def _voice_line(name: str, voice: float, video: float) -> str:
+    """Строка сводки об озвучке: её длина и что стало с видео."""
+    if video < voice - 0.05:
+        fate = "последний кадр держится до конца записи"
+    elif video > voice + 0.05:
+        fate = "обрезано по записи"
+    else:
+        fate = "той же длины"
+    sec = lambda t: f"{t:.1f}".replace(".", ",")
+    return f"Озвучка: {name} ({sec(voice)} с) — вместо звука видео; видео {sec(video)} с — {fate}"
 
 
 def _language_lines(info: dict, unknown: str | None) -> list[str]:
@@ -169,8 +203,11 @@ def prepare(
             raise ValueError(f"{job.path('in')}: нет видео — сначала python -m vm fetch {job.root}")
         if len(parts) > 1:
             notes.append(f"Части по порядку: {', '.join(p.name for p in parts)}")
-        step("Готовлю видео", "Привожу к 1080×1920, 30 к/с, SDR")
-        info = normalize(parts, source)
+        voice = _voice(job)
+        step("Готовлю видео", "Привожу к 1080×1920, 30 к/с, SDR" + (" и ставлю озвучку" if voice else ""))
+        if voice:
+            notes.append(_voice_line(voice[1], voice_seconds(voice[0]), sum(probe(p).duration for p in parts)))
+        info = normalize(parts, source, voice=voice[0] if voice else None)
     else:
         info = probe(source)
     if not (math.isfinite(info.duration) and info.duration > 0):

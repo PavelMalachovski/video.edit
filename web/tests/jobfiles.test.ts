@@ -62,6 +62,15 @@ test('buildJobFile takes brief, duration and uploads from the manifest', () => {
   assert.equal(buildJobFile({ ...m, brief: undefined, duration: undefined, uploads: undefined }, NOW).duration, null);
 });
 
+test('a voiceover goes into job.json uploads as audio', () => {
+  const job = buildJobFile({
+    job: '261010-070509-abcd', name: 'IMG_1.MOV', size: 100, type: 'video/quicktime', lastModified: 1, parts: 1, chunkSize: 4,
+    uploads: [{ asset: 'upload-i1.png', name: 'logo.png', size: 3, type: 'image/png', parts: 1 },
+              { asset: 'upload-voice.m4a', name: 'Запись.m4a', size: 9, type: '', parts: 1 }],
+  }, NOW);
+  assert.deepEqual(job.uploads.map((u) => [u.file, u.kind]), [['in/uploads/upload-i1.png', 'image'], ['in/uploads/upload-voice.m4a', 'audio']]);
+});
+
 const QS: Question[] = [
   { id: 'hook', type: 'choice', title: 'Хук', options: [{ id: 'h1', label: 'A' }, { id: 'own', label: 'Свой' }, { id: 'none', label: 'Без' }] },
   { id: 'logo', type: 'insert', title: 'Лого', options: [{ id: 'a', label: 'A' }, { id: 'upload', label: 'Своя' }] },

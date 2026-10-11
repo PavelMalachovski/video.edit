@@ -441,6 +441,41 @@ def test_prepare_marks_the_scene_changes_for_transitions(tmp_path, monkeypatch, 
     assert "Смены сцены (cuts.json joins): 0:01.5" in capsys.readouterr().out
 
 
+def voice_job(tmp_path, seconds: float, voice=True) -> Job:
+    """Задача с видео 2 с и озвучкой Павла `seconds` с (в job.json — upload kind audio)."""
+    job = Job(tmp_path / "jobs" / "abc")
+    make_source(job.path("in/source.mp4"), 2)
+    job.path("in/uploads").mkdir(parents=True)
+    if voice:
+        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                        f"sine=frequency=700:sample_rate=48000:duration={seconds}", "-c:a", "aac",
+                        str(job.path("in/uploads/upload-voice.m4a"))], check=True)
+    upload = {"file": "in/uploads/upload-voice.m4a", "asset": "upload-voice.m4a", "name": "Запись.m4a", "size": 1,
+              "type": "audio/mp4", "kind": "audio"}
+    job.path("job.json").write_text(json.dumps({"brief": "", "uploads": [upload]}, ensure_ascii=False), encoding="utf-8")
+    job.path("words.json").write_text("[]\n", encoding="utf-8")
+    return job
+
+
+@needs_ffmpeg
+def test_prepare_puts_pavels_voiceover_instead_of_the_video_sound(tmp_path, monkeypatch, capsys):
+    from vm.media import probe
+
+    no_models(monkeypatch, tmp_path)
+    job = voice_job(tmp_path, 3.0)
+    assert main(["prepare", str(job.root)]) == 0
+    assert probe(job.path("source.mp4")).duration == pytest.approx(3.0, abs=0.1)
+    assert "Озвучка: Запись.m4a (3,0 с) — вместо звука видео; видео 2,0 с — последний кадр держится до конца записи" in capsys.readouterr().out
+
+
+@needs_ffmpeg
+def test_prepare_stops_when_the_voiceover_was_not_fetched(tmp_path, monkeypatch, capsys):
+    no_models(monkeypatch, tmp_path)
+    job = voice_job(tmp_path, 3.0, voice=False)
+    assert main(["prepare", str(job.root)]) == 1
+    assert "озвучки Запись.m4a нет (in/uploads/upload-voice.m4a) — сначала vm fetch" in capsys.readouterr().err
+
+
 @needs_ffmpeg
 def test_prepare_status_keeps_the_state_of_the_step(repo_job, monkeypatch, tmp_path):
     origin, job = repo_job

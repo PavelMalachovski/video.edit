@@ -13,9 +13,19 @@
 
 Финальная карточка (`edit.end`) идёт после стоп-кадра ещё `seconds`: на ней ничего другого нет, и каждый её кадр
 свой (`state.end.t` — секунды от начала карточки: призыв «дышит»).
+
+Стиль эталона. Субтитры `soft` — событие на строку блока; первые кадры новой строки получают `t` (секунды с её
+появления: шаблон «съезжает» буквы), дальше кадры одинаковые и склеиваются. Хук в режиме `accent` первые кадры тоже
+получает `t` (появление из размытия). Акцентная фраза (`edit.accents`) — `state.accent`: строки, место, анимация и
+`ages` — секунды с появления каждой строки (`None` — её первое слово ещё не звучит; строка появляется со своим словом
+из `edit.words`, не нашлось — со строкой перед ней). Пока строка появляется, каждый кадр свой; потом возраст —
+`DONE`. Акцент держится до начала следующих субтитров, но не дольше 0,3 с после конца фразы и не дальше следующего
+акцента; последние 4 кадра — уход (`leave` 0..1), кроме `out: cut`. Слова акцента в субтитры не идут, и пока акцент
+на экране, субтитров нет.
 """
 import math
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from itertools import pairwise
 
 from .asr import Word
@@ -27,6 +37,15 @@ APPEAR = 3  # кадров появления вставки
 MIN_SHOW = 1.5  # с — вставка показывается не короче
 DRAWN = ("image", "badge", "sticker", "text", "anim")  # что рисует шаблон; fullscreen — ffmpeg
 INSERT_FIELDS = ("kind", "src", "text", "title", "x", "y", "w", "params")
+# Анимации стиля эталона рисует шаблон (overlay.js: SOFT, ACC); здесь — сколько кадров давать им время, с запасом в кадр.
+SUB_APPEAR = 4  # кадров появления строки soft (0,12 с)
+HOOK_APPEAR = 8  # кадров появления хука accent из размытия (0,22 с)
+ACCENT_ANIM = {"blur": 0.25, "track": 0.17, "letters": 0.33}  # с — появление строки акцента
+TYPE_CPS, TYPE_CURSOR = 30, 0.28  # печать: букв в секунду; сколько курсор держится после печати, с
+ACCENT_LINGER = 0.3  # с — акцент держится после конца фразы, если субтитры не начались раньше
+ACCENT_LEAVE = 4  # кадров ухода акцента
+DONE = 99.0  # возраст строки, анимация которой кончилась: кадры одинаковые и склеиваются
+WORD_SLACK = 0.05  # с — слово акцента ищется в его фразе с таким запасом по краям
 
 
 @dataclass
@@ -40,6 +59,8 @@ class _Piece:
     insert: bool = False
     every_frame: bool = False
     timed: bool = False  # не вставка, но каждый кадр свой: в состояние идёт t — секунды от начала
+    appear: int = 0  # первые столько кадров в состояние идёт t — секунды с начала (появление), потом — нет
+    accent: dict = field(default_factory=dict)  # акцент: кадры строк, анимация и уход (`_accents`)
 
 
 def build_overlay_events(edit: dict, tl: Timeline) -> list[dict]:
@@ -52,7 +73,9 @@ def build_overlay_events(edit: dict, tl: Timeline) -> list[dict]:
     still = _frame(tl.duration + hold)  # кадр, после которого стоп-кадр кончается (с него — карточка)
     video = _frame(tl.duration)  # последний кадр ролика без стоп-кадра
     # что начинается не раньше конца ролика, в ролике не видно — на стоп-кадре тоже не появляется
-    pieces = [p for p in _subtitles(edit, tl) + _titles(edit, tl) + _inserts(edit, tl) if p.start < video]
+    subtitles = _subtitles(edit, tl)
+    accents = _accents(edit, tl, [p.start for p in subtitles])
+    pieces = [p for p in subtitles + _titles(edit, tl) + accents + _inserts(edit, tl) if p.start < video]
     for piece in pieces:
         if piece.stop >= video:  # видно в последний кадр — остаётся на стоп-кадре, но не на карточке
             piece.stop = still
@@ -69,6 +92,9 @@ def build_overlay_events(edit: dict, tl: Timeline) -> list[dict]:
             borders.update(f for f in range(piece.start + 1, piece.start + APPEAR) if f < piece.stop)
         if piece.every_frame or piece.timed:
             borders.update(range(piece.start, piece.stop))
+        borders.update(range(piece.start, min(piece.stop, piece.start + piece.appear + 1)))
+        for a, b in piece.accent.get("moving", []):
+            borders.update(range(max(a, piece.start), min(b, piece.stop) + 1))
     marks = sorted(b for b in borders if 0 <= b <= last)
 
     events: list[dict] = []
@@ -89,20 +115,97 @@ def _frame(t: float) -> int:
 
 
 def _subtitles(edit: dict, tl: Timeline) -> list[_Piece]:
+    """Субтитры без слов акцентных фраз (их показывает акцент); у soft — строки блока и появление новой строки."""
     spoken = [Word(w["t0"], w["t1"], w["text"]) for w in edit.get("words") or []]
     style = edit["style"]["subtitles"]
+    hidden = [(float(a["t0"]), float(a["t1"])) for a in edit.get("accents") or []]
+    soft = style["mode"] == "soft"
     pieces = []
-    for e in build_sub_events(spoken, tl, style["mode"], style["words"]):
+    for e in build_sub_events(spoken, tl, style["mode"], style["words"], hidden=hidden):
         sub = {"words": list(e["words"]), "active": e["active"], "visible": e["visible"]}
-        pieces.append(_Piece(_frame(e["t0"]), _frame(e["t1"]), "sub", sub))
+        if soft:
+            sub["lines"] = list(e["lines"])
+        pieces.append(_Piece(_frame(e["t0"]), _frame(e["t1"]), "sub", sub, appear=SUB_APPEAR if soft else 0))
     return pieces
+
+
+def _norm(text: str) -> str:
+    """Слово для сравнения: строчные, ё → е, без знаков препинания."""
+    return re.sub(r"[^\w-]", "", text.lower().replace("ё", "е")).strip("-")
+
+
+def _line_times(accent: dict, words: list[dict]) -> list[float]:
+    """Время исходника, когда звучит первое слово каждой строки акцента: ищется по порядку среди слов фразы; первая
+    строка — с началом фразы; не нашлось — со строкой перед ней."""
+    t0, t1 = float(accent["t0"]), float(accent["t1"])
+    phrase = sorted((w for w in words if t0 - WORD_SLACK <= w["t0"] <= t1 + WORD_SLACK), key=lambda w: w["t0"])
+    times, at = [t0], 0
+    for line in accent["lines"][1:]:
+        first = _norm((str(line.get("text", "")).split() or [""])[0])
+        found = next((i for i in range(at, len(phrase)) if first and _norm(phrase[i]["text"]) == first), None)
+        if found is None:
+            times.append(times[-1])
+            continue
+        times.append(max(times[-1], phrase[found]["t0"]))
+        at = found + 1
+    return times
+
+
+def _appear_frames(line: dict, anim: str) -> int:
+    """Сколько кадров строка акцента появляется (шаблон рисует их по возрасту строки)."""
+    seconds = len(str(line.get("text", ""))) / TYPE_CPS + TYPE_CURSOR if anim == "type" else ACCENT_ANIM.get(anim, ACCENT_ANIM["blur"])
+    return math.ceil(seconds * FPS - 1e-9)
+
+
+def _accents(edit: dict, tl: Timeline, sub_starts: list[int]) -> list[_Piece]:
+    """Акцентные фразы: показ — с начала фразы до начала следующих субтитров (не дольше 0,3 с после её конца и не
+    дальше следующего акцента); строки — со своими словами; последние кадры — уход."""
+    accents = sorted(edit.get("accents") or [], key=lambda a: float(a["t0"]))
+    words = edit.get("words") or []
+    pieces = []
+    starts = [_frame(tl.to_final_snap(float(a["t0"]))) for a in accents]
+    for k, accent in enumerate(accents):
+        start = starts[k]
+        said = _frame(tl.to_final_snap(float(accent["t1"])))
+        stop = _frame(tl.to_final_snap(float(accent["t1"])) + ACCENT_LINGER)
+        stop = min([stop, *(s for s in sub_starts if s >= said), *(s for s in starts[k + 1 :] if s > start)])
+        lines = [dict(line) for line in accent["lines"]]
+        frames = [min(max(_frame(tl.to_final_snap(t)), start), max(start, stop - 1)) for t in _line_times(accent, words)]
+        stop = max(stop, frames[-1] + 1, start + 1)
+        anim = accent.get("anim") or "blur"
+        out = accent.get("out") or "fade"
+        moving = [(f, f + _appear_frames(line, anim)) for f, line in zip(frames, lines, strict=True)]
+        leave = max(stop - ACCENT_LEAVE, start + 1) if out != "cut" else stop
+        if leave < stop:
+            moving.append((leave, stop))
+        value = {"lines": lines, "x": accent["x"], "y": accent["y"], "anim": anim, "out": out}
+        info = {"frames": frames, "ends": [b for _, b in moving[: len(lines)]], "leave": leave, "moving": moving}
+        pieces.append(_Piece(start, stop, "accent", value, accent=info))
+    return pieces
+
+
+def _accent_state(piece: _Piece, frame: int) -> dict:
+    """Акцент на кадре: возраст строк (None — ещё не появилась, DONE — появилась давно) и доля ухода."""
+    info = piece.accent
+    ages = []
+    for f, end in zip(info["frames"], info["ends"], strict=True):
+        if frame < f:
+            ages.append(None)
+        else:
+            ages.append((frame - f + 1) / FPS if frame < end else DONE)
+    state = {**piece.value, "ages": ages}
+    if frame >= info["leave"]:
+        span = piece.stop - info["leave"]
+        state["leave"] = (frame - info["leave"] + 1) / span
+    return state
 
 
 def _titles(edit: dict, tl: Timeline) -> list[_Piece]:
     pieces = []
     hook = edit.get("hook")
     if hook:
-        pieces.append(_Piece(0, _hook_end(edit, tl), "hook", {"text": hook["text"]}))
+        moving = HOOK_APPEAR if edit["style"]["hook"]["mode"] == "accent" else 0
+        pieces.append(_Piece(0, _hook_end(edit, tl), "hook", {"text": hook["text"]}, appear=moving))
     cta = edit.get("cta")
     if cta:
         span = (_frame(tl.to_final_snap(cta["t0"])), _frame(tl.to_final_snap(cta["t1"])))
@@ -159,8 +262,14 @@ def _state(pieces: list[_Piece], frame: int) -> dict:
             inserts.append({**piece.value, "anim": min(1, (shown + 1) / APPEAR), "t": moving})
         elif piece.timed:
             state[piece.key] = {**piece.value, "t": (frame - piece.start) / FPS}
+        elif piece.accent:
+            state[piece.key] = _accent_state(piece, frame)
+        elif frame - piece.start < piece.appear:
+            state[piece.key] = {**piece.value, "t": (frame - piece.start + 1) / FPS}
         else:
             state[piece.key] = piece.value
     if inserts:
         state["inserts"] = inserts
+    if "accent" in state:
+        state.pop("sub", None)  # слова акцента — и есть субтитры
     return state

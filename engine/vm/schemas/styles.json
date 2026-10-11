@@ -114,7 +114,10 @@
           "type": "object",
           "required": ["mode", "words", "size", "y"],
           "properties": {
-            "mode": { "enum": ["karaoke", "plate", "word", "accumulate"] },
+            "mode": {
+              "description": "karaoke — обводка, говоримое слово подсвечено; plate — плашка, слово на подложке; word — по одному слову; accumulate — слово за словом; soft — стиль эталона: тонкие строчные без обводки, блок до двух строк по words слов, строка появляется со своим словом.",
+              "enum": ["karaoke", "plate", "word", "accumulate", "soft"]
+            },
             "words": { "type": "integer", "minimum": 2, "maximum": 6 },
             "size": { "type": "number", "exclusiveMinimum": 0 },
             "y": { "type": "number", "minimum": 0, "maximum": 1920 }
@@ -124,7 +127,10 @@
           "type": "object",
           "required": ["mode", "size"],
           "properties": {
-            "mode": { "enum": ["plate", "outline", "shadow"] },
+            "mode": {
+              "description": "plate, outline, shadow — капс и рукописное последнее слово; accent — стиль эталона: строки лесенкой основным шрифтом, последнее слово крупно цветом accent. size — кегль строки (и акцентных фраз).",
+              "enum": ["plate", "outline", "shadow", "accent"]
+            },
             "size": { "type": "number", "exclusiveMinimum": 0 },
             "y": {
               "description": "Центр хука (строки капсом) по вертикали, px кадра; нет — 400. Титр с кодовым словом — на той же высоте.",

@@ -39,8 +39,10 @@ from .qa import (
     face_box,
     slot_times,
 )
-from .render import _resolve, draw_layer, render, variant_b
+from .render import _resolve, draw_layer, render, timeline, variant_b
 from .style import final_style
+from .timeline import Timeline
+from .zoom import zoom_at
 
 PART_SIZE = 95 * 1024 * 1024  # как `split -b 95M`: столько же, сколько MAX_FILE_BYTES
 
@@ -232,12 +234,22 @@ def _beats_line(beats: dict | None) -> str | None:
     return f"в такт музыке ({round(beats['bpm'])} уд/мин): к долям подвинуто событий — {beats['moved']}"
 
 
+def _zoom(edit: dict, tl: Timeline):
+    """Уровень зума edit.json в момент финала — для проверки лица: крупный план делает лицо больше."""
+    zooms = edit.get("zooms") or []
+    return lambda t: zoom_at(zooms, tl, t)
+
+
+def _layout(boxes: list[dict], edit: dict, tl: Timeline) -> list[str]:
+    return check_layout(boxes, face_box(edit.get("face")), edit.get("inserts"), zoom=_zoom(edit, tl))
+
+
 def _check(args: argparse.Namespace) -> None:
     job = _job(args)
     _fonts_ok(job)
     layer = draw_layer(job)
     edit = layer.edit
-    problems = check_layout(layer.boxes, face_box(edit.get("face")), edit.get("inserts"))
+    problems = _layout(layer.boxes, edit, layer.tl)
     frames = compose_frames(job.path("source.mp4"), layer.boxes, layer.frames.parent, layer.tl, slot_times(layer.boxes),
                             job.path("look"))
     print(f"слой нарисован: {len(layer.boxes)} промежутков, {layer.tl.duration:.1f} с (без стоп-кадра)")
@@ -266,7 +278,7 @@ def _render(args: argparse.Namespace) -> None:
     step("Проверяю", "Смотрю контрольные кадры и геометрию")
     final = job.path(f"out/{name}.mp4")
     boxes = json.loads(job.path("work/render/frames/boxes.json").read_text(encoding="utf-8"))
-    problems = check_layout(boxes, face_box(edit.get("face")), edit.get("inserts")) + check_render(final, edit, boxes, result)
+    problems = _layout(boxes, edit, timeline(edit)) + check_render(final, edit, boxes, result)
     frames = control_frames(final, slot_times(boxes), job.path("qa"))
     checks = checklist(final, boxes, result)  # по гайду — для экрана «Готово»
     second = None
@@ -277,7 +289,7 @@ def _render(args: argparse.Namespace) -> None:
             drop_parts(job.path("out"), done)
         boxes_b = json.loads(job.path("work/render-b/frames/boxes.json").read_text(encoding="utf-8"))
         final_b = job.path(f"out/{name}-b.mp4")
-        problems_b = check_layout(boxes_b, face_box(variant.get("face")), variant.get("inserts")) + check_render(final_b, variant, boxes_b, result_b)
+        problems_b = _layout(boxes_b, variant, timeline(variant)) + check_render(final_b, variant, boxes_b, result_b)
         second = {"differs": edit["ab"], "durations": result_b["durations"], "qa": {"ok": not problems_b, "problems": problems_b}}
         print(f"{final_b.relative_to(job.root)}: {result_b['durations']['final']:.1f} с — версия B, {'без тизера' if edit['ab'] == 'teaser' else 'без музыки'}")
         for line in problems_b:

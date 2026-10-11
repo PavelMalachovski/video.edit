@@ -27,9 +27,38 @@ def test_zoom_before_the_first_step_and_without_steps_is_1():
     assert zoom_at([{"t": 5.0, "level": 1.06}], WHOLE, 0.0) == 1.0
 
 
-def test_zoom_clamped_to_1_08():
-    assert zoom_at([{"t": 1.0, "level": 1.2}], WHOLE, 5.0) == pytest.approx(1.08)
+def test_zoom_clamped_to_1_3():
+    assert zoom_at([{"t": 1.0, "level": 1.2}], WHOLE, 5.0) == pytest.approx(1.2)
+    assert zoom_at([{"t": 1.0, "level": 1.5}], WHOLE, 5.0) == pytest.approx(1.3)
     assert zoom_at([{"t": 1.0, "level": 0.9}], WHOLE, 5.0) == 1.0
+
+
+def test_a_cut_step_changes_the_shot_at_once():
+    zooms = [{"t": 2.0, "level": 1.25, "over": 0}, {"t": 5.0, "level": 1.0, "over": 0}]
+    assert zoom_at(zooms, WHOLE, 1.999) == 1.0
+    assert zoom_at(zooms, WHOLE, 2.0) == pytest.approx(1.25)
+    assert zoom_at(zooms, WHOLE, 4.999) == pytest.approx(1.25)
+    assert zoom_at(zooms, WHOLE, 5.0) == 1.0
+
+
+def test_a_slow_push_in_takes_its_time():
+    zooms = [{"t": 2.0, "level": 1.2, "over": 4.0}]
+    assert zoom_at(zooms, WHOLE, 2.0) == pytest.approx(1.0)
+    assert zoom_at(zooms, WHOLE, 4.0) == pytest.approx(1.1)
+    assert 1.0 < zoom_at(zooms, WHOLE, 3.0) < 1.1
+    assert zoom_at(zooms, WHOLE, 6.0) == pytest.approx(1.2)
+    assert zoom_at(zooms, WHOLE, 9.0) == pytest.approx(1.2)
+
+
+def test_a_cut_step_close_after_a_jump_cut_lands_on_it():
+    tl = Timeline([(0.0, 2.0), (2.5, 6.0)], 1.0)  # стык: 2,0 с финала
+    zooms = [{"t": 2.6, "level": 1.2, "over": 0}]  # фраза после стыка: 0,1 с исходника после начала отрезка
+    assert zoom_at(zooms, tl, 1.999) == 1.0
+    assert zoom_at(zooms, tl, 2.0) == pytest.approx(1.2), "смена крупности — на стыке, кадр не прыгает дважды"
+    far = [{"t": 3.0, "level": 1.2, "over": 0}]  # 0,5 с после стыка — уже не про стык
+    assert zoom_at(far, tl, 2.4) == 1.0 and zoom_at(far, tl, 2.5) == pytest.approx(1.2)
+    slow = [{"t": 2.6, "level": 1.2}]  # плавный переход на стык не встаёт
+    assert zoom_at(slow, tl, 2.05) == 1.0
 
 
 def test_zoom_steps_go_back_out_and_keep_their_order():
@@ -103,7 +132,8 @@ def z_expression(vf: str) -> str:
 def test_ffmpeg_expression_is_zoom_at(tmp_path):
     # то же выражение, что получит zoompan, считает сам ffmpeg (aevalsrc: отсчёт = уровень в момент t)
     tl = Timeline([(0.0, 3.0), (4.0, 9.0)], 1.1)
-    zooms = [{"t": 1.0, "level": 1.06}, {"t": 1.2, "level": 1.02}, {"t": 5.0, "level": 1.08}, {"t": 7.0, "level": 1.0}]
+    zooms = [{"t": 1.0, "level": 1.06}, {"t": 1.2, "level": 1.02}, {"t": 5.0, "level": 1.25, "over": 0},
+             {"t": 5.6, "level": 1.1, "over": 1.5}, {"t": 7.0, "level": 1.0}]
     expr = z_expression(zoom_filter(zooms, tl, {"x": 0.5, "y": 0.3})).replace("it", "t")
     rate = 100
     raw = subprocess.run(
@@ -112,7 +142,8 @@ def test_ffmpeg_expression_is_zoom_at(tmp_path):
         check=True, capture_output=True,
     ).stdout
     values = np.frombuffer(raw, np.float32)
-    worst = max(abs(float(v) - zoom_at(zooms, tl, k / rate)) for k, v in enumerate(values))
+    cut = tl.to_final_snap(5.0)
+    worst = max(abs(float(v) - zoom_at(zooms, tl, k / rate)) for k, v in enumerate(values) if abs(k / rate - cut) > 1e-6)
     assert worst < 1e-4, worst
 
 

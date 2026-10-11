@@ -1,10 +1,10 @@
-"""Подготовка задачи к монтажу: исходник, звук, слова, план мягкой резки, контактный лист — и сводка для Claude.
+"""Подготовка задачи к монтажу: исходник, звук, слова, план резки, контактный лист — и сводка для Claude.
 
 Видео из `in/` (`in/source.*`, как кладёт fetch; иначе все видео по имени) → `source.mp4` (1080×1920 SDR 30 к/с)
 → `work/source.wav` (16 кГц) → `language.json` (язык ролика: `ЯЗЫК:` в ТЗ, ответ Павла `--lang` или Whisper по
 речи) → `reference.txt` (сплошной текст Whisper, по нему Claude правит слова) → `words.json` (слова с временем:
 GigaAM для русского, Parakeet для 25 европейских языков, иначе Whisper по фразам), `speech.json` (где речь по VAD:
-мягкая резка внутри неё не режет), `cuts.json` (`plan_keep`), `sheet.png`. Какие модели были и каких нет — в
+резка внутри неё не режет), `cuts.json` (`plan_keep`: плотная резка), `sheet.png`. Какие модели были и каких нет — в
 сводке: без модели слов для языка ролика работать нельзя, без Whisper и VAD — можно, но хуже. Язык второго этапа
 (своя письменность) — ошибка с понятным текстом.
 
@@ -20,7 +20,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from . import asr, lang
-from .cuts import plan_keep
+from .cuts import SOFT, plan_keep
 from .job import Job, _atomic_write
 from .media import contact_sheet, extract_wav, normalize, probe
 
@@ -112,7 +112,7 @@ def _coverage(words: list[asr.Word], reference: str, model: str = "GigaAM") -> s
 
 def _uncovered(words: list[asr.Word], spans: list[tuple[float, float]]) -> list[tuple[float, float]]:
     """Речь по VAD (не короче 0,5 с), на которую слова покрывают меньше трети: там GigaAM ничего не разобрал, и
-    мягкая резка вырезала бы эту речь как паузу."""
+    резка вырезала бы эту речь как паузу."""
     out = []
     for a, b in spans:
         covered = sum(max(0.0, min(b, w.t1) - max(a, w.t0)) for w in words)
@@ -207,7 +207,7 @@ def prepare(
         notes.append("Речь уже расшифрована (words.json) — распознавание не повторял; заново — --redo")
 
     if recognise or not cuts_path.is_file():
-        step("Ищу паузы", "Отмечаю длинные паузы для мягкой резки")
+        step("Ищу паузы", "Отмечаю паузы для резки")
         speech = json.loads(speech_path.read_text(encoding="utf-8")) if speech_path.is_file() else []
         keep = [(round(a, 6), round(b, 6)) for a, b in plan_keep(words, info.duration, speech=speech)]
         kept = sum(b - a for a, b in keep)
@@ -220,10 +220,13 @@ def prepare(
     if recognise:
         contact_sheet(source, job.path("sheet.png"), fps=min(1.0, SHEET_THUMBS / info.duration))
 
-    cut_line = f"Слов: {len(words)}; мягкая резка: {max(0, len(keep) - 1)} пауз, вырезано {cuts['cut_seconds']:.1f} с"
+    cut_line = f"Слов: {len(words)}; плотная резка: {max(0, len(keep) - 1)} пауз, вырезано {cuts['cut_seconds']:.1f} с"
+    speech_spans = json.loads(speech_path.read_text(encoding="utf-8")) if speech_path.is_file() else []
+    soft = plan_keep(words, info.duration, speech=speech_spans, **SOFT)
+    soft_line = f"мягкая: {max(0, len(soft) - 1)} пауз → {sum(b - a for a, b in soft):.1f} с"
     summary = [
         f"Длительность: {info.duration:.1f} с, кадр {info.width}×{info.height}",
-        f"{cut_line} → {kept:.1f} с (до ускорения)",
+        f"{cut_line} → {kept:.1f} с; {soft_line} (до ускорения)",
         *notes,
     ]
     if recognise:

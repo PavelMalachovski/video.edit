@@ -88,6 +88,12 @@ def test_zoom_changes_and_insert_appearances_move_onto_beats():
     assert edit["zooms"][0]["t"] == 1.1, "edit.json не меняется — меняется копия"
 
 
+def test_cut_steps_stay_on_their_jump_cut():
+    edit = {"zooms": [{"t": 1.1, "level": 1.2, "over": 0}, {"t": 2.1, "level": 1.0}], "inserts": []}
+    out, moved = beats.snap_edit(edit, Timeline([(0.0, 10.0)], 1.0), [1.0, 2.0, 3.0])
+    assert [z["t"] for z in out["zooms"]] == [1.1, 2.0] and moved == 1, "резкая смена крупности — на стыке, а не на доле"
+
+
 def test_events_far_from_a_beat_and_on_a_beat_stay():
     tl = Timeline([(0.0, 10.0)], 1.0)
     edit = edit_with(zooms=[{"t": 0.75, "level": 1.0}], inserts=[{"kind": "image", "src": "a.png", "t0": 3.0, "t1": 5.0, "x": 1, "y": 1, "w": 10}])

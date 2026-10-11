@@ -1,7 +1,8 @@
 """Сборка финала по edit.json одной командой ffmpeg.
 
 Кадр: вырезка отрезков `keep` (по целым кадрам исходника; звук — с микро-фейдами 10 мс на стыках) → ускорение →
-лёгкий цветокор → зум (якорь — лицо) → у невертикального исходника фон из размытой копии кадра → полноэкранные
+лёгкий цветокор → ч/б-куски (`edit.looks`: на своих кадрах — без цвета, контрастнее, темнее, с виньеткой) → зум
+(якорь — лицо) → у невертикального исходника фон из размытой копии кадра → полноэкранные
 перебивки (масштаб с обрезкой по центру, без своего звука) → стоп-кадр в конце (`hold` и финальная карточка
 `end.seconds`: её затемнение, призыв, ник и логотип рисует слой) → слой PNG (субтитры, хук,
 титр, вставки; кадры рисует template/render-frames.mjs тем же шаблоном, что и превью) → шкала времени → H.264/AAC
@@ -54,6 +55,8 @@ FADE = 0.01  # с — микро-фейд звука на стыке отрез�
 COLOR = "eq=brightness=-0.02:contrast=1.03,lutyuv=u='clip(val-3,16,240)':v='clip(val+3,16,240)'"
 BLUR = "boxblur=luma_radius=40:luma_power=2:chroma_radius=20:chroma_power=2,eq=brightness=-0.06"
 TO_709 = "scale=out_color_matrix=bt709:out_range=tv"
+# ч/б-кусок стиля эталона: без цвета, контрастнее, чуть темнее, виньетка по краям
+BW = ("hue=s=0", "eq=contrast=1.18:brightness=-0.04", "vignette=angle=0.6")
 # Meta не принимает edit lists в контейнере (гайд «Всё о Reels», стр. 63). Без них плеер играет приминг кодера AAC
 # ffmpeg — 1024 отсчёта в начале, поэтому на вход кодера звук идёт с 1024-го отсчёта: приминг занимает его место, и
 # отсчёт n звучит ровно в n. B-кадров нет (`-bf 0`): с ними картинка начиналась бы на 2 кадра позже звука.
@@ -286,12 +289,41 @@ def _cut(tl: Timeline, has_audio: bool) -> list[str]:
     return chains
 
 
+def look_windows(edit: dict, tl: Timeline) -> list[tuple[int, int]]:
+    """Ч/б-куски (`edit.looks`) — кадры финала `(первый, после последнего)`: фраза на своём месте и её копия в тизере,
+    если она туда попала. Кусок без кадров (весь в вырезке, нулевой) не нужен."""
+    windows = []
+    for look in edit.get("looks") or []:
+        t0, t1 = float(look["t0"]), float(look["t1"])
+        spans = [(tl.to_final_snap(t0), tl.to_final_snap(t1))]
+        if tl.teaser and max(t0, tl.teaser[0]) < min(t1, tl.teaser[1]):
+            spans.append((tl.teaser_final(max(t0, tl.teaser[0])), tl.teaser_final(min(t1, tl.teaser[1]))))
+        for a, b in spans:
+            first, after = round(a * FPS), round(b * FPS)
+            if after > first:
+                windows.append((first, after))
+    return windows
+
+
+def looks_filter(edit: dict, tl: Timeline) -> str:
+    """Фильтр ч/б-кусков во времени финала (ставится после ускорения и fps=30): включён на своих кадрах — границы
+    посередине между кадрами, как у перебивок; кусков нет — пустая строка."""
+    windows = look_windows(edit, tl)
+    if not windows:
+        return ""
+    enable = "+".join(f"gte(t,{(a - 0.5) / FPS:.6f})*lt(t,{(b - 0.5) / FPS:.6f})" for a, b in windows)
+    return ",".join(f"{f}:enable='{enable}'" for f in BW)
+
+
 def _picture(job, edit, tl, info, index, hold, missing, warnings) -> tuple[list[str], list[str], set[int]]:
-    """Ускорение, цвет, зум, фон, перебивки, стоп-кадр → `[vh]`; плюс входы для перебивок и номера перебивок,
+    """Ускорение, цвет, ч/б-куски, зум, фон, перебивки, стоп-кадр → `[vh]`; плюс входы для перебивок и номера перебивок,
     которых в ролике не будет (файла нет, не читается, начало после конца) — их звук не нужен."""
     chains = []
     inputs: list[str] = []
     chain = f"[vc]setpts=PTS/{edit['speed']:g},fps={FPS},{COLOR}"
+    looks = looks_filter(edit, tl)
+    if looks:
+        chain += f",{looks}"
     zoom = zoom_filter(edit.get("zooms") or [], tl, edit["face"], W=info.width, H=info.height, fps=FPS)
     if zoom != "null":
         chain += f",{zoom}"

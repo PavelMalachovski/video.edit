@@ -363,12 +363,13 @@ function lowerFirst(word) {
   return first.toLocaleLowerCase() + tail;
 }
 
-/** Слова блока для экрана: без знаков по краям; начало фразы (первое слово блока и слово после `.`, `?`, `!`, `…`) —
-со строчной. */
-function softWords(words) {
+/** Слова блока для экрана: без знаков по краям; начало предложения — со строчной: первое слово блока, если блок его
+начинает (`opens` движка; нет поля — начинает), и слово после `.`, `?`, `!`, `…`. Первое слово блока посреди предложения
+(имя) — как есть. */
+function softWords(words, opens = true) {
   return words.map((w, i) => {
     const text = bare(w);
-    return i === 0 || SENTENCE_END.test(String(words[i - 1])) ? lowerFirst(text) : text;
+    return (i === 0 ? opens : SENTENCE_END.test(String(words[i - 1]))) ? lowerFirst(text) : text;
   });
 }
 
@@ -389,7 +390,7 @@ function progress(age, seconds) {
 function drawSoftSub(root, { spec, main }, sub) {
   const { size, y } = spec.subtitles;
   const words = sub.words.map(String);
-  const texts = softWords(words);
+  const texts = softWords(words, sub.opens !== false);
   const counts = lineCounts(sub.lines, words.length, spec.subtitles.words);
   const visible = Number.isInteger(sub.visible) ? sub.visible : words.length;
 

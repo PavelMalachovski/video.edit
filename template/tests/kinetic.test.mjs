@@ -185,6 +185,12 @@ test('soft subtitles: a sentence starts in lower case, names and abbreviations k
   assert.deepEqual(w.map((x) => x.text), ['я', 'и', 'Олеся', 'это', 'США', '']);
 });
 
+test('soft subtitles: a block inside a sentence keeps the capital of its first word (a name)', async () => {
+  await render(spec(), { sub: { words: ['Павла', 'и', 'его', 'друга.', 'Они'], active: 0, visible: 5, lines: [2, 3], opens: false, t: 1 } });
+  const w = await subWords();
+  assert.deepEqual(w.map((x) => x.text), ['Павла', 'и', 'его', 'друга', 'они']);
+});
+
 test('soft subtitles: without lines the block is split by the words of the style', async () => {
   await render(spec(), { sub: { words: ['раз', 'два', 'три', 'четыре', 'пять'], active: 0, visible: 5 } });
   const w = await subWords();

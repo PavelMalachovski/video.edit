@@ -41,9 +41,10 @@ test('sampleState shows a soft block like the engine: up to two lines of N words
   const soft = (words = 3) => ({ ...base, subtitles: { ...base.subtitles, mode: 'soft' as const, words } });
   const seven = ['w0', 'w1', 'w2', 'w3', 'w4', 'w5', 'w6'];
   // фраза 7 слов, блок до 6: блоки [3] и [4] → второй блок — две строки по 2
-  assert.deepEqual(sampleState(soft(), { words: seven, spoken: 5 }, null, []).sub, { words: ['w3', 'w4', 'w5', 'w6'], active: 0, visible: 4, lines: [2, 2] });
-  assert.deepEqual(sampleState(soft(), { words: seven, spoken: 1 }, null, []).sub, { words: ['w0', 'w1', 'w2'], active: 0, visible: 3, lines: [3] });
-  assert.deepEqual(sampleState(soft(2), { words: ['Да.', 'Ну', 'вот', 'так'], spoken: 2 }, null, []).sub, { words: ['Ну', 'вот', 'так'], active: 0, visible: 3, lines: [1, 2] });
+  // opens — блок начинает предложение (как у движка): второй блок фразы — нет, его первое слово шаблон не трогает
+  assert.deepEqual(sampleState(soft(), { words: seven, spoken: 5 }, null, []).sub, { words: ['w3', 'w4', 'w5', 'w6'], active: 0, visible: 4, lines: [2, 2], opens: false });
+  assert.deepEqual(sampleState(soft(), { words: seven, spoken: 1 }, null, []).sub, { words: ['w0', 'w1', 'w2'], active: 0, visible: 3, lines: [3], opens: true });
+  assert.deepEqual(sampleState(soft(2), { words: ['Да.', 'Ну', 'вот', 'так'], spoken: 2 }, null, []).sub, { words: ['Ну', 'вот', 'так'], active: 0, visible: 3, lines: [1, 2], opens: true });
 });
 
 test('question inserts follow the answer', () => {

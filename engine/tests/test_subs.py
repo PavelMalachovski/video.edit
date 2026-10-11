@@ -538,9 +538,36 @@ def test_soft_block_is_two_lines_one_event_per_line():
     words = row(6)
     texts = [w.text for w in words]
     assert build_sub_events(words, whole(10), "soft", 3) == [
-        {"t0": 0.0, "t1": 0.9, "words": texts, "active": 0, "visible": 3, "lines": [3, 3]},
-        {"t0": 0.9, "t1": 2.0, "words": texts, "active": 3, "visible": 6, "lines": [3, 3]},  # конец слова + 0,3 с
+        {"t0": 0.0, "t1": 0.9, "words": texts, "active": 0, "visible": 3, "lines": [3, 3], "opens": True},
+        {"t0": 0.9, "t1": 2.0, "words": texts, "active": 3, "visible": 6, "lines": [3, 3], "opens": True},  # конец + 0,3 с
     ]
+
+
+def test_a_soft_block_says_whether_it_opens_a_sentence():
+    """Шаблон пишет первое слово блока со строчной, только если с него начинается предложение: имя посреди
+    предложения на краю блока (и после паузы без точки) остаётся с заглавной."""
+    words = speech((0.0, 0.2, "Вчера"), (0.3, 0.5, "я"), (0.6, 0.8, "встретил"), (0.9, 1.1, "Павла"), (1.2, 1.4, "и"),
+                   (1.5, 1.7, "его"), (1.8, 2.0, "друга."), (2.1, 2.3, "Они"), (2.4, 2.6, "сказали"),
+                   (3.2, 3.4, "Олеся"), (3.5, 3.7, "здесь."))
+    events = build_sub_events(words, whole(10), "soft", 3)
+    heads = [(e["words"][0], e["opens"]) for e in events if e["active"] == 0]
+    assert heads == [("Вчера", True), ("Павла", False), ("Они", True), ("Олеся", False)]
+
+
+def test_after_accent_words_the_sentence_is_read_through_them():
+    """Слова акцента не в субтитрах, но предложение по ним видно: кончились точкой — следующий блок начинает новое."""
+    words = speech((0.0, 0.2, "Это"), (0.3, 0.5, "важно."), (0.6, 0.8, "Сегодня"), (0.9, 1.1, "расскажу"))
+    assert build_sub_events(words, whole(10), "soft", 3, hidden=[(0.0, 0.55)])[0]["opens"] is True
+    words = speech((0.0, 0.2, "Привет"), (0.3, 0.5, "тебе"), (0.6, 0.8, "Павел"))
+    events = build_sub_events(words, whole(10), "soft", 3, hidden=[(0.25, 0.55)])
+    assert [(e["words"][0], e["opens"]) for e in events] == [("Привет", True), ("Павел", False)]
+
+
+def test_the_teaser_and_the_video_after_it_open_with_a_sentence():
+    words = speech((0.5, 0.9, "Привет"), (1.0, 1.4, "всем"), (6.0, 6.5, "Главное"), (6.6, 7.2, "правило."))
+    tl = Timeline([(0.0, 10.0)], 1.0, teaser=(5.9, 7.3))
+    events = build_sub_events(words, tl, "soft", 3)
+    assert [(e["words"][0], e["opens"]) for e in events][:2] == [("Главное", True), ("Привет", True)]
 
 
 @pytest.mark.parametrize(("count", "blocks"), [

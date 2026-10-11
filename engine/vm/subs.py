@@ -20,7 +20,10 @@
 
 Режим `soft` (стиль эталона): блок — кусок фразы до 2 × N слов, разложенный на 1–2 ровные строки не длиннее N слов
 (`lines` — сколько слов в каждой); событие — на каждую строку, с начала её первого слова: `visible` — слова блока по
-конец этой строки, `active` — её первое слово. Это правило повторяет превью в web/ (`sampleState`).
+конец этой строки, `active` — её первое слово. `opens` — блок начинает предложение: перед его первым словом в речи
+конец предложения (`.?!…`, считая и слова акцента, и вырезанные) или это первое слово ролика или тизера. Шаблон
+пишет такое слово со строчной, а первое слово блока посреди предложения (имя) — как в `words`. Это правило повторяет
+превью в web/ (`sampleState`).
 
 `hidden` — промежутки исходника, слова которых показывает акцентная фраза (`edit.accents`): на своём месте они в
 субтитры не идут, и фраза на них рвётся; в тизере их копии остаются.
@@ -54,6 +57,7 @@ class _Spoken:
     t1: float
     lead: bool = False
     fresh: bool = False  # перед словом — скрытые слова акцента: с него начинается новая фраза
+    opens: bool = False  # слово начинает предложение (раздел о soft вверху)
 
 
 def build_sub_events(words: list[Word], tl: Timeline, mode: str, n_words: int,
@@ -77,7 +81,8 @@ def build_sub_events(words: list[Word], tl: Timeline, mode: str, n_words: int,
                 lines, start = _line_counts(len(block), n_words), 0
                 for n in lines:
                     line = block[start : start + n]
-                    events.append({"words": texts, "active": start, "visible": start + n, "lines": lines})
+                    events.append({"words": texts, "active": start, "visible": start + n, "lines": lines,
+                                   "opens": block[0].opens})
                     spans.append((line[0].t0, line[-1].t1))
                     limits.append(tl.teaser_duration if line[0].lead else tl.duration)
                     start += n
@@ -134,20 +139,29 @@ def _spoken(words: list[Word], tl: Timeline, hidden: list[tuple[float, float]] =
     spoken, lead = [], []
     teaser = tl.teaser
     gap = False
+    previous = None  # прошлое слово речи: конец предложения виден и по скрытым и вырезанным словам
     for word in sorted(words, key=lambda w: w.t0):
+        after_end = previous is None or _ends_sentence(previous)
+        previous = word.text
         middle = (word.t0 + max(word.t1, word.t0)) / 2
         if teaser and teaser[0] <= middle <= teaser[1]:
             t0 = tl.teaser_final(max(word.t0, teaser[0]))
-            lead.append(_Spoken(word, t0, max(t0, tl.teaser_final(min(max(word.t1, word.t0), teaser[1]))), lead=True))
+            t1 = max(t0, tl.teaser_final(min(max(word.t1, word.t0), teaser[1])))
+            lead.append(_Spoken(word, t0, t1, lead=True, opens=not lead or after_end))
         if any(a <= middle <= b for a, b in hidden):
             gap = True
             continue
         if tl.to_final(middle) is None:
             continue  # середина вырезана или лежит за концом ролика
         t0 = tl.to_final_snap(word.t0)
-        spoken.append(_Spoken(word, t0, max(t0, tl.to_final_snap(word.t1)), fresh=gap))
+        spoken.append(_Spoken(word, t0, max(t0, tl.to_final_snap(word.t1)), fresh=gap, opens=not spoken or after_end))
         gap = False
     return lead + spoken
+
+
+def _ends_sentence(text: str) -> bool:
+    """Слово кончается знаком конца фразы (закрывающие кавычки и скобки после знака не в счёт)."""
+    return text.rstrip(CLOSING).endswith(PHRASE_ENDS)
 
 
 def _phrases(spoken: list[_Spoken]) -> list[list[_Spoken]]:
@@ -164,8 +178,7 @@ def _phrases(spoken: list[_Spoken]) -> list[list[_Spoken]]:
 def _starts_phrase(previous: _Spoken, item: _Spoken) -> bool:
     """Начинается ли с `item` новая фраза: `previous` кончился знаком конца фразы, до `item` пауза длиннее 0,35 с,
     между ними — слова акцента (`hidden`) или кончился тизер."""
-    ended = previous.word.text.rstrip(CLOSING).endswith(PHRASE_ENDS)
-    return ended or item.fresh or previous.lead != item.lead or item.word.t0 - previous.word.t1 > PHRASE_PAUSE + EPS
+    return _ends_sentence(previous.word.text) or item.fresh or previous.lead != item.lead or item.word.t0 - previous.word.t1 > PHRASE_PAUSE + EPS
 
 
 def _balanced(items: list[_Spoken], size: int) -> list[list[_Spoken]]:

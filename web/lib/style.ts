@@ -7,7 +7,8 @@ export { HOOK_SIZE, HOOK_Y, INSERT_W, SUB_SIZE, SUB_Y };
 export type { InsertBox };
 
 /** Состояние слоя для window.renderState шаблона (template/overlay.js, inserts.js). */
-export type SubState = { words: string[]; active: number; visible: number; lines?: number[] }; // lines — у soft: слов в строках блока
+// у soft: lines — слов в строках блока, opens — блок начинает предложение (его первое слово шаблон пишет со строчной)
+export type SubState = { words: string[]; active: number; visible: number; lines?: number[]; opens?: boolean };
 export type InsertState = {
   kind: SampleInsert['kind']; src?: string; text?: string; title?: string; x: number; y: number; w: number; anim: number; t: number;
   params?: Record<string, unknown>;
@@ -117,7 +118,8 @@ export function sampleState(spec: StyleSpec, sample: Styles['sample'], hook: str
       if (!chunk.includes(spoken)) continue;
       const active = chunk.indexOf(spoken);
       if (mode === 'soft') {
-        state.sub = { words: chunk.map((i) => words[i]), active: 0, visible: chunk.length, lines: evenCounts(chunk.length, perLine) };
+        const opens = chunk[0] === 0 || endsPhrase(words[chunk[0] - 1]);
+        state.sub = { words: chunk.map((i) => words[i]), active: 0, visible: chunk.length, lines: evenCounts(chunk.length, perLine), opens };
         break;
       }
       state.sub = { words: chunk.map((i) => words[i]), active, visible: mode === 'accumulate' ? active + 1 : chunk.length };

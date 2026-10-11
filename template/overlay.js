@@ -1,12 +1,18 @@
 // Слой ролика по спецификации стиля (StyleSpec, engine/vm/schemas/styles.json): субтитры, хук,
-// титр с кодовым словом, шкала времени. Один и тот же файл рисует превью на странице и кадры финала
-// (Chromium через Playwright) — поэтому превью совпадает с роликом по шрифту, размеру, цвету и месту.
+// титр с кодовым словом, акцентные фразы, шкала времени. Один и тот же файл рисует превью на странице и кадры
+// финала (Chromium через Playwright) — поэтому превью совпадает с роликом по шрифту, размеру, цвету и месту.
 //
 //   await window.renderState(spec, state, {bar: {progress}, background})
-//     state = {sub?: {words, active, visible}, hook?: {text}, cta?: {lines, word}, inserts?,
+//     state = {sub?: {words, active, visible, lines?, t?}, hook?: {text, t?}, cta?: {lines, word}, accent?, inserts?,
 //              end?: {lines, handle?, logo?, t}}  — end: финальная карточка, t — секунды от её начала
-//   window.layoutBoxes() → {sub?, hook?, cta?, end?, inserts: [...]} — рамки {x, y, w, h} в px кадра 1080×1920,
-//     вместе с обводкой, тенью и плашкой (у карточки — без затемнения кадра). Вставки рисует inserts.js.
+//     sub.lines и sub.t — у режима soft: сколько слов в каждой строке блока и секунды с появления последней видимой
+//     строки; hook.t — секунды с начала показа хука в режиме accent (появление из размытия); нет t — без анимации.
+//     accent = {lines: [{text, size?: "small"|"normal"|"big", color?: "accent"}], x, y, anim?, ages, out?, leave?} —
+//     акцентная фраза: центр блока x, y; ages — секунды с появления каждой строки (null — её слово ещё не звучит);
+//     anim — blur (по умолчанию), type, letters, track; out — fade (по умолчанию), zoom; leave — 0..1 ухода.
+//   window.layoutBoxes() → {sub?, hook?, cta?, accent?, end?, inserts: [...]} — рамки {x, y, w, h} в px кадра 1080×1920,
+//     вместе с обводкой, тенью и плашкой (у карточки — без затемнения кадра; у акцента — весь блок, без анимации).
+//     Вставки рисует inserts.js.
 //
 // Шрифты — из fonts.json рядом с этим файлом. Свои шрифты Павла (assets/fonts) дописывает в fonts.json
 // тот, кто отдаёт шаблон. Шрифта нет в списке — ошибка: подменять его другим нельзя, иначе превью
@@ -244,6 +250,7 @@ function drawSub({ spec, main }, sub) {
   const root = layer('sub');
   if (!sub || !Array.isArray(sub.words) || sub.words.length === 0) return null;
   root.hidden = false;
+  if (spec.subtitles.mode === 'soft') return drawSoftSub(root, { spec, main }, sub);
   const { mode, size, y } = spec.subtitles;
   const c = spec.colors;
   const single = mode === 'word';
@@ -311,6 +318,313 @@ function drawSub({ spec, main }, sub) {
   if (mode === 'plate') place(plate, shift(grow(words0, ext.x, ext.y), dy), { background: c.plate, borderRadius: `${Math.round(0.28 * px)}px` });
   if (bar) place(underline, shift(bar, dy), { background: c.accent, borderRadius: `${(bar.bottom - bar.top) / 2}px` });
   return box(shift(outer, dy));
+}
+
+// ---------- стиль эталона: субтитры soft, акцентные фразы, хук и титр accent ----------
+
+// Мягкая тень вместо обводки и плашки; её поля — в рамке для проверок.
+const SHADOW = '0 2px 12px rgba(0, 0, 0, 0.55), 0 0 3px rgba(0, 0, 0, 0.3)';
+const SHADOW_EXT = { x: 14, top: 12, bottom: 16 };
+// soft: межстрочный (доли кегля), появление новой строки (с), с какого разлёта букв она съезжается (em)
+const SOFT = { line: 0.86, appear: 0.12, track: 0.35 };
+const SOFT_NOWRAP = 0.75; // ужатие строки soft без переноса — до этой доли кегля
+// акцент: кегль строк — доли hook.size; зазор между строками — доля меньшего кегля; лесенка — сдвиг строк влево и
+// вправо (доля кегля); появление (с): из размытия, съезжание букв, буквы вразнобой (за сколько появятся все) и одна
+// буква; печать — букв в секунду, курсор держится после печати; пролёт — во сколько раз вырастает блок к концу ухода
+const ACC = {
+  sizes: { small: 0.72, normal: 1, big: 1.38 },
+  gap: 0.14,
+  stagger: 0.45,
+  blur: { seconds: 0.22, px: 16 },
+  track: { seconds: 0.14, em: 0.5 },
+  letters: { seconds: 0.3, one: 0.08 },
+  type: { cps: 30, cursor: 0.25 },
+  zoom: 5,
+};
+const HOOK_WORDS = 3; // хук в режиме accent — строки до трёх слов
+const EDGE_PUNCT = /^[.,!?:;…«»"„“”'()[\]—–-]+|[.,!?:;…«»"„“”'()[\]—–-]+$/gu;
+const SENTENCE_END = /[.?!…][»"')\]]*$/u;
+
+/** Слово без знаков препинания по краям (дефис внутри остаётся; слово из одних знаков — пустое). */
+function bare(word) {
+  return String(word).replace(EDGE_PUNCT, '');
+}
+
+/** Первая буква — строчная, если слово написано с заглавной (имя в начале фразы — тоже); аббревиатура (США) — как есть. */
+function lowerFirst(word) {
+  const [first = '', ...rest] = [...word];
+  const tail = rest.join('');
+  if (first === first.toLocaleLowerCase() || (/\p{Lu}/u.test(tail) && tail === tail.toLocaleUpperCase())) return word;
+  return first.toLocaleLowerCase() + tail;
+}
+
+/** Слова блока для экрана: без знаков по краям; начало фразы (первое слово блока и слово после `.`, `?`, `!`, `…`) —
+со строчной. */
+function softWords(words) {
+  return words.map((w, i) => {
+    const text = bare(w);
+    return i === 0 || SENTENCE_END.test(String(words[i - 1])) ? lowerFirst(text) : text;
+  });
+}
+
+/** Сколько слов в каждой строке блока: `lines` от движка или ровные строки не длиннее `per` слов. */
+function lineCounts(lines, total, per) {
+  if (Array.isArray(lines) && lines.length && lines.every((n) => Number.isInteger(n) && n > 0) && lines.reduce((a, b) => a + b, 0) === total) {
+    return lines;
+  }
+  const n = Math.max(1, Math.ceil(total / Math.max(1, per)));
+  return Array.from({ length: n }, (_, k) => Math.floor(((k + 1) * total) / n) - Math.floor((k * total) / n));
+}
+
+/** Секунды с появления → доля 0..1 с замедлением; нет времени — появление уже закончилось. */
+function progress(age, seconds) {
+  return age == null || !Number.isFinite(Number(age)) ? 1 : ease(Number(age) / seconds);
+}
+
+function drawSoftSub(root, { spec, main }, sub) {
+  const { size, y } = spec.subtitles;
+  const words = sub.words.map(String);
+  const texts = softWords(words);
+  const counts = lineCounts(sub.lines, words.length, spec.subtitles.words);
+  const visible = Number.isInteger(sub.visible) ? sub.visible : words.length;
+
+  const lines = el('div', 'slines');
+  root.append(lines);
+  const rows = [];
+  let i = 0;
+  for (const n of counts) {
+    const row = el('div', 'sline');
+    const first = i;
+    for (let k = 0; k < n; k++, i++) {
+      if (k) row.append(' ');
+      const span = el('span', 'w', texts[i]);
+      span.dataset.i = String(i);
+      row.append(span);
+    }
+    rows.push({ row, shown: first < visible });
+    lines.append(row);
+  }
+  Object.assign(lines.style, {
+    fontFamily: `"${main.family}"`, fontWeight: String(main.weight), color: spec.colors.text, lineHeight: String(SOFT.line), textShadow: SHADOW,
+  });
+  const spans = [...lines.querySelectorAll('.w')];
+  const width = WIDTH - 2 * SHADOW_EXT.x;
+  // строка блока — без переноса, ужимается до 0,75 кегля; не влезло и так — строки переносятся по словам
+  let px = size;
+  for (let scale = 1; ; scale *= SHRINK) {
+    const wrap = scale < SOFT_NOWRAP;
+    px = size * Math.max(scale, MIN_SCALE);
+    Object.assign(lines.style, { fontSize: `${px}px`, left: `${CX - width / 2}px`, width: `${width}px`, top: '0px' });
+    for (const { row } of rows) row.style.whiteSpace = wrap ? 'normal' : 'nowrap';
+    const fits = rows.every(({ row }) => row.scrollWidth <= width + 0.5);
+    const all = union(spans.map((s) => wordRect(s, main, px)));
+    if ((fits && all.left >= SAFE.x0 + SHADOW_EXT.x - 0.5 && all.right <= SAFE.x1 - SHADOW_EXT.x + 0.5) || scale <= MIN_SCALE) break;
+  }
+  // место — по всем строкам блока, и тем, что ещё не видны: блок не прыгает, когда появляется вторая строка
+  const ink = union(spans.map((s) => wordRect(s, main, px)));
+  const outer = grow(ink, SHADOW_EXT.x, SHADOW_EXT.top, SHADOW_EXT.bottom);
+  const dy = keepInside(outer, Math.round(y - (ink.top + ink.bottom) / 2));
+  lines.style.top = `${dy}px`;
+  // видна строка, первое слово которой уже звучит; последняя видимая — съезжается и проявляется
+  const newest = rows.findLastIndex((r) => r.shown);
+  rows.forEach(({ row, shown }, k) => {
+    if (!shown) {
+      row.style.visibility = 'hidden';
+      return;
+    }
+    if (k !== newest) return;
+    const p = progress(sub.t, SOFT.appear);
+    row.style.opacity = String(p);
+    row.style.letterSpacing = `${(1 - p) * SOFT.track}em`;
+  });
+  return box(shift(outer, dy));
+}
+
+/** Псевдослучайное 0..1 по строке и номеру буквы: порядок «вразнобой» одинаков на превью и во всех кадрах. */
+function scatter(text, k) {
+  let h = 2166136261;
+  for (const ch of `${text}#${k}`) h = Math.imul(h ^ ch.codePointAt(0), 16777619);
+  h = Math.imul(h ^ (h >>> 15), 2246822507);
+  h = Math.imul(h ^ (h >>> 13), 3266489909);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+function graphemes(text) {
+  return [...new Intl.Segmenter('ru', { granularity: 'grapheme' }).segment(text)].map((s) => s.segment);
+}
+
+/** Строки лесенкой в узле `root`: `lines` — `[{text, size, color, age}]`, центр блока — `at` ({x, y}); `motion` —
+{anim, out, leave}. → рамка блока для проверок (без анимации). Возраст строки null — её слово ещё не звучит. */
+function drawLines(root, { spec, main }, lines, at, motion = {}) {
+  const base = spec.hook.size;
+  const anim = motion.anim ?? 'blur';
+  const perChar = anim === 'type' || anim === 'letters';
+  const block = el('div', 'ablock');
+  root.append(block);
+  const items = lines.map((line) => {
+    const node = el('div', 'aline');
+    node.dataset.text = line.text;
+    const chars = [];
+    if (perChar) {
+      for (const g of graphemes(line.text)) {
+        const ch = appendText(el('span', 'ch'), g);
+        chars.push(ch);
+        node.append(ch);
+      }
+    } else {
+      node.append(appendText(el('span', 'shown'), line.text));
+    }
+    const mark = baseline(node);
+    Object.assign(node.style, {
+      fontFamily: `"${main.family}"`, fontWeight: String(main.weight), lineHeight: '1', textShadow: SHADOW,
+      color: line.color === 'accent' ? spec.colors.accent : spec.colors.text,
+    });
+    block.append(node);
+    return { ...line, node, chars, mark, factor: ACC.sizes[line.size] ?? 1 };
+  });
+  const offsets = items.map((_, k) => (items.length === 1 ? 0 : (k % 2 ? 1 : -1) * ((ACC.stagger * base) / 2)));
+
+  // кегль: все строки (со сдвигом лесенки) влезают в безопасную зону
+  const room = WIDTH - 2 * SHADOW_EXT.x;
+  let scale = 1;
+  const size = (it) => base * it.factor * scale;
+  for (;;) {
+    for (const it of items) it.node.style.fontSize = `${size(it)}px`;
+    const fits = items.every((it, k) => it.node.getBoundingClientRect().width + 2 * Math.abs(offsets[k] * scale) <= room + 0.5);
+    if (fits || scale <= MIN_SCALE) break;
+    scale *= SHRINK;
+  }
+
+  // по высоте: базовые линии строк — спуск верхней, зазор, подъём нижней (по настоящим буквам)
+  const inks = items.map((it) => ink(main, size(it), it.text));
+  const bases = [0];
+  for (let k = 1; k < items.length; k++) {
+    bases.push(bases[k - 1] + inks[k - 1].descent + ACC.gap * Math.min(size(items[k - 1]), size(items[k])) + inks[k].ascent);
+  }
+  const rects = items.map((it, k) => {
+    it.node.style.left = '0px';
+    it.node.style.top = '0px';
+    const r = it.node.getBoundingClientRect();
+    const markTop = it.mark.getBoundingClientRect().top - r.top; // базовая линия от верха строки
+    const cx = offsets[k] * scale;
+    it.place = { left: cx - r.width / 2, top: bases[k] - markTop, width: r.width };
+    return { left: cx - r.width / 2 - inks[k].left, right: cx + r.width / 2 + inks[k].right, top: bases[k] - inks[k].ascent, bottom: bases[k] + inks[k].descent };
+  });
+  const inkAll = union(rects);
+  let dx = Math.round(at.x - (inkAll.left + inkAll.right) / 2);
+  let dy = Math.round(at.y - (inkAll.top + inkAll.bottom) / 2);
+  const outer = grow(inkAll, SHADOW_EXT.x, SHADOW_EXT.top, SHADOW_EXT.bottom);
+  if (Math.ceil(outer.right) + dx > SAFE.x1) dx = SAFE.x1 - Math.ceil(outer.right);
+  if (Math.floor(outer.left) + dx < SAFE.x0) dx = SAFE.x0 - Math.floor(outer.left);
+  dy = keepInside(outer, dy);
+  for (const it of items) Object.assign(it.node.style, { left: `${it.place.left + dx}px`, top: `${it.place.top + dy}px` });
+
+  // появление строк
+  for (const it of items) {
+    const age = it.age;
+    if (age === null || age === undefined) {
+      it.node.style.visibility = 'hidden';
+      continue;
+    }
+    if (anim === 'blur') {
+      const p = progress(age, ACC.blur.seconds);
+      Object.assign(it.node.style, { opacity: String(p), filter: p < 1 ? `blur(${((1 - p) * ACC.blur.px).toFixed(2)}px)` : 'none' });
+    } else if (anim === 'track') {
+      const p = progress(age, ACC.track.seconds);
+      const before = it.node.getBoundingClientRect().width;
+      Object.assign(it.node.style, { opacity: String(p), letterSpacing: `${(1 - p) * ACC.track.em}em` });
+      const grown = it.node.getBoundingClientRect().width - before; // разлёт — в обе стороны от центра строки
+      it.node.style.left = `${it.place.left + dx - grown / 2}px`;
+    } else if (anim === 'letters') {
+      const spread = ACC.letters.seconds - ACC.letters.one;
+      it.chars.forEach((ch, k) => {
+        ch.style.opacity = String(progress(Number(age) - scatter(it.text, k) * spread, ACC.letters.one));
+      });
+    } else if (anim === 'type') {
+      const shown = Math.min(it.chars.length, Math.floor(Number(age) * ACC.type.cps + 1e-9));
+      it.chars.forEach((ch, k) => {
+        if (k >= shown) ch.style.visibility = 'hidden';
+      });
+      if (Number(age) < it.chars.length / ACC.type.cps + ACC.type.cursor) {
+        const lineBox = it.node.getBoundingClientRect();
+        const lastBox = shown ? it.chars[shown - 1].getBoundingClientRect() : null;
+        const px = size(it);
+        const cursor = el('span', 'cursor');
+        Object.assign(cursor.style, {
+          left: `${(lastBox ? lastBox.right - lineBox.left : 0) + 0.04 * px}px`,
+          top: `${it.mark.getBoundingClientRect().top - lineBox.top - 0.62 * px}px`,
+          width: `${Math.max(2, Math.round(0.045 * px))}px`,
+          height: `${0.74 * px}px`,
+          background: spec.colors.text,
+        });
+        it.node.append(cursor);
+      }
+    }
+  }
+
+  // уход: растворение или пролёт — блок растёт от своего центра на весь кадр и тает
+  const leave = Math.min(1, Math.max(0, Number(motion.leave) || 0));
+  if (leave > 0) {
+    root.style.opacity = String(1 - leave);
+    if (motion.out === 'zoom') {
+      const c = shift({ left: inkAll.left + dx, right: inkAll.right + dx, top: inkAll.top, bottom: inkAll.bottom }, dy);
+      root.style.transformOrigin = `${(c.left + c.right) / 2}px ${(c.top + c.bottom) / 2}px`;
+      root.style.transform = `scale(${1 + ACC.zoom * leave})`;
+    }
+  }
+  return box(shift({ left: outer.left + dx, right: outer.right + dx, top: outer.top, bottom: outer.bottom }, dy));
+}
+
+/** Строка акцента из state: текст, размер (small/normal/big) и цвет (accent — цвет подсветки). */
+function accentLine(line, age) {
+  return { text: String(line?.text ?? ''), size: line?.size, color: line?.color, age };
+}
+
+function drawAccent(look, accent) {
+  const root = layer('accent');
+  Object.assign(root.style, { opacity: '', transform: '', transformOrigin: '' });
+  const lines = (accent?.lines ?? []).filter((l) => String(l?.text ?? '').trim());
+  if (!accent || lines.length === 0) return null;
+  root.hidden = false;
+  const ages = Array.isArray(accent.ages) ? accent.ages : [];
+  const items = lines.map((l, k) => accentLine(l, k < ages.length ? ages[k] : Infinity));
+  const at = { x: Number.isFinite(accent.x) ? accent.x : CX, y: Number.isFinite(accent.y) ? accent.y : FRAME.h / 2 };
+  return drawLines(root, look, items, at, { anim: accent.anim, out: accent.out, leave: accent.leave });
+}
+
+/** Хук в режиме accent: ударное последнее слово (с эмодзи после него) — своей строкой, крупно и цветом подсветки, как
+рукописное слово в других режимах; слова до него — ровные строки до трёх слов, длинная строка сверху. */
+function accentHook(hook) {
+  const title = hookTitle(hook);
+  if (!title) return null;
+  const words = title.lines.join(' ').split(/\s+/).filter(Boolean);
+  const counts = lineCounts(null, words.length, HOOK_WORDS).reverse();
+  const lines = [];
+  let i = 0;
+  for (const n of words.length ? counts : []) {
+    lines.push({ text: words.slice(i, i + n).join(' ') });
+    i += n;
+  }
+  lines.push({ text: title.word, size: 'big', color: 'accent' });
+  return lines;
+}
+
+/** Титр в режиме accent: строки призыва — обычные, кодовое слово — крупное, цвета подсветки. */
+function accentCta(cta) {
+  if (!cta) return null;
+  const lines = (cta.lines ?? []).map(String).filter((l) => l.trim()).map((text) => ({ text }));
+  const word = String(cta.word ?? '').trim();
+  if (word) lines.push({ text: word, size: 'big', color: 'accent' });
+  return lines.length ? lines : null;
+}
+
+function drawAccentTitle(id, look, lines, t) {
+  const root = layer(id);
+  if (!lines) return null;
+  root.hidden = false;
+  const age = t == null ? Infinity : t;
+  const at = { x: CX, y: look.spec.hook.y ?? HOOK_Y };
+  return drawLines(root, look, lines.map((l) => ({ ...l, age })), at, { anim: 'blur' });
 }
 
 // ---------- хук и титр с кодовым словом ----------
@@ -561,10 +875,13 @@ window.renderState = function renderState(spec, state = {}, opts = {}) {
   return run;
 };
 
-/** Тексты состояния, где могут быть эмодзи: хук, титр, тексты вставок. */
+/** Тексты состояния, где могут быть эмодзи: хук, титр, акцент, тексты вставок. */
 function texts(s) {
   const cta = s.cta ?? {};
-  return [s.hook?.text, ...(cta.lines ?? []), cta.word, ...(s.inserts ?? []).flatMap((i) => [i.text, i.title]), ...(s.end?.lines ?? [])];
+  return [
+    s.hook?.text, ...(cta.lines ?? []), cta.word, ...(s.accent?.lines ?? []).map((l) => l?.text),
+    ...(s.inserts ?? []).flatMap((i) => [i.text, i.title]), ...(s.end?.lines ?? []),
+  ];
 }
 
 async function draw(spec, state, opts) {
@@ -576,10 +893,13 @@ async function draw(spec, state, opts) {
   const boxes = { inserts: await drawInserts(document.getElementById('inserts'), s.inserts ?? [], look) };
   const sub = drawSub(look, s.sub);
   if (sub) boxes.sub = sub;
-  const hook = drawTitle('hook', look, hookTitle(s.hook));
+  const accentMode = spec.hook.mode === 'accent';
+  const hook = accentMode ? drawAccentTitle('hook', look, accentHook(s.hook), s.hook?.t) : drawTitle('hook', look, hookTitle(s.hook));
   if (hook) boxes.hook = hook;
-  const cta = drawTitle('cta', look, ctaTitle(s.cta));
+  const cta = accentMode ? drawAccentTitle('cta', look, accentCta(s.cta)) : drawTitle('cta', look, ctaTitle(s.cta));
   if (cta) boxes.cta = cta;
+  const accent = drawAccent(look, s.accent);
+  if (accent) boxes.accent = accent;
   const card = drawEnd(look, s.end, s.end?.logo ? await logoImage(s.end.logo) : null);
   if (card) boxes.end = card;
   drawBar(spec, opts?.bar);

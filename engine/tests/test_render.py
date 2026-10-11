@@ -539,6 +539,56 @@ def test_quiet_recording_is_denoised_and_reported(tmp_path, sources, monkeypatch
     assert result["voice"] == {"lufs": -21.0, "denoise": False}
 
 
+# ---------- стиль эталона ----------
+
+REFERENCE = {
+    "font": "forum",
+    "hand": "caveat",
+    "colors": {"text": "#FFFFFF", "accent": "#EDE4C1", "bar": "#EDE4C1", "plate": "#111111", "outline": "#000000"},
+    "subtitles": {"mode": "soft", "words": 3, "size": 64, "y": 1440},
+    "hook": {"mode": "accent", "size": 108, "y": 420},
+    "bar": {"pos": "bottom", "height": 6},
+}
+
+
+def saturation(rgb: np.ndarray) -> float:
+    return float((rgb.max(2).astype(int) - rgb.min(2).astype(int)).mean())
+
+
+def test_reference_style_end_to_end(tmp_path, sources):
+    """Стиль эталона целиком: тонкие субтитры, хук лесенкой, акцент вместо субтитров, ч/б-кусок, резкая смена
+    крупности и медленный наезд — в настоящем ролике."""
+    said = [(0.5, 0.8, "Я"), (0.9, 1.3, "покупаю"), (1.4, 1.8, "вещи,"), (2.0, 2.4, "чтобы"), (2.5, 2.9, "выглядеть"),
+            (3.0, 3.4, "плохо."), (4.0, 4.4, "Это"), (4.5, 4.9, "важно.")]
+    job = make_job(
+        tmp_path, sources["short"], keep=[[0.0, 6.0]], style=REFERENCE,
+        words=[{"t0": a, "t1": b, "text": t} for a, b, t in said],
+        hook={"text": "я покупаю вещи", "until": 1.8},
+        accents=[{"t0": 2.0, "t1": 3.4, "lines": [{"text": "чтобы выглядеть"}, {"text": "плохо", "size": "big", "color": "accent"}],
+                  "x": 480, "y": 900, "anim": "type", "out": "zoom"}],
+        looks=[{"t0": 4.0, "t1": 5.0, "look": "bw"}],
+        zooms=[{"t": 2.0, "level": 1.25, "over": 0}, {"t": 3.6, "level": 1.0, "over": 0}, {"t": 4.0, "level": 1.2, "over": 1.5}],
+    )
+    render(job, job.path("out"), preset="ultrafast")
+    final = job.path("out") / "final.mp4"
+    corner = (slice(150, 450), slice(80, 380))  # угол без текста
+    assert saturation(frame(final, 3.5)[corner]) > 40, "до ч/б-куска — цвет"
+    assert saturation(frame(final, 4.5)[corner]) < 8, "ч/б-кусок"
+    assert saturation(frame(final, 5.5)[corner]) > 40, "после — снова цвет"
+    boxes = json.loads((job.path("work/render/frames/boxes.json")).read_text(encoding="utf-8"))
+    def at(t):
+        return next(e["boxes"] for e in boxes if e["t0"] <= t < e["t1"])
+
+    during = at(2.8)
+    assert during.get("accent") and not during.get("sub"), "акцент вместо субтитров"
+    after = at(4.2)
+    assert after.get("sub") and not after.get("accent")
+    assert at(0.1).get("hook"), "хук с первого кадра"
+    # резкая смена крупности: на 2,0 с картинка сразу крупнее (×1,25), без перехода
+    before, cut = frame(final, 1.95).astype(int), frame(final, 2.04).astype(int)
+    assert abs(before[1500:1800, 100:300] - cut[1500:1800, 100:300]).mean() > 15, "план сменился"
+
+
 # ---------- обложка ----------
 
 

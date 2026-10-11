@@ -1,4 +1,5 @@
 [
+  { "id": "forum", "family": "Forum", "file": "fonts/forum/forum.ttf", "weight": 400, "kind": "main" },
   { "id": "montserrat", "family": "Montserrat", "file": "fonts/montserrat/montserrat.ttf", "weight": 800, "kind": "main" },
   { "id": "unbounded", "family": "Unbounded", "file": "fonts/unbounded/unbounded.ttf", "weight": 700, "kind": "main" },
   { "id": "rubik", "family": "Rubik", "file": "fonts/rubik/rubik.ttf", "weight": 700, "kind": "main" },

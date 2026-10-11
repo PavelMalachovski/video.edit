@@ -32,12 +32,13 @@ from .media import extract_frame, grid_frames
 from .prepare import prepare
 from .qa import (
     ADS_SAFE,
+    SAFE,
     check_layout,
     check_render,
     checklist,
     compose_frames,
     control_frames,
-    face_of,
+    face_box,
     slot_times,
 )
 from .render import (
@@ -46,10 +47,13 @@ from .render import (
     draw_layer,
     render,
     render_cover,
+    timeline,
     variant_ad,
     variant_b,
 )
 from .style import final_style
+from .timeline import Timeline
+from .zoom import zoom_at
 
 SERVICE = ("own", "none", "upload")  # служебные варианты вопросов: их подписи — интерфейс страницы
 PART_SIZE = 95 * 1024 * 1024  # как `split -b 95M`: столько же, сколько MAX_FILE_BYTES
@@ -249,12 +253,23 @@ def _beats_line(beats: dict | None) -> str | None:
     return f"в такт музыке ({round(beats['bpm'])} уд/мин): к долям подвинуто событий — {beats['moved']}"
 
 
+def _zoom(edit: dict, tl: Timeline):
+    """Уровень зума edit.json в момент финала — для проверки лица: крупный план делает лицо больше."""
+    zooms = edit.get("zooms") or []
+    return lambda t: zoom_at(zooms, tl, t)
+
+
+def _layout(boxes: list[dict], edit: dict, tl: Timeline, safe: dict = SAFE) -> list[str]:
+    """Геометрия слоя: лицо — такого размера, каким его делает зум в каждый момент (смена крупности, наезд)."""
+    return check_layout(boxes, face_box(edit.get("face")), edit.get("inserts"), safe=safe, zoom=_zoom(edit, tl))
+
+
 def _check(args: argparse.Namespace) -> None:
     job = _job(args)
     _fonts_ok(job)
     layer = draw_layer(job)
     edit = layer.edit
-    problems = check_layout(layer.boxes, face_of(edit), edit.get("inserts"))
+    problems = _layout(layer.boxes, edit, layer.tl)
     frames = compose_frames(job.path("source.mp4"), layer.boxes, layer.frames.parent, layer.tl, slot_times(layer.boxes),
                             job.path("look"))
     print(f"слой нарисован: {len(layer.boxes)} промежутков, {layer.tl.duration:.1f} с (без стоп-кадра)")
@@ -288,7 +303,7 @@ def _render(args: argparse.Namespace) -> None:
     step("Проверяю", "Смотрю контрольные кадры и геометрию")
     final = job.path(f"out/{name}.mp4")
     boxes = json.loads(job.path("work/render/frames/boxes.json").read_text(encoding="utf-8"))
-    problems = check_layout(boxes, face_of(edit), edit.get("inserts")) + check_render(final, edit, boxes, result)
+    problems = _layout(boxes, result.get("edit", edit), timeline(edit)) + check_render(final, edit, boxes, result)
     frames = control_frames(final, slot_times(boxes), job.path("qa"))
     checks = checklist(final, boxes, result)  # по гайду — для экрана «Готово»
     summary = {
@@ -317,7 +332,7 @@ def _render(args: argparse.Namespace) -> None:
             drop_parts(job.path("out"), done)
         boxes_b = json.loads(job.path("work/render-b/frames/boxes.json").read_text(encoding="utf-8"))
         final_b = job.path(f"out/{name}-b.mp4")
-        problems_b = check_layout(boxes_b, face_of(variant), variant.get("inserts")) + check_render(final_b, variant, boxes_b, result_b)
+        problems_b = _layout(boxes_b, variant, timeline(variant)) + check_render(final_b, variant, boxes_b, result_b)
         summary["ab"] = {"differs": edit["ab"], "durations": result_b["durations"], "qa": {"ok": not problems_b, "problems": problems_b}}
         job.write("result.json", summary)
         print(f"{final_b.relative_to(job.root)}: {result_b['durations']['final']:.1f} с — версия B, {'без тизера' if edit['ab'] == 'teaser' else 'без музыки'}")
@@ -331,8 +346,7 @@ def _render(args: argparse.Namespace) -> None:
             drop_parts(job.path("out"), done)
         boxes_ad = json.loads(job.path("work/render-ad/frames/boxes.json").read_text(encoding="utf-8"))
         final_ad = job.path(f"out/{name}-ad.mp4")
-        problems_ad = (check_layout(boxes_ad, face_of(ads), ads.get("inserts"), safe=ADS_SAFE)
-                       + check_render(final_ad, ads, boxes_ad, result_ad))
+        problems_ad = _layout(boxes_ad, ads, timeline(ads), safe=ADS_SAFE) + check_render(final_ad, ads, boxes_ad, result_ad)
         summary["ad"] = {"durations": result_ad["durations"], "qa": {"ok": not problems_ad, "problems": problems_ad}}
         job.write("result.json", summary)
         print(f"{final_ad.relative_to(job.root)}: {result_ad['durations']['final']:.1f} с — версия для рекламы")

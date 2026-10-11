@@ -11,7 +11,6 @@ from vm.qa import (
     checklist,
     control_frames,
     face_box,
-    face_of,
 )
 
 needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="нужен ffmpeg")
@@ -75,6 +74,33 @@ def test_a_problem_is_reported_once_with_the_first_time():
     assert check_layout(events, None) == ["субтитры вне безопасной зоны (0,0–10,0 с ролика)"]
 
 
+ACCENT = {"x": 150, "y": 1000, "w": 600, "h": 220}
+
+
+def test_accent_is_checked_like_the_hook():
+    face = face_box({"x": 0.5, "y": 0.55})  # лицо низко — на акценте
+    problems = check_layout([event(3, 5, accent=ACCENT)], face)
+    assert problems == ["акцент на лице или ближе 40 px к нему (3,0–5,0 с ролика)"]
+    assert check_layout([event(3, 5, accent=ACCENT)], face_box({"x": 0.5, "y": 0.25})) == []
+    out = check_layout([event(3, 5, accent={**ACCENT, "y": 1400})], None)
+    assert out == ["акцент вне безопасной зоны (3,0–5,0 с ролика)"]
+
+
+def test_accent_during_the_hook_is_reported():
+    problems = check_layout([event(0, 1, hook=HOOK, accent=ACCENT)], None)
+    assert problems == ["акцент во время хука (0,0–1,0 с ролика)"]
+
+
+def test_the_face_grows_with_the_zoom():
+    face = face_box({"x": 0.5, "y": 0.3})  # 378..702 × 365..787
+    beside = {"x": face["x"] + face["w"] + 60, "y": 500, "w": 120, "h": 120}  # 60 px справа от лица
+    assert check_layout([event(1, 2, accent=beside)], face) == []
+    zoomed = check_layout([event(1, 2, accent=beside)], face, zoom=lambda t: 1.3)
+    assert zoomed == ["акцент на лице или ближе 40 px к нему (1,0–2,0 с ролика)"], "при ×1,3 лицо шире на ~50 px с каждой стороны"
+    growing = check_layout([event(1, 2, accent=beside)], face, zoom=lambda t: 1.0 if t < 1.9 else 1.3)
+    assert growing, "наезд внутри промежутка: берётся самый крупный план"
+
+
 def test_face_box_defaults_to_a_face_sized_box():
     assert face_box({"x": 0.5, "y": 0.3}) == {"x": 378, "y": 365, "w": 324, "h": 422}
     assert face_box({"x": 0.5, "y": 0.3, "w": 0.2, "h": 0.1}) == {"x": 432, "y": 480, "w": 216, "h": 192}
@@ -99,17 +125,17 @@ def edit_for(seconds: float, **fields):
 
 
 @needs_ffmpeg
-def test_control_sheet_is_2x2(tmp_path):
+def test_control_sheet_is_3x2(tmp_path):
     final = make_clip(tmp_path / "final.mp4", 4)
-    frames = control_frames(final, {"hook": 0.5, "subs": 1.5, "insert": 2.5}, tmp_path / "qa")
-    assert set(frames) == {"hook", "subs", "insert", "sheet"}
-    for name in ("hook", "subs", "insert"):
+    frames = control_frames(final, {"hook": 0.5, "subs": 1.5, "accent": 2.0, "insert": 2.5}, tmp_path / "qa")
+    assert set(frames) == {"hook", "subs", "accent", "insert", "sheet"}
+    for name in ("hook", "subs", "accent", "insert"):
         assert frames[name].is_file()
     sheet = frames["sheet"]
     assert sheet.name == "qa.png"
     size = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=width,height", "-of", "csv=p=0", str(sheet)],
                           check=True, capture_output=True, text=True).stdout.strip()
-    assert size == "1080,1920"
+    assert size == "1620,1920"
 
 
 @needs_ffmpeg
@@ -282,10 +308,9 @@ def test_subtitles_may_go_down_to_just_above_the_time_bar_but_other_text_may_not
     assert any("хук вне безопасной зоны" in p for p in check_layout([event(0, 2, hook={**HOOK, "y": 1500})], None))
 
 
-def test_the_face_box_grows_with_the_strongest_zoom_around_the_face():
+def test_the_face_box_grows_with_the_zoom_around_the_face():
     face = {"x": 0.5, "y": 0.3}
     assert face_box(face, zoom=1.16) == {"x": 352, "y": 331, "w": 376, "h": 490}
-    edit = {"face": face, "zooms": [{"t": 0.0, "level": 1.0}, {"t": 2.0, "level": 1.14}, {"t": 5.0, "level": 1.08}]}
-    assert face_of(edit) == face_box(face, zoom=1.14)
-    assert face_of({**edit, "zooms": [{"t": 1.0, "level": 1.5}]}) == face_box(face, zoom=1.16), "зум больше 1.16 движок не даёт"
-    assert face_of({**edit, "zooms": []}) == face_box(face) and face_of({"face": None, "zooms": []}) is None
+    assert face_box(face, zoom=1.0) == face_box(face)
+
+

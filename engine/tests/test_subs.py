@@ -529,3 +529,104 @@ def test_teaser_words_are_in_the_srt_too():
     blocks = srt.strip().split("\n\n")
     assert blocks[0].endswith("Главное правило.") and blocks[0].split("\n")[1].startswith("00:00:00,100")
     assert "Привет." in blocks[1] and "Главное правило." in blocks[2]
+
+
+# ---------- soft: стиль эталона ----------
+
+
+def test_soft_block_is_two_lines_one_event_per_line():
+    words = row(6)
+    texts = [w.text for w in words]
+    assert build_sub_events(words, whole(10), "soft", 3) == [
+        {"t0": 0.0, "t1": 0.9, "words": texts, "active": 0, "visible": 3, "lines": [3, 3], "opens": True},
+        {"t0": 0.9, "t1": 2.0, "words": texts, "active": 3, "visible": 6, "lines": [3, 3], "opens": True},  # конец + 0,3 с
+    ]
+
+
+def test_a_soft_block_says_whether_it_opens_a_sentence():
+    """Шаблон пишет первое слово блока со строчной, только если с него начинается предложение: имя посреди
+    предложения на краю блока (и после паузы без точки) остаётся с заглавной."""
+    words = speech((0.0, 0.2, "Вчера"), (0.3, 0.5, "я"), (0.6, 0.8, "встретил"), (0.9, 1.1, "Павла"), (1.2, 1.4, "и"),
+                   (1.5, 1.7, "его"), (1.8, 2.0, "друга."), (2.1, 2.3, "Они"), (2.4, 2.6, "сказали"),
+                   (3.2, 3.4, "Олеся"), (3.5, 3.7, "здесь."))
+    events = build_sub_events(words, whole(10), "soft", 3)
+    heads = [(e["words"][0], e["opens"]) for e in events if e["active"] == 0]
+    assert heads == [("Вчера", True), ("Павла", False), ("Они", True), ("Олеся", False)]
+
+
+def test_after_accent_words_the_sentence_is_read_through_them():
+    """Слова акцента не в субтитрах, но предложение по ним видно: кончились точкой — следующий блок начинает новое."""
+    words = speech((0.0, 0.2, "Это"), (0.3, 0.5, "важно."), (0.6, 0.8, "Сегодня"), (0.9, 1.1, "расскажу"))
+    assert build_sub_events(words, whole(10), "soft", 3, hidden=[(0.0, 0.55)])[0]["opens"] is True
+    words = speech((0.0, 0.2, "Привет"), (0.3, 0.5, "тебе"), (0.6, 0.8, "Павел"))
+    events = build_sub_events(words, whole(10), "soft", 3, hidden=[(0.25, 0.55)])
+    assert [(e["words"][0], e["opens"]) for e in events] == [("Привет", True), ("Павел", False)]
+
+
+def test_the_teaser_and_the_video_after_it_open_with_a_sentence():
+    words = speech((0.5, 0.9, "Привет"), (1.0, 1.4, "всем"), (6.0, 6.5, "Главное"), (6.6, 7.2, "правило."))
+    tl = Timeline([(0.0, 10.0)], 1.0, teaser=(5.9, 7.3))
+    events = build_sub_events(words, tl, "soft", 3)
+    assert [(e["words"][0], e["opens"]) for e in events][:2] == [("Главное", True), ("Привет", True)]
+
+
+@pytest.mark.parametrize(("count", "blocks"), [
+    (1, [[1]]), (3, [[3]]), (4, [[2, 2]]), (5, [[2, 3]]), (6, [[3, 3]]), (7, [[3], [2, 2]]), (12, [[3, 3], [3, 3]]),
+])
+def test_soft_blocks_hold_two_lines_of_up_to_n_words(count, blocks):
+    events = build_sub_events(row(count), whole(10), "soft", 3)
+    seen = []
+    for e in events:
+        if not seen or e["active"] == 0:
+            seen.append(e["lines"])
+        assert sum(e["lines"]) == len(e["words"])
+        assert e["visible"] in [sum(e["lines"][: k + 1]) for k in range(len(e["lines"]))]
+    assert seen == blocks
+
+
+def test_soft_lines_do_not_cross_a_phrase():
+    words = speech((0.0, 0.2, "раз"), (0.3, 0.5, "два."), (0.6, 0.8, "три"), (0.9, 1.1, "четыре"))
+    events = build_sub_events(words, whole(10), "soft", 3)
+    assert [(e["words"], e["lines"], e["visible"]) for e in events] == [
+        (["раз", "два."], [2], 2),
+        (["три", "четыре"], [2], 2),
+    ]
+
+
+def test_soft_takes_one_to_six_words_per_line():
+    with pytest.raises(ValueError, match="n_words"):
+        build_sub_events(row(2), whole(10), "soft", 7)
+    assert build_sub_events(row(2), whole(10), "soft", 1)[1]["lines"] == [1, 1]
+
+
+def test_hidden_words_are_not_subtitled_in_place_and_break_the_phrase():
+    """Слова акцентной фразы показывает акцент: в субтитрах их нет, а фраза вокруг них рвётся."""
+    words = row(6)  # w0 0.0–0.2 … w5 1.5–1.7
+    for mode in (*MODES, "soft"):
+        events = build_sub_events(words, whole(10), mode, 3, hidden=[(0.55, 1.15)])  # w2 и w3 — в акценте
+        shown = {w for e in events for w in e["words"]}
+        assert shown == {"w0", "w1", "w4", "w5"}, mode
+        assert not any({"w1", "w4"} <= set(e["words"]) for e in events), f"{mode}: фраза рвётся на акценте"
+
+
+def test_hidden_words_stay_in_the_teaser_copy():
+    words = speech((0.5, 0.9, "Привет."), (6.0, 6.5, "Главное"), (6.6, 7.2, "правило."))
+    tl = Timeline([(0.0, 10.0)], 1.0, teaser=(5.9, 7.3))
+    events = build_sub_events(words, tl, "karaoke", 3, hidden=[(5.9, 7.3)])
+    texts = [(round(e["t0"], 3), e["words"][e["active"]]) for e in events]
+    assert texts == [(0.1, "Главное"), (0.7, "правило."), (1.9, "Привет.")]
+
+
+def test_random_input_gives_ordered_soft_events_inside_the_final():
+    for seed in range(300):
+        rng = random.Random(seed)
+        words, tl = random_case(rng)
+        n_words = rng.randint(1, 6)
+        where = f"seed {seed}, n_words {n_words}"
+        events = build_sub_events(words, tl, "soft", n_words)
+        for e in events:
+            assert 0 <= e["t0"] < e["t1"] <= tl.duration + EPS, where
+            assert 0 <= e["active"] < e["visible"] <= len(e["words"]) <= 2 * n_words, where
+            assert len(e["lines"]) <= 2 and all(0 < n <= n_words for n in e["lines"]), where
+        for before, after in pairwise(events):
+            assert before["t1"] <= after["t0"], where

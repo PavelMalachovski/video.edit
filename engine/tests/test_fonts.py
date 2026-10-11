@@ -284,3 +284,22 @@ def test_the_cover_text_is_checked_like_the_hook():
     assert "Mulțumesc pentru tot" in main_text and hand_text.split()[-1] == "tot", "последнее слово — рукописным, как у хука"
     (problem,) = fonts.check(e)
     assert "russo-one" in problem and "Țț" in problem
+
+
+def test_in_the_reference_style_the_main_font_draws_the_accents_the_hook_and_the_code_word():
+    e = edit(["tiếng"], hook={"text": "ba lỗi 🔥", "until": 2.0}, cta={"lines": ["viết"], "word": "kế hoạch", "t0": 1, "t1": 2},
+             font="forum")
+    e["style"]["hook"] = {"mode": "accent", "size": 108, "y": 420}
+    e["accents"] = [{"t0": 0.5, "t1": 1.0, "lines": [{"text": "điều quan trọng"}], "x": 500, "y": 900}]
+    main_text, hand_text = fonts.texts(e)
+    assert "điều quan trọng" in main_text and "kế hoạch" in main_text
+    assert hand_text == "", "в режиме accent рукописного нет — его шрифт не проверяется"
+    problems = fonts.check(e)
+    assert len(problems) == 1 and "forum" in problems[0] and "основном" in problems[0], problems
+
+
+def test_accent_lines_are_checked_in_any_style():
+    e = edit(["ahoj"], font="russo-one")
+    e["accents"] = [{"t0": 0.5, "t1": 1.0, "lines": [{"text": "Mulțumesc"}], "x": 500, "y": 900}]
+    (problem,) = fonts.check(e)
+    assert "russo-one" in problem and "Țț" in problem

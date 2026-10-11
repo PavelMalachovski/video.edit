@@ -7,7 +7,8 @@ export { HOOK_SIZE, HOOK_Y, INSERT_W, SUB_SIZE, SUB_Y };
 export type { InsertBox };
 
 /** Состояние слоя для window.renderState шаблона (template/overlay.js, inserts.js). */
-export type SubState = { words: string[]; active: number; visible: number };
+// у soft: lines — слов в строках блока, opens — блок начинает предложение (его первое слово шаблон пишет со строчной)
+export type SubState = { words: string[]; active: number; visible: number; lines?: number[]; opens?: boolean };
 export type InsertState = {
   kind: SampleInsert['kind']; src?: string; text?: string; title?: string; x: number; y: number; w: number; anim: number; t: number;
   params?: Record<string, unknown>;
@@ -69,11 +70,11 @@ export function allowedFonts<T extends { id: string; kind: 'main' | 'hand' }>(li
 /** Цвета из макета «3 · Три превью»; плюс «Свой» — выбор любого цвета. */
 export const SWATCHES = {
   accent: [
-    { color: '#FFD23F', name: 'Жёлтый' }, { color: '#7CF2B0', name: 'Мятный' }, { color: '#FF5C8A', name: 'Розовый' },
+    { color: '#EDE4C1', name: 'Шампань' }, { color: '#FFD23F', name: 'Жёлтый' }, { color: '#7CF2B0', name: 'Мятный' }, { color: '#FF5C8A', name: 'Розовый' },
     { color: '#5CC8FF', name: 'Голубой' }, { color: '#B892FF', name: 'Сиреневый' },
   ],
   text: [{ color: '#FFFFFF', name: 'Белый' }, { color: '#FFF1C2', name: 'Кремовый' }, { color: '#DDF7FF', name: 'Холодный белый' }],
-  bar: [{ color: '#FFD23F', name: 'Жёлтый' }, { color: '#FFFFFF', name: 'Белый' }, { color: '#7CF2B0', name: 'Мятный' }, { color: '#FF5C8A', name: 'Розовый' }],
+  bar: [{ color: '#EDE4C1', name: 'Шампань' }, { color: '#FFD23F', name: 'Жёлтый' }, { color: '#FFFFFF', name: 'Белый' }, { color: '#7CF2B0', name: 'Мятный' }, { color: '#FF5C8A', name: 'Розовый' }],
 } as const;
 
 // ---------- образец слоя на кадре ----------
@@ -81,12 +82,20 @@ export const SWATCHES = {
 const PHRASE_ENDS = ['.', '?', '!', '…'];
 const CLOSING = /[»"')\]]+$/;
 const ACCUMULATE_BLOCK = 6;
+const SOFT_LINES = 2; // строк в блоке soft
 
 const endsPhrase = (word: string): boolean => PHRASE_ENDS.some((end) => word.replace(CLOSING, '').endsWith(end));
 
+/** `total` слов — в `ceil(total / per)` ровных кусков: сколько слов в каждом (как _balanced и _line_counts движка). */
+const evenCounts = (total: number, per: number): number[] => {
+  const n = Math.ceil(total / per);
+  return Array.from({ length: n }, (_, k) => Math.floor(((k + 1) * total) / n) - Math.floor((k * total) / n));
+};
+
 /**
  * Состояние слоя для кадра превью. Субтитры — как build_sub_events движка: слова образца делятся на фразы по
- * `.?!…` (пауз в образце нет), фраза — на `n = ceil(L/N)` ровных кусков; берётся кусок со словом `spoken`.
+ * `.?!…` (пауз в образце нет), фраза — на `n = ceil(L/N)` ровных кусков; берётся кусок со словом `spoken`. У soft кусок
+ * — блок до 2·N слов, его строки — ровные куски не длиннее N слов; на превью виден весь блок.
  */
 export function sampleState(spec: StyleSpec, sample: Styles['sample'], hook: string | null, inserts: InsertState[]): OverlayState {
   const state: OverlayState = { inserts };
@@ -100,13 +109,19 @@ export function sampleState(spec: StyleSpec, sample: Styles['sample'], hook: str
     const spoken = Math.min(Math.max(0, Math.trunc(sample.spoken) || 0), words.length - 1);
     const phrase = phrases.find((p) => p.includes(spoken)) ?? [spoken];
     const mode = spec.subtitles.mode;
-    const size = mode === 'accumulate' ? ACCUMULATE_BLOCK : mode === 'word' ? 1 : Math.max(1, Math.trunc(spec.subtitles.words) || 1);
+    const perLine = Math.max(1, Math.trunc(spec.subtitles.words) || 1);
+    const size = mode === 'accumulate' ? ACCUMULATE_BLOCK : mode === 'word' ? 1 : mode === 'soft' ? SOFT_LINES * perLine : perLine;
     const total = phrase.length;
     const count = Math.ceil(total / size);
     for (let k = 0; k < count; k++) {
       const chunk = phrase.slice(Math.floor((k * total) / count), Math.floor(((k + 1) * total) / count));
       if (!chunk.includes(spoken)) continue;
       const active = chunk.indexOf(spoken);
+      if (mode === 'soft') {
+        const opens = chunk[0] === 0 || endsPhrase(words[chunk[0] - 1]);
+        state.sub = { words: chunk.map((i) => words[i]), active: 0, visible: chunk.length, lines: evenCounts(chunk.length, perLine), opens };
+        break;
+      }
       state.sub = { words: chunk.map((i) => words[i]), active, visible: mode === 'accumulate' ? active + 1 : chunk.length };
       break;
     }

@@ -80,12 +80,18 @@ export function parseQuestions(raw: unknown): Question[] | null {
 
 // ---------- styles.json ----------
 
+/** Режимы субтитров и хука (как в engine/vm/schemas/styles.json): soft и accent — стиль эталона. */
+export const SUBTITLE_MODES = ['karaoke', 'plate', 'word', 'accumulate', 'soft'] as const;
+export const HOOK_MODES = ['plate', 'outline', 'shadow', 'accent'] as const;
+export type SubtitleMode = (typeof SUBTITLE_MODES)[number];
+export type HookMode = (typeof HOOK_MODES)[number];
+
 export type StyleSpec = {
   font: string;
   hand: string;
   colors: { text: string; accent: string; bar: string; plate: string; outline: string };
-  subtitles: { mode: 'karaoke' | 'plate' | 'word' | 'accumulate'; words: number; size: number; y: number };
-  hook: { mode: 'plate' | 'outline' | 'shadow'; size: number; y?: number };
+  subtitles: { mode: SubtitleMode; words: number; size: number; y: number };
+  hook: { mode: HookMode; size: number; y?: number };
   bar: { pos: 'bottom' | 'top'; height: number };
 };
 export const SAMPLE_INSERT_KINDS = ['image', 'badge', 'sticker', 'text', 'anim'] as const;
@@ -137,9 +143,9 @@ function isSpec(s: unknown): s is StyleSpec {
   const colors = s.colors;
   if (!['text', 'accent', 'bar', 'plate', 'outline'].every((k) => isStr(colors[k]) && COLOR.test(colors[k] as string))) return false;
   const { subtitles: sub, hook, bar } = s;
-  return isObject(sub) && ['karaoke', 'plate', 'word', 'accumulate'].includes(sub.mode as string) && Number.isInteger(sub.words)
+  return isObject(sub) && (SUBTITLE_MODES as readonly string[]).includes(sub.mode as string) && Number.isInteger(sub.words)
     && (sub.words as number) >= 2 && (sub.words as number) <= 6 && isNum(sub.size) && sub.size > 0 && isNum(sub.y)
-    && isObject(hook) && ['plate', 'outline', 'shadow'].includes(hook.mode as string) && isNum(hook.size) && hook.size > 0
+    && isObject(hook) && (HOOK_MODES as readonly string[]).includes(hook.mode as string) && isNum(hook.size) && hook.size > 0
     && (hook.y === undefined || isNum(hook.y))
     && isObject(bar) && (bar.pos === 'bottom' || bar.pos === 'top') && isNum(bar.height) && bar.height > 0;
 }

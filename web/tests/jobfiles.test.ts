@@ -148,6 +148,19 @@ test('parseStyles takes the fonts that have every letter of the video, or none',
   }
 });
 
+test('parseStyles takes the reference style: soft subtitles and the accent hook', () => {
+  const styles = JSON.parse(readFileSync(new URL('../../engine/tests/fixtures/style-merge.json', import.meta.url), 'utf8')).styles;
+  const a = styles.variants[0];
+  const reference = {
+    ...a, spec: { ...a.spec, font: 'forum', subtitles: { mode: 'soft', words: 3, size: 64, y: 1440 }, hook: { mode: 'accent', size: 108, y: 420 } },
+  };
+  const parsed = parseStyles({ ...styles, variants: [reference, ...styles.variants.slice(1)] });
+  assert.equal(parsed?.variants[0].spec.subtitles.mode, 'soft');
+  assert.equal(parsed?.variants[0].spec.hook.mode, 'accent');
+  const bad = { ...reference, spec: { ...reference.spec, hook: { mode: 'script', size: 108 } } };
+  assert.equal(parseStyles({ ...styles, variants: [bad, ...styles.variants.slice(1)] }), null);
+});
+
 test('speed from 1.0 to 1.5 goes into answers.json; without it — the rule (1.1)', () => {
   const job = buildJobFile({ job: '261010-070509-abcd', name: 'a', size: 1, type: 'video/mp4', lastModified: 1, parts: 1, chunkSize: 4, brief: '' }, NOW);
   for (const speed of [1, 1.2, 1.5]) {

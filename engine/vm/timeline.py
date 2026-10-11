@@ -11,6 +11,8 @@ import math
 from bisect import bisect_right
 from collections.abc import Iterable, Sequence
 
+TO_CUT = 0.25  # с исходника: момент так близко к краю отрезка keep встаёт ровно на край (склейку, начало или конец)
+
 
 class Timeline:
     """`Timeline(keep, speed, teaser=None)`: `keep` — отрезки исходника `[(начало, конец), ...]` по возрастанию, без
@@ -97,6 +99,18 @@ class Timeline:
             return final
         i = bisect_right(self._starts, t)  # первый отрезок, который начнётся позже t
         return (self._lead + self._played[i]) / self._speed if i < len(self._starts) else self._duration
+
+    def to_cut(self, t: float, within: float = TO_CUT) -> float:
+        """Как `to_final_snap`, но момент не дальше `within` с исходника от края отрезка — ровно на этом краю: начало
+        (стык с прошлым отрезком или тизером, у первого без тизера — начало ролика) или конец (стык со следующим, у
+        последнего — конец ролика); оба близко — ближний. Смена плана или цвета на фразе у склейки совпадает со
+        склейкой, а не идёт на пару кадров раньше или позже (кадр «прыгал» бы дважды)."""
+        i = bisect_right(self._starts, t) - 1
+        if i >= 0 and t <= self._ends[i]:
+            head, tail = t - self._starts[i], self._ends[i] - t
+            if min(head, tail) <= within:
+                t = self._starts[i] if head <= tail else self._ends[i]
+        return self.to_final_snap(t)
 
     def to_source(self, t: float) -> float:
         """Время исходника для времени финала `t` (обратное `to_final`, внутри тизера — `teaser_final`; стык

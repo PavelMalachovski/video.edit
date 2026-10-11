@@ -1,22 +1,24 @@
 """Проверка качества перед тем, как отдать ролик.
 
 `check_layout` — геометрия слоя по boxes.json (рамки элементов по промежуткам, их пишет render-frames.mjs):
-всё внутри безопасной зоны X 60–890 / Y 120–1530 (шкала и полноэкранные перебивки в boxes не попадают), вставки
-и титры не ближе 40 px к лицу, вставки не ближе 20 px к субтитрам и не на хуке или титре, тексты не пересекаются.
-Субтитры с лицом не сверяются: их высоту задаёт выбранный стиль. Вставку называют её номером в edit.inserts (с 1)
+всё внутри безопасной зоны X 60–890 / Y 120–1530 (шкала и полноэкранные перебивки в boxes не попадают), вставки,
+титры и акценты не ближе 40 px к лицу, вставки не ближе 20 px к субтитрам и не на хуке, титре или акценте, тексты не
+пересекаются, акцент не во время хука. Лицо растёт с зумом (`zoom` — уровень в момент финала): зум держит точку лица
+на месте, рамка лица увеличивается вокруг неё; на промежутке берётся самый крупный план. Субтитры с лицом не
+сверяются: их высоту задаёт выбранный стиль. Вставку называют её номером в edit.inserts (с 1)
 и подписью. `check_render` — «не отдавать»: формат, длительность, хук и титр из edit.json есть в ролике, выбранная
 музыка попала в микс и не начинается с тишины. `checklist` — чек-лист по гайду Meta для экрана «Готово» (формат,
 звук, хук, безопасные зоны, субтитры, финальная карточка, длина). `control_frames` — контрольные кадры готового ролика
-и лист 2×2; `compose_frames` — такие же кадры до рендера: кадр исходника и слой этого момента (`vm check`).
+и лист 3×2; `compose_frames` — такие же кадры до рендера: кадр исходника и слой этого момента (`vm check`).
 """
 import json
 import re
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 from .media import MediaError, extract_frame, mp4_boxes, probe
 from .timeline import Timeline
-from .zoom import MAX_LEVEL
 
 # безопасная зона; `subs_y1` — докуда Павел может опустить субтитры: над шкалой времени (ниже `y1` их может закрыть
 # подпись Reels — это его выбор, как в шаблоне); в зоне рекламы субтитры — как всё остальное
@@ -26,10 +28,11 @@ FACE_GAP = 40
 SUB_GAP = 20
 FACE_W, FACE_H = 0.30, 0.22  # рамка лица по умолчанию, доли кадра: Claude надёжно даёт только точку
 W, H = 1080, 1920
-SLOTS = ("hook", "subs", "insert", "cta")  # порядок клеток листа: слева направо, сверху вниз
+SLOTS = ("hook", "subs", "accent", "insert", "cta")  # порядок клеток листа 3×2: слева направо, сверху вниз
 HEAD = 0.5  # с — начало музыки, которое должно звучать
 SILENT_DB = -50.0  # пик тише этого — тишина
-NAMES = {"sub": "субтитры", "hook": "хук", "cta": "титр", "end": "финальная карточка"}
+NAMES = {"sub": "субтитры", "hook": "хук", "cta": "титр", "accent": "акцент", "end": "финальная карточка"}
+TEXTS = ("sub", "hook", "cta", "accent")  # тексты слоя: друг на друге не стоят
 HOOK_BY = 1.0  # с — хук на экране не позже: мысль ролика — в первые 2 с (гайд «Всё о Reels»)
 MAX_LENGTH = 90.0  # с — длина, которую советует гайд
 CHECKS = {  # строки чек-листа на экране «Готово»; подпись к посту Claude пишет после рендера — её строку ставит страница
@@ -54,10 +57,13 @@ def face_box(face: dict | None, zoom: float = 1.0) -> dict | None:
     return {"x": round(W * face["x"] - w / 2), "y": round(H * face["y"] - h / 2), "w": w, "h": h}
 
 
-def face_of(edit: dict) -> dict | None:
-    """Рамка лица для проверок ролика по edit.json: такая, каким лицо становится при самом сильном зуме ролика."""
-    levels = [min(MAX_LEVEL, max(1.0, float(z["level"]))) for z in edit.get("zooms") or []]
-    return face_box(edit.get("face"), zoom=max(levels, default=1.0))
+def _zoomed(face: dict, level: float) -> dict:
+    """Рамка лица при зуме `level`: зум держит центр лица на месте, рамка растёт вокруг него."""
+    if level <= 1.0:
+        return face
+    cx, cy = face["x"] + face["w"] / 2, face["y"] + face["h"] / 2
+    w, h = face["w"] * level, face["h"] * level
+    return {"x": round(cx - w / 2), "y": round(cy - h / 2), "w": round(w), "h": round(h)}
 
 
 def _gap(a: dict, b: dict) -> float:
@@ -100,10 +106,11 @@ def _runs(spans: list[tuple[float, float]]) -> list[tuple[float, float]]:
     return runs
 
 
-def check_layout(boxes_by_event: list[dict], face: dict | None, inserts: list[dict] | None = None, safe: dict = SAFE) -> list[str]:
+def check_layout(boxes_by_event: list[dict], face_at_rest: dict | None, inserts: list[dict] | None = None,
+                 safe: dict = SAFE, zoom: Callable[[float], float] | None = None) -> list[str]:
     """Проблемы геометрии: каждая — одной строкой с первым местом в ролике, где она есть (время финала), и числом
-    таких мест. `face` — рамка лица в px (`face_box`); `inserts` — edit.inserts, для подписей вставок; `safe` —
-    безопасная зона (для версии под рекламу — ADS_SAFE)."""
+    таких мест. `face_at_rest` — рамка лица в px без зума (`face_box`); `inserts` — edit.inserts, для подписей вставок;
+    `safe` — безопасная зона (для версии под рекламу — ADS_SAFE); `zoom` — уровень зума в момент финала (нет — 1)."""
     found: dict[str, list[tuple[float, float]]] = {}
 
     def problem(text: str, e: dict) -> None:
@@ -111,8 +118,13 @@ def check_layout(boxes_by_event: list[dict], face: dict | None, inserts: list[di
 
     for e in boxes_by_event:
         boxes = e.get("boxes") or {}
-        texts = [(key, boxes[key]) for key in ("sub", "hook", "cta") if boxes.get(key)]
+        face = face_at_rest
+        if face and zoom:  # наезд внутри промежутка — самый крупный план из начала, середины и конца
+            face = _zoomed(face, max(zoom(t) for t in (e["t0"], (e["t0"] + e["t1"]) / 2, max(e["t0"], e["t1"] - 1e-6))))
+        texts = [(key, boxes[key]) for key in TEXTS if boxes.get(key)]
         shown = [(_insert_name(b, inserts), b) for b in boxes.get("inserts") or []]
+        if boxes.get("hook") and boxes.get("accent"):
+            problem("акцент во время хука", e)
         if boxes.get("end") and _outside(boxes["end"], safe):  # карточка — на затемнённом кадре: лицо закрывать можно
             problem(f"{NAMES['end']} вне безопасной зоны", e)
         for key, b in texts:
@@ -225,22 +237,22 @@ def checklist(final: Path, boxes_by_event: list[dict], report: dict) -> list[dic
 
 def slot_times(boxes_by_event: list[dict]) -> dict[str, float]:
     """Моменты контрольных кадров (время финала): середина первого промежутка не короче 0,1 с, где виден хук,
-    субтитры, вставка (уже появившаяся) и титр; короче — кадр появления или последний кадр прошлого субтитра."""
+    субтитры, акцент, вставка (уже появившаяся) и титр; короче — кадр появления или последний кадр прошлого субтитра."""
     times: dict[str, float] = {}
     for e in boxes_by_event:
         if e["t1"] - e["t0"] < 0.1:
             continue
         b = e.get("boxes") or {}
         middle = (e["t0"] + e["t1"]) / 2
-        for key, name in (("hook", "hook"), ("sub", "subs"), ("inserts", "insert"), ("cta", "cta")):
+        for key, name in (("hook", "hook"), ("sub", "subs"), ("accent", "accent"), ("inserts", "insert"), ("cta", "cta")):
             if b.get(key) and name not in times:
                 times[name] = middle
     return times
 
 
 def control_frames(final: Path, times: dict[str, float], out_dir: Path) -> dict[str, Path]:
-    """Контрольные кадры `qa-<что>.png` в моменты `times` (hook, subs, insert, cta — что есть) и лист 2×2 `qa.png`
-    в порядке хук, субтитры / вставка, титр (пустая клетка — чёрная)."""
+    """Контрольные кадры `qa-<что>.png` в моменты `times` (hook, subs, accent, insert, cta — что есть) и лист 3×2
+    `qa.png` в порядке хук, субтитры, акцент / вставка, титр (пустая клетка — чёрная)."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     for old in out_dir.glob("qa-*.png"):  # кадры прошлой проверки — не от этого ролика
@@ -253,7 +265,7 @@ def compose_frames(source: Path, boxes_by_event: list[dict], layer_dir: Path, tl
                    out_dir: Path) -> dict[str, Path]:
     """Контрольные кадры до рендера: кадр исходника в момент `times[что]` (время финала → время исходника) и PNG
     слоя этого промежутка поверх; зум, цвет, фон и перебивки здесь не видны — только место текста и вставок.
-    → `check-<что>.png` и лист 2×2 `check.png` в `out_dir`."""
+    → `check-<что>.png` и лист 3×2 `check.png` в `out_dir`."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     for old in out_dir.glob("check-*.png"):
@@ -278,15 +290,17 @@ def compose_frames(source: Path, boxes_by_event: list[dict], layer_dir: Path, tl
 
 
 def _sheet(frames: dict[str, Path], sheet: Path) -> Path:
-    """Лист 2×2: хук, субтитры / вставка, титр; клетки без кадра — чёрные."""
+    """Лист 3×2 из кадров в половину размера: хук, субтитры, акцент / вставка, титр, пусто; клетки без кадра —
+    чёрные."""
     args, chains = [], []
-    for i, name in enumerate(SLOTS):
+    cells = [*SLOTS, None][:6]
+    for i, name in enumerate(cells):
         if name in frames:
             args += ["-i", str(frames[name])]
         else:
             args += ["-f", "lavfi", "-i", f"color=c=black:s={W}x{H}:d=1"]
         chains.append(f"[{i}:v]scale={W // 2}:{H // 2}[c{i}]")
-    chains.append("[c0][c1][c2][c3]xstack=inputs=4:layout=0_0|w0_0|0_h0|w0_h0[out]")
+    chains.append("[c0][c1][c2][c3][c4][c5]xstack=inputs=6:layout=0_0|w0_0|w0+w1_0|0_h0|w0_h0|w0+w1_h0[out]")
     subprocess.run(
         ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y", *args, "-filter_complex", ";".join(chains),
          "-map", "[out]", "-frames:v", "1", str(sheet)],

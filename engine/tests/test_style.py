@@ -68,22 +68,29 @@ def test_a_size_out_of_range_is_refused(tmp_path, key, size):
         job.write("answers.json", {**FIXTURE["answers"], "style": {**FIXTURE["answers"]["style"], key: size}})
 
 
-# ---------- размер вставок ----------
+# ---------- место и размер вставок ----------
 
-SIZES = json.loads((Path(__file__).parent / "fixtures" / "insert-sizes.json").read_text(encoding="utf-8"))
-
-
-def test_insert_sizes_match_the_shared_fixture():
-    from vm.style import sized_inserts
-
-    assert sized_inserts(SIZES["inserts"], SIZES["sizes"]) == SIZES["expected"]
-    assert sized_inserts(SIZES["inserts"], {}) == SIZES["inserts"]
+BOXES = json.loads((Path(__file__).parent / "fixtures" / "insert-boxes.json").read_text(encoding="utf-8"))
 
 
-def test_answers_take_insert_sizes_within_the_safe_zone(tmp_path):
+def test_insert_boxes_match_the_shared_fixture():
+    from vm.style import placed_inserts
+
+    assert placed_inserts(BOXES["inserts"], BOXES["boxes"]) == BOXES["expected"]
+    assert placed_inserts(BOXES["inserts"], {}) == BOXES["inserts"]
+
+
+def test_answers_take_insert_boxes_within_the_safe_zone(tmp_path):
     job = Job(tmp_path / "jobs" / "abc")
     job.root.mkdir(parents=True)
-    job.write("answers.json", {**FIXTURE["answers"], "insertSizes": {"insert-1": 330, "assets/library/a.png": 80}})
-    for bad in ({"insert-1": 60}, {"insert-1": 900}, {"insert-1": "300"}):
-        with pytest.raises(ValueError, match="insertSizes"):
-            job.write("answers.json", {**FIXTURE["answers"], "insertSizes": bad})
+    job.write("answers.json", {**FIXTURE["answers"], "insertBoxes": {"insert-1": {"x": 60, "y": 420, "w": 330}}})
+    bad_boxes = (
+        {"insert-1": {"x": 60, "y": 420}},  # без ширины
+        {"insert-1": {"x": 20, "y": 420, "w": 330}},
+        {"insert-1": {"x": 60, "y": 60, "w": 330}},
+        {"insert-1": {"x": 60, "y": 420, "w": 900}},
+        {"insert-1": 330},  # прежний формат — только ширина
+    )
+    for bad in bad_boxes:
+        with pytest.raises(ValueError, match="insertBoxes"):
+            job.write("answers.json", {**FIXTURE["answers"], "insertBoxes": bad})

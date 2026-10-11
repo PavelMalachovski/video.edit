@@ -95,4 +95,4 @@ def test_sizes_pavel_set_stay():
 
 def test_insert_sizes_pavel_set_reach_the_video():
     render = section("Шаг render")
-    assert "insertSizes" in render and "sized_inserts" in render
+    assert "insertBoxes" in render and "placed_inserts" in render

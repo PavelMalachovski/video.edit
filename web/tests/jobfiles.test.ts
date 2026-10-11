@@ -184,16 +184,18 @@ test('answers keep the sizes Pavel set; out of range — refused', () => {
   assert.deepEqual([properties.subSize.minimum, properties.subSize.maximum, properties.hookSize.minimum, properties.hookSize.maximum], [40, 110, 48, 120]);
 });
 
-test('answers keep insert sizes Pavel set; out of range or junk — refused', () => {
+test('answers keep insert boxes Pavel set; out of the safe zone or junk — refused', () => {
   const job = buildJobFile({ job: '261010-070509-abcd', name: 'a', size: 1, type: 'video/mp4', lastModified: 1, parts: 1, chunkSize: 4, brief: '' }, NOW);
-  const p = parseAnswersBody({ answers: { hook: 'h1' }, style: STYLE, insertSizes: { 'insert-1': 330 } }, QS);
+  const box = { x: 60, y: 420, w: 330 };
+  const p = parseAnswersBody({ answers: { hook: 'h1' }, style: STYLE, insertBoxes: { 'insert-1': box } }, QS);
   assert.ok(!('error' in p), JSON.stringify(p));
-  assert.deepEqual(answersFile(p, job).insertSizes, { 'insert-1': 330 });
+  assert.deepEqual(answersFile(p, job).insertBoxes, { 'insert-1': box });
   const none = parseAnswersBody({ answers: { hook: 'h1' }, style: STYLE }, QS);
-  assert.ok(!('error' in none) && !('insertSizes' in answersFile(none, job)));
-  for (const insertSizes of [{ a: 60 }, { a: 900 }, { a: '300' }, { '': 300 }, [300]]) {
-    assert.ok('error' in parseAnswersBody({ answers: { hook: 'h1' }, style: STYLE, insertSizes }, QS), JSON.stringify(insertSizes));
+  assert.ok(!('error' in none) && !('insertBoxes' in answersFile(none, job)));
+  const bad = [{ a: { x: 60, y: 420 } }, { a: { ...box, x: 20 } }, { a: { ...box, y: 60 } }, { a: { ...box, w: 900 } }, { a: 330 }, { '': box }, [box]];
+  for (const insertBoxes of bad) {
+    assert.ok('error' in parseAnswersBody({ answers: { hook: 'h1' }, style: STYLE, insertBoxes }, QS), JSON.stringify(insertBoxes));
   }
-  const prop = schema('answers.json').properties.insertSizes.additionalProperties;
-  assert.deepEqual([prop.minimum, prop.maximum], [80, 830]);
+  const props = schema('answers.json').properties.insertBoxes.additionalProperties.properties;
+  assert.deepEqual([props.x.minimum, props.x.maximum, props.y.minimum, props.y.maximum, props.w.minimum, props.w.maximum], [60, 810, 120, 1490, 80, 830]);
 });

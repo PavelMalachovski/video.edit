@@ -56,11 +56,20 @@
         }
       }
     },
-    "insertSizes": {
-      "description": "Ширина вставок, которую Павел выбрал на превью, px кадра: ключ — question вставки, иначе её src (vm.style.sized_inserts).",
+    "insertBoxes": {
+      "description": "Место и ширина вставок, которые Павел выбрал на превью (перетащил, растянул): ключ — question вставки, иначе её src; x, y — левый верхний угол, w — ширина, px кадра (vm.style.placed_inserts).",
       "type": "object",
       "propertyNames": { "minLength": 1 },
-      "additionalProperties": { "type": "number", "minimum": 80, "maximum": 830 }
+      "additionalProperties": {
+        "type": "object",
+        "required": ["x", "y", "w"],
+        "additionalProperties": false,
+        "properties": {
+          "x": { "type": "number", "minimum": 60, "maximum": 810 },
+          "y": { "type": "number", "minimum": 120, "maximum": 1490 },
+          "w": { "type": "number", "minimum": 80, "maximum": 830 }
+        }
+      }
     },
     "speed": {
       "description": "Ускорение ролика, выбранное Павлом на экране превью (×1.0–×1.5); нет — по правилам (1.1).",

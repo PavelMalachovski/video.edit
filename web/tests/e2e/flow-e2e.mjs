@@ -336,7 +336,7 @@ const segments = [
     // вставка из ТЗ (картинка из ответа после перезагрузки уже не видна): уголок ⤢ вправо на 27 px — ×1,2; «больше» — +20 px
     const insertW = restyled.sample.inserts[1].w;
     const bigInsert = async () => JSON.parse(await big.getAttribute('data-state')).inserts.find((i) => i.key === 'q-logo.png');
-    const insertGrip = page.getByRole('slider', { name: 'Ширина вставки 1' }).locator('[data-grip]');
+    const insertGrip = page.getByRole('slider', { name: 'Вставка 1' }).locator('[data-grip]');
     await insertGrip.scrollIntoViewIfNeeded();
     const ig = await insertGrip.boundingBox();
     await page.mouse.move(ig.x + ig.width / 2, ig.y + ig.height / 2);
@@ -348,6 +348,18 @@ const segments = [
     await page.getByRole('button', { name: 'Вставка 1 больше', exact: true }).click();
     await until(async () => (await bigInsert()).w === wider + 20, 5000, 'кнопка «больше» у вставки — на 20 px');
     check((await bigInsert()).x >= 60, `вставка вышла из безопасной зоны: x ${(await bigInsert()).x}`);
+    // перетаскивание: за середину рамки на 40 px влево и 60 px вверх — это 160 и 240 px кадра
+    const before = await bigInsert();
+    const frameBox = await page.getByRole('slider', { name: 'Вставка 1' }).boundingBox();
+    await page.mouse.move(frameBox.x + frameBox.width / 2, frameBox.y + frameBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(frameBox.x + frameBox.width / 2 - 20, frameBox.y + frameBox.height / 2 - 30, { steps: 4 });
+    await page.mouse.move(frameBox.x + frameBox.width / 2 - 40, frameBox.y + frameBox.height / 2 - 60, { steps: 4 });
+    await page.mouse.up();
+    const placed = { x: before.x - 160, y: before.y - 240, w: before.w };
+    await until(async () => { const i = await bigInsert(); return i.x === placed.x && i.y === placed.y && i.w === placed.w; }, 5000,
+      `вставка перетащена в ${JSON.stringify(placed)}`);
+    await shot(page, 'previews-insert-moved');
     await shot(page, 'previews-resized');
     await shot(page, 'previews-subtitles-moved');
     check(await page.getByRole('button', { name: '×1.1', exact: true }).getAttribute('aria-pressed') === 'true', 'скорость по умолчанию не ×1.1');
@@ -365,7 +377,7 @@ const segments = [
     check(answers.speed === 1.3, `speed: ${answers.speed}`);
     check(answers.style?.subY === variantY - 180, `style.subY: ${answers.style?.subY}`);
     check(answers.style?.hookY === hookY + 120, `style.hookY: ${answers.style?.hookY}`);
-    check(answers.insertSizes?.['q-logo.png'] === wider + 20, `insertSizes: ${JSON.stringify(answers.insertSizes)}`);
+    check(isDeepStrictEqual(answers.insertBoxes?.['q-logo.png'], placed), `insertBoxes: ${JSON.stringify(answers.insertBoxes)}`);
     check(answers.style?.subSize === grown - 4 && answers.style?.hookSize === pinched, `размеры: ${answers.style?.subSize}, ${answers.style?.hookSize}`);
     check(isDeepStrictEqual(finalStyle(restyled, answers.style), last), `стиль ответа ${JSON.stringify(answers.style)} ≠ последнему превью`);
   }],

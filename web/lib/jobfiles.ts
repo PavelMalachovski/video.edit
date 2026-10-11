@@ -175,14 +175,22 @@ export function buildJobFile(m: Manifest, now: Date): JobFile {
 // ---------- answers.json ----------
 
 export type AnswersFile = {
-  answers: Record<string, string | string[]>; style: StyleChoice; speed?: number; insertSizes?: Record<string, number>; uploads?: Record<string, string>; brief?: string;
+  answers: Record<string, string | string[]>; style: StyleChoice; speed?: number; insertBoxes?: Record<string, InsertBox>; uploads?: Record<string, string>; brief?: string;
 };
 export type UploadClaim = { asset: string; name: string; size: number; type: string; parts: number };
 export type ParsedAnswers = {
-  answers: Record<string, string | string[]>; style: StyleChoice; speed?: number; insertSizes?: Record<string, number>; uploads: Record<string, UploadClaim>;
+  answers: Record<string, string | string[]>; style: StyleChoice; speed?: number; insertBoxes?: Record<string, InsertBox>; uploads: Record<string, UploadClaim>;
 };
 /** Ширина вставки, которую Павел может выбрать на превью, px кадра (ширина безопасной зоны — 830). */
 export const INSERT_W = { min: 80, max: 830 };
+/** Безопасная зона для вставок, px кадра (как в движке и шаблоне). */
+export const INSERT_ZONE = { x0: 60, x1: 890, y0: 120, y1: 1530 };
+/** Рамка вставки, которую Павел выбрал на превью: левый верхний угол и ширина, px кадра. */
+export type InsertBox = { x: number; y: number; w: number };
+export const isInsertBox = (b: unknown): b is InsertBox => isObject(b) && Object.keys(b).length === 3
+  && isNum(b.x) && b.x >= INSERT_ZONE.x0 && b.x <= INSERT_ZONE.x1 - INSERT_W.min
+  && isNum(b.y) && b.y >= INSERT_ZONE.y0 && b.y <= INSERT_ZONE.y1 - 40
+  && isNum(b.w) && b.w >= INSERT_W.min && b.w <= INSERT_W.max;
 /** Ускорение, которое Павел может выбрать (по правилам — 1.1). */
 export const SPEED_RANGE = { min: 1, max: 1.5 };
 
@@ -237,10 +245,10 @@ export function parseAnswersBody(body: unknown, qs: Question[]): ParsedAnswers |
   }
   const style = parseStyle(body.style);
   if (typeof style === 'string') return { error: style };
-  const sizes = body.insertSizes;
-  if (sizes !== undefined && !(isObject(sizes) && !Array.isArray(sizes)
-    && Object.entries(sizes).every(([k, w]) => k !== '' && k.length <= 500 && isNum(w) && w >= INSERT_W.min && w <= INSERT_W.max))) {
-    return { error: `insertSizes: ширина вставки от ${INSERT_W.min} до ${INSERT_W.max}` };
+  const boxes = body.insertBoxes;
+  if (boxes !== undefined && !(isObject(boxes) && !Array.isArray(boxes)
+    && Object.entries(boxes).every(([k, b]) => k !== '' && k.length <= 500 && isInsertBox(b)))) {
+    return { error: 'insertBoxes: рамка вставки {x, y, w} внутри безопасной зоны' };
   }
   const speed = body.speed;
   if (speed !== undefined && !(isNum(speed) && speed >= SPEED_RANGE.min && speed <= SPEED_RANGE.max)) {
@@ -261,7 +269,7 @@ export function parseAnswersBody(body: unknown, qs: Question[]): ParsedAnswers |
   return {
     answers, style, uploads,
     ...(speed === undefined ? {} : { speed: Math.round(speed * 100) / 100 }),
-    ...(sizes === undefined ? {} : { insertSizes: sizes as Record<string, number> }),
+    ...(boxes === undefined ? {} : { insertBoxes: boxes as Record<string, InsertBox> }),
   };
 }
 
@@ -270,7 +278,7 @@ export function answersFile(p: ParsedAnswers, job: JobFile): AnswersFile {
     answers: p.answers,
     style: p.style,
     ...(p.speed === undefined ? {} : { speed: p.speed }),
-    ...(p.insertSizes === undefined ? {} : { insertSizes: p.insertSizes }),
+    ...(p.insertBoxes === undefined ? {} : { insertBoxes: p.insertBoxes }),
     uploads: Object.fromEntries(Object.entries(p.uploads).map(([qid, c]) => [qid, `in/uploads/${c.asset}`])),
     brief: job.brief,
   };

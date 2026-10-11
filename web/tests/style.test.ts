@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { initialDraft, pick } from '../lib/answers.ts';
 import type { Question, StyleChoice, Styles } from '../lib/jobfiles.ts';
-import { allowedFonts, choiceFor, clampInsertW, clampHookSize, insertKey, INSERT_W, loadInsertSizes, saveInsertSizes, sizedInserts, clampHookY, clampSubSize, clampSubY, finalStyle, HOOK_SIZE, HOOK_Y, SUB_SIZE, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES } from '../lib/style.ts';
+import { allowedFonts, choiceFor, clampHookSize, insertKey, INSERT_W, loadInsertBoxes, moveBox, placedInserts, resizeBox, saveInsertBoxes, clampHookY, clampSubSize, clampSubY, finalStyle, HOOK_SIZE, HOOK_Y, SUB_SIZE, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES } from '../lib/style.ts';
 import { blockedStorage, memoryStorage } from './helpers.ts';
 
 // Общая с движком фикстура: final_style в engine/vm/style.py обязан давать то же самое.
@@ -164,31 +164,38 @@ test('sizes: Pavel makes the hook and subtitles bigger or smaller, within limits
   assert.deepEqual(loadChoice(store, id, STYLES), choiceFor(STYLES, 'A'), 'a size out of range is not taken back');
 });
 
-test('insert sizes follow the shared engine fixture', () => {
-  const fx = JSON.parse(fs.readFileSync(new URL('../../engine/tests/fixtures/insert-sizes.json', import.meta.url), 'utf8'));
-  assert.deepEqual(sizedInserts(fx.inserts, fx.sizes), fx.expected);
-  assert.deepEqual(sizedInserts(fx.inserts, {}), fx.inserts);
+test('insert boxes follow the shared engine fixture', () => {
+  const fx = JSON.parse(fs.readFileSync(new URL('../../engine/tests/fixtures/insert-boxes.json', import.meta.url), 'utf8'));
+  assert.deepEqual(placedInserts(fx.inserts, fx.boxes), fx.expected);
+  assert.deepEqual(placedInserts(fx.inserts, {}), fx.inserts);
   assert.equal(insertKey({ question: 'insert-1', src: 'x.png' }), 'insert-1');
   assert.equal(insertKey({ src: 'x.png' }), 'x.png');
-  assert.equal(insertKey({}), null, 'a sticker without question or src has no key: it is not resized');
-  assert.equal(clampInsertW(5), INSERT_W.min);
-  assert.equal(clampInsertW(1000), INSERT_W.max);
-  assert.equal(clampInsertW(333), 330);
+  assert.equal(insertKey({}), null, 'a sticker without question or src has no key: it is not moved');
 });
 
-test('preview inserts are drawn with the sizes Pavel set', () => {
+test('resizing keeps the centre and the top; moving follows the finger; both stay inside the safe zone', () => {
+  assert.deepEqual(resizeBox({ x: 400, y: 300, w: 200 }, 160, 200), { x: 420, y: 300, w: 160 });
+  assert.deepEqual(resizeBox({ x: 70, y: 500, w: 250 }, 330, 250), { x: 60, y: 500, w: 330 }, 'the left edge of the zone');
+  assert.deepEqual(resizeBox({ x: 600, y: 900, w: 280 }, 400, 280), { x: 490, y: 900, w: 400 }, 'the right edge of the zone');
+  assert.deepEqual(resizeBox({ x: 400, y: 1300, w: 200 }, 400, 200), { x: 300, y: 1130, w: 400 }, 'taller now — pushed up from the bottom');
+  assert.equal(resizeBox({ x: 400, y: 300, w: 200 }, 5, 200).w, INSERT_W.min);
+  assert.deepEqual(moveBox({ x: 400, y: 300, w: 200 }, 455.4, 610.6, 200), { x: 455, y: 611, w: 200 });
+  assert.deepEqual(moveBox({ x: 400, y: 300, w: 200 }, -50, 5000, 200), { x: 60, y: 1330, w: 200 });
+});
+
+test('preview inserts are drawn where Pavel put them', () => {
   const sample = { words: [], spoken: 0, inserts: [{ kind: 'image' as const, src: 'a.png', x: 600, y: 900, w: 280 }] };
-  const [ins] = resolveInserts(sample, [], initialDraft([]), (p) => `/f/${p}`, () => null, { 'a.png': 400 });
-  assert.deepEqual([ins.x, ins.w, ins.key], [490, 400, 'a.png']);
+  const [ins] = resolveInserts(sample, [], initialDraft([]), (p) => `/f/${p}`, () => null, { 'a.png': { x: 490, y: 700, w: 400 } });
+  assert.deepEqual([ins.x, ins.y, ins.w, ins.key], [490, 700, 400, 'a.png']);
 });
 
-test('insert sizes are remembered per job; junk is dropped', () => {
+test('insert boxes are remembered per job; junk is dropped', () => {
   const store = memoryStorage();
   const id = '261010-120000-ab96';
-  assert.deepEqual(loadInsertSizes(store, id), {});
-  saveInsertSizes(store, id, { 'insert-1': 330 });
-  assert.deepEqual(loadInsertSizes(store, id), { 'insert-1': 330 });
-  store.setItem(`vm:inserts:${id}`, JSON.stringify({ 'insert-1': 5000, ok: 200, bad: 'x' }));
-  assert.deepEqual(loadInsertSizes(store, id), { ok: 200 });
-  assert.deepEqual(loadInsertSizes(blockedStorage, id), {});
+  assert.deepEqual(loadInsertBoxes(store, id), {});
+  saveInsertBoxes(store, id, { 'insert-1': { x: 60, y: 420, w: 330 } });
+  assert.deepEqual(loadInsertBoxes(store, id), { 'insert-1': { x: 60, y: 420, w: 330 } });
+  store.setItem(`vm:inserts:${id}`, JSON.stringify({ old: 330, big: { x: 60, y: 420, w: 5000 }, ok: { x: 100, y: 200, w: 200 } }));
+  assert.deepEqual(loadInsertBoxes(store, id), { ok: { x: 100, y: 200, w: 200 } });
+  assert.deepEqual(loadInsertBoxes(blockedStorage, id), {});
 });

@@ -90,6 +90,13 @@ const QUESTIONS = { questions: [
   { id: 'teaser', type: 'choice', title: 'Начать с самой сильной фразы?', body: '«Учу по 15 минут в день» звучит на 0:21.',
     options: [{ id: 'yes', label: 'Да: «Учу по 15 минут в день»' }, { id: 'no', label: 'Нет' }], default: 'yes' },
 ] };
+const REVIEW = { items: [
+  { id: 'hook', title: 'Мысль в первые 2 с', status: 'warn', note: 'Мысль звучит на 0:21 — предлагаю начать с неё (вопрос «тизер»)' },
+  { id: 'face', title: 'Лицо в первые секунды', status: 'ok', note: 'Лицо крупно с первого кадра' },
+  { id: 'value', title: 'Польза в середине', status: 'ok', note: 'Три шага, каждый с примером' },
+  { id: 'cta', title: 'Призыв в конце', status: 'ok', note: 'Кодовое слово в конце — титр и финальная карточка' },
+  { id: 'length', title: 'Длина', status: 'ok', note: '1:16 после резки — до 90 с' },
+] };
 const FIXTURE = JSON.parse(fs.readFileSync(path.resolve('../engine/tests/fixtures/style-merge.json'), 'utf8'));
 const STYLES = { ...FIXTURE.styles, sample: { ...FIXTURE.styles.sample, inserts: [{ kind: 'image', x: 70, y: 500, w: 250, question: 'logo' }] } };
 
@@ -234,13 +241,20 @@ const segments = [
     const { page, tmp } = ctx;
     engineValidate('questions.json', QUESTIONS);
     engineValidate('styles.json', STYLES);
+    engineValidate('review.json', REVIEW);
     const waiting = { state: 'waiting_answers', phase: 'Ждёт ответов', message: 'Ответь на вопросы и выбери стиль', at: new Date().toISOString(), needs: 'answers' };
     engineValidate('status.json', waiting);
-    await session(ctx, { 'questions.json': QUESTIONS, 'styles.json': STYLES, 'frame.png': PNG, 'q-logo.png': PNG, 'status.json': waiting });
+    await session(ctx, { 'questions.json': QUESTIONS, 'styles.json': STYLES, 'review.json': REVIEW, 'frame.png': PNG, 'q-logo.png': PNG, 'status.json': waiting });
     const cards = page.locator('[data-question]');
     await until(async () => (await cards.count()) === 8, 10_000, 'восемь карточек вопросов');
     const go = page.getByRole('button', { name: 'Показать превью' });
     check(await go.isDisabled(), '«Показать превью» включена, хотя brand и logo без ответа');
+    // разбор по гайду — над вопросами: что хорошо и что поправить
+    const review = page.locator('[data-review]');
+    check(await review.count() === 1, 'нет карточки «Разбор по гайду»');
+    const reviewText = await review.textContent();
+    check(reviewText.includes('Разбор по гайду') && reviewText.includes('Мысль звучит на 0:21'), `разбор: ${reviewText}`);
+    check(await review.locator('li[data-status=warn]').count() === 1 && await review.locator('li[data-status=ok]').count() === 4, 'пункты ok и warn');
     await shot(page, 'questions');
 
     const card = (id) => page.locator(`[data-question="${id}"]`);
@@ -476,6 +490,12 @@ const segments = [
       qa: { ok: false, problems: ['хук на лице или ближе 40 px к нему (0,0–1,5 с ролика)'] },
       caption: { text: 'Как я учу чешский по 15 минут в день и почему это работает лучше, чем курсы 🇨🇿\nСохрани, чтобы не потерять', hashtags: ['чешский', 'языки'] },
       ab: { differs: 'teaser', durations: { source: 102.4, final: 73.8 }, qa: { ok: false, problems: ['субтитры и вставка друг на друге (0:40)'] } },
+      checklist: [
+        { id: 'format', title: '9:16, 1080×1920, 30 к/с', ok: true }, { id: 'container', title: 'H.264 в MP4 без edit lists', ok: true },
+        { id: 'audio', title: 'звук стерео AAC', ok: true }, { id: 'hook', title: 'хук с первой секунды', ok: true },
+        { id: 'safe', title: 'текст в безопасных зонах', ok: false }, { id: 'subtitles', title: 'субтитры', ok: true },
+        { id: 'end', title: 'финальная карточка с призывом', ok: true }, { id: 'length', title: 'длина до 90 с', ok: true },
+      ],
     };
     engineValidate('result.json', result);
     const v1 = crypto.randomBytes(48 * 1024);
@@ -495,6 +515,11 @@ const segments = [
     const body = await page.textContent('body');
     check(body.includes('Проверка версии A нашла') && body.includes('Проверка версии B нашла') && body.includes('субтитры и вставка друг на друге'),
       'проверки обеих версий');
+    // чек-лист по гайду: строки vm render и подпись к посту (она есть)
+    const list = page.locator('[data-checklist]');
+    check(await list.locator('li').count() === 9, `строк чек-листа: ${await list.locator('li').count()}`);
+    check(await list.locator('li[data-ok=false]').count() === 1 && (await list.locator('li[data-ok=false]').textContent()).includes('безопасных зонах'), 'не пройдено — зоны');
+    check((await list.locator('li[data-ok=true]').last().textContent()).includes('подпись к посту'), 'строка подписи к посту');
     await shot(page, 'result');
     // подпись к посту: жирное — первые 72 знака, кнопка копирует текст и хэштеги
     const card = page.locator('[data-caption]');

@@ -24,7 +24,7 @@ const SPEC = {
 };
 const STYLES = { frame: 'frame.png', frameTime: 1, sample: { words: ['раз'], spoken: 0 }, variants: (['A', 'B', 'C'] as const).map((id) => ({ id, label: id, spec: SPEC })) };
 const files = (over: Partial<JobFiles> = {}): JobFiles => ({
-  head: 'h1', full: true, job: job(), status: status('analyzing'), statusBroken: false, questions: QUESTIONS, styles: STYLES, answers: null, result: null,
+  head: 'h1', full: true, job: job(), status: status('analyzing'), statusBroken: false, questions: QUESTIONS, styles: STYLES, review: null, answers: null, result: null,
   fix: null, restyle: null, released: null, ...over,
 });
 const delivered = (...names: string[]) => ({ release_id: 7, assets: names.map((name, i) => ({ name, id: 200 + i, size: 1 })), at: new Date(T0).toISOString() });
@@ -210,6 +210,16 @@ test('malformed session files read as missing', () => withFake(async ({ fake, gh
   assert.equal(f?.styles, null);
   assert.equal(f?.result, null);
   assert.equal(deriveView(release(), f, T0).screen, 'error');
+}));
+
+test('the guide review is read with the other session files', () => withFake(async ({ fake, gh }) => {
+  const review = { items: ['hook', 'face', 'value', 'cta', 'text'].map((id) => ({ id, title: id, status: 'ok', note: 'по гайду' })) };
+  const head = fake.commit(`claude/job-${ID}`, {
+    [`jobs/${ID}/job.json`]: JSON.stringify(job()),
+    [`jobs/${ID}/review.json`]: JSON.stringify(review),
+  });
+  assert.deepEqual((await readJobFiles(gh, ID, head))?.review, review);
+  assert.equal((await readJobFiles(gh, ID, head, 'list'))?.review ?? null, null, 'списку задач разбор не нужен');
 }));
 
 test('an A/B job shows version B next to A once both are delivered', () => {

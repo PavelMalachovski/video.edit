@@ -908,6 +908,8 @@ def test_prepare_takes_a_job_from_before_languages_as_russian(heard):
 
 # ---------- подпись к посту ----------
 
+CHECKS = [{"id": "format", "title": "9:16, 1080×1920, 30 к/с", "ok": True}, {"id": "end", "title": "финальная карточка с призывом", "ok": False}]
+
 
 def test_render_keeps_the_caption_claude_wrote(tmp_path, monkeypatch):
     """vm render пишет result.json заново (длительности, missing, qa), а done, unsure и подпись к посту — от Claude."""
@@ -927,9 +929,11 @@ def test_render_keeps_the_caption_claude_wrote(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "_fonts_ok", lambda job: None)
     monkeypatch.setattr(cli, "check_render", lambda *a, **k: [])
     monkeypatch.setattr(cli, "control_frames", lambda *a, **k: {"sheet": job.path("qa/qa.png")})
+    monkeypatch.setattr(cli, "checklist", lambda final, boxes, report: CHECKS)
     assert main(["render", str(job.root)]) == 0
     result = job.read("result.json")
     assert result["caption"] == caption and result["done"] == ["вырезал паузы"]
+    assert result["checklist"] == CHECKS, "чек-лист по гайду — от vm render"
 
 
 # ---------- A/B ----------
@@ -968,6 +972,7 @@ def test_render_builds_version_b_too_and_checks_it(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "_fonts_ok", lambda job: None)
     monkeypatch.setattr(cli, "check_render", lambda final, edit, boxes, report: [] if edit.get("music") else ["тихо"])
     monkeypatch.setattr(cli, "control_frames", lambda *a, **k: {"sheet": job.path("qa/qa.png")})
+    monkeypatch.setattr(cli, "checklist", lambda final, boxes, report: CHECKS)
     assert main(["render", str(job.root), "--version", "2"]) == 0
     assert calls == [("final-v2", None, "work/render"), ("final-v2-b", None, "work/render-b")]
     result = job.read("result.json")
@@ -1012,6 +1017,7 @@ def test_render_says_how_the_events_follow_the_beats(tmp_path, monkeypatch, caps
     monkeypatch.setattr(cli, "_fonts_ok", lambda job: None)
     monkeypatch.setattr(cli, "check_render", lambda *a: [])
     monkeypatch.setattr(cli, "control_frames", lambda *a, **k: {"sheet": job.path("qa/qa.png")})
+    monkeypatch.setattr(cli, "checklist", lambda final, boxes, report: CHECKS)
     assert main(["render", str(job.root)]) == 0
     out = capsys.readouterr().out
     assert (line in out) if line else ("в такт" not in out), out

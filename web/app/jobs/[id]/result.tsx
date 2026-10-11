@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { captionCopy, captionFold, parseCaption, type Caption } from '@/lib/caption.ts';
 import { mmss } from '@/lib/format.ts';
-import { abLabels, type AnswersFile, type FixFile, type ResultFile } from '@/lib/jobfiles.ts';
+import { abLabels, type AnswersFile, type Check, type FixFile, type ResultFile } from '@/lib/jobfiles.ts';
 import { MAX_NOTE } from '@/lib/jobs.ts';
 import type { JobView } from '@/lib/jobview.ts';
 import type { Act } from './job';
@@ -105,6 +105,7 @@ export default function Result({ view, result, answers, fixes, onAct }: Props) {
         </>
       )}
       {caption ? <CaptionCard caption={caption} /> : null}
+      {result?.checklist ? <Checklist items={result.checklist} caption={Boolean(caption)} /> : null}
       {result ? (
         <>
           {result.qa.ok ? null : <List title={b ? 'Проверка версии A нашла' : 'Проверка нашла'} items={result.qa.problems} tone="alert" />}
@@ -136,5 +137,23 @@ export default function Result({ view, result, answers, fixes, onAct }: Props) {
         </div>
       ) : null}
     </>
+  );
+}
+
+/** «Чек-лист по гайду»: строки vm render (result.json.checklist) и подпись к посту — её Claude пишет после рендера. */
+function Checklist({ items, caption }: { items: Check[]; caption: boolean }) {
+  const rows = [...items.map((c) => ({ key: c.id, title: c.title, ok: c.ok })), { key: 'caption', title: 'подпись к посту', ok: caption }];
+  return (
+    <div className="card" data-checklist>
+      <div className="caps small">Чек-лист по гайду</div>
+      <ul className="plain marks">
+        {rows.map((r) => (
+          <li key={r.key} data-ok={r.ok}>
+            <span className="mark" aria-label={r.ok ? 'есть' : 'нет'}>{r.ok ? '✓' : '✗'}</span>
+            <div>{r.title}</div>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

@@ -37,6 +37,19 @@
         "hashtags": { "type": "array", "maxItems": 30, "items": { "type": "string", "pattern": "^[^\\s#]{1,60}$" } }
       }
     },
+    "checklist": {
+      "description": "Чек-лист по гайду Meta (пишет vm render, vm.qa.checklist): что видно по готовому ролику — формат, контейнер, звук, хук, безопасные зоны, субтитры, финальная карточка, длина. Страница показывает его на экране «Готово».",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "ok"],
+        "properties": {
+          "id": { "enum": ["format", "container", "audio", "hook", "safe", "subtitles", "end", "length"] },
+          "title": { "type": "string", "minLength": 1 },
+          "ok": { "type": "boolean" }
+        }
+      }
+    },
     "ab": {
       "description": "Вторая версия A/B-теста (её собирает vm render, если в edit.json есть ab): чем отличается, длительности и проверка.",
       "type": "object",

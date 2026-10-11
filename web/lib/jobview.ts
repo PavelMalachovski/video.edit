@@ -3,8 +3,8 @@
 import { getHead, listDir, readText } from './branch.ts';
 import { findReleaseByTag, getRelease, listAllAssets, type GH, type Release } from './github.ts';
 import {
-  finalNames, parseQuestions, parseResult, parseStatus, parseStyles, wantedVersion,
-  type AnswersFile, type FixFile, type JobFile, type Question, type Released, type RestyleFile, type ResultFile, type Status, type Styles,
+  finalNames, parseQuestions, parseResult, parseReview, parseStatus, parseStyles, wantedVersion,
+  type AnswersFile, type FixFile, type JobFile, type Question, type Released, type RestyleFile, type ResultFile, type Review, type Status, type Styles,
   type UploadRef,
 } from './jobfiles.ts';
 import { jobBranch, jobDir, jobTag } from './jobs.ts';
@@ -18,6 +18,7 @@ export type JobFiles = {
   statusBroken: boolean;
   questions: Question[] | null;
   styles: Styles | null;
+  review: Review | null;
   answers: AnswersFile | null;
   result: ResultFile | null;
   fix: FixFile | null;
@@ -50,6 +51,7 @@ export type JobData = {
   releaseId: number;
   questions: Question[] | null;
   styles: Styles | null;
+  review: Review | null;
   answers: AnswersFile | null;
   result: ResultFile | null;
   fixes: FixFile['fixes'];
@@ -101,7 +103,7 @@ function parse<T>(text: string | null): T | null {
 }
 
 const LIST_FILES = ['job.json', 'status.json', 'fix.json'];
-const ALL_FILES = [...LIST_FILES, 'questions.json', 'styles.json', 'answers.json', 'result.json', 'restyle.json'];
+const ALL_FILES = [...LIST_FILES, 'questions.json', 'styles.json', 'review.json', 'answers.json', 'result.json', 'restyle.json'];
 
 /**
  * Файлы задачи на коммите `head` (`list` — только нужные списку задач). Папки задачи нет — null; файла нет или
@@ -124,6 +126,7 @@ export async function readJobFiles(gh: GH, id: string, head: string, parts: 'lis
     statusBroken: statusText !== null && status === null,
     questions: parseQuestions(json<unknown>('questions.json')),  // файлы сессии — по форме: кривой файл как нет файла
     styles: parseStyles(json<unknown>('styles.json')),
+    review: parseReview(json<unknown>('review.json')),
     answers: json<AnswersFile>('answers.json'),
     result: parseResult(json<unknown>('result.json')),
     fix: json<FixFile>('fix.json'),

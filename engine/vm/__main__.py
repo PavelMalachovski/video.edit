@@ -33,6 +33,7 @@ from .prepare import prepare
 from .qa import (
     check_layout,
     check_render,
+    checklist,
     compose_frames,
     control_frames,
     face_box,
@@ -266,6 +267,7 @@ def _render(args: argparse.Namespace) -> None:
     boxes = json.loads(job.path("work/render/frames/boxes.json").read_text(encoding="utf-8"))
     problems = check_layout(boxes, face_box(edit.get("face")), edit.get("inserts")) + check_render(final, edit, boxes, result)
     frames = control_frames(final, slot_times(boxes), job.path("qa"))
+    checks = checklist(final, boxes, result)  # по гайду — для экрана «Готово»
     second = None
     if variant:  # без тизера или без музыки, со своим слоем
         step("Монтирую", "Собираю вторую версию для теста")
@@ -290,6 +292,7 @@ def _render(args: argparse.Namespace) -> None:
             "qa": {"ok": not problems, "problems": problems},
             **({"caption": previous["caption"]} if previous.get("caption") else {}),  # подпись к посту — от Claude
             **({"ab": second} if second else {}),
+            "checklist": checks,
         },
     )
     print(f"{final.relative_to(job.root)}: {result['durations']['final']:.1f} с (исходник {result['durations']['source']:.1f} с)")
@@ -303,6 +306,8 @@ def _render(args: argparse.Namespace) -> None:
         print(f"не хватило: {line}")
     for line in result["warnings"]:
         print(f"внимание: {line}")
+    misses = [c["title"] for c in checks if not c["ok"]]
+    print(f"чек-лист по гайду: {len(checks) - len(misses)} из {len(checks)}" + (f" — нет: {'; '.join(misses)}" if misses else ""))
     print("проверка: " + ("всё в порядке" if not problems else "проблемы:"))
     for line in problems:
         print(f"  - {line}")

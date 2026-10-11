@@ -340,6 +340,9 @@ export function finalNames(v: number, variant?: 'b'): { mp4: string; srt: string
 export type Released = { release_id: number; assets: { name: string; id: number; size: number }[]; at: string };
 type Durations = { source: number; final: number };
 type Qa = { ok: boolean; problems: string[] };
+/** Чек-лист по гайду (пишет `vm render`, vm.qa.CHECKS): что видно по готовому ролику; подпись к посту — строка страницы. */
+export const CHECK_IDS = ['format', 'container', 'audio', 'hook', 'safe', 'subtitles', 'end', 'length'] as const;
+export type Check = { id: (typeof CHECK_IDS)[number]; title: string; ok: boolean };
 /** Вторая версия A/B-теста: её собирает и проверяет `vm render` (чем отличается, длительности, проверка). */
 export type AbResult = { differs: AbKind; durations: Durations; qa: Qa };
 export type ResultFile = {
@@ -350,20 +353,43 @@ export type ResultFile = {
   qa: Qa;
   caption?: unknown; // подпись к посту — проверяет parseCaption (lib/caption.ts)
   ab?: AbResult;
+  checklist?: Check[];
 };
 
 const isDurations = (d: unknown): d is Durations => isObject(d) && isNum(d.source) && isNum(d.final);
 const isQa = (qa: unknown): qa is Qa => isObject(qa) && typeof qa.ok === 'boolean' && Array.isArray(qa.problems) && qa.problems.every(isStr);
 
+const isCheck = (c: unknown): c is Check =>
+  isObject(c) && (CHECK_IDS as readonly unknown[]).includes(c.id) && isStr(c.title) && typeof c.ok === 'boolean';
+
 /** result.json (его дописывает и сессия) → итоги; не та форма — null: экран «Готово» покажет ролик без итогов.
- *  Не та форма у `ab` — его нет, остальное остаётся. */
+ *  Не та форма у `ab` или `checklist` — его нет, остальное остаётся. */
 export function parseResult(raw: unknown): ResultFile | null {
   if (!isObject(raw) || !isDurations(raw.durations)) return null;
   const lists = ['done', 'unsure', 'missing'].every((k) => Array.isArray(raw[k]) && (raw[k] as unknown[]).every(isStr));
   if (!lists || !isQa(raw.qa)) return null;
-  const { ab, ...rest } = raw;
-  const ok = isObject(ab) && (AB_KINDS as readonly unknown[]).includes(ab.differs) && isDurations(ab.durations) && isQa(ab.qa);
-  return { ...(rest as Omit<ResultFile, 'ab'>), ...(ok ? { ab: ab as AbResult } : {}) };
+  const { ab, checklist, ...rest } = raw;
+  const abOk = isObject(ab) && (AB_KINDS as readonly unknown[]).includes(ab.differs) && isDurations(ab.durations) && isQa(ab.qa);
+  const checksOk = Array.isArray(checklist) && checklist.every(isCheck);
+  return {
+    ...(rest as Omit<ResultFile, 'ab' | 'checklist'>),
+    ...(abOk ? { ab: ab as AbResult } : {}),
+    ...(checksOk ? { checklist: checklist as Check[] } : {}),
+  };
+}
+
+// ---------- review.json (разбор по гайду: пишет сессия на шаге analyze, страница показывает над вопросами) ----------
+
+export const REVIEW_IDS = ['hook', 'face', 'value', 'cta', 'text', 'length', 'sound', 'story'] as const;
+export type ReviewItem = { id: (typeof REVIEW_IDS)[number]; title: string; status: 'ok' | 'warn'; note: string };
+export type Review = { items: ReviewItem[] };
+
+/** review.json → разбор; не та форма — null: экран вопросов покажет вопросы без разбора. */
+export function parseReview(raw: unknown): Review | null {
+  if (!isObject(raw) || !Array.isArray(raw.items) || raw.items.length === 0) return null;
+  const good = raw.items.every((it) => isObject(it) && (REVIEW_IDS as readonly unknown[]).includes(it.id) && isStr(it.title) && it.title !== ''
+    && (it.status === 'ok' || it.status === 'warn') && isStr(it.note));
+  return good ? { items: raw.items as ReviewItem[] } : null;
 }
 
 /** Подписи двух роликов на экране «Готово»: без чего собрана версия B. */

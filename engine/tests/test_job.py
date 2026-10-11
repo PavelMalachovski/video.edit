@@ -485,6 +485,27 @@ def test_music_can_switch_off_the_beats(job):
         job.write("edit.json", {**edit, "music": {"file": "assets/music/a.mp3", "gainDb": -18, "beats": "no"}})
 
 
+def test_result_takes_the_guide_checklist(job):
+    from vm.qa import CHECKS
+
+    result = {"durations": {"source": 80.2, "final": 71.0}, "done": [], "unsure": [], "missing": [], "qa": {"ok": True, "problems": []}}
+    checks = [{"id": key, "title": title, "ok": True} for key, title in CHECKS.items()]
+    job.write("result.json", {**result, "checklist": checks})
+    assert job.read("result.json")["checklist"] == checks
+    for bad, field in (({**checks[0], "id": "fps"}, "id"), ({**checks[0], "ok": "yes"}, "ok"), ({**checks[0], "title": ""}, "title")):
+        with pytest.raises(ValueError, match=rf"  checklist\[0\]\.{field}: "):
+            job.write("result.json", {**result, "checklist": [bad]})
+
+
+def test_review_is_five_to_eight_points_of_the_guide(job):
+    items = [{"id": i, "title": "Мысль в первые 2 с", "status": "ok", "note": "Хук звучит сразу"} for i in ("hook", "face", "value", "cta", "text")]
+    job.write("review.json", {"items": items})
+    for bad, field in ((items[:4], r"items"), ([{**items[0], "status": "bad"}, *items[1:]], r"items\[0\]\.status"),
+                       ([{**items[0], "id": "music"}, *items[1:]], r"items\[0\]\.id"), ([{**items[0], "note": ""}, *items[1:]], r"items\[0\]\.note")):
+        with pytest.raises(ValueError, match=rf"  {field}: "):
+            job.write("review.json", {"items": bad})
+
+
 def test_edit_rejects_unknown_insert_kind(job):
     edit = make_edit()
     edit["inserts"][0]["kind"] = "gif"

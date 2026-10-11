@@ -156,3 +156,11 @@ def test_beats_have_a_rule_and_a_way_to_switch_them_off():
     assert "**В такт**" in sound and "`music.beats: false`" in sound and "0,25 с" in sound
     assert "в такт музыке" in section("Шаг render")
 
+
+def test_the_analyze_step_writes_the_guide_review_and_render_writes_the_checklist():
+    analyze = section("Шаг analyze")
+    assert "`review.json`" in analyze and "`status`" in analyze and "`warn`" in analyze
+    for key in ("hook", "face", "value", "cta", "text", "length", "sound", "story"):
+        assert f"`{key}`" in analyze, key
+    files = section("Файлы задачи")
+    assert "| `review.json` |" in files and "`checklist`" in files

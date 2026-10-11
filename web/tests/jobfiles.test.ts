@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import {
   abLabels, answersFile, appendFix, appendRestyle, buildJobFile, errorStatus, finalNames, parseAnswersBody, parseNote, parseResult, parseStatus, parseStyles,
   QUESTION_TYPES, queuedStatus, STATES, wantedVersion, type Manifest, type Question,
-  AB_KINDS, SAMPLE_INSERT_KINDS,
+  AB_KINDS, CHECK_IDS, parseReview, REVIEW_IDS, SAMPLE_INSERT_KINDS,
 } from '../lib/jobfiles.ts';
 import { STEPS } from '../lib/routine.ts';
 
@@ -241,4 +241,28 @@ test('A/B: result.json ab — what version B differs in and its check; a broken 
 test('A/B: labels follow what version B was built without', () => {
   assert.deepEqual(abLabels('teaser'), ['A — с тизером', 'B — без тизера']);
   assert.deepEqual(abLabels('music'), ['A — с музыкой', 'B — без музыки']);
+});
+
+test('review.json: points of the guide, ok or warn, with a note; a broken file reads as no review', () => {
+  const items = [
+    { id: 'hook', title: 'Мысль в первые 2 с', status: 'warn', note: 'Мысль звучит на 0:21 — предлагаю начать с неё' },
+    ...['face', 'value', 'cta', 'text'].map((id) => ({ id, title: id, status: 'ok', note: 'по гайду' })),
+  ];
+  assert.deepEqual(parseReview({ items }), { items });
+  for (const bad of [{ items: [] }, { items: [{ ...items[0], status: 'bad' }] }, { items: [{ ...items[0], id: 'music' }] },
+    { items: [{ ...items[0], note: 5 }] }, null, 'x']) {
+    assert.equal(parseReview(bad), null, JSON.stringify(bad));
+  }
+  assert.deepEqual([...REVIEW_IDS], schema('review.json').properties.items.items.properties.id.enum);
+});
+
+test('result.json checklist: lines of the guide check; a broken one is dropped, the rest of the result stays', () => {
+  const result = { durations: { source: 80.2, final: 71 }, done: [], unsure: [], missing: [], qa: { ok: true, problems: [] } };
+  const checks = [{ id: 'format', title: '9:16, 1080×1920, 30 к/с', ok: true }, { id: 'end', title: 'финальная карточка с призывом', ok: false }];
+  assert.deepEqual(parseResult({ ...result, checklist: checks })?.checklist, checks);
+  for (const bad of [[{ ...checks[0], ok: 'yes' }], [{ ...checks[0], id: 'fps' }], 'x']) {
+    const parsed = parseResult({ ...result, checklist: bad });
+    assert.ok(parsed && parsed.checklist === undefined, JSON.stringify(bad));
+  }
+  assert.deepEqual([...CHECK_IDS], schema('result.json').properties.checklist.items.properties.id.enum);
 });

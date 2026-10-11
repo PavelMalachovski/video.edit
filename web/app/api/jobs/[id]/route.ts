@@ -19,6 +19,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       releaseId: loaded.release.id,
       questions: f?.questions ?? null,
       styles: f?.styles ?? null,
+      review: f?.review ?? null,
       answers: f?.answers ?? null,
       result: f?.result ?? null,
       fixes: f?.fix?.fixes ?? [],

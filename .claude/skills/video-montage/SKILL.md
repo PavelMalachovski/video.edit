@@ -212,8 +212,9 @@ description: Монтаж вертикальных роликов Павла в 
 | `fix.json` | страница | `fixes[]` — правки «Поправить» с `version`, последняя — в конце |
 | `status.json` | ты (`vm status`, `--status`) | фаза для страницы |
 | `questions.json`, `styles.json`, `frame.png` | ты, шаг analyze | вопросы и превью |
+| `review.json` | ты, шаг analyze | разбор по гайду: `items[]` — `{id, title, status, note}` |
 | `edit.json` | ты | решения монтажа (схема — `engine/vm/schemas/edit.json`) |
-| `result.json` | `vm render` и ты | `durations`, `missing`, `qa` и `ab` (проверка второй версии) пишет render; `done`, `unsure` и `caption` (подпись к посту) — ты |
+| `result.json` | `vm render` и ты | `durations`, `missing`, `qa`, `checklist` (чек-лист по гайду) и `ab` (проверка второй версии) пишет render; `done`, `unsure` и `caption` (подпись к посту) — ты |
 | `language.json` | `vm prepare` | язык ролика: `code`, `name`, `source` (`brief` — `ЯЗЫК:` в ТЗ, `answer` — `--lang`, `detected` — по речи, `default`), `sure`, `votes` (язык окон записи) |
 | `words.json`, `reference.txt`, `speech.json`, `cuts.json` | `vm prepare` | слова с временем (сырые — исправленные живут в `edit.json`), сплошной текст Whisper, где речь по VAD, мягкая резка |
 
@@ -297,6 +298,12 @@ description: Монтаж вертикальных роликов Павла в 
    `Job.write` проверяет схему: невалидное не запишется. Вырезанные слова в `words` не нужны.
 4. `vm status --state analyzing --phase "Готовлю вопросы" --message "Ещё минута" --push`. Напиши
    `questions.json` (раздел «Вопросы»), выбери кадр `vm preview --at T`, напиши `styles.json` (раздел «Стили»).
+   Напиши `review.json` — разбор ролика по гайду Meta, Павел видит его над вопросами: 5–8 пунктов
+   `{id, title, status, note}`: `hook` — мысль в первые 2 с, `face` — лицо в первые секунды, `value` — польза или
+   история в середине, `cta` — призыв в конце (итог, вопрос зрителю), `text` — текст на экране, `length` — длина (до
+   90 с), `sound` — голос и музыка, `story` — тип истории (обучающий, до/после, POV, за кадром, перечень…).
+   `status`: `ok` — по гайду, `warn` — стоит поправить; `note` — коротко, что видно и что сделать: «мысль звучит на
+   0:21 — предлагаю начать с неё (вопрос „тизер“)», «лица нет первые 4 с — переснять начало крупнее».
 5. `vm validate`, потом одним коммитом: `vm status --state waiting_answers --phase "Ждёт ответов" --message
    "Ответь на вопросы и выбери стиль" --needs answers` (без `--push`) и `vm push -m "analyze(<job>): вопросы
    и стили"`. Страница не должна увидеть «Ждёт ответов» раньше вопросов.

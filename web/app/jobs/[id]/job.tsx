@@ -165,7 +165,7 @@ export default function Job({ id }: { id: string }) {
       {view ? <Steps current={stepIndex(view)} /> : null}
       {!data || !view ? null : view.screen === 'questions' ? (
         questions && draft ? (
-          <Questions jobId={id} releaseId={data.releaseId} questions={questions} draft={draft} onDraft={changeDraft} fileUrl={fileUrl}
+          <Questions jobId={id} releaseId={data.releaseId} questions={questions} review={data.review} draft={draft} onDraft={changeDraft} fileUrl={fileUrl}
             localUrls={localUrls} onLocalUrl={onLocalUrl} onPreview={() => { setStage('previews'); window.scrollTo(0, 0); }} />
         ) : (
           <div className="card">Claude ждёт ответов, но вопросов в задаче нет — откройте сессию или перезапустите анализ.</div>

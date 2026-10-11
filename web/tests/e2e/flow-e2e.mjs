@@ -329,6 +329,16 @@ const segments = [
       return b !== null && b.y >= 0 && b.y + b.height <= 844 && await page.evaluate(() => window.scrollY > 0);
     }, 3000, 'крупное превью на экране после прокрутки вниз');
     await page.evaluate(() => window.scrollTo(0, 0));
+    // низкий экран (375×667): превью уже 270 px, а сцена и вкладки — на одном экране
+    await page.setViewportSize({ width: 375, height: 667 });
+    await until(async () => {
+      const b = await big.boundingBox();
+      const t = await tab('Стиль').boundingBox();
+      return b !== null && t !== null && b.width < 270 && b.y >= 0 && t.y + t.height <= 667;
+    }, 3000, 'на экране 667 px превью уже, вкладки видны');
+    await shot(page, 'previews-short');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await until(async () => (await big.boundingBox())?.width === 270, 3000, 'на экране 844 px превью снова 270 px');
     const b = STYLES.variants[1].spec;
     const want = finalStyle(STYLES, { variant: 'B', font: 'rubik', hand: 'marck-script', colors: { text: b.colors.text, accent: '#00AAFF', bar: b.colors.bar } });
     await until(async () => isDeepStrictEqual(await bigSpec(), want), 5000, `spec крупного превью = finalStyle ${JSON.stringify(want)}`);

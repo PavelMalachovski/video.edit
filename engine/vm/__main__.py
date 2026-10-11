@@ -221,6 +221,15 @@ def _fonts_ok(job: Job) -> None:
         raise ValueError("шрифты:\n" + "\n".join(f"  - {line}" for line in problems))
 
 
+def _beats_line(beats: dict | None) -> str | None:
+    """Строка вывода о монтаже в такт (`render`/`draw_layer` → `beats`); без музыки — None."""
+    if not beats:
+        return None
+    if not beats["bpm"]:
+        return "в такт музыке: ровного ритма в треке нет — зумы и вставки на своих местах"
+    return f"в такт музыке ({round(beats['bpm'])} уд/мин): к долям подвинуто событий — {beats['moved']}"
+
+
 def _check(args: argparse.Namespace) -> None:
     job = _job(args)
     _fonts_ok(job)
@@ -232,6 +241,8 @@ def _check(args: argparse.Namespace) -> None:
     print(f"слой нарисован: {len(layer.boxes)} промежутков, {layer.tl.duration:.1f} с (без стоп-кадра)")
     print(f"контрольные кадры: {frames['sheet'].relative_to(job.root)} — кадр исходника и слой; зум, цвет, шкала"
           " и перебивки видны только после render")
+    for line in filter(None, [_beats_line(layer.beats)]):
+        print(line)
     for line in layer.warnings:
         print(f"внимание: {line}")
     print("геометрия: " + ("всё в порядке" if not problems else "проблемы:"))
@@ -286,6 +297,8 @@ def _render(args: argparse.Namespace) -> None:
     voice = result.get("voice") or {}
     if voice.get("denoise"):
         print(f"звук: тихая запись ({voice['lufs']:.1f} LUFS) — убрал шум перед выравниванием громкости".replace("-", "−", 1))
+    for line in filter(None, [_beats_line(result.get("beats"))]):
+        print(line)
     for line in result["missing"]:
         print(f"не хватило: {line}")
     for line in result["warnings"]:

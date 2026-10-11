@@ -1,0 +1,146 @@
+"""Доли трека для монтажа в такт: огибающая всплесков, темп, сетка долей; и сдвиг событий к ближайшей доле.
+
+Сигналы — синтетические: щелчки (затухающий синус 1 кГц, 30 мс) на известном темпе, с шумом и без, — где доли,
+известно заранее."""
+import shutil
+
+import numpy as np
+import pytest
+import soundfile
+
+from vm import beats
+from vm.job import Job
+from vm.render import on_beats
+from vm.timeline import Timeline
+
+SR = 22050
+
+
+def clicks(bpm: float, seconds: float, offset: float = 0.0, noise: float = 0.0, seed: int = 0) -> tuple[np.ndarray, list[float]]:
+    y = np.zeros(int(seconds * SR), dtype=np.float32)
+    period = 60 / bpm
+    times = []
+    n = int(0.03 * SR)
+    burst = np.exp(-np.arange(n) / (0.005 * SR)) * np.sin(2 * np.pi * 1000 * np.arange(n) / SR)
+    t = offset
+    while int(t * SR) + n <= len(y):
+        start = int(t * SR)
+        y[start:start + n] += burst.astype(np.float32)
+        times.append(t)
+        t += period
+    rng = np.random.default_rng(seed)
+    return y + noise * rng.standard_normal(len(y)).astype(np.float32), times
+
+
+def matched(found: list[float], true: list[float], tol: float = 0.03) -> float:
+    """Доля настоящих долей, рядом с которыми (±tol) есть найденная."""
+    found_arr = np.asarray(found)
+    return float(np.mean([np.min(np.abs(found_arr - t)) <= tol for t in true])) if len(found_arr) else 0.0
+
+
+def test_beats_of_a_click_track_are_on_the_clicks():
+    y, true = clicks(120, 20, offset=0.13)
+    grid = beats.track(y, SR)
+    assert 117 <= grid.bpm <= 123, grid.bpm
+    assert matched(grid.times, true) >= 0.9
+    assert all(np.min(np.abs(np.asarray(true) - t)) <= 0.03 for t in grid.times), "лишних долей нет"
+
+
+@pytest.mark.parametrize("bpm", [85, 128, 160])
+def test_tempo_is_found_across_the_usual_range(bpm):
+    y, true = clicks(bpm, 24, offset=0.31, noise=0.05)
+    grid = beats.track(y, SR)
+    assert abs(grid.bpm - bpm) <= 0.03 * bpm, (bpm, grid.bpm)
+    assert matched(grid.times, true) >= 0.85
+
+
+def test_silence_has_no_beats():
+    grid = beats.track(np.zeros(5 * SR, dtype=np.float32), SR)
+    assert grid.times == [] and grid.bpm == 0
+
+
+def test_snap_moves_a_moment_to_the_nearest_beat_not_further_than_a_quarter_second():
+    grid = [0.5, 1.0, 1.5, 2.0]
+    assert beats.snap(1.10, grid) == 1.0
+    assert beats.snap(1.30, grid) == 1.5
+    assert beats.snap(3.0, grid) == 3.0, "доли нет ближе 0,25 с — момент остаётся"
+    assert beats.snap(1.0, [0.5, 1.5]) == 1.0, "доли по 0,5 с с обеих сторон — дальше 0,25 с, момент остаётся"
+    assert beats.snap(1.0, []) == 1.0
+
+
+# ---------- события на доли ----------
+
+GRID = [0.25 + 0.5 * k for k in range(40)]  # доли через 0,5 с с 0,25 с
+
+
+def edit_with(**fields):
+    return {"zooms": [], "inserts": [], **fields}
+
+
+def test_zoom_changes_and_insert_appearances_move_onto_beats():
+    tl = Timeline([(0.0, 3.0), (5.0, 12.0)], 1.0)
+    edit = edit_with(zooms=[{"t": 1.1, "level": 1.05}, {"t": 5.6, "level": 1.0}],
+                     inserts=[{"kind": "image", "src": "a.png", "t0": 2.4, "t1": 4.0, "x": 1, "y": 1, "w": 10}])
+    moved, count = beats.snap_edit(edit, tl, GRID)
+    assert [z["t"] for z in moved["zooms"]] == pytest.approx([1.25, 5.75]), "5,6 с исходника — 3,6 с ролика → доля 3,75"
+    assert moved["inserts"][0]["t0"] == pytest.approx(2.25) and moved["inserts"][0]["t1"] == 4.0
+    assert count == 3
+    assert edit["zooms"][0]["t"] == 1.1, "edit.json не меняется — меняется копия"
+
+
+def test_events_far_from_a_beat_and_on_a_beat_stay():
+    tl = Timeline([(0.0, 10.0)], 1.0)
+    edit = edit_with(zooms=[{"t": 0.75, "level": 1.0}], inserts=[{"kind": "image", "src": "a.png", "t0": 3.0, "t1": 5.0, "x": 1, "y": 1, "w": 10}])
+    moved, count = beats.snap_edit(edit, tl, [0.75, 6.0])
+    assert moved == edit and count == 0
+
+
+def test_with_a_teaser_events_stay_in_the_video_part():
+    tl = Timeline([(0.0, 10.0)], 1.0, teaser=(6.0, 8.0))  # тизер — первые 2 с ролика
+    edit = edit_with(zooms=[{"t": 0.1, "level": 1.05}])  # 2,1 с ролика; ближайшая доля 1,75 — уже в тизере
+    moved, count = beats.snap_edit(edit, tl, [1.75, 2.9])
+    assert moved["zooms"][0]["t"] == 0.1 and count == 0, "в тизер событие ролика не уходит"
+
+
+def test_an_insert_moves_later_only_if_it_stays_on_screen_long_enough():
+    tl = Timeline([(0.0, 10.0)], 1.0)
+    short = {"kind": "image", "src": "a.png", "t0": 2.4, "t1": 2.6, "x": 1, "y": 1, "w": 10}
+    moved, count = beats.snap_edit(edit_with(inserts=[short]), tl, [2.6])
+    assert moved["inserts"][0]["t0"] == 2.4 and count == 0, "позже — только если вставке останется не меньше 0,3 с"
+    moved, count = beats.snap_edit(edit_with(inserts=[short]), tl, [2.25])
+    assert moved["inserts"][0]["t0"] == pytest.approx(2.25) and count == 1, "раньше — можно: вставка только дольше"
+
+
+# ---------- доли выбранной музыки (render.on_beats) ----------
+
+needs_ffmpeg = pytest.mark.skipif(not shutil.which("ffmpeg"), reason="нужен ffmpeg")
+
+
+def music_job(tmp_path, seconds: float, **music) -> tuple[Job, dict]:
+    """Задача с треком щелчков 120 уд/мин (доли — 0,1 с + 0,5 с × k) в in/uploads/beat.wav."""
+    job = Job(tmp_path / "jobs" / "abc")
+    y, _ = clicks(120, seconds, offset=0.1)
+    job.path("in/uploads").mkdir(parents=True)
+    soundfile.write(job.path("in/uploads/beat.wav"), y, SR)
+    return job, {"file": "in/uploads/beat.wav", "gainDb": -18, **music}
+
+
+@needs_ffmpeg
+def test_with_music_zooms_and_inserts_land_on_its_beats(tmp_path):
+    job, music = music_job(tmp_path, 12)
+    tl = Timeline([(0.0, 10.0)], 1.0)
+    edit = edit_with(music=music, zooms=[{"t": 2.2, "level": 1.05}],
+                     inserts=[{"kind": "image", "src": "a.png", "t0": 3.45, "t1": 5.0, "x": 1, "y": 1, "w": 10}])
+    snapped, report = on_beats(job, edit, tl)
+    assert snapped["zooms"][0]["t"] == pytest.approx(2.1, abs=0.02) and snapped["inserts"][0]["t0"] == pytest.approx(3.6, abs=0.02)
+    assert 117 <= report["bpm"] <= 123 and report["moved"] == 2
+    for off in ({**edit, "music": {**music, "beats": False}}, {**edit, "music": None}, {**edit, "music": {**music, "file": "in/uploads/no.wav"}}):
+        assert on_beats(job, off, tl) == (off, None), off["music"]
+
+
+@needs_ffmpeg
+def test_a_short_track_repeats_and_so_do_its_beats(tmp_path):
+    job, music = music_job(tmp_path, 4)  # трек 4 с; в ролике он звучит по кругу: доли и с 4,1 с, и с 8,1 с
+    tl = Timeline([(0.0, 10.0)], 1.0)
+    snapped, report = on_beats(job, edit_with(music=music, zooms=[{"t": 6.2, "level": 1.05}, {"t": 8.05, "level": 1.0}]), tl)
+    assert [z["t"] for z in snapped["zooms"]] == pytest.approx([6.1, 8.1], abs=0.02) and report["moved"] == 2

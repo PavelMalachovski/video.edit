@@ -149,3 +149,10 @@ def test_the_second_version_for_an_a_b_test_reaches_the_render_step():
     render = section("Шаг render")
     assert "A/B-тест: `answers.ab` → `edit.json.ab`" in render and "final-b.mp4" in render and "result.json.ab" in render
     assert "final-v<version>-b.mp4" in section("Шаг fix"), "правка — в обеих версиях"
+
+
+def test_beats_have_a_rule_and_a_way_to_switch_them_off():
+    sound = section("5. Звук")
+    assert "**В такт**" in sound and "`music.beats: false`" in sound and "0,25 с" in sound
+    assert "в такт музыке" in section("Шаг render")
+

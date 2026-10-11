@@ -232,6 +232,29 @@ def test_version_b_is_rendered_without_the_teaser_beside_version_a(tmp_path, sou
     assert np.abs(frame(job.path("out/final-b.mp4"), 0.1).astype(int)[300:1200] - source[300:1200]).mean() < 12, "B — с начала"
 
 
+def test_with_music_the_insert_appears_on_its_beat(tmp_path, sources):
+    """Монтаж в такт: вставка с 2,45 с встаёт на долю трека 2,6 с (щелчки 120 уд/мин с 0,1 с); слой и звук — по ней."""
+    import soundfile
+
+    job = make_job(tmp_path, sources["short"], keep=[[0.0, 6.0]],
+                   music={"file": "in/uploads/beat.wav", "gainDb": -18},
+                   inserts=[{"kind": "image", "src": "in/uploads/upload-i1.png", "t0": 2.45, "t1": 4.5, "x": 100, "y": 600, "w": 300,
+                             "sfx": None, "params": {}}])
+    n = int(0.03 * 22050)
+    burst = np.exp(-np.arange(n) / (0.005 * 22050)) * np.sin(2 * np.pi * 1000 * np.arange(n) / 22050)
+    y = np.zeros(8 * 22050, dtype=np.float32)
+    for k in range(15):
+        start = int((0.1 + 0.5 * k) * 22050)
+        y[start:start + n] += burst.astype(np.float32)
+    soundfile.write(job.path("in/uploads/beat.wav"), y, 22050)
+    result = render(job, job.path("out"), preset="ultrafast")
+    assert result["beats"]["moved"] == 1 and 117 <= result["beats"]["bpm"] <= 123, result["beats"]
+    boxes = json.loads(job.path("work/render/frames/boxes.json").read_text(encoding="utf-8"))
+    shown = min(e["t0"] for e in boxes if (e.get("boxes") or {}).get("inserts"))
+    assert shown == pytest.approx(2.6, abs=0.04), "вставка появилась на доле"
+    assert job.read("edit.json")["inserts"][0]["t0"] == 2.45, "edit.json не меняется"
+
+
 def test_teaser_sound_plays_at_the_seam(tmp_path):
     job = Job(tmp_path / "jobs" / "abc")
     job.path("in/uploads").mkdir(parents=True)

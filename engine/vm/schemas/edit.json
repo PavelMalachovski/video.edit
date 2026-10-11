@@ -87,7 +87,11 @@
       "required": ["file", "gainDb"],
       "properties": {
         "file": { "type": "string", "minLength": 1 },
-        "gainDb": { "type": "number" }
+        "gainDb": { "type": "number" },
+        "beats": {
+          "description": "Монтаж в такт: смены зума и появления вставок встают на ближайшую долю трека (не дальше 0,25 с). Нет поля — да; false — время событий как в edit.json.",
+          "type": "boolean"
+        }
       }
     },
     "hold": {

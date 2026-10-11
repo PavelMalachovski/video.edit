@@ -18,7 +18,8 @@
 с предупреждением.
 
 Слой рисует `draw_layer` — он же нужен проверке до рендера (`vm check`); если ни события слоя, ни стиль, ни файлы
-картинок не поменялись, уже нарисованные кадры берутся как есть.
+картинок не поменялись, уже нарисованные кадры берутся как есть. С музыкой смены зума и появления вставок сначала
+встают на доли трека (`on_beats`, монтаж в такт): и слой, и зум, и звуки вставок берут один и тот же сдвинутый edit.
 
 Рабочие файлы — в `work/render/` задачи (в git не попадают); в `out_dir` — только ролик и субтитры, и появляются
 они там только целиком.
@@ -31,8 +32,9 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import beats
 from .asr import Word
-from .audio import QUIET_LUFS, audio_graph
+from .audio import MIN_MUSIC, QUIET_LUFS, audio_graph
 from .job import Job, validate
 from .media import HDR_TO_SDR, MediaError, Probe, loudness, probe
 from .overlay import FPS, build_overlay_events, insert_spans
@@ -93,6 +95,7 @@ class Layer:
     frames: Path  # frames.ffconcat
     boxes: list[dict]  # boxes.json: [{t0, t1, frame, boxes}]
     warnings: list[str]
+    beats: dict | None = None  # монтаж в такт: {bpm, moved}; без музыки — None
 
 
 def variant_b(edit: dict) -> dict:
@@ -106,9 +109,31 @@ def variant_b(edit: dict) -> dict:
     return {**edit, kind: None, "ab": None}
 
 
+def on_beats(job: Job, edit: dict, tl: Timeline) -> tuple[dict, dict | None]:
+    """Монтаж в такт: с музыкой (и без `music.beats: false`) смены зума и появления вставок встают на её доли
+    (`beats.snap_edit`, не дальше 0,25 с). Трек звучит с начала ролика и по кругу — доли повторяются с ним.
+    → (edit со сдвигами, {bpm, moved}); без музыки, файла или ритма в нём — (edit как был, None)."""
+    music = edit.get("music")
+    path = _resolve(job, music["file"]) if music and music.get("beats", True) else None
+    if path is None:
+        return edit, None
+    want = tl.duration + 2.0  # доли дальше ролика не нужны; запас — чтобы последняя доля нашлась
+    try:
+        y = beats.load(path, seconds=want)
+    except (subprocess.SubprocessError, OSError):
+        return edit, None  # не читается — микс скажет об этом в missing
+    length = len(y) / beats.SR
+    if length < MIN_MUSIC:
+        return edit, None
+    grid = beats.track(y)
+    loops = 1 if length >= want - 0.05 else math.ceil(tl.duration / length)  # короче — весь трек, и он по кругу
+    snapped, moved = beats.snap_edit(edit, tl, [t + k * length for k in range(loops) for t in grid.times])
+    return snapped, {"bpm": grid.bpm, "moved": moved}
+
+
 def draw_layer(job: Job, edit: dict | None = None, work: str = "work/render") -> Layer:
-    """edit.json (по схеме; `edit` — вместо него, например версия B) → шкала по исходнику → кадры слоя в
-    `<work>/frames`."""
+    """edit.json (по схеме; `edit` — вместо него, например версия B) → шкала по исходнику → события на доли музыки
+    (`on_beats`) → кадры слоя в `<work>/frames`."""
     edit = job.read("edit.json") if edit is None else edit
     validate("edit.json", edit)  # файл пишет Claude: ошибка называет поле, а не падает KeyError где-то в графе
     waiting = [ins["question"] for ins in edit["inserts"] if ins.get("question") and not ins.get("src") and ins["kind"] not in TEXTUAL]
@@ -125,17 +150,19 @@ def draw_layer(job: Job, edit: dict | None = None, work: str = "work/render") ->
     beyond = (timeline(edit).duration - tl.duration) * edit["speed"]
     if beyond > 0.1:
         warnings.append(f"keep заходит за конец исходника ({info.duration:.1f} с): {beyond:.1f} с отрезков отброшено")
+    edit, beat = on_beats(job, edit, tl)
     frames = _layer(job, edit, tl, job.path(work))
     boxes = json.loads((frames.parent / "boxes.json").read_text(encoding="utf-8"))
-    return Layer(edit, info, tl, frames, boxes, warnings)
+    return Layer(edit, info, tl, frames, boxes, warnings, beat)
 
 
 def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium", edit: dict | None = None,
            work: str = "work/render") -> dict:
     """Пишет `out_dir/<name>.mp4` и `out_dir/<name>.srt` (без речи `.srt` нет: пустой ассет GitHub не примет и не
     отдаст ролик). → `{durations, missing, warnings, music, voice}`; `missing` Павел читает на странице — по-русски;
-    `voice` — громкость исходника и было ли шумоподавление (тихая запись). `edit` — вместо edit.json (версия B
-    A/B-теста), `work` — папка её слоя."""
+    `voice` — громкость исходника и было ли шумоподавление (тихая запись); `beats` — монтаж в такт: темп и сколько
+    событий встало на доли (без музыки — None). `edit` — вместо edit.json (версия B A/B-теста), `work` — папка её
+    слоя."""
     drawn = draw_layer(job, edit, work)
     edit, info, tl, layer = drawn.edit, drawn.info, drawn.tl, drawn.frames
     source = job.path("source.mp4")
@@ -189,6 +216,7 @@ def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium",
         "warnings": warnings,
         "music": music["file"] if music else None,  # файл, отданный в микс (для проверки качества)
         "voice": {"lufs": None if lufs is None or math.isinf(lufs) else round(lufs, 1), "denoise": quiet},
+        "beats": drawn.beats,
     }
 
 

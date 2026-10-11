@@ -986,3 +986,32 @@ def test_version_b_without_its_part_fails_before_the_first_render(tmp_path, monk
     assert main(["render", str(job.root)]) == 1
     assert calls == [], "ошибка в ab — сразу, а не после сборки первой версии"
     assert "тизера нет" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("beats, line", [
+    ({"bpm": 121.4, "moved": 3}, "в такт музыке (121 уд/мин): к долям подвинуто событий — 3"),
+    ({"bpm": 0.0, "moved": 0}, "в такт музыке: ровного ритма в треке нет — зумы и вставки на своих местах"),
+    (None, None),
+])
+def test_render_says_how_the_events_follow_the_beats(tmp_path, monkeypatch, capsys, beats, line):
+    import vm.__main__ as cli
+
+    job = Job(tmp_path / "jobs" / "abc")
+    job.write("edit.json", {"speed": 1.0, "keep": [[0.0, 4.0]], "words": [], "hook": None, "cta": None, "inserts": [], "zooms": [],
+                            "face": {"x": 0.5, "y": 0.3}, "music": {"file": "assets/music/a.mp3", "gainDb": -18}, "hold": 0.0,
+                            "style": STYLE})
+
+    def fake_render(job_, out_dir, name="final", preset="medium", edit=None, work="work/render"):
+        (job_.path(work) / "frames").mkdir(parents=True, exist_ok=True)
+        (job_.path(work) / "frames" / "boxes.json").write_text("[]", encoding="utf-8")
+        job_.path("out").mkdir(exist_ok=True)
+        job_.path(f"out/{name}.mp4").write_bytes(b"video")
+        return {"durations": {"source": 4.0, "final": 4.0}, "missing": [], "warnings": [], "voice": {}, "beats": beats}
+
+    monkeypatch.setattr(cli, "render", fake_render)
+    monkeypatch.setattr(cli, "_fonts_ok", lambda job: None)
+    monkeypatch.setattr(cli, "check_render", lambda *a: [])
+    monkeypatch.setattr(cli, "control_frames", lambda *a, **k: {"sheet": job.path("qa/qa.png")})
+    assert main(["render", str(job.root)]) == 0
+    out = capsys.readouterr().out
+    assert (line in out) if line else ("в такт" not in out), out

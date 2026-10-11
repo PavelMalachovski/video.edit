@@ -477,6 +477,14 @@ def test_a_b_test_is_without_the_teaser_or_without_the_music(job):
         job.write("result.json", {**result, "ab": {**second, "qa": {"ok": "yes", "problems": []}}})
 
 
+def test_music_can_switch_off_the_beats(job):
+    edit = make_edit()
+    for beats in (True, False):
+        job.write("edit.json", {**edit, "music": {"file": "assets/music/a.mp3", "gainDb": -18, "beats": beats}})
+    with pytest.raises(ValueError, match=r"  music\.beats: "):
+        job.write("edit.json", {**edit, "music": {"file": "assets/music/a.mp3", "gainDb": -18, "beats": "no"}})
+
+
 def test_edit_rejects_unknown_insert_kind(job):
     edit = make_edit()
     edit["inserts"][0]["kind"] = "gif"

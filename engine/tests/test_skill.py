@@ -270,7 +270,16 @@ def test_shot_changes_and_push_ins_replace_the_jump_of_a_cut():
 
 def test_cutting_is_tight_by_default_and_soft_on_request():
     cut = section("3. Скорость и резка")
-    assert "плотная" in cut and "0,2 с" in cut and "0,16 с" in cut
+    assert "плотная" in cut and "0,26 с" in cut and "0,16 с" in cut
     questions = section("Вопросы (questions.json)")
     assert "`soft`" in questions and "мягче" in questions
     assert "**SOFT" in section("Шаг render") and "**SOFT" in section("Шаг analyze")
+
+
+def test_a_soft_cut_redoes_the_cutting_with_the_slips_of_the_draft():
+    """Ответ `cut: soft` пересчитывает резку в шаге render — вырезки оговорок берутся из черновика, иначе VAD вернёт
+    фальстарт в ролик."""
+    analyze = section("Шаг analyze")
+    assert '"cuts": [list(c) for c in cut]' in analyze
+    render = section("Шаг render")
+    assert 'extra_cuts=edit.get("cuts") or []' in render and "**SOFT" in render

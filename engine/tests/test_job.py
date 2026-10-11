@@ -396,6 +396,16 @@ def test_edit_takes_black_and_white_pieces(job):
         job.write("edit.json", edit)
 
 
+def test_the_draft_keeps_its_cut_out_slips(job):
+    """Вырезки оговорок черновика: шаг render режет их и при другой резке пауз (ответ «мягко»)."""
+    edit = make_edit()
+    edit["cuts"] = [[2.0, 2.5], [7.1, 7.6]]
+    job.write("edit.json", edit)
+    edit["cuts"] = [[2.0]]
+    with pytest.raises(ValueError, match=r"cuts\[0\]"):
+        job.write("edit.json", edit)
+
+
 def test_zoom_steps_take_the_length_of_their_change(job):
     edit = make_edit()
     edit["zooms"] = [{"t": 1.0, "level": 1.25, "over": 0}, {"t": 3.0, "level": 1.15, "over": 4.5}, {"t": 9.0, "level": 1.0}]

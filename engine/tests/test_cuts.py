@@ -2,7 +2,7 @@
 
 Почти все тесты — на мягкой резке (`SOFT`, `soft_keep`): поля 0,12 с перед словом и 0,08 с после слова, длинная пауза
 ужимается до 0,18 с: 0,12 с остаются перед следующим словом и 0,06 с — после предыдущего. По умолчанию резка
-плотная (раздел в конце): пауза длиннее 0,2 с — до 0,16 с. Времена подобраны так, чтобы ожидаемое считалось в уме.
+плотная (раздел в конце): пауза длиннее 0,26 с — до 0,16 с. Времена подобраны так, чтобы ожидаемое считалось в уме.
 """
 import math
 import random
@@ -299,15 +299,28 @@ def test_a_sliver_of_speech_left_by_an_extra_cut_is_not_kept():
 # ---------- плотная резка (по умолчанию, стиль эталона) ----------
 
 
-def test_by_default_every_pause_longer_than_0_2_s_shrinks_to_0_16_s():
+def test_by_default_every_pause_longer_than_0_26_s_shrinks_to_0_16_s():
     # пауза 0,3 с: мягкая резка оставила бы её целой, плотная — ужимает: 0,06 с после слова и 0,10 с перед следующим
     words = speech((1.0, 2.0), (2.3, 3.0))
     assert_keeps(plan_keep(words, 5.0), (0.9, 2.06), (2.2, 3.06))
     assert_keeps(soft_keep(words, 5.0), (0.88, 3.08))
 
 
-def test_a_pause_of_0_2_s_stays_whole():
+def test_a_pause_that_would_save_less_than_0_1_s_stays_whole():
+    """Склейка ради 1–3 кадров только дёргает кадр: пауза до 0,26 с (экономия до 0,1 с) остаётся целой."""
     assert_keeps(plan_keep(speech((1.0, 2.0), (2.2, 3.0)), 5.0), (0.9, 3.06))
+    assert_keeps(plan_keep(speech((1.0, 2.0), (2.25, 3.0)), 5.0), (0.9, 3.06))
+    assert_keeps(plan_keep(speech((1.0, 2.0), (2.27, 3.0)), 5.0), (0.9, 2.06), (2.17, 3.06))
+
+
+def test_a_soft_recut_of_the_draft_keeps_its_slips_out():
+    """Шаг render, ответ «мягко»: слова черновика (без оговорки) и его вырезки `edit.cuts` — оговорку, которую VAD
+    слышит как речь, резка в ролик не возвращает (без вырезок — вернула бы)."""
+    words = speech((0.5, 1.8), (2.6, 3.9))  # «я хо-» 2,0–2,5 вырезана в analyze — её слов в черновике нет
+    vad = [(0.4, 4.0)]
+    keep = plan_keep(words, 5.0, extra_cuts=[(2.0, 2.5)], speech=vad, **SOFT)
+    assert not any(a < 2.4 and b > 2.1 for a, b in keep), keep
+    assert any(a <= 2.1 and b >= 2.4 for a, b in plan_keep(words, 5.0, speech=vad, **SOFT))
 
 
 def test_tight_cut_keeps_whole_words_and_short_pauses():

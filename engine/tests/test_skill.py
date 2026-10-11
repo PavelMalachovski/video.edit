@@ -70,3 +70,9 @@ def test_the_steps_say_what_to_do_when_language_or_fonts_go_wrong():
     render = section("Шаг render")
     assert "vm fonts" in render and "unsure" in render  # другой язык — заново хук, звёздочки, шрифты
     assert "эмодзи" in section("6. Тексты").lower()
+
+
+def test_the_speed_pavel_picks_reaches_the_video():
+    assert "answers.speed" in section("3. Скорость и резка")
+    render = section("Шаг render")
+    assert "answers.speed" in render and "until" in render  # хук уходит по времени исходника — пересчитать по скорости

@@ -7,7 +7,7 @@ import { storage } from '@/lib/client.ts';
 import { mmss } from '@/lib/format.ts';
 import type { Question, StyleChoice, Styles } from '@/lib/jobfiles.ts';
 import { MAX_NOTE } from '@/lib/jobs.ts';
-import { allowedFonts, choiceFor, finalStyle, loadChoice, resolveInserts, sampleState, saveChoice, SWATCHES } from '@/lib/style.ts';
+import { allowedFonts, choiceFor, finalStyle, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SWATCHES } from '@/lib/style.ts';
 import PreviewFrame from '../../preview-frame';
 import type { Act } from './job';
 
@@ -38,6 +38,12 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
   const setChoice = (c: StyleChoice) => {
     setChoiceState(c);
     saveChoice(storage(), jobId, styles, c);
+  };
+
+  const [speed, setSpeedState] = useState<number>(() => loadSpeed(storage(), jobId));
+  const setSpeed = (s: number) => {
+    setSpeedState(s);
+    saveSpeed(storage(), jobId, s);
   };
 
   const [fonts, setFonts] = useState<FontEntry[]>([]);
@@ -86,7 +92,7 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
     const { answers, uploads, missing } = buildAnswers(questions, draft);
     if (missing.length) return setError({ at: 'answers', text: 'Не на все вопросы есть ответ — вернитесь к вопросам' });
     const claims = Object.fromEntries(Object.entries(uploads).map(([qid, u]) => [qid, { asset: u.asset, name: u.name, size: u.size, type: u.type, parts: u.parts }]));
-    void run('answers', { answers, uploads: claims, style: choice });
+    void run('answers', { answers, uploads: claims, style: choice, speed });
   }
 
   const pickFont = (kind: 'font' | 'hand', id: string) => setChoice({ ...choice, [kind]: id });
@@ -155,6 +161,16 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
       </div>
 
       <div className="card">
+        <div className="caps small">Скорость ролика</div>
+        <div className="pills">
+          {SPEEDS.map((s) => (
+            <button key={s} type="button" className="pill" aria-pressed={speed === s} onClick={() => setSpeed(s)}>×{s.toFixed(1)}</button>
+          ))}
+        </div>
+        <div className="muted small">Голос не меняет тон; музыка не ускоряется.</div>
+      </div>
+
+      <div className="card">
         <label htmlFor="tweak" className="label">Ни один не подходит? Скажи, что поменять</label>
         <input id="tweak" type="text" maxLength={MAX_NOTE} placeholder="Например: заголовок без плашки" value={tweak} onChange={(e) => setTweak(e.target.value)} />
         <button type="button" className="btn ghost" disabled={!tweak.trim() || busy !== null} onClick={() => void run('restyle', { text: tweak.trim() })}>
@@ -164,7 +180,7 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
       </div>
 
       <button type="button" className="btn" disabled={busy !== null} onClick={mount}>
-        Монтировать: {choice.variant} · {family(choice.font)}
+        Монтировать: {choice.variant} · {family(choice.font)} · ×{speed.toFixed(1)}
       </button>
       {error?.at === 'answers' ? <div className="err small">{error.text}</div> : null}
     </>

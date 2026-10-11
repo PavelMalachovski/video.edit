@@ -117,6 +117,30 @@ export function resolveInserts(sample: Styles['sample'], qs: Question[], d: Draf
   return out;
 }
 
+// ---------- скорость ролика (localStorage['vm:speed:<id>']) ----------
+
+/** Кнопки скорости на экране превью: ×1.0–×1.5; по правилам монтажа — ×1.1. */
+export const SPEEDS = [1, 1.1, 1.2, 1.3, 1.4, 1.5];
+export const DEFAULT_SPEED = 1.1;
+const speedKey = (jobId: string): string => `vm:speed:${jobId}`;
+
+export function loadSpeed(storage: Storage | null, jobId: string): number {
+  try {
+    const value = Number(storage?.getItem(speedKey(jobId)));
+    return SPEEDS.includes(value) ? value : DEFAULT_SPEED;
+  } catch {
+    return DEFAULT_SPEED;
+  }
+}
+
+export function saveSpeed(storage: Storage | null, jobId: string, speed: number): void {
+  try {
+    storage?.setItem(speedKey(jobId), String(speed));
+  } catch {
+    // нет хранилища — выбор живёт до перезагрузки
+  }
+}
+
 // ---------- запомненный выбор (localStorage['vm:style:<id>']) ----------
 
 const choiceKey = (jobId: string): string => `vm:style:${jobId}`;

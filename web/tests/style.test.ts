@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { initialDraft, pick } from '../lib/answers.ts';
 import type { Question, StyleChoice, Styles } from '../lib/jobfiles.ts';
-import { allowedFonts, choiceFor, finalStyle, loadChoice, resolveInserts, sampleState, saveChoice, SWATCHES } from '../lib/style.ts';
+import { allowedFonts, choiceFor, finalStyle, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SWATCHES } from '../lib/style.ts';
 import { blockedStorage, memoryStorage } from './helpers.ts';
 
 // Общая с движком фикстура: final_style в engine/vm/style.py обязан давать то же самое.
@@ -102,4 +102,17 @@ test('a saved font without the letters of the video is not taken back', () => {
   assert.equal(loadChoice(store, id, styles).font, 'rubik');
   saveChoice(store, id, styles, { ...choiceFor(styles, 'A'), font: 'russo-one' });
   assert.deepEqual(loadChoice(store, id, styles), choiceFor(styles, 'A'));
+});
+
+test('speed buttons: 1.0 to 1.5 by 0.1, the rule 1.1 by default, remembered per job', () => {
+  assert.deepEqual(SPEEDS, [1, 1.1, 1.2, 1.3, 1.4, 1.5]);
+  const store = memoryStorage();
+  const id = '261010-120000-ef56';
+  assert.equal(loadSpeed(store, id), 1.1);
+  saveSpeed(store, id, 1.3);
+  assert.equal(loadSpeed(store, id), 1.3);
+  store.setItem(`vm:speed:${id}`, '7');
+  assert.equal(loadSpeed(store, id), 1.1, 'not one of the buttons — the rule');
+  assert.equal(loadSpeed(blockedStorage, id), 1.1);
+  saveSpeed(blockedStorage, id, 1.2); // не бросает
 });

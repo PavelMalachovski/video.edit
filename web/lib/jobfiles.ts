@@ -154,9 +154,11 @@ export function buildJobFile(m: Manifest, now: Date): JobFile {
 
 // ---------- answers.json ----------
 
-export type AnswersFile = { answers: Record<string, string | string[]>; style: StyleChoice; uploads?: Record<string, string>; brief?: string };
+export type AnswersFile = { answers: Record<string, string | string[]>; style: StyleChoice; speed?: number; uploads?: Record<string, string>; brief?: string };
 export type UploadClaim = { asset: string; name: string; size: number; type: string; parts: number };
-export type ParsedAnswers = { answers: Record<string, string | string[]>; style: StyleChoice; uploads: Record<string, UploadClaim> };
+export type ParsedAnswers = { answers: Record<string, string | string[]>; style: StyleChoice; speed?: number; uploads: Record<string, UploadClaim> };
+/** Ускорение, которое Павел может выбрать (по правилам — 1.1). */
+export const SPEED_RANGE = { min: 1, max: 1.5 };
 
 const COLOR = /^#[0-9A-Fa-f]{6}$/;
 const isStr = (x: unknown): x is string => typeof x === 'string';
@@ -199,6 +201,10 @@ export function parseAnswersBody(body: unknown, qs: Question[]): ParsedAnswers |
   }
   const style = parseStyle(body.style);
   if (typeof style === 'string') return { error: style };
+  const speed = body.speed;
+  if (speed !== undefined && !(isNum(speed) && speed >= SPEED_RANGE.min && speed <= SPEED_RANGE.max)) {
+    return { error: `speed: нужно число от ${SPEED_RANGE.min} до ${SPEED_RANGE.max}` };
+  }
   const uploads: Record<string, UploadClaim> = {};
   const claims = body.uploads === undefined ? {} : body.uploads;
   if (!isObject(claims)) return { error: 'uploads: нужен объект' };
@@ -211,13 +217,14 @@ export function parseAnswersBody(body: unknown, qs: Question[]): ParsedAnswers |
   for (const [qid, value] of Object.entries(answers)) {
     if (value === RESERVED.upload && !uploads[qid]) return { error: `${qid}: выбрано «загрузить свою», а картинки нет` };
   }
-  return { answers, style, uploads };
+  return { answers, style, uploads, ...(speed === undefined ? {} : { speed: Math.round(speed * 100) / 100 }) };
 }
 
 export function answersFile(p: ParsedAnswers, job: JobFile): AnswersFile {
   return {
     answers: p.answers,
     style: p.style,
+    ...(p.speed === undefined ? {} : { speed: p.speed }),
     uploads: Object.fromEntries(Object.entries(p.uploads).map(([qid, c]) => [qid, `in/uploads/${c.asset}`])),
     brief: job.brief,
   };

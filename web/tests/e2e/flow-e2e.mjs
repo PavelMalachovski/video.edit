@@ -279,7 +279,9 @@ const segments = [
 
     await page.getByRole('button', { name: /^B · / }).click();
     await page.getByRole('button', { name: 'Rubik', exact: true }).click();
-    const go = page.getByRole('button', { name: /^Монтировать: B · Rubik/ });
+    check(await page.getByRole('button', { name: '×1.1', exact: true }).getAttribute('aria-pressed') === 'true', 'скорость по умолчанию не ×1.1');
+    await page.getByRole('button', { name: '×1.3', exact: true }).click();
+    const go = page.getByRole('button', { name: /^Монтировать: B · Rubik · ×1\.3/ });
     await go.waitFor();
     const last = await bigSpec();
     await go.click();
@@ -289,6 +291,7 @@ const segments = [
     check(answers.uploads?.logo === 'in/uploads/upload-q-logo.png', `uploads: ${JSON.stringify(answers.uploads)}`);
     check(answers.answers?.['hook.own'] === 'Как я снимаю reels', `hook.own: ${answers.answers?.['hook.own']}`);
     check(answers.brief === 'ХУК: Как я учу чешский', `brief: ${answers.brief}`);
+    check(answers.speed === 1.3, `speed: ${answers.speed}`);
     check(isDeepStrictEqual(finalStyle(restyled, answers.style), last), `стиль ответа ${JSON.stringify(answers.style)} ≠ последнему превью`);
   }],
 

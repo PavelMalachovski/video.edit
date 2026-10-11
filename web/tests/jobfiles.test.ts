@@ -135,3 +135,19 @@ test('parseStyles takes the fonts that have every letter of the video, or none',
     assert.equal(parseStyles({ ...styles, fonts: bad }), null, JSON.stringify(bad));
   }
 });
+
+test('speed from 1.0 to 1.5 goes into answers.json; without it — the rule (1.1)', () => {
+  const job = buildJobFile({ job: '261010-070509-abcd', name: 'a', size: 1, type: 'video/mp4', lastModified: 1, parts: 1, chunkSize: 4, brief: '' }, NOW);
+  for (const speed of [1, 1.2, 1.5]) {
+    const p = parseAnswersBody({ answers: { hook: 'h1' }, style: STYLE, speed }, QS);
+    assert.ok(!('error' in p), JSON.stringify(p));
+    assert.equal(answersFile(p, job).speed, speed);
+  }
+  const none = parseAnswersBody({ answers: { hook: 'h1' }, style: STYLE }, QS);
+  assert.ok(!('error' in none) && !('speed' in answersFile(none, job)), 'no choice — no speed in the file');
+  for (const speed of [0.9, 1.6, '1.2', Number.NaN, null]) {
+    assert.ok('error' in parseAnswersBody({ answers: { hook: 'h1' }, style: STYLE, speed }, QS), String(speed));
+  }
+  const { properties } = schema('answers.json');
+  assert.deepEqual([properties.speed.minimum, properties.speed.maximum], [1, 1.5]);
+});

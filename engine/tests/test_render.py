@@ -562,7 +562,7 @@ def test_cover_is_the_source_frame_with_the_hook_in_big_letters(tmp_path, source
 def test_the_ads_version_keeps_every_box_above_the_ad_button(tmp_path, sources):
     from vm.qa import ADS_SAFE, check_layout
 
-    words = [{"t0": 0.5 + 0.4 * i, "t1": 0.8 + 0.4 * i, "text": w} for i, w in enumerate("это мои субтитры внизу кадра".split())]
+    words = [{"t0": 0.5 + 0.4 * i, "t1": 0.8 + 0.4 * i, "text": w} for i, w in enumerate(["это", "мои", "субтитры", "внизу", "кадра"])]
     job = make_job(tmp_path, sources["short"], keep=[[0.0, 4.0]], words=words, ad=True,
                    inserts=[{"kind": "text", "id": "s1", "text": "3 ошибки", "t0": 1.0, "t1": 3.0, "x": 120, "y": 1300, "w": 420,
                              "sfx": None, "params": {}}])

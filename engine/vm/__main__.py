@@ -40,7 +40,15 @@ from .qa import (
     face_box,
     slot_times,
 )
-from .render import COVER_ZONE, _resolve, draw_layer, render, render_cover, variant_ad, variant_b
+from .render import (
+    COVER_ZONE,
+    _resolve,
+    draw_layer,
+    render,
+    render_cover,
+    variant_ad,
+    variant_b,
+)
 from .style import final_style
 
 SERVICE = ("own", "none", "upload")  # служебные варианты вопросов: их подписи — интерфейс страницы

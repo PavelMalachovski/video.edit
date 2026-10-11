@@ -76,3 +76,8 @@ def test_the_speed_pavel_picks_reaches_the_video():
     assert "answers.speed" in section("3. Скорость и резка")
     render = section("Шаг render")
     assert "answers.speed" in render and "until" in render  # хук уходит по времени исходника — пересчитать по скорости
+
+
+def test_subtitles_pavel_dragged_stay_where_he_put_them():
+    render = section("Шаг render")
+    assert "subY" in render and "хук" in render  # мешают — двигается хук или вставка, а не субтитры

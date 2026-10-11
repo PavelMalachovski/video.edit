@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { initialDraft, pick } from '../lib/answers.ts';
 import type { Question, StyleChoice, Styles } from '../lib/jobfiles.ts';
-import { allowedFonts, choiceFor, finalStyle, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SWATCHES } from '../lib/style.ts';
+import { allowedFonts, choiceFor, clampSubY, finalStyle, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES } from '../lib/style.ts';
 import { blockedStorage, memoryStorage } from './helpers.ts';
 
 // Общая с движком фикстура: final_style в engine/vm/style.py обязан давать то же самое.
@@ -115,4 +115,19 @@ test('speed buttons: 1.0 to 1.5 by 0.1, the rule 1.1 by default, remembered per 
   assert.equal(loadSpeed(store, id), 1.1, 'not one of the buttons — the rule');
   assert.equal(loadSpeed(blockedStorage, id), 1.1);
   saveSpeed(blockedStorage, id, 1.2); // не бросает
+});
+
+test('subtitles: Pavel moves them up or down, inside the safe zone, by 10 px', () => {
+  const plain = choiceFor(STYLES, 'B');
+  assert.equal(finalStyle(STYLES, plain).subtitles.y, STYLES.variants[1].spec.subtitles.y, 'not moved — as in the variant');
+  assert.equal(finalStyle(STYLES, { ...plain, subY: 900 }).subtitles.y, 900);
+  assert.equal(clampSubY(1234), 1230);
+  assert.equal(clampSubY(10), SUB_Y.min);
+  assert.equal(clampSubY(5000), SUB_Y.max);
+  const store = memoryStorage();
+  const id = '261010-120000-ab99';
+  saveChoice(store, id, STYLES, { ...plain, subY: 900 });
+  assert.equal(loadChoice(store, id, STYLES).subY, 900);
+  saveChoice(store, id, STYLES, { ...plain, subY: 50 });
+  assert.deepEqual(loadChoice(store, id, STYLES), choiceFor(STYLES, 'A'), 'a place outside the zone is not taken back');
 });

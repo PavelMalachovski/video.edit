@@ -95,7 +95,10 @@ export type Styles = {
   /** Шрифты, в которых есть все буквы ролика (`vm fonts`); нет поля — годятся все. */
   fonts?: { main: string[]; hand: string[] };
 };
-export type StyleChoice = { variant: 'A' | 'B' | 'C'; font: string; hand: string; colors: { text: string; accent: string; bar: string } };
+/** Выбор Павла на превью; `subY` — куда он перетащил субтитры (центр блока, px кадра), нет — как в варианте. */
+export type StyleChoice = { variant: 'A' | 'B' | 'C'; font: string; hand: string; colors: { text: string; accent: string; bar: string }; subY?: number };
+/** Где могут стоять субтитры (центр блока): блок не выходит из безопасной зоны 120–1530 px. */
+export const SUB_Y = { min: 240, max: 1440 };
 
 function isSpec(s: unknown): s is StyleSpec {
   if (!isObject(s) || !isFontId(s.font) || !isFontId(s.hand) || !isObject(s.colors)) return false;
@@ -169,13 +172,17 @@ const isFontId = (x: unknown): x is string => isStr(x) && x.trim() !== '' && x.l
 
 function parseStyle(raw: unknown): StyleChoice | string {
   if (!isObject(raw)) return 'style: нужен объект';
-  const { variant, font, hand, colors } = raw;
+  const { variant, font, hand, colors, subY } = raw;
   if (variant !== 'A' && variant !== 'B' && variant !== 'C') return 'style.variant: A, B или C';
   if (!isFontId(font) || !isFontId(hand)) return 'style: шрифт не такой';
   if (!isObject(colors) || !['text', 'accent', 'bar'].every((k) => typeof colors[k] === 'string' && COLOR.test(colors[k] as string))) {
     return 'style.colors: нужны #RRGGBB для text, accent, bar';
   }
-  return { variant, font, hand, colors: { text: colors.text as string, accent: colors.accent as string, bar: colors.bar as string } };
+  if (subY !== undefined && !(isNum(subY) && subY >= SUB_Y.min && subY <= SUB_Y.max)) return `style.subY: от ${SUB_Y.min} до ${SUB_Y.max}`;
+  return {
+    variant, font, hand, colors: { text: colors.text as string, accent: colors.accent as string, bar: colors.bar as string },
+    ...(subY === undefined ? {} : { subY }),
+  };
 }
 
 function parseClaim(raw: unknown): UploadClaim | null {

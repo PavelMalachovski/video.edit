@@ -137,7 +137,8 @@
         "text": "#FFF1C2",
         "accent": "#00AAFF",
         "bar": "#7CF2B0"
-      }
+      },
+      "subY": 1150
     },
     "uploads": {},
     "brief": ""
@@ -156,7 +157,7 @@
       "mode": "plate",
       "words": 3,
       "size": 60,
-      "y": 1280
+      "y": 1150
     },
     "hook": {
       "mode": "outline",

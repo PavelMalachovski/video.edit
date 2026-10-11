@@ -279,6 +279,19 @@ const segments = [
 
     await page.getByRole('button', { name: /^B · / }).click();
     await page.getByRole('button', { name: 'Rubik', exact: true }).click();
+    // субтитры тянутся по крупному превью: 50 px экрана при ширине 270 — это 200 px кадра
+    const variantY = restyled.variants[1].spec.subtitles.y;
+    const handle = page.getByRole('slider', { name: 'Высота субтитров' });
+    const box = await handle.boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 - 25, { steps: 4 });
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 - 50, { steps: 4 });
+    await page.mouse.up();
+    await until(async () => (await bigSpec()).subtitles.y === variantY - 200, 5000, `субтитры перетащены на ${variantY - 200}`);
+    await page.getByRole('button', { name: 'Ниже', exact: true }).click();
+    await until(async () => (await bigSpec()).subtitles.y === variantY - 180, 5000, 'кнопка «Ниже» — на 20 px');
+    await shot(page, 'previews-subtitles-moved');
     check(await page.getByRole('button', { name: '×1.1', exact: true }).getAttribute('aria-pressed') === 'true', 'скорость по умолчанию не ×1.1');
     await page.getByRole('button', { name: '×1.3', exact: true }).click();
     const go = page.getByRole('button', { name: /^Монтировать: B · Rubik · ×1\.3/ });
@@ -292,6 +305,7 @@ const segments = [
     check(answers.answers?.['hook.own'] === 'Как я снимаю reels', `hook.own: ${answers.answers?.['hook.own']}`);
     check(answers.brief === 'ХУК: Как я учу чешский', `brief: ${answers.brief}`);
     check(answers.speed === 1.3, `speed: ${answers.speed}`);
+    check(answers.style?.subY === variantY - 180, `style.subY: ${answers.style?.subY}`);
     check(isDeepStrictEqual(finalStyle(restyled, answers.style), last), `стиль ответа ${JSON.stringify(answers.style)} ≠ последнему превью`);
   }],
 

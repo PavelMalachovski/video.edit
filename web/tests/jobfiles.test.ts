@@ -151,3 +151,15 @@ test('speed from 1.0 to 1.5 goes into answers.json; without it — the rule (1.1
   const { properties } = schema('answers.json');
   assert.deepEqual([properties.speed.minimum, properties.speed.maximum], [1, 1.5]);
 });
+
+test('answers keep where Pavel dragged the subtitles; outside the safe zone — refused', () => {
+  const p = parseAnswersBody({ answers: { hook: 'h1' }, style: { ...STYLE, subY: 1100 } }, QS);
+  assert.ok(!('error' in p) && p.style.subY === 1100, JSON.stringify(p));
+  const plain = parseAnswersBody({ answers: { hook: 'h1' }, style: STYLE }, QS);
+  assert.ok(!('error' in plain) && !('subY' in plain.style));
+  for (const subY of [100, 1500, '1100', Number.NaN]) {
+    assert.ok('error' in parseAnswersBody({ answers: { hook: 'h1' }, style: { ...STYLE, subY } }, QS), String(subY));
+  }
+  const { properties } = schema('answers.json').properties.style;
+  assert.deepEqual([properties.subY.minimum, properties.subY.maximum], [240, 1440]);
+});

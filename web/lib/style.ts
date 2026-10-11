@@ -1,7 +1,9 @@
 // Стиль на экране превью: итоговый StyleSpec по выбору Павла (то же правило, что final_style движка), образец
 // состояния слоя на кадре (субтитры — по правилу build_sub_events), вставки по ответам и запомненный выбор.
 import { chosen, type Draft } from './answers.ts';
-import { RESERVED, type Question, type SampleInsert, type StyleChoice, type StyleSpec, type Styles } from './jobfiles.ts';
+import { RESERVED, SUB_Y, type Question, type SampleInsert, type StyleChoice, type StyleSpec, type Styles } from './jobfiles.ts';
+
+export { SUB_Y };
 
 /** Состояние слоя для window.renderState шаблона (template/overlay.js, inserts.js). */
 export type SubState = { words: string[]; active: number; visible: number };
@@ -13,7 +15,8 @@ export type OverlayState = { sub?: SubState; hook?: { text: string }; cta?: { li
 
 type Variant = StyleChoice['variant'];
 
-/** spec выбранного варианта, в нём — шрифт, рукописный и три цвета Павла; остальное — как у варианта. */
+/** spec выбранного варианта, в нём — шрифт, рукописный, три цвета Павла и высота субтитров, если он их перетащил;
+ *  остальное — как у варианта. */
 export function finalStyle(styles: Styles, c: StyleChoice): StyleSpec {
   const variant = styles.variants.find((v) => v.id === c.variant);
   if (!variant) throw new Error(`styles.json: нет варианта ${c.variant}`);
@@ -21,7 +24,13 @@ export function finalStyle(styles: Styles, c: StyleChoice): StyleSpec {
   spec.font = c.font;
   spec.hand = c.hand;
   spec.colors = { ...spec.colors, text: c.colors.text, accent: c.colors.accent, bar: c.colors.bar };
+  if (c.subY !== undefined) spec.subtitles.y = c.subY;
   return spec;
+}
+
+/** Высота субтитров при перетаскивании: внутри SUB_Y, шагом 10 px. */
+export function clampSubY(y: number): number {
+  return Math.min(SUB_Y.max, Math.max(SUB_Y.min, Math.round(y / 10) * 10));
 }
 
 /** Выбор «как у варианта»: его шрифты и цвета (смена варианта сбрасывает выбор к ним). */
@@ -152,6 +161,7 @@ function isChoice(x: unknown, styles: Styles): x is StyleChoice {
   return typeof c === 'object' && c !== null && styles.variants.some((v) => v.id === c.variant) && typeof c.font === 'string' && c.font !== ''
     && typeof c.hand === 'string' && c.hand !== '' && typeof c.colors === 'object' && c.colors !== null
     && ['text', 'accent', 'bar'].every((k) => COLOR.test(String((c.colors as Record<string, unknown>)[k])))
+    && (c.subY === undefined || (typeof c.subY === 'number' && c.subY >= SUB_Y.min && c.subY <= SUB_Y.max))
     && [['main', c.font], ['hand', c.hand]].every(([kind, id]) => {
       const ids = styles.fonts?.[kind as 'main' | 'hand'];
       return !ids?.length || ids.includes(id);

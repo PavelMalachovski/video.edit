@@ -169,19 +169,18 @@ def test_a_teaser_must_be_a_real_span(teaser):
         Timeline([(0.0, 10.0)], 1.0, teaser=teaser)
 
 
-def test_a_moment_just_after_a_jump_cut_lands_on_the_cut():
+def test_a_moment_next_to_a_jump_cut_lands_on_the_cut():
     tl = Timeline([(0.0, 2.0), (2.5, 6.0)], 1.0)  # стык: 2,0 с финала
     assert tl.to_cut(2.6) == 2.0, "0,1 с после начала отрезка — на стыке"
-    assert tl.to_cut(3.0) == tl.to_final(3.0), "дальше 0,25 с — на своём месте"
+    assert tl.to_cut(1.9) == 2.0, "0,1 с до конца отрезка — тоже на стыке"
+    assert tl.to_cut(3.0) == tl.to_final(3.0) and tl.to_cut(1.5) == 1.5, "дальше 0,25 с — на своём месте"
     assert tl.to_cut(2.2) == 2.0, "в вырезке — на начале следующего отрезка, как to_final_snap"
-    assert tl.to_cut(0.1) == 0.0, "начало ролика — тоже край: без трёх кадров до смены"
+    assert tl.to_cut(0.1) == 0.0 and tl.to_cut(5.9) == tl.duration, "начало и конец ролика — тоже края"
     with_teaser = Timeline([(0.0, 2.0), (2.5, 6.0)], 1.0, teaser=(3.0, 4.0))
     assert with_teaser.to_cut(0.1) == 1.0, "первый отрезок после тизера — стык с тизером"
 
 
-def test_a_moment_just_before_a_jump_cut_lands_on_the_cut():
-    tl = Timeline([(0.0, 2.0), (2.5, 6.0)], 1.0)
-    assert tl.to_cut_end(1.9) == 2.0, "0,1 с до конца отрезка — на стыке"
-    assert tl.to_cut_end(1.5) == 1.5
-    assert tl.to_cut_end(5.9) == tl.duration, "конец ролика — тоже край"
-    assert tl.to_cut_end(2.2) == 2.0, "в вырезке — на начале следующего отрезка, как to_final_snap"
+def test_in_a_short_piece_a_moment_lands_on_the_nearer_cut():
+    tl = Timeline([(0.0, 2.0), (2.5, 2.8), (3.0, 6.0)], 1.0)  # кусок 0,3 с: стыки на 2,0 и 2,3 с финала
+    assert tl.to_cut(2.6) == 2.0
+    assert tl.to_cut(2.75) == pytest.approx(2.3)

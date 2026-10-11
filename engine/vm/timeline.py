@@ -101,20 +101,15 @@ class Timeline:
         return (self._lead + self._played[i]) / self._speed if i < len(self._starts) else self._duration
 
     def to_cut(self, t: float, within: float = TO_CUT) -> float:
-        """Как `to_final_snap`, но момент не дальше `within` с исходника после начала отрезка — ровно на его начале
-        (стык с прошлым отрезком или тизером, у первого без тизера — начало ролика): смена плана или цвета на фразе
-        после склейки совпадает со склейкой, а не идёт на пару кадров позже (кадр «прыгал» бы дважды)."""
+        """Как `to_final_snap`, но момент не дальше `within` с исходника от края отрезка — ровно на этом краю: начало
+        (стык с прошлым отрезком или тизером, у первого без тизера — начало ролика) или конец (стык со следующим, у
+        последнего — конец ролика); оба близко — ближний. Смена плана или цвета на фразе у склейки совпадает со
+        склейкой, а не идёт на пару кадров раньше или позже (кадр «прыгал» бы дважды)."""
         i = bisect_right(self._starts, t) - 1
-        if i >= 0 and t <= self._ends[i] and t - self._starts[i] <= within:
-            t = self._starts[i]
-        return self.to_final_snap(t)
-
-    def to_cut_end(self, t: float, within: float = TO_CUT) -> float:
-        """Как `to_final_snap`, но момент не дальше `within` с исходника до конца отрезка — ровно на его конце (стык со
-        следующим, у последнего — конец ролика)."""
-        i = bisect_right(self._starts, t) - 1
-        if i >= 0 and t <= self._ends[i] and self._ends[i] - t <= within:
-            t = self._ends[i]
+        if i >= 0 and t <= self._ends[i]:
+            head, tail = t - self._starts[i], self._ends[i] - t
+            if min(head, tail) <= within:
+                t = self._starts[i] if head <= tail else self._ends[i]
         return self.to_final_snap(t)
 
     def to_source(self, t: float) -> float:

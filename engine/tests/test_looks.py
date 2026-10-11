@@ -5,7 +5,8 @@ import subprocess
 import numpy as np
 import pytest
 
-from vm.render import FPS, look_windows, looks_filter
+from vm.media import cut_frame
+from vm.render import FPS, _cut, look_windows, looks_filter
 from vm.timeline import Timeline
 
 needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="нужен ffmpeg")
@@ -35,6 +36,14 @@ def test_a_look_next_to_a_jump_cut_starts_and_ends_on_the_cut_frame():
     с кадра склейки и до кадра склейки, как смена камеры, а не через 3 кадра цвета."""
     tl = Timeline([(0.0, 2.0), (3.0, 6.0), (7.0, 9.0)], 1.0)  # стыки: 2,0 и 5,0 с финала
     assert look_windows({"looks": [{"t0": 3.1, "t1": 5.94, "look": "bw"}]}, tl) == [(60, 150)]
+    assert look_windows({"looks": [{"t0": 1.9, "t1": 7.1, "look": "bw"}]}, tl) == [(60, 150)], "и с той стороны склейки"
+
+
+def test_window_edges_are_the_frames_where_ffmpeg_puts_the_cut():
+    """При ×1,2 стык бывает ровно посередине кадра финала (33 кадра исходника → 27,5): склейку ffmpeg ставит на кадр
+    27 (замер) — туда же и ч/б, а не на 28 по `round`."""
+    tl = Timeline([(0.0, 1.1), (1.5, 2.0)], 1.2)
+    assert look_windows({"looks": [{"t0": 1.5, "t1": 2.0, "look": "bw"}]}, tl) == [(27, 40)]
 
 
 def test_the_teaser_copy_of_a_look_also_sticks_to_the_teaser_edges():
@@ -102,3 +111,28 @@ def test_frames_in_the_window_are_grey_and_darker_the_rest_keep_their_colour(tmp
     colour = [saturation(out, n) for n in (14, 15, 29, 30)]
     assert colour[0] > 40 and colour[3] > 40, colour
     assert colour[1] < 6 and colour[2] < 6, colour
+
+
+@needs_ffmpeg
+def test_cut_frame_is_where_ffmpeg_puts_a_jump_cut(tmp_path):
+    """`cut_frame` — кадр финала, с которого виден новый отрезок после склейки (`_cut`), ускорения и `fps=30`, как в
+    рендере: на него встают ч/б и смены крупности. Ровно посередине кадра (×1,2: 27,5 и 32,5) — на раньший."""
+    src = tmp_path / "count.mp4"  # кадр n исходника — серый 4n; time_base как у source.mp4
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=c=black:s=64x64:r=30:d=2",
+         "-vf", "geq=lum='4*N':cb=128:cr=128", "-c:v", "libx264", "-qp", "0", "-pix_fmt", "yuv444p",
+         "-video_track_timescale", "15360", str(src)],
+        check=True,
+    )
+    for speed in (1.1, 1.2):
+        for frames in (31, 33, 34, 39):
+            tl = Timeline([(0.0, frames / 30), (1.5, 2.0)], speed)
+            graph = ";".join(_cut(tl, False)) + f";[vc]setpts=PTS/{speed:g},fps={FPS}[v];[ac]anullsink"
+            raw = subprocess.run(
+                ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(src), "-filter_complex", graph, "-map", "[v]",
+                 "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+                check=True, capture_output=True,
+            ).stdout
+            shown = [round(v / 4) for v in np.frombuffer(raw, np.uint8).reshape(-1, 64 * 64).mean(1)]
+            first = next(n for n, k in enumerate(shown) if k >= 45)  # 45 — первый кадр второго отрезка
+            assert first == cut_frame(tl.segments[1][2]), (speed, frames, first)

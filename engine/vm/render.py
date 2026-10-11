@@ -38,7 +38,7 @@ from . import beats, transitions
 from .asr import Word
 from .audio import MIN_MUSIC, QUIET_LUFS, audio_graph
 from .job import Job, validate
-from .media import FILL, HDR_TO_SDR, MediaError, Probe, loudness, probe
+from .media import FILL, HDR_TO_SDR, MediaError, Probe, cut_frame, loudness, probe
 from .overlay import FPS, build_overlay_events, insert_spans
 from .subs import to_srt
 from .timeline import TO_CUT, Timeline
@@ -340,22 +340,27 @@ def _cut(tl: Timeline, has_audio: bool) -> list[str]:
     return chains
 
 
+def _near_edge(x: float, lo: float, hi: float) -> float:
+    """Момент внутри `[lo, hi]` не дальше `TO_CUT` от края — на этом краю (края тизера — склейки; тизер длиннее 2 × TO_CUT)."""
+    return lo if x - lo <= TO_CUT else hi if hi - x <= TO_CUT else x
+
+
 def look_windows(edit: dict, tl: Timeline) -> list[tuple[int, int]]:
     """Ч/б-куски (`edit.looks`) — кадры финала `(первый, после последнего)`: фраза на своём месте и её копия в тизере,
     если она туда попала. Край куска не дальше `TO_CUT` от края отрезка (запас резки до слова) — ровно на склейке
-    (`Timeline.to_cut`), как смена камеры. Кусок без кадров (весь в вырезке, нулевой) не нужен."""
+    (`Timeline.to_cut`), на её кадре (`cut_frame`), как смена камеры. Кусок без кадров (весь в вырезке, нулевой) не
+    нужен."""
     windows = []
     for look in edit.get("looks") or []:
         t0, t1 = float(look["t0"]), float(look["t1"])
         if t1 <= t0:
             continue
-        spans = [(tl.to_cut(t0), tl.to_cut_end(t1))]
+        spans = [(tl.to_cut(t0), tl.to_cut(t1))]
         if tl.teaser and max(t0, tl.teaser[0]) < min(t1, tl.teaser[1]):
             lo, hi = tl.teaser
-            a, b = max(t0, lo), min(t1, hi)
-            spans.append((tl.teaser_final(lo if a - lo <= TO_CUT else a), tl.teaser_final(hi if hi - b <= TO_CUT else b)))
+            spans.append((tl.teaser_final(_near_edge(max(t0, lo), lo, hi)), tl.teaser_final(_near_edge(min(t1, hi), lo, hi))))
         for a, b in spans:
-            first, after = round(a * FPS), round(b * FPS)
+            first, after = cut_frame(a), cut_frame(b)
             if after > first:
                 windows.append((first, after))
     return windows

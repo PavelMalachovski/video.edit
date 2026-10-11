@@ -202,6 +202,13 @@ def test_gain_moves_the_music_from_the_voice_level(tmp_path):
     assert loudness_of(out, 1.0, 4.0) == pytest.approx(-14 - 24, abs=1.0)
 
 
+def test_music_without_a_gain_sits_14_db_under_the_voice(tmp_path):
+    voice = bursts(tmp_path / "voice.wav", 3000, 6, "lt(t,0)")
+    music = synth(tmp_path / "music.wav", f"sine=f=440:r={RATE},volume=8", 10)
+    out, _, _, _ = mix(tmp_path, voice, speed=1.0, final_dur=6.0, music={"file": str(music)}, sfx=[])
+    assert loudness_of(out, 1.0, 4.0) == pytest.approx(-14 - 14, abs=1.0)
+
+
 def test_a_near_silent_track_is_not_pumped_up(tmp_path):
     """Почти тишина (−60 LUFS) не поднимается до голоса: подъём не больше 12 дБ — иначе поднялся бы и шум."""
     voice = bursts(tmp_path / "voice.wav", 3000, 6, "lt(t,0)")

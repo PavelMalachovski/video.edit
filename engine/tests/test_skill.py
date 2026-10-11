@@ -283,3 +283,11 @@ def test_a_soft_cut_redoes_the_cutting_with_the_slips_of_the_draft():
     assert '"cuts": [list(c) for c in cut]' in analyze
     render = section("Шаг render")
     assert 'extra_cuts=edit.get("cuts") or []' in render and "**SOFT" in render
+
+
+def test_background_music_sits_14_db_under_the_voice():
+    """Павел послушал музыку на 18 дБ тише голоса (как в эталоне) и попросил чуть громче: −14 — в правиле и в шаге
+    render."""
+    sound = section("5. Звук")
+    assert "`gainDb: -14`" in sound and "-18" not in sound
+    assert '"gainDb": -14' in section("Шаг render")

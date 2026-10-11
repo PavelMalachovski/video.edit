@@ -1,8 +1,9 @@
 """Сборка финала по edit.json одной командой ffmpeg.
 
 Кадр: вырезка отрезков `keep` (по целым кадрам исходника; звук — с микро-фейдами 10 мс на стыках) → ускорение →
-лёгкий цветокор → зум (якорь — лицо) → у невертикального исходника фон из размытой копии кадра → полноэкранные
-перебивки (масштаб с обрезкой по центру, без своего звука) → стоп-кадр в конце (`hold` и финальная карточка
+лёгкий цветокор → зум (якорь — лицо; в нём же толчок зума перехода) → у невертикального исходника фон из размытой
+копии кадра → полноэкранные перебивки (масштаб с обрезкой по центру, без своего звука) → переходы на смене сцены
+(вспышка, смаз — `transitions`) → стоп-кадр в конце (`hold` и финальная карточка
 `end.seconds`: её затемнение, призыв, ник и логотип рисует слой) → слой PNG (субтитры, хук,
 титр, вставки; кадры рисует template/render-frames.mjs тем же шаблоном, что и превью) → шкала времени → H.264/AAC
 с метками BT.709, без B-кадров и edit lists (их не принимает Meta). Звук — граф `audio_graph`: голос, музыка, звуки
@@ -32,7 +33,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import beats
+from . import beats, transitions
 from .asr import Word
 from .audio import MIN_MUSIC, QUIET_LUFS, audio_graph
 from .job import Job, validate
@@ -167,6 +168,7 @@ def draw_layer(job: Job, edit: dict | None = None, work: str = "work/render") ->
     beyond = (timeline(edit).duration - tl.duration) * edit["speed"]
     if beyond > 0.1:
         warnings.append(f"keep заходит за конец исходника ({info.duration:.1f} с): {beyond:.1f} с отрезков отброшено")
+    warnings += transitions.warnings(edit, tl)
     edit, beat = on_beats(job, edit, tl)
     frames = _layer(job, edit, tl, job.path(work))
     boxes = json.loads((frames.parent / "boxes.json").read_text(encoding="utf-8"))
@@ -331,12 +333,14 @@ def _cut(tl: Timeline, has_audio: bool) -> list[str]:
 
 
 def _picture(job, edit, tl, info, index, hold, missing, warnings) -> tuple[list[str], list[str], set[int]]:
-    """Ускорение, цвет, зум, фон, перебивки, стоп-кадр → `[vh]`; плюс входы для перебивок и номера перебивок,
-    которых в ролике не будет (файла нет, не читается, начало после конца) — их звук не нужен."""
+    """Ускорение, цвет, зум, фон, перебивки, переходы, стоп-кадр → `[vh]`; плюс входы для перебивок и номера
+    перебивок, которых в ролике не будет (файла нет, не читается, начало после конца) — их звук не нужен."""
     chains = []
     inputs: list[str] = []
+    cuts = transitions.marks(edit, tl)
     chain = f"[vc]setpts=PTS/{edit['speed']:g},fps={FPS},{COLOR}"
-    zoom = zoom_filter(edit.get("zooms") or [], tl, edit["face"], W=info.width, H=info.height, fps=FPS)
+    zoom = zoom_filter(edit.get("zooms") or [], tl, edit["face"], W=info.width, H=info.height, fps=FPS,
+                       punches=[m.t for m in cuts if m.kind == "zoom"])
     if zoom != "null":
         chain += f",{zoom}"
     chains.append(f"{chain}[vz]")
@@ -391,6 +395,10 @@ def _picture(job, edit, tl, info, index, hold, missing, warnings) -> tuple[list[
         current = f"[vf{i}]"
         index += 1
 
+    effects = transitions.picture_chains(cuts, current, "[vt]", (W, H), FPS)  # после перебивок: стык виден и на них
+    if effects:
+        chains += effects
+        current = "[vt]"
     if hold > 0:
         chains.append(f"{current}tpad=stop_mode=clone:stop_duration={hold:.6f}[vh]")
     else:
@@ -460,6 +468,15 @@ def _sounds(job: Job, edit: dict, tl: Timeline, skip: set[int]) -> tuple[list, d
             notes.append(f"нет звука {teaser['sfx']} — тизер без звука на стыке")
         else:
             sfx.append((tl.teaser_duration, path))
+    for cut in transitions.marks(edit, tl):  # свуш перехода — с началом перехода
+        if not cut.sfx:
+            continue
+        path = _resolve(job, cut.sfx)
+        if path is None:
+            when = f"{cut.t:.1f}".replace(".", ",")
+            notes.append(f"нет звука {cut.sfx} — переход на {when} с без звука")
+        else:
+            sfx.append((max(0.0, cut.t - transitions.HALF), path))
     card = edit.get("end") or None
     if card and card.get("sfx"):  # звук появления карточки — сразу после стоп-кадра
         path = _resolve(job, card["sfx"])

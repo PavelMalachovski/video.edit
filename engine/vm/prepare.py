@@ -4,9 +4,9 @@
 → `work/source.wav` (16 кГц) → `language.json` (язык ролика: `ЯЗЫК:` в ТЗ, ответ Павла `--lang` или Whisper по
 речи) → `reference.txt` (сплошной текст Whisper, по нему Claude правит слова) → `words.json` (слова с временем:
 GigaAM для русского, Parakeet для 25 европейских языков, иначе Whisper по фразам), `speech.json` (где речь по VAD:
-мягкая резка внутри неё не режет), `cuts.json` (`plan_keep`), `sheet.png`. Какие модели были и каких нет — в
-сводке: без модели слов для языка ролика работать нельзя, без Whisper и VAD — можно, но хуже. Язык второго этапа
-(своя письменность) — ошибка с понятным текстом.
+мягкая резка внутри неё не режет), `cuts.json` (`plan_keep` и `joins` — резкие смены кадра в исходнике, места для
+переходов), `sheet.png`. Какие модели были и каких нет — в сводке: без модели слов для языка ролика работать нельзя,
+без Whisper и VAD — можно, но хуже. Язык второго этапа (своя письменность) — ошибка с понятным текстом.
 
 Делается только недостающее. `source.mp4` в git нет, поэтому каждая новая сессия (render, fix, restyle) запускает
 prepare, чтобы его восстановить; речь при этом заново не распознаётся: есть `words.json` — распознавание, план резки
@@ -22,7 +22,7 @@ from pathlib import Path
 from . import asr, lang
 from .cuts import plan_keep
 from .job import Job, _atomic_write
-from .media import contact_sheet, extract_wav, normalize, probe
+from .media import contact_sheet, extract_wav, normalize, probe, scene_cuts
 
 VIDEO = {".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi", ".3gp", ".hevc"}
 SHEET_THUMBS = 60  # кадров на контактном листе — не больше, иначе лист выходит в десятки тысяч пикселей
@@ -131,7 +131,8 @@ def _write_cuts(path: Path, cuts: dict) -> None:
     """cuts.json — по отрезку в строке (json с отступами ставит каждое число на свою строку)."""
     rows = ",\n".join(f"  {json.dumps(list(k))}" for k in cuts["keep"])
     keep = f"[\n{rows}\n]" if rows else "[]"
-    _atomic_write(path, f'{{"duration": {cuts["duration"]}, "cut_seconds": {cuts["cut_seconds"]}, "keep": {keep}}}\n')
+    head = f'"duration": {cuts["duration"]}, "cut_seconds": {cuts["cut_seconds"]}, "joins": {json.dumps(cuts["joins"])}'
+    _atomic_write(path, f'{{{head}, "keep": {keep}}}\n')
 
 
 def prepare(
@@ -207,11 +208,12 @@ def prepare(
         notes.append("Речь уже расшифрована (words.json) — распознавание не повторял; заново — --redo")
 
     if recognise or not cuts_path.is_file():
-        step("Ищу паузы", "Отмечаю длинные паузы для мягкой резки")
+        step("Ищу паузы", "Отмечаю длинные паузы и смены сцены")
         speech = json.loads(speech_path.read_text(encoding="utf-8")) if speech_path.is_file() else []
         keep = [(round(a, 6), round(b, 6)) for a, b in plan_keep(words, info.duration, speech=speech)]
         kept = sum(b - a for a, b in keep)
-        cuts = {"duration": round(info.duration, 3), "keep": [list(k) for k in keep], "cut_seconds": round(info.duration - kept, 3)}
+        cuts = {"duration": round(info.duration, 3), "keep": [list(k) for k in keep], "cut_seconds": round(info.duration - kept, 3),
+                "joins": scene_cuts(source)}
         _write_cuts(cuts_path, cuts)
     else:
         cuts = json.loads(cuts_path.read_text(encoding="utf-8"))
@@ -226,6 +228,10 @@ def prepare(
         f"{cut_line} → {kept:.1f} с (до ускорения)",
         *notes,
     ]
+    if "joins" in cuts:  # у задач до переходов поля нет
+        joins = cuts["joins"]
+        summary.append(f"Смены сцены (cuts.json joins): {', '.join(_clock(t) for t in joins)}" if joins
+                       else "Резких смен кадра в исходнике нет (cuts.json joins пуст)")
     if recognise:
         lack = [name for name, ok in have.items() if not ok]
         summary.append(f"Модели: {', '.join(n for n, ok in have.items() if ok)}" + (f"; нет: {', '.join(lack)}" if lack else ""))

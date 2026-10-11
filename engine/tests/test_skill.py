@@ -195,3 +195,13 @@ def test_the_ads_version_reaches_the_render_step():
     render = section("Шаг render")
     assert "реклама: `answers.ad`" in render and "-ad.mp4" in render and "`caption.ad`" in render
     assert "`ad` — ещё версия для рекламы" in section("Страница")
+
+
+def test_transitions_go_only_on_scene_changes_and_are_decided_in_analyze():
+    rules = section("4. Зумы и переходы")
+    assert "только на смене сцены" in rules and "не чаще раза в 3 с" in rules and "`joins`" in rules
+    for kind in ("flash", "zoom", "blur"):
+        assert f"`{kind}`" in rules, kind
+    analyze = section("Шаг analyze")
+    assert "`joins`" in analyze and '"transitions": transitions' in analyze
+    assert "`joins`" in section("Файлы задачи") and "переходы" in section("Шаг render")

@@ -1,4 +1,4 @@
-"""Медиа: ffprobe, нормализация исходника (поворот, HDR → SDR, склейка частей), звук и кадры.
+"""Медиа: ffprobe, нормализация исходника (поворот, HDR → SDR, склейка частей), смены сцены, звук и кадры.
 
 Всё делает ffmpeg; здесь — команды, разбор ответа ffprobe и понятные ошибки. Результаты пишутся через
 временный файл рядом: готовый файл появляется целиком или не появляется вовсе. Подписи на кадрах (время)
@@ -28,6 +28,10 @@ GRID_CELL = (108, 192)  # 10×10 клеток на кадре 1080×1920: по �
 THUMB_WIDTH = 180  # колонка контактного листа: 6 колонок — ровно 1080 px
 STDERR_LINES = 8  # столько последних строк ffmpeg/ffprobe попадает в сообщение об ошибке
 LAST_FRAME_SLACK = 0.001  # на столько t может выйти за конец клипа из-за округления, оставаясь последним кадром
+# смена сцены — оценка `scene` ffmpeg (0–1) выше этой: стык разных планов даёт 0,5–1, движение в одном плане — до 0,2
+SCENE = 0.35
+SCENE_GAP = 0.5  # с — смена ближе к прошлой — та же (вспышка: кадр белого и обратно — одна смена, а не две)
+SCENE_WIDTH = 180  # px — оценка по уменьшенному кадру: быстро, а резкий стык виден и так
 
 
 class MediaError(RuntimeError):
@@ -259,6 +263,21 @@ def normalize(parts: Sequence[PathLike], out: PathLike) -> Probe:
             tmp,
         )  # fmt: skip
     return probe(out)
+
+
+# ---------- смены сцены ----------
+
+
+def scene_cuts(src: PathLike, threshold: float = SCENE) -> list[float]:
+    """Резкие смены кадра в видео — стыки планов или склеенных частей, с по возрастанию: оценка `scene` ffmpeg (разница
+    соседних кадров) выше `threshold`; смена в пределах SCENE_GAP от прошлой — та же."""
+    done = _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-i", str(src), "-an", "-vf",
+                 f"scale={SCENE_WIDTH}:-2,select='gt(scene,{threshold})',metadata=print:file=-", "-f", "null", "-"])
+    cuts: list[float] = []
+    for t in (float(x) for x in re.findall(r"pts_time:([\d.]+)", done.stdout)):
+        if not cuts or t - cuts[-1] >= SCENE_GAP:
+            cuts.append(round(t, 3))
+    return cuts
 
 
 # ---------- контейнер ----------

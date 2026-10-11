@@ -94,6 +94,19 @@
         }
       }
     },
+    "transitions": {
+      "description": "Переходы — только на смене сцены (резкая смена кадра из cuts.json joins или вырезка, за которой другое место или план): t — время исходника, где начинается новая сцена; kind: flash — белая вспышка, zoom — толчок зума, blur — смаз; 0,24 с вокруг стыка, не чаще раза в 3 с; sfx — свуш. Нет поля или [] — без переходов.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["t", "kind"],
+        "properties": {
+          "t": { "type": "number", "minimum": 0 },
+          "kind": { "enum": ["flash", "zoom", "blur"] },
+          "sfx": { "type": ["string", "null"] }
+        }
+      }
+    },
     "hold": {
       "description": "Стоп-кадр в конце, с.",
       "type": "number",

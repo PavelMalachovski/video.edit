@@ -571,3 +571,26 @@ def test_the_ads_version_keeps_every_box_above_the_ad_button(tmp_path, sources):
     drawn = [b for e in boxes for k, v in (e.get("boxes") or {}).items() for b in (v if k == "inserts" else [v]) if b]
     assert drawn and all(b["y"] >= ADS_SAFE["y0"] and b["y"] + b["h"] <= ADS_SAFE["y1"] for b in drawn), drawn
     assert not [p for p in check_layout(boxes, None, safe=ADS_SAFE) if "безопасной зоны" in p]
+
+
+def test_transitions_flash_punch_and_smear_the_picture_only_at_their_seams(tmp_path, sources):
+    """Вспышка на 1,5 с, толчок зума на 3,0 с, смаз на 4,5 с (финал = исходник): на стыке — белый кадр, тот же кадр
+    крупнее в 1,25 раза (якорь — лицо) и смазанный; вне окон ролик как без переходов."""
+    cuts = [{"t": 1.5, "kind": "flash", "sfx": None}, {"t": 3.0, "kind": "zoom", "sfx": None}, {"t": 4.5, "kind": "blur", "sfx": None}]
+    job = make_job(tmp_path / "a", sources["short"], transitions=cuts)
+    plain = make_job(tmp_path / "b", sources["short"])
+    result = render(job, job.path("out"), preset="ultrafast")
+    render(plain, plain.path("out"), preset="ultrafast")
+    assert sum("ближе 3 с" in line for line in result["warnings"]) == 2, result["warnings"]
+    a = lambda t: frame(job.path("out/final.mp4"), t).astype(int)[:1800]  # без шкалы внизу
+    b = lambda t: frame(plain.path("out/final.mp4"), t).astype(int)[:1800]
+    for t in (0.9, 2.4, 3.6, 5.4):
+        assert np.abs(a(t) - b(t)).mean() < 3, f"{t} с — вне перехода кадр не тронут"
+    assert a(1.5).min() > 225, "вспышка: на стыке белый кадр"
+    zoomed, flat = a(3.0), frame(plain.path("out/final.mp4"), 3.0).astype(int)
+    x0, y0 = round(0.5 * (1080 - 1080 / 1.25)), round(0.3 * (1920 - 1920 / 1.25))  # окно зума: лицо (0,5; 0,3) на месте
+    ys, xs = (y0 + np.arange(1800) / 1.25).astype(int), (x0 + np.arange(1080) / 1.25).astype(int)
+    expected = flat[ys][:, xs]
+    assert np.abs(zoomed - expected).mean() < 0.5 * np.abs(zoomed - flat[:1800]).mean(), "толчок: кадр ×1,25 у лица"
+    sharp = lambda f: float((np.diff(f[300:1200].mean(axis=2), axis=1) ** 2).mean())  # размытие гасит перепады по x
+    assert sharp(a(4.5)) < 0.5 * sharp(b(4.5)), "смаз на стыке"

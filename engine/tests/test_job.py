@@ -568,6 +568,17 @@ def test_the_ads_version_is_asked_in_answers_set_in_edit_and_has_a_short_ad_text
         job.write("result.json", {**result, "caption": {**caption, "ad": "x" * 73}})
 
 
+def test_edit_takes_transitions_on_scene_changes(job):
+    edit = make_edit()
+    job.write("edit.json", {**edit, "transitions": [{"t": 12.4, "kind": "flash", "sfx": "assets/sfx/swoosh.mp3"},
+                                                     {"t": 31.0, "kind": "zoom", "sfx": None}, {"t": 40.0, "kind": "blur"}]})
+    job.write("edit.json", {**edit, "transitions": []})
+    with pytest.raises(ValueError, match=r"  transitions\[0\]\.kind: "):
+        job.write("edit.json", {**edit, "transitions": [{"t": 12.4, "kind": "spin"}]})
+    with pytest.raises(ValueError, match=r"transitions\[0\]"):
+        job.write("edit.json", {**edit, "transitions": [{"kind": "flash"}]})
+
+
 def test_edit_rejects_unknown_insert_kind(job):
     edit = make_edit()
     edit["inserts"][0]["kind"] = "gif"

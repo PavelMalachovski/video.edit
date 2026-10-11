@@ -538,6 +538,22 @@ def test_extract_wav_of_a_clip_without_audio_raises_and_writes_nothing(tmp_path,
     assert list(tmp_path.iterdir()) == []
 
 
+# ---------- смены сцены ----------
+
+
+def test_scene_cuts_are_the_hard_cuts_of_the_clip(colors, hlg_sdr_source):
+    assert media.scene_cuts(colors) == [pytest.approx(1.0, abs=FRAME), pytest.approx(2.0, abs=FRAME)]
+    assert media.scene_cuts(hlg_sdr_source) == [], "движение в одном плане — не смена сцены"
+
+
+def test_a_flash_is_one_scene_change_not_two(tmp_path):
+    clip = tmp_path / "flash.mp4"  # красный, кадр белого на 1 с (вспышка), снова красный, на 2 с — синий
+    ff("-f", "lavfi", "-i", "color=c=0xFF0000:s=270x480:r=30:d=3,format=rgb24", "-vf",
+       "drawbox=c=white:t=fill:enable='between(n,30,30)',drawbox=c=blue:t=fill:enable='gte(n,60)',format=yuv420p",
+       "-c:v", "libx264", "-preset", "ultrafast", clip)
+    assert media.scene_cuts(clip) == [pytest.approx(1.0, abs=FRAME), pytest.approx(2.0, abs=FRAME)]
+
+
 # ---------- contact_sheet ----------
 
 

@@ -422,6 +422,26 @@ def test_prepare_takes_the_fetched_source_not_every_video_in_in(tmp_path, monkey
 
 
 @needs_ffmpeg
+def test_prepare_marks_the_scene_changes_for_transitions(tmp_path, monkeypatch, capsys):
+    no_models(monkeypatch, tmp_path)
+    job = Job(tmp_path / "jobs" / "abc")
+    job.path("in").mkdir(parents=True)
+    subprocess.run(  # два плана: полоски, на 1,5 с — таблица цветов
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=1080x1920:r=30:d=1.5",
+         "-f", "lavfi", "-i", "smptebars=s=1080x1920:r=30:d=1.5", "-f", "lavfi", "-i", "sine=f=440:r=48000:d=3",
+         "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0,format=yuv420p[v]", "-map", "[v]", "-map", "2:a",
+         "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-shortest", str(job.path("in/source.mp4"))],
+        check=True,
+    )
+    job.path("words.json").write_text('[{"t0": 0.2, "t1": 0.6, "text": "раз"}, {"t0": 2.0, "t1": 2.5, "text": "два"}]',
+                                      encoding="utf-8")
+    assert main(["prepare", str(job.root)]) == 0
+    cuts = json.loads(job.path("cuts.json").read_text(encoding="utf-8"))
+    assert cuts["joins"] == [pytest.approx(1.5, abs=0.04)]
+    assert "Смены сцены (cuts.json joins): 0:01.5" in capsys.readouterr().out
+
+
+@needs_ffmpeg
 def test_prepare_status_keeps_the_state_of_the_step(repo_job, monkeypatch, tmp_path):
     origin, job = repo_job
     no_models(monkeypatch, tmp_path)

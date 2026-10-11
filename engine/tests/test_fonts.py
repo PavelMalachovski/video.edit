@@ -155,7 +155,8 @@ def test_cli_fonts_reads_the_draft_once_it_is_there(tmp_path, capsys):
     job.path("words.json").write_text(json.dumps([{"t0": 0.5, "t1": 0.9, "text": "τ"}]), encoding="utf-8")
     job.path("reference.txt").write_text("♪ Ahoj.\n", encoding="utf-8")
     assert main(["fonts", str(job.root)]) == 0
-    assert json.loads(capsys.readouterr().out.splitlines()[0])["main"] == ["comfortaa"]
+    raw = json.loads(capsys.readouterr().out.splitlines()[0])["main"]
+    assert "comfortaa" in raw and "montserrat" not in raw  # греческая «τ» из сырых слов сужает список
     job.write("edit.json", edit(["Ahoj."], hook={"text": "Jak stříhám", "until": 2.0}))
     job.write("questions.json", {"questions": [{"id": "hook", "type": "choice", "title": "Хук",
                                                 "options": [{"id": "a", "label": "Kůň úpěl"}]}]})  # fmt: skip
@@ -174,3 +175,31 @@ def test_cli_fonts_never_leaves_a_list_empty(tmp_path, capsys):
     covering = json.loads(out.splitlines()[0])
     assert set(covering["hand"]) == {f.id for f in fonts.catalog() if f.kind == "hand"}
     assert "ВНИМАНИЕ" in out and "ʻ" in out
+
+
+# ---------- свои шрифты Павла (assets/fonts) ----------
+
+PAVEL = ["Arial Narrow", "Cormorant", "Druk Wide", "Gilroy", "Helvetica", "Mohave", "Neutral Face", "Playfair Display"]
+
+
+def test_pavels_fonts_are_in_the_catalog_as_main_fonts():
+    own = {f.id: f for f in fonts.catalog() if f.path.parent == fonts.CUSTOM}
+    assert sorted(own) == PAVEL
+    assert all(f.kind == "main" for f in own.values())
+
+
+def test_pavels_fonts_are_offered_only_where_they_have_the_letters():
+    russian = fonts.coverage("Привет, как дела? Съешь ещё этих мягких булок.", "")["main"]
+    czech = fonts.coverage("Příliš žluťoučký kůň úpěl ďábelské ódy.", "")["main"]
+    assert {"Gilroy", "Helvetica", "Arial Narrow", "Cormorant", "Playfair Display", "Neutral Face"} <= set(russian)
+    assert "Druk Wide" not in russian and "Mohave" not in russian  # кириллицы в них нет
+    assert {"Druk Wide", "Mohave", "Gilroy"} <= set(czech)
+    assert "Neutral Face" not in czech  # нет ř, ů
+
+
+def test_mohave_is_bold_not_the_light_default_of_the_variable_font():
+    from fontTools.ttLib import TTFont
+
+    font = next(f for f in fonts.catalog() if f.id == "Mohave")
+    with TTFont(font.path) as ttf:
+        assert "fvar" not in ttf and ttf["OS/2"].usWeightClass == 700

@@ -446,3 +446,12 @@ def test_the_ads_version_draws_every_frame_in_the_ads_zone():
     events = build_overlay_events(make_edit(zone="ads", hold=0.5, end={"seconds": 1.0, "lines": ["Сохрани"]}), tl)
     assert events and all(e["state"].get("zone") == "ads" for e in events)
     assert all("zone" not in e["state"] for e in build_overlay_events(make_edit(), tl)), "обычный ролик — без зоны"
+
+
+def test_an_accent_on_the_last_frame_stays_whole_on_the_freeze_frame():
+    edit = make_edit(words=SIX, style=SOFT_STYLE, keep=[[0.0, 2.45]], hold=1.0, accents=[accent(1.9, 2.4, "чтобы выглядеть")])
+    tl = timeline(edit)
+    events = build_overlay_events(edit, tl)
+    for t in (tl.duration - FRAME / 2, tl.duration + 0.5, tl.duration + 0.95):
+        state = at(events, t)
+        assert "accent" in state and "leave" not in state["accent"], f"{t}: на стоп-кадре акцент остаётся, как был"

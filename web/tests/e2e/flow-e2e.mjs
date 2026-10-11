@@ -375,6 +375,7 @@ const segments = [
     const alone = await solo.evaluate(() => window.layoutBoxes());
     await solo.close();
     check(isDeepStrictEqual(inPage, alone), `рамки превью ${JSON.stringify(inPage)} ≠ шаблона ${JSON.stringify(alone)}`);
+    await page.evaluate(() => window.scrollTo(0, 0));
     await shot(page, 'previews');
 
     await page.getByLabel('Ни один не подходит? Скажи, что поменять').fill('без плашки');
@@ -550,8 +551,11 @@ const segments = [
     // по кадру, оказавшемуся там, где встанет сцена, доходит
     await page.setViewportSize({ width: 375, height: 667 });
     await coverCard.getByLabel('Текст обложки').focus();
-    await coverCard.getByRole('button', { name: 'Кадр 3' }).evaluate((el) => el.scrollIntoView({ block: 'start' }));
-    await coverCard.getByRole('button', { name: 'Кадр 3' }).click();
+    // кадр — туда, где встанет сцена (прокруткой окна: scrollIntoView учёл бы отступ под прилипшую сцену)
+    await coverCard.getByRole('button', { name: 'Кадр 3' }).evaluate((el) => window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 60));
+    const third = await coverCard.getByRole('button', { name: 'Кадр 3' }).boundingBox();
+    check(third !== null && third.y + 12 < 56 + 391, `кадр не там, где встанет сцена: ${JSON.stringify(third)}`);
+    await page.touchscreen.tap(third.x + 20, third.y + 12); // тап пальцем по верху кадра — там встанет сцена
     await until(async () => (await coverCard.getByRole('button', { name: 'Кадр 3' }).getAttribute('aria-pressed')) === 'true', 3000,
       'тап по кадру сразу после ввода дошёл');
     await page.setViewportSize({ width: 390, height: 844 });
@@ -751,7 +755,8 @@ const segments = [
 // ---------- прогон ----------
 
 const browser = await chromium.launch();
-const page = await (await browser.newContext({ viewport: { width: 390, height: 844 }, permissions: ['clipboard-read', 'clipboard-write'] })).newPage(); // контекст — чтобы открыть вторую вкладку с тем же входом
+// контекст — чтобы открыть вторую вкладку с тем же входом; касания — чтобы тапать пальцем (мышь работает как раньше)
+const page = await (await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, permissions: ['clipboard-read', 'clipboard-write'] })).newPage();
 const ctx = { page, browser, tmp: fs.mkdtempSync(path.join(os.tmpdir(), 'vm-e2e-')), jobId: null, fires, state, branchFile, session, until, check };
 let code = 0;
 for (const [name, run] of segments) {

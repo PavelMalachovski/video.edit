@@ -419,20 +419,43 @@ def _frame(src, t: float, out: Path, vf: str | None = None) -> Path:
     return out
 
 
+def dim_filter(video: str, mask: str, amount: float, width: int, height: int, out: str) -> str:
+    """Граф ffmpeg затемнения фона: где маска 0 (фон) — яркость и цвет × (1 − `amount`), где 255 (человек) — кадр как
+    был, между ними — смесь. Всё в YUV 4:2:0 исходника (диапазон tv): без перевода в RGB и обратно цвет человека не
+    сдвигается. `video` и `mask` — метки входов (`[0:v]`), `mask` — серая маска любого размера: растягивается до
+    `width`×`height`; выход — метка `out`. Внутренние метки начинаются с `dim`."""
+    k = f"{1 - amount:.4f}"
+    cw, ch = (width + 1) // 2, (height + 1) // 2
+    return (
+        f"{mask}scale={width}:{height}:flags=bicubic,format=gray,split=3[dimy][dimu][dimv];"
+        f"[dimu]scale={cw}:{ch}[dimu2];[dimv]scale={cw}:{ch}[dimv2];[dimy][dimu2][dimv2]mergeplanes=0x001020:yuv420p[dimmask];"
+        f"{video}format=yuv420p,split[dima][dimb];"
+        f"[dima]lutyuv=y='16+(val-16)*{k}':u='128+(val-128)*{k}':v='128+(val-128)*{k}'[dimd];"
+        f"[dimd][dimb][dimmask]maskedmerge{out}"
+    )
+
+
 def extract_frame(src: PathLike, t: float, out: PathLike, mark: tuple[int, int, int, int] | None = None,
-                  fill: bool = False) -> Path:
+                  fill: bool = False, mask: PathLike | None = None, dim: float = 0.0) -> Path:
     """Кадр видео в момент t, секунд (PNG или JPEG — по расширению out). `fill` — кадр как в ролике: не 9:16 — по
     центру на размытой копии (FILL), 1080×1920. `mark` — (x, y, w, h) в px кадра: жёлтая рамка 8 px, например место
-    будущей вставки на картинке к вопросу."""
+    будущей вставки на картинке к вопросу. `mask` и `dim` — фон темнее на долю `dim` по маске человека этого кадра
+    (`matte.frame_matte`), как в ролике с `edit.dim`."""
     steps = []
-    if fill:
-        info = probe(src)
-        if (info.width, info.height) != (WIDTH, HEIGHT):
-            steps.append(FILL)
+    info = probe(src) if fill or mask else None
+    if fill and (info.width, info.height) != (WIDTH, HEIGHT):
+        steps.append(FILL)
     if mark:
         x, y, w, h = mark
         steps.append(f"drawbox=x={x}:y={y}:w={w}:h={h}:color=0xFFD23F@1:t=8")
-    return _frame(src, _check_time(t), Path(out), ",".join(steps) or None)
+    if not (mask and dim > 0):
+        return _frame(src, _check_time(t), Path(out), ",".join(steps) or None)
+    graph = dim_filter("[0:v]", "[1:v]", dim, info.width, info.height, "[dimout]")
+    graph += ";[dimout]" + (",".join(steps) or "null") + "[frame]"
+    with _atomic(Path(out)) as tmp:
+        _ffmpeg("-ss", f"{_check_time(t):.3f}", "-i", src, "-i", mask, "-filter_complex", graph, "-map", "[frame]",
+                "-frames:v", 1, tmp)
+    return Path(out)
 
 
 def _grid_filter(t: float) -> str:

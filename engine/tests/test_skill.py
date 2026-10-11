@@ -291,3 +291,12 @@ def test_background_music_sits_14_db_under_the_voice():
     sound = section("5. Звук")
     assert "`gainDb: -14`" in sound and "-18" not in sound
     assert '"gainDb": -14' in section("Шаг render")
+
+
+def test_the_background_is_dimmed_on_pavels_answer():
+    """Затемнение фона (решение Павла): правило, вопрос `dim` с кадрами (по умолчанию темнее на 30 %) и шаг render."""
+    rules = section("4. Зумы, крупность, ч/б и переходы")
+    assert "Затемнение фона" in rules and "`dim`" in rules
+    questions = section("Вопросы (questions.json)")
+    assert "`dim` (choice)" in questions and "--dim 0.3" in questions and "`default` — `30`" in questions
+    assert "`edit.dim`" in section("Шаг render")

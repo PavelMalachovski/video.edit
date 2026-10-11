@@ -1,0 +1,152 @@
+"""Затемнение фона (`edit.dim`): фильтр ffmpeg по маске человека, маска по кадрам отрезков финала, кадр к вопросу.
+
+Модель маски в большинстве тестов подменена: «маска» кадра — его средняя яркость, так по маске видно, какой кадр
+исходника в неё попал. С настоящей моделью (RobustVideoMatting, ставит setup/cloud-setup.sh) — отдельный тест.
+"""
+import shutil
+import subprocess
+
+import numpy as np
+import pytest
+from PIL import Image
+
+from vm import matte
+from vm.media import dim_filter
+from vm.render import _cut, segment_frames
+from vm.timeline import Timeline
+
+needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="нужен ffmpeg")
+
+
+def yuv_frame(cmd_inputs: list[str], graph: str, w: int, h: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    raw = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", *cmd_inputs, "-filter_complex", graph, "-map", "[v]",
+         "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "yuv420p", "-"],
+        check=True, capture_output=True,
+    ).stdout
+    y = np.frombuffer(raw[: w * h], np.uint8).reshape(h, w).astype(int)
+    u = np.frombuffer(raw[w * h : w * h + w * h // 4], np.uint8).reshape(h // 2, w // 2).astype(int)
+    v = np.frombuffer(raw[w * h + w * h // 4 :], np.uint8).reshape(h // 2, w // 2).astype(int)
+    return y, u, v
+
+
+@needs_ffmpeg
+def test_the_background_gets_darker_and_the_person_stays():
+    """Маска 255 — человек: как был; 0 — фон: яркость и цвет × (1 − dim) в YUV исходника, без перевода цвета."""
+    source = ["-f", "lavfi", "-i", "color=c=0xC8783C:s=64x64:r=30:d=0.2,format=yuv420p"]
+    mask = ["-f", "lavfi", "-i", "nullsrc=s=32x32:r=30:d=0.2,geq=lum='if(lt(X,16),255,0)',format=gray"]  # слева — человек
+    before = yuv_frame(source, "[0:v]null[v]", 64, 64)
+    after = yuv_frame(source + mask, dim_filter("[0:v]", "[1:v]", 0.3, 64, 64, "[v]"), 64, 64)
+    for plane, (b, a) in enumerate(zip(before, after, strict=True)):
+        side = b.shape[1]
+        person, background = slice(0, side * 3 // 8), slice(side * 5 // 8, side)  # без размытой маской границы
+        assert np.abs(a[:, person] - b[:, person]).max() <= 1, plane
+        mid = 16 if plane == 0 else 128
+        expect = mid + (b[:, background] - mid) * 0.7
+        assert np.abs(a[:, background] - expect).max() <= 2, plane
+
+
+def test_matte_frames_are_the_frames_the_cut_takes():
+    """Маска идёт кадр в кадр со склейкой: те же отрезки исходника в том же порядке (тизер — первым)."""
+    tl = Timeline([(0.0, 1.0), (1.5, 2.2)], 1.1, teaser=(1.6, 2.0))
+    frames = segment_frames(tl)
+    assert frames == [(48, 60), (0, 30), (45, 66)]
+    trims = [chain for chain in _cut(tl, False) if "trim=start_frame" in chain]
+    assert [chain.split("trim=start_frame=")[1].split(",")[0] for chain in trims] == [
+        f"{a}:end_frame={b}" for a, b in frames
+    ]
+
+
+def count_video(path, seconds: float = 3.0):
+    """Кадр n исходника — серый 2n в RGB без потерь (до 127 кадров): по маске видно, какой кадр в неё попал."""
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+         f"color=c=black:s=64x112:r=30:d={seconds}", "-vf", "format=rgb24,geq=r='2*N':g='2*N':b='2*N'",
+         "-c:v", "libx264rgb", "-qp", "0", "-pix_fmt", "rgb24", "-video_track_timescale", "15360", str(path)],
+        check=True,
+    )
+    return path
+
+
+class Mean:
+    """Подмена модели: маска — средняя яркость кадра; `resets` — сколько раз память модели начиналась заново."""
+
+    def __init__(self):
+        self.resets = 0
+        self.frames = 0
+
+    def __call__(self, rgb: np.ndarray, state):
+        if state is None:
+            self.resets += 1
+        self.frames += 1
+        return np.full(rgb.shape[:2], round(float(rgb.mean())), np.uint8), "state"
+
+
+def read_gray(path, w: int, h: int) -> np.ndarray:
+    raw = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(path), "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+        check=True, capture_output=True,
+    ).stdout
+    return np.frombuffer(raw, np.uint8).reshape(-1, h, w)
+
+
+@needs_ffmpeg
+def test_mattes_follow_the_cut_order_with_a_warm_up_before_each_piece(tmp_path):
+    source = count_video(tmp_path / "count.mp4")
+    plan = [(48, 60), (0, 30), (45, 66)]  # тизер 48–60, затем отрезки 0–30 и 45–66
+    model = Mean()
+    out = matte.write_mattes(source, plan, tmp_path / "matte.mkv", predict=model)
+    shown = [round(v / 2) for v in read_gray(out, 32, 56).mean(axis=(1, 2))]
+    assert shown == [*range(48, 60), *range(30), *range(45, 66)], "кадр маски = кадр склейки"
+    assert model.resets == 3, "у каждого отрезка память модели с нуля — стыки бывают между разными планами"
+    assert model.frames == len(shown) + 2 * matte.WARMUP, "разгон — кадры до отрезка (у начала файла их нет)"
+
+
+@needs_ffmpeg
+def test_a_frame_matte_for_the_question_picture_warms_up_on_the_frames_before(tmp_path):
+    source = count_video(tmp_path / "count.mp4")
+    model = Mean()
+    out = matte.frame_matte(source, 2.0, tmp_path / "m.png", predict=model)
+    value = float(np.asarray(Image.open(out).convert("L")).mean())
+    assert round(value / 2) == 60, "маска кадра 2,0 с"
+    assert model.frames == matte.WARMUP + 1
+
+
+@needs_ffmpeg
+def test_pieces_already_matted_are_not_matted_again(tmp_path, monkeypatch):
+    """Маска хранится по отрезкам: версия B (без тизера) и правка без смены этих отрезков берут готовые куски."""
+    from vm.job import Job
+    from vm.render import _matte
+
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    count_video(job.path("source.mp4"))
+    model = Mean()
+    monkeypatch.setattr(matte, "unavailable", lambda: None)
+    monkeypatch.setattr(matte, "_rvm", lambda: model)
+    with_teaser = Timeline([(0.0, 1.0), (1.5, 2.2)], 1.0, teaser=(1.6, 2.0))
+    path_a, note = _matte(job, with_teaser)
+    assert note is None
+    done = model.frames
+    path_b, _ = _matte(job, Timeline([(0.0, 1.0), (1.5, 2.2)], 1.0))
+    assert model.frames == done, "все куски версии B уже посчитаны"
+    assert path_a != path_b
+    assert [round(v / 2) for v in read_gray(path_b, 32, 56).mean(axis=(1, 2))] == [*range(30), *range(45, 66)]
+    assert [round(v / 2) for v in read_gray(path_a, 32, 56).mean(axis=(1, 2))] == [*range(48, 60), *range(30), *range(45, 66)]
+
+
+needs_model = pytest.mark.skipif(not matte.model_path().is_file(), reason="нет модели RobustVideoMatting (setup/cloud-setup.sh)")
+
+
+@needs_ffmpeg
+@needs_model
+def test_the_real_model_gives_a_half_size_matte_per_frame(tmp_path):
+    """Настоящая модель (onnxruntime): маска на каждый кадр плана, вдвое меньше кадра."""
+    source = tmp_path / "pattern.mp4"
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=1080x1920:r=30:d=1",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", str(source)],
+        check=True,
+    )
+    out = matte.write_mattes(source, [(0, 12)], tmp_path / "matte.mkv")
+    assert read_gray(out, 540, 960).shape == (12, 960, 540)

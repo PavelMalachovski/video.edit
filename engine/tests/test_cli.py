@@ -904,3 +904,29 @@ def test_prepare_takes_a_job_from_before_languages_as_russian(heard):
     job.path("words.json").write_text('[\n  {"t0": 0.5, "t1": 0.9, "text": "раз"}\n]\n', encoding="utf-8")
     assert main(["prepare", str(job.root), "--lang", "ru"]) == 0
     assert calls["transcribe"] == []  # старая задача и так русская — распознавать заново незачем
+
+
+# ---------- подпись к посту ----------
+
+
+def test_render_keeps_the_caption_claude_wrote(tmp_path, monkeypatch):
+    """vm render пишет result.json заново (длительности, missing, qa), а done, unsure и подпись к посту — от Claude."""
+    import vm.__main__ as cli
+
+    job = Job(tmp_path / "jobs" / "abc")
+    job.write("edit.json", {"speed": 1.0, "keep": [[0.0, 4.0]], "words": [], "hook": None, "cta": None, "inserts": [], "zooms": [],
+                            "face": {"x": 0.5, "y": 0.3}, "music": None, "hold": 0.0, "style": STYLE})
+    caption = {"text": "Три ошибки новичка в монтаже 🔥\nСохрани, чтобы не потерять", "hashtags": ["монтаж", "reels"]}
+    job.write("result.json", {"durations": {"source": 4, "final": 4}, "done": ["вырезал паузы"], "unsure": [], "missing": [],
+                              "qa": {"ok": True, "problems": []}, "caption": caption})
+    job.path("work/render/frames").mkdir(parents=True)
+    job.path("work/render/frames/boxes.json").write_text("[]", encoding="utf-8")
+    job.path("out").mkdir()
+    job.path("out/final.mp4").write_bytes(b"video")
+    monkeypatch.setattr(cli, "render", lambda *a, **k: {"durations": {"source": 4.0, "final": 4.0}, "missing": [], "warnings": [], "voice": {}})
+    monkeypatch.setattr(cli, "_fonts_ok", lambda job: None)
+    monkeypatch.setattr(cli, "check_render", lambda *a, **k: [])
+    monkeypatch.setattr(cli, "control_frames", lambda *a, **k: {"sheet": job.path("qa/qa.png")})
+    assert main(["render", str(job.root)]) == 0
+    result = job.read("result.json")
+    assert result["caption"] == caption and result["done"] == ["вырезал паузы"]

@@ -392,6 +392,16 @@ def test_styles_sample_inserts_optional(job):
         job.write("styles.json", bad)
 
 
+def test_result_takes_a_post_caption(job):
+    result = {"durations": {"source": 80.2, "final": 71.0}, "done": [], "unsure": [], "missing": [], "qa": {"ok": True, "problems": []},
+              "caption": {"text": "Три ошибки новичка 🔥", "hashtags": ["монтаж", "reels"]}}
+    job.write("result.json", result)
+    for bad, field in (({"text": "", "hashtags": []}, "text"), ({"text": "x", "hashtags": ["#a b"]}, "hashtags"),
+                       ({"text": "x", "hashtags": [str(i) for i in range(31)]}, "hashtags")):
+        with pytest.raises(ValueError, match=rf"caption\.{field}"):
+            job.write("result.json", {**result, "caption": bad})
+
+
 def test_edit_face_is_fractions_of_the_frame(job):
     edit = make_edit()
     edit["face"] = {"x": 1.5, "y": 0.3}

@@ -263,6 +263,7 @@ def _render(args: argparse.Namespace) -> None:
             "unsure": previous.get("unsure", []),
             "missing": result["missing"],
             "qa": {"ok": not problems, "problems": problems},
+            **({"caption": previous["caption"]} if previous.get("caption") else {}),  # подпись к посту — от Claude
         },
     )
     print(f"{final.relative_to(job.root)}: {result['durations']['final']:.1f} с (исходник {result['durations']['source']:.1f} с)")

@@ -1,6 +1,7 @@
 'use client';
 // Экран «4 · Готово»: ролик, скачивание видео и субтитров, итоги Claude и «Поправить» (шаг fix, новая версия ролика).
 import { useState } from 'react';
+import { captionCopy, captionFold, parseCaption, type Caption } from '@/lib/caption.ts';
 import { mmss } from '@/lib/format.ts';
 import type { AnswersFile, FixFile, ResultFile } from '@/lib/jobfiles.ts';
 import { MAX_NOTE } from '@/lib/jobs.ts';
@@ -21,8 +22,33 @@ function List({ title, items, tone }: { title: string; items: string[]; tone?: '
   );
 }
 
+/** Подпись к посту от Claude: жирное — то, что Instagram показывает до «ещё»; кнопка копирует текст и хэштеги. */
+function CaptionCard({ caption }: { caption: Caption }) {
+  const [copied, setCopied] = useState<'ok' | 'fail' | null>(null);
+  const { shown, hidden } = captionFold(caption.text);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(captionCopy(caption));
+      setCopied('ok');
+    } catch {
+      setCopied('fail');
+    }
+  }
+  return (
+    <div className="card" data-caption>
+      <div className="caps small">Подпись к посту</div>
+      <p className="lead pre"><b>{shown}</b>{hidden}</p>
+      {caption.hashtags.length ? <div className="muted">{caption.hashtags.map((t) => `#${t}`).join(' ')}</div> : null}
+      <div className="muted small">Жирное — то, что видно до «ещё».</div>
+      <button type="button" className="btn ghost" onClick={() => void copy()}>{copied === 'ok' ? 'Скопировано' : 'Скопировать подпись'}</button>
+      {copied === 'fail' ? <div className="err small">Не получилось скопировать — выделите текст и скопируйте вручную</div> : null}
+    </div>
+  );
+}
+
 export default function Result({ view, result, answers, fixes, onAct }: Props) {
   const final = view.final;
+  const caption = parseCaption(result?.caption);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -57,6 +83,7 @@ export default function Result({ view, result, answers, fixes, onAct }: Props) {
         <a className="btn" href={download(final.mp4)} download={final.mp4}>Скачать видео</a>
         {final.srt ? <a className="btn ghost" href={download(final.srt)} download={final.srt}>Субтитры .srt</a> : null}
       </div>
+      {caption ? <CaptionCard caption={caption} /> : null}
       {result ? (
         <>
           {result.qa.ok ? null : <List title="Проверка нашла" items={result.qa.problems} tone="alert" />}

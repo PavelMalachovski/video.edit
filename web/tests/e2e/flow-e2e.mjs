@@ -468,6 +468,7 @@ const segments = [
       unsure: ['«Мемсон» на 0:31 — не уверен в написании'],
       missing: ['нет музыки assets/music/lofi.mp3 — ролик без неё'],
       qa: { ok: false, problems: ['хук на лице или ближе 40 px к нему (0,0–1,5 с ролика)'] },
+      caption: { text: 'Как я учу чешский по 15 минут в день и почему это работает лучше, чем курсы 🇨🇿\nСохрани, чтобы не потерять', hashtags: ['чешский', 'языки'] },
     };
     engineValidate('result.json', result);
     const v1 = crypto.randomBytes(48 * 1024);
@@ -479,6 +480,13 @@ const segments = [
     check(await page.getByRole('heading', { name: 'Готово' }).count() === 1, 'нет заголовка «Готово»');
     check((await page.textContent('body')).includes('было 1:42 → стало 1:16 · стиль B'), 'нет строки «было → стало · стиль»');
     await shot(page, 'result');
+    // подпись к посту: жирное — первые 72 знака, кнопка копирует текст и хэштеги
+    const card = page.locator('[data-caption]');
+    check([...((await card.locator('b').textContent()) ?? '')].length === 72, 'до «ещё» — 72 знака');
+    await card.getByRole('button', { name: 'Скопировать подпись' }).click();
+    await card.getByRole('button', { name: 'Скопировано' }).waitFor();
+    const copied = await page.evaluate(() => navigator.clipboard.readText());
+    check(copied === `${result.caption.text}\n\n#чешский #языки`, `скопировано: ${copied}`);
 
     const got = await page.request.get(`${APP}/api/jobs/${ctx.jobId}/download?name=final.mp4`, { maxRedirects: 0 });
     check(got.status() === 302 && /\/__blob\/\d+$/.test(got.headers().location ?? ''), `скачивание: ${got.status()} ${got.headers().location}`);
@@ -519,7 +527,7 @@ const segments = [
 // ---------- прогон ----------
 
 const browser = await chromium.launch();
-const page = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage(); // контекст — чтобы открыть вторую вкладку с тем же входом
+const page = await (await browser.newContext({ viewport: { width: 390, height: 844 }, permissions: ['clipboard-read', 'clipboard-write'] })).newPage(); // контекст — чтобы открыть вторую вкладку с тем же входом
 const ctx = { page, browser, tmp: fs.mkdtempSync(path.join(os.tmpdir(), 'vm-e2e-')), jobId: null, fires, state, branchFile, session, until, check };
 let code = 0;
 for (const [name, run] of segments) {

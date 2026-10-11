@@ -28,6 +28,15 @@
       "type": "array",
       "items": { "type": "string" }
     },
+    "caption": {
+      "description": "Подпись к посту (пишет Claude на шаге render): text — на языке ролика, первая строка — главное в 72 знаках (столько Instagram показывает до «ещё»); hashtags — без «#», 3–5.",
+      "type": "object",
+      "required": ["text", "hashtags"],
+      "properties": {
+        "text": { "type": "string", "minLength": 1, "maxLength": 2200 },
+        "hashtags": { "type": "array", "maxItems": 30, "items": { "type": "string", "pattern": "^[^\\s#]{1,60}$" } }
+      }
+    },
     "qa": {
       "type": "object",
       "required": ["ok", "problems"],

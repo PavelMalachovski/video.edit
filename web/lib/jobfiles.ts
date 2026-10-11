@@ -334,6 +334,7 @@ export type ResultFile = {
   unsure: string[];
   missing: string[];
   qa: { ok: boolean; problems: string[] };
+  caption?: unknown; // подпись к посту — проверяет parseCaption (lib/caption.ts)
 };
 
 /** result.json (его дописывает и сессия) → итоги; не та форма — null: экран «Готово» покажет ролик без итогов. */

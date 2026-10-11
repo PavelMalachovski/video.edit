@@ -167,3 +167,21 @@ def test_without_a_teaser_nothing_changes():
 def test_a_teaser_must_be_a_real_span(teaser):
     with pytest.raises(ValueError, match="teaser"):
         Timeline([(0.0, 10.0)], 1.0, teaser=teaser)
+
+
+def test_a_moment_just_after_a_jump_cut_lands_on_the_cut():
+    tl = Timeline([(0.0, 2.0), (2.5, 6.0)], 1.0)  # стык: 2,0 с финала
+    assert tl.to_cut(2.6) == 2.0, "0,1 с после начала отрезка — на стыке"
+    assert tl.to_cut(3.0) == tl.to_final(3.0), "дальше 0,25 с — на своём месте"
+    assert tl.to_cut(2.2) == 2.0, "в вырезке — на начале следующего отрезка, как to_final_snap"
+    assert tl.to_cut(0.1) == 0.0, "начало ролика — тоже край: без трёх кадров до смены"
+    with_teaser = Timeline([(0.0, 2.0), (2.5, 6.0)], 1.0, teaser=(3.0, 4.0))
+    assert with_teaser.to_cut(0.1) == 1.0, "первый отрезок после тизера — стык с тизером"
+
+
+def test_a_moment_just_before_a_jump_cut_lands_on_the_cut():
+    tl = Timeline([(0.0, 2.0), (2.5, 6.0)], 1.0)
+    assert tl.to_cut_end(1.9) == 2.0, "0,1 с до конца отрезка — на стыке"
+    assert tl.to_cut_end(1.5) == 1.5
+    assert tl.to_cut_end(5.9) == tl.duration, "конец ролика — тоже край"
+    assert tl.to_cut_end(2.2) == 2.0, "в вырезке — на начале следующего отрезка, как to_final_snap"

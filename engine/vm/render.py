@@ -1,7 +1,7 @@
 """Сборка финала по edit.json одной командой ffmpeg.
 
 Кадр: вырезка отрезков `keep` (по целым кадрам исходника; звук — с микро-фейдами 10 мс на стыках) → ускорение →
-лёгкий цветокор → ч/б-куски (`edit.looks`: на своих кадрах — без цвета, контрастнее, темнее, с виньеткой) → зум
+лёгкий цветокор → ч/б-куски (`edit.looks`: на своих кадрах — без цвета и темнее, как в эталоне) → зум
 (якорь — лицо; в нём же толчок зума перехода) → у невертикального исходника фон из размытой копии кадра →
 полноэкранные перебивки (масштаб с обрезкой по центру, без своего звука) → переходы на смене сцены (вспышка, смаз —
 `transitions`) → стоп-кадр в конце (`hold` и финальная карточка
@@ -41,7 +41,7 @@ from .job import Job, validate
 from .media import FILL, HDR_TO_SDR, MediaError, Probe, loudness, probe
 from .overlay import FPS, build_overlay_events, insert_spans
 from .subs import to_srt
-from .timeline import Timeline
+from .timeline import TO_CUT, Timeline
 from .zoom import zoom_filter
 
 REPO = Path(__file__).resolve().parents[2]
@@ -55,8 +55,9 @@ FADE = 0.01  # с — микро-фейд звука на стыке отрез�
 # чуть темнее и контрастнее, тёплый сдвиг ~1,5 % цветности (U ниже — меньше синего, V выше — больше красного)
 COLOR = "eq=brightness=-0.02:contrast=1.03,lutyuv=u='clip(val-3,16,240)':v='clip(val+3,16,240)'"
 TO_709 = "scale=out_color_matrix=bt709:out_range=tv"
-# ч/б-кусок стиля эталона: без цвета, контрастнее, чуть темнее, виньетка по краям
-BW = ("hue=s=0", "eq=contrast=1.18:brightness=-0.04", "vignette=angle=0.6")
+# ч/б-кусок стиля эталона: без цвета и темнее на ~20 уровней, контраст тот же, без виньетки — так тон цветного кадра
+# эталона (1:56) становится тоном его ч/б-кадра того же плана (1:57): средняя 61 → 38, медиана 49 → 22, света 157 → 127
+BW = ("hue=s=0", "eq=brightness=-0.08")
 # Meta не принимает edit lists в контейнере (гайд «Всё о Reels», стр. 63). Без них плеер играет приминг кодера AAC
 # ffmpeg — 1024 отсчёта в начале, поэтому на вход кодера звук идёт с 1024-го отсчёта: приминг занимает его место, и
 # отсчёт n звучит ровно в n. B-кадров нет (`-bf 0`): с ними картинка начиналась бы на 2 кадра позже звука.
@@ -341,13 +342,18 @@ def _cut(tl: Timeline, has_audio: bool) -> list[str]:
 
 def look_windows(edit: dict, tl: Timeline) -> list[tuple[int, int]]:
     """Ч/б-куски (`edit.looks`) — кадры финала `(первый, после последнего)`: фраза на своём месте и её копия в тизере,
-    если она туда попала. Кусок без кадров (весь в вырезке, нулевой) не нужен."""
+    если она туда попала. Край куска не дальше `TO_CUT` от края отрезка (запас резки до слова) — ровно на склейке
+    (`Timeline.to_cut`), как смена камеры. Кусок без кадров (весь в вырезке, нулевой) не нужен."""
     windows = []
     for look in edit.get("looks") or []:
         t0, t1 = float(look["t0"]), float(look["t1"])
-        spans = [(tl.to_final_snap(t0), tl.to_final_snap(t1))]
+        if t1 <= t0:
+            continue
+        spans = [(tl.to_cut(t0), tl.to_cut_end(t1))]
         if tl.teaser and max(t0, tl.teaser[0]) < min(t1, tl.teaser[1]):
-            spans.append((tl.teaser_final(max(t0, tl.teaser[0])), tl.teaser_final(min(t1, tl.teaser[1]))))
+            lo, hi = tl.teaser
+            a, b = max(t0, lo), min(t1, hi)
+            spans.append((tl.teaser_final(lo if a - lo <= TO_CUT else a), tl.teaser_final(hi if hi - b <= TO_CUT else b)))
         for a, b in spans:
             first, after = round(a * FPS), round(b * FPS)
             if after > first:

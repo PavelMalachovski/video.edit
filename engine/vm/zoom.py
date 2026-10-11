@@ -30,7 +30,6 @@ MIN_LEVEL = 1.0
 MAX_LEVEL = 1.16  # зум по смыслу
 MAX_SHOT = 1.3  # смена крупности и наезд (ступень со своим `over`)
 MAX_STEPS = 90  # вложенных if в выражении ffmpeg больше ~95 не разбирает
-TO_CUT = 0.25  # с исходника — резкая смена так близко после начала отрезка встаёт на стык
 
 Step = tuple[float, float, float, float]  # (начало в финале, уровень на старте, целевой уровень, длина перехода)
 
@@ -40,13 +39,9 @@ def _smooth(x: float) -> float:
 
 
 def _start(z: dict, tl: Timeline) -> float:
-    """Момент финала, с которого действует ступень: резкая смена рядом после стыка — на стыке."""
+    """Момент финала, с которого действует ступень: резкая смена рядом после стыка — на стыке (`Timeline.to_cut`)."""
     t = float(z["t"])
-    if "over" in z and float(z["over"]) == 0:
-        for source, _, final in tl.segments:
-            if source <= t <= source + TO_CUT and tl.to_final(t) is not None:
-                return final
-    return tl.to_final_snap(t)
+    return tl.to_cut(t) if "over" in z and float(z["over"]) == 0 else tl.to_final_snap(t)
 
 
 def _target(z: dict) -> float:

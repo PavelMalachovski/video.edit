@@ -446,6 +446,17 @@ def test_edit_takes_an_end_card(job):
             job.write("edit.json", edit)
 
 
+def test_edit_takes_a_teaser(job):
+    edit = make_edit()
+    edit["teaser"] = {"t0": 30.2, "t1": 32.8, "sfx": "assets/sfx/swoosh.mp3"}
+    job.write("edit.json", edit)
+    edit["teaser"] = None
+    job.write("edit.json", edit)
+    edit["teaser"] = {"t0": 30.2}
+    with pytest.raises(ValueError, match=r"teaser"):
+        job.write("edit.json", edit)
+
+
 def test_edit_rejects_unknown_insert_kind(job):
     edit = make_edit()
     edit["inserts"][0]["kind"] = "gif"

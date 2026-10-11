@@ -14,6 +14,9 @@
 Событие — на каждое слово. Оно живёт до начала следующего, если оно наступит раньше чем через 0,6 с после конца слова,
 иначе гаснет через 0,3 с после конца слова; дальше конца финала не живёт. Реплика SRT — такой же кусок фразы, её время
 считается по тому же правилу.
+
+Тизер (`tl.teaser`): слова его фразы звучат в начале ролика и ещё раз на своём месте — субтитры тоже. Слова тизера —
+отдельная фраза в самом начале, их показ не заходит за конец тизера.
 """
 import math
 from dataclasses import dataclass
@@ -34,11 +37,13 @@ ACCUMULATE_BLOCK = 6  # самый большой блок в accumulate, сло
 
 @dataclass(frozen=True)
 class _Spoken:
-    """Слово, оставшееся в финале: само слово (его время — по исходнику) и его время в финале."""
+    """Слово, оставшееся в финале: само слово (его время — по исходнику) и его время в финале; `lead` — копия слова
+    в тизере."""
 
     word: Word
     t0: float
     t1: float
+    lead: bool = False
 
 
 def build_sub_events(words: list[Word], tl: Timeline, mode: str, n_words: int) -> list[dict]:
@@ -52,7 +57,7 @@ def build_sub_events(words: list[Word], tl: Timeline, mode: str, n_words: int) -
     с точностью до микросекунды и не за его концом.
     Неизвестный режим и `n_words` вне 1–6 для karaoke и plate — `ValueError`. Нет слов — `[]`."""
     size = _group_size(mode, n_words)
-    events, spans = [], []  # событие без времени и время слова — в одном порядке
+    events, spans, limits = [], [], []  # событие без времени, время слова и предел показа — в одном порядке
     for phrase in _phrases(_spoken(words, tl)):
         for block in _balanced(phrase, size):
             texts = [item.word.text for item in block]
@@ -60,7 +65,8 @@ def build_sub_events(words: list[Word], tl: Timeline, mode: str, n_words: int) -
                 visible = i + 1 if mode == "accumulate" else len(block)
                 events.append({"words": texts, "active": i, "visible": visible})
                 spans.append((item.t0, item.t1))
-    shown = _shown(spans, tl.duration)
+                limits.append(tl.teaser_duration if item.lead else tl.duration)
+    shown = _shown(spans, limits)
     return [{"t0": span[0], "t1": span[1], **event} for event, span in zip(events, shown, strict=True) if span]
 
 
@@ -72,7 +78,8 @@ def to_srt(words: list[Word], tl: Timeline, max_words: int = 7) -> str:
     if not 1 <= max_words < math.inf:  # так отсеиваются и NaN, и бесконечность
         raise ValueError(f"max_words must be a finite number, 1 or more, got {max_words!r}")
     cues = [cue for phrase in _phrases(_spoken(words, tl)) for cue in _balanced(phrase, max_words)]
-    shown = _shown([(cue[0].t0, cue[-1].t1) for cue in cues], tl.duration)
+    limits = [tl.teaser_duration if cue[0].lead else tl.duration for cue in cues]
+    shown = _shown([(cue[0].t0, cue[-1].t1) for cue in cues], limits)
     blocks: list[str] = []
     for cue, span in zip(cues, shown, strict=True):
         if span:
@@ -95,14 +102,19 @@ def _group_size(mode: str, n_words: int) -> int:
 
 
 def _spoken(words: list[Word], tl: Timeline) -> list[_Spoken]:
-    """Слова, оставшиеся в финале, по началу в исходнике (при равном — как в `words`)."""
-    spoken = []
+    """Слова, оставшиеся в финале, по началу в исходнике (при равном — как в `words`); слова тизера — копиями впереди."""
+    spoken, lead = [], []
+    teaser = tl.teaser
     for word in sorted(words, key=lambda w: w.t0):
-        if tl.to_final((word.t0 + max(word.t1, word.t0)) / 2) is None:
+        middle = (word.t0 + max(word.t1, word.t0)) / 2
+        if teaser and teaser[0] <= middle <= teaser[1]:
+            t0 = tl.teaser_final(max(word.t0, teaser[0]))
+            lead.append(_Spoken(word, t0, max(t0, tl.teaser_final(min(max(word.t1, word.t0), teaser[1]))), lead=True))
+        if tl.to_final(middle) is None:
             continue  # середина вырезана или лежит за концом ролика
         t0 = tl.to_final_snap(word.t0)
         spoken.append(_Spoken(word, t0, max(t0, tl.to_final_snap(word.t1))))
-    return spoken
+    return lead + spoken
 
 
 def _phrases(spoken: list[_Spoken]) -> list[list[_Spoken]]:
@@ -117,9 +129,10 @@ def _phrases(spoken: list[_Spoken]) -> list[list[_Spoken]]:
 
 
 def _starts_phrase(previous: _Spoken, item: _Spoken) -> bool:
-    """Начинается ли с `item` новая фраза: `previous` кончился знаком конца фразы или до `item` пауза длиннее 0,35 с."""
+    """Начинается ли с `item` новая фраза: `previous` кончился знаком конца фразы, до `item` пауза длиннее 0,35 с или
+    кончился тизер."""
     ended = previous.word.text.rstrip(CLOSING).endswith(PHRASE_ENDS)
-    return ended or item.word.t0 - previous.word.t1 > PHRASE_PAUSE + EPS
+    return ended or previous.lead != item.lead or item.word.t0 - previous.word.t1 > PHRASE_PAUSE + EPS
 
 
 def _balanced(items: list[_Spoken], size: int) -> list[list[_Spoken]]:
@@ -129,14 +142,14 @@ def _balanced(items: list[_Spoken], size: int) -> list[list[_Spoken]]:
     return [items[k * total // count : (k + 1) * total // count] for k in range(count)]
 
 
-def _shown(spans: list[tuple[float, float]], duration: float) -> list[tuple[float, float] | None]:
+def _shown(spans: list[tuple[float, float]], limits: list[float]) -> list[tuple[float, float] | None]:
     """Время показа каждого из `spans` — `(начало, конец)` слова или реплики в финале, по порядку; `None` — показ пуст.
 
     Показ тянется до начала следующего, если оно наступит раньше чем через 0,6 с после конца, иначе гаснет через 0,3 с
     после конца. Дальше начала следующего он не заходит (во втором случае конец + 0,3 с и так раньше него) и дальше
-    конца финала — тоже."""
+    своего предела из `limits` (конец финала, у тизера — его конец) — тоже."""
     shown = []
-    for (start, end), following in zip_longest(spans, spans[1:]):
+    for (start, end), following, duration in zip_longest(spans, spans[1:], limits):
         if following and following[0] - end < HOLD_WITHIN - EPS:
             stop = following[0]
         else:

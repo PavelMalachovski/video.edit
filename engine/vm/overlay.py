@@ -111,8 +111,11 @@ def _titles(edit: dict, tl: Timeline) -> list[_Piece]:
 
 
 def _hook_end(edit: dict, tl: Timeline) -> int:
+    """Кадр, на котором хук уходит: `hook.until` на его месте в ролике; есть тизер — хук стоит на нём целиком."""
     hook = edit.get("hook")
-    return _frame(tl.to_final_snap(hook["until"])) if hook else 0
+    if not hook:
+        return 0
+    return _frame(tl.teaser_duration) if tl.teaser else _frame(tl.to_final_snap(hook["until"]))
 
 
 def insert_spans(edit: dict, tl: Timeline) -> list[tuple[int, int, int]]:

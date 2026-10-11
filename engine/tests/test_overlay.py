@@ -300,3 +300,16 @@ def test_end_card_without_hold_starts_right_after_the_video():
     card = [e for e in events if "end" in e["state"]]
     assert card[0]["t0"] == pytest.approx(10.0) and card[-1]["t1"] == pytest.approx(11.5)
     assert card[0]["state"]["end"] == {"lines": ["Подпишись 👇"], "t": 0}
+
+
+# ---------- тизер ----------
+
+
+def test_with_a_teaser_the_hook_stays_over_the_whole_teaser_and_inserts_keep_their_phrase():
+    edit = make_edit(teaser={"t0": 6.0, "t1": 8.0, "sfx": None}, hook={"text": "Главное правило", "until": 1.0},
+                     inserts=[picture(0.5, 4.0)])
+    tl = Timeline(edit["keep"], edit["speed"], teaser=(6.0, 8.0))
+    events = build_overlay_events(edit, tl)
+    assert "hook" in at(events, 1.9) and "hook" not in at(events, 2.05), "хук — весь тизер, до 2 с"
+    assert at(events, 2.6).get("inserts") and not at(events, 2.4).get("inserts"), "вставка — на своей фразе после тизера"
+    assert events[-1]["t1"] == pytest.approx(12.0)

@@ -66,18 +66,20 @@ class RenderError(RuntimeError):
 
 
 def timeline(edit: dict, limit: float | None = None) -> Timeline:
-    """Шкала финала по edit.json: границы отрезков `keep` — на целых кадрах исходника (30 к/с), иначе субтитры
+    """Шкала финала по edit.json: границы отрезков `keep` и тизера — на целых кадрах исходника (30 к/с), иначе субтитры
     и звук разошлись бы с картинкой на долю кадра на каждом стыке. `limit` — длина исходника, с: кадров после его
     последнего целого кадра в отрезках нет (длина файла бывает чуть больше видео — из-за кадра AAC)."""
     last = math.floor(limit * FPS + 0.01) if limit is not None else None
-    keep = []
-    for a, b in edit["keep"]:
+
+    def frames(a: float, b: float) -> tuple[float, float] | None:
         fa, fb = round(a * FPS), round(b * FPS)
         if last is not None:
             fb = min(fb, last)
-        if fb > fa:
-            keep.append((fa / FPS, fb / FPS))
-    return Timeline(keep, edit["speed"])
+        return (fa / FPS, fb / FPS) if fb > fa else None
+
+    keep = [span for a, b in edit["keep"] if (span := frames(a, b))]
+    teaser = edit.get("teaser") or None
+    return Timeline(keep, edit["speed"], teaser=frames(teaser["t0"], teaser["t1"]) if teaser else None)
 
 
 @dataclass
@@ -364,6 +366,13 @@ def _sounds(job: Job, edit: dict, tl: Timeline, skip: set[int]) -> tuple[list, d
             sfx.append((first / FPS, path))
     if silent and not (SFX.is_dir() and any(p.suffix.lower() in SOUNDS for p in SFX.iterdir())):
         notes.append("в assets/sfx нет звуков — вставки без звука появления")
+    teaser = edit.get("teaser") or None
+    if teaser and teaser.get("sfx") and tl.teaser:  # звук на стыке тизера с началом ролика
+        path = _resolve(job, teaser["sfx"])
+        if path is None:
+            notes.append(f"нет звука {teaser['sfx']} — тизер без звука на стыке")
+        else:
+            sfx.append((tl.teaser_duration, path))
     card = edit.get("end") or None
     if card and card.get("sfx"):  # звук появления карточки — сразу после стоп-кадра
         path = _resolve(job, card["sfx"])

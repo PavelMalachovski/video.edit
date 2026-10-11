@@ -196,6 +196,40 @@ def test_end_card_sound_plays_when_it_appears(tmp_path):
     assert sfx == [(6.5, job.path("in/uploads/pop.wav").resolve())] and notes == []
 
 
+def test_teaser_plays_its_phrase_first_then_the_video_from_the_start(tmp_path, sources):
+    """Тизер: фраза из середины (2,0–3,0 с исходника) — в самом начале ролика, звук и картинка вместе; потом ролик с
+    начала. Синус исходника звучит первые полсекунды каждой секунды."""
+    job = make_job(tmp_path, sources["short"], keep=[[0.0, 4.0]], teaser={"t0": 2.0, "t1": 3.0, "sfx": None})
+    result = render(job, job.path("out"), preset="ultrafast")
+    final = job.path("out/final.mp4")
+    assert result["durations"]["final"] == pytest.approx(5.0, abs=0.01)
+    raw = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(final), "-map", "0:a", "-ac", "1", "-ar", "48000",
+                          "-f", "f32le", "-"], check=True, capture_output=True).stdout
+    pcm = np.abs(np.frombuffer(raw, np.float32))
+    loud = lambda t: float(pcm[int((t - 0.1) * 48000):int((t + 0.1) * 48000)].mean())  # noqa: E731
+    assert loud(0.25) > 4 * loud(0.75), "тизер: звучит фраза 2,0–2,5 с исходника, потом пауза"
+    assert loud(1.25) > 4 * loud(1.75), "дальше ролик с начала"
+    src = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", "2.1", "-i", str(sources["short"]), "-frames:v", "1",
+                          "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], check=True, capture_output=True).stdout
+    source = np.frombuffer(src, np.uint8).reshape(1920, 1080, 3).astype(int)
+    assert np.abs(frame(final, 0.1).astype(int)[300:1200] - source[300:1200]).mean() < 12, "первый кадр — из тизера"
+
+
+def test_teaser_sound_plays_at_the_seam(tmp_path):
+    job = Job(tmp_path / "jobs" / "abc")
+    job.path("in/uploads").mkdir(parents=True)
+    ffmpeg("-f", "lavfi", "-i", "sine=f=900:d=0.3", job.path("in/uploads/swoosh.wav"))
+    edit = {"speed": 1.0, "keep": [[0.0, 6.0]], "hook": None, "music": None, "inserts": [], "hold": 0.0,
+            "teaser": {"t0": 2.0, "t1": 3.5, "sfx": "in/uploads/swoosh.wav"}}
+    sfx, _, notes = _sounds(job, edit, timeline(edit), skip=set())
+    assert sfx == [(1.5, job.path("in/uploads/swoosh.wav").resolve())] and notes == []
+
+
+def test_render_timeline_keeps_the_teaser_on_whole_frames():
+    tl = timeline({"keep": [[0.0, 6.0]], "speed": 1.0, "teaser": {"t0": 2.01, "t1": 3.02}})
+    assert tl.teaser == pytest.approx((2.0, 3.0333333)) and timeline({"keep": [[0.0, 6.0]], "speed": 1.0}).teaser is None
+
+
 def test_render_without_words_has_no_subs(tmp_path, sources):
     job = make_job(tmp_path, sources["short"], keep=[[0.0, 5.0]])
     job.path("out").mkdir()

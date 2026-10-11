@@ -135,3 +135,10 @@ def test_the_post_caption_has_a_rule_and_a_place_in_the_render_step():
     assert "Подпись к посту" in texts and "72 знаках" in texts and "brand.signature" in texts
     render = section("Шаг render")
     assert "`caption`" in render and "`done`, `unsure` и `caption` сохраняет" in render
+
+
+def test_the_teaser_has_a_rule_a_question_and_a_render_step():
+    texts = section("6. Тексты")
+    assert "**Тизер**" in texts and "teaser: {t0, t1, sfx}" in texts and "Хук стоит на тизере" in texts
+    assert "`teaser` (choice)" in section("Вопросы (questions.json)")
+    assert "тизер: ответ `teaser`" in section("Шаг render")

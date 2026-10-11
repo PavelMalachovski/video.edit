@@ -131,3 +131,39 @@ def test_keep_that_is_not_ordered_segments_is_refused_with_the_segment_number(ke
 def test_speed_must_be_a_positive_number(speed):
     with pytest.raises(ValueError, match="speed"):
         Timeline([(0, 2)], speed)
+
+
+# ---------- тизер: фраза из середины звучит первой, потом ролик с начала ----------
+
+
+def test_teaser_plays_first_then_the_whole_video():
+    tl = Timeline([(0.0, 10.0)], 1.0, teaser=(6.0, 8.0))
+    assert tl.teaser == (6.0, 8.0) and tl.teaser_duration == pytest.approx(2.0)
+    assert tl.duration == pytest.approx(12.0)
+    assert tl.segments == [(6.0, 8.0, 0.0), (0.0, 10.0, 2.0)]
+    assert tl.to_final(7.0) == pytest.approx(9.0), "своё место фразы — после тизера"
+    assert tl.teaser_final(7.0) == pytest.approx(1.0) and tl.teaser_final(9.0) is None
+    assert tl.to_final_snap(0.0) == pytest.approx(2.0)
+    assert tl.to_source(1.0) == pytest.approx(7.0) and tl.to_source(2.0) == pytest.approx(0.0)
+
+
+def test_teaser_is_sped_up_with_the_video():
+    tl = Timeline([(0.0, 10.0), (12.0, 20.0)], 1.25, teaser=(14.0, 16.0))
+    assert tl.teaser_duration == pytest.approx(1.6)
+    assert tl.duration == pytest.approx((2.0 + 18.0) / 1.25)
+    assert tl.to_final(13.0) == pytest.approx(1.6 + (10.0 + 1.0) / 1.25)
+    assert tl.teaser_final(15.0) == pytest.approx(0.8)
+    assert tl.to_source(0.8) == pytest.approx(15.0)
+    assert tl.to_source(1.6 + 11.0 / 1.25) == pytest.approx(13.0)
+    assert [s[2] for s in tl.segments] == pytest.approx([0.0, 1.6, 1.6 + 8.0])
+
+
+def test_without_a_teaser_nothing_changes():
+    tl = Timeline([(0.0, 10.0)], 1.0)
+    assert tl.teaser is None and tl.teaser_duration == 0 and tl.teaser_final(5.0) is None
+
+
+@pytest.mark.parametrize("teaser", [(5.0, 5.0), (6.0, 5.0), (math.nan, 5.0), ("a", 1)])
+def test_a_teaser_must_be_a_real_span(teaser):
+    with pytest.raises(ValueError, match="teaser"):
+        Timeline([(0.0, 10.0)], 1.0, teaser=teaser)

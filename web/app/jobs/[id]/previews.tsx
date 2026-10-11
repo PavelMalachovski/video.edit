@@ -3,7 +3,7 @@
 // шрифт и цвета меняются сразу, хук и субтитры двигаются по крупному превью выше-ниже, вставки — куда угодно; размер
 // у всех — щипком двумя пальцами или уголком ⤢. «Ещё три варианта» — шаг restyle; «Монтировать» — ответы, стиль и шаг render.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { buildAnswers, previewHook, type Draft } from '@/lib/answers.ts';
+import { buildAnswers, previewEnd, previewHook, type Draft } from '@/lib/answers.ts';
 import { storage } from '@/lib/client.ts';
 import { mmss } from '@/lib/format.ts';
 import { ADJUSTABLE, type Adjustable, type Question, type StyleChoice, type Styles } from '@/lib/jobfiles.ts';
@@ -41,6 +41,7 @@ const INSERT_STEP = 20; // px ширины вставки на нажатие «
 type Box = { x: number; y: number; w: number; h: number };
 type LayoutBoxes = { inserts?: Box[] };
 const HOOK_DEFAULT = 400; // центр хука, если в стиле не задан (template/overlay.js, HOOK_Y)
+const CARD_T = 10 / 13; // с от начала карточки: уже появилась, призыв — в обычном размере (дышит с частотой 1,3 Гц)
 
 const ROWS: { key: ColorKey; title: string; own: string }[] = [
   { key: 'accent', title: 'Подсветка слова', own: 'Своя подсветка' },
@@ -83,6 +84,8 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
   }, []);
 
   const hook = useMemo(() => previewHook(questions, draft, styles.sample.hook), [questions, draft, styles]);
+  const card = useMemo(() => previewEnd(questions, draft, styles.sample.end), [questions, draft, styles]);
+  const [showCard, setShowCard] = useState(false); // крупное превью — финальная карточка вместо кадра с текстом
   const [insertBoxes, setInsertBoxesState] = useState<Record<string, InsertBox>>(() => loadInsertBoxes(storage(), jobId));
   const setInsertBoxes = (next: Record<string, InsertBox>) => {
     setInsertBoxesState(next);
@@ -93,7 +96,11 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
   const [boxes, setBoxes] = useState<LayoutBoxes | null>(null); // рамки крупного превью от шаблона: по ним ручки вставок
   const thumbs = useMemo(() => styles.variants.map((v) => ({ v, state: sampleState(v.spec, styles.sample, hook, inserts) })), [styles, hook, inserts]);
   const spec = useMemo(() => finalStyle(styles, choice), [styles, choice]);
-  const state = useMemo(() => sampleState(spec, styles.sample, hook, inserts), [spec, styles, hook, inserts]);
+  const framed = useMemo(() => sampleState(spec, styles.sample, hook, inserts), [spec, styles, hook, inserts]);
+  const ending = Boolean(showCard && card);
+  const state = useMemo(() => (ending && card
+    ? { inserts: [], end: { lines: card.lines, ...(card.handle ? { handle: card.handle } : {}), ...(card.logo ? { logo: fileUrl(card.logo) } : {}), t: CARD_T } }
+    : framed), [ending, card, framed, fileUrl]);
   const progress = duration ? Math.min(1, styles.frameTime / duration) : 0.3;
   const frameUrl = fileUrl(styles.frame);
   const family = (id: string) => fonts.find((f) => f.id === id)?.family ?? id;
@@ -139,7 +146,7 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
     size: spec.hook.size, sizes: HOOK_SIZE, resize: set('hookSize'),
     changed: choice.hookY !== undefined || choice.hookSize !== undefined, reset: reset('hookY', 'hookSize'),
   };
-  const movable = state.hook ? [hookPart, subs] : [subs]; // хук настраивается, когда он есть на превью
+  const movable = ending ? [] : state.hook ? [hookPart, subs] : [subs]; // хук настраивается, когда он есть на превью
   // вставки на крупном превью, у которых есть ключ (question, src или id стикера-тезиса): перетаскиваются куда угодно;
   // размер — щипком, уголком и кнопками. Рамка — от шаблона (вместе с тенью), высота — по ней
   const sized = state.inserts.flatMap((ins, i) => {
@@ -184,11 +191,17 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
       <div className="big-wrap">
         <div className="big-host">
           <PreviewFrame frameUrl={frameUrl} spec={spec} state={state} progress={progress} width={BIG} big onBoxes={(b) => setBoxes(b as LayoutBoxes)} />
-          {sized.map((m) => m.box ? <InsertHandle key={m.key} label={m.name} box={m.box} at={m.at} onSize={m.resize} onDrag={m.drag} /> : null)}
+          {ending ? null : sized.map((m) => m.box ? <InsertHandle key={m.key} label={m.name} box={m.box} at={m.at} onSize={m.resize} onDrag={m.drag} /> : null)}
           {movable.map((m) => <DragHandle key={m.name} label={m.label} y={m.y} range={m.range} onMove={m.move} size={m.size} onSize={m.resize} />)}
         </div>
       </div>
-      <div className="sub-move">
+      {card ? (
+        <div className="pills center">
+          <button type="button" className="pill" aria-pressed={!ending} onClick={() => setShowCard(false)}>Кадр с текстом</button>
+          <button type="button" className="pill" aria-pressed={ending} onClick={() => setShowCard(true)}>Финальная карточка</button>
+        </div>
+      ) : null}
+      <div className="sub-move" hidden={ending}>
         <span className="muted small">Хук и субтитры тянутся на превью выше или ниже, вставки — куда угодно; размер — щипком двумя пальцами или уголком ⤢</span>
         {movable.map((m) => (
           <div key={m.name} className="sub-move-row">

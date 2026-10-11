@@ -201,3 +201,11 @@ test('answers keep insert boxes Pavel set; out of the safe zone or junk — refu
   const props = schema('answers.json').properties.insertBoxes.additionalProperties.properties;
   assert.deepEqual([props.x.minimum, props.x.maximum, props.y.minimum, props.y.maximum, props.w.minimum, props.w.maximum], [60, 810, 120, 1490, 80, 830]);
 });
+
+test('parseStyles takes the end card sample and refuses a broken one', () => {
+  const fx = JSON.parse(readFileSync(new URL('../../engine/tests/fixtures/style-merge.json', import.meta.url), 'utf8')).styles;
+  const end = { lines: ['Подпишись 👇'], handle: '@pavel', logo: 'in/brand/logo.png' };
+  assert.deepEqual(parseStyles({ ...fx, sample: { ...fx.sample, end } })?.sample.end, end);
+  assert.equal(parseStyles({ ...fx, sample: { ...fx.sample, end: { lines: [] } } }), null);
+  assert.equal(parseStyles({ ...fx, sample: { ...fx.sample, end: { lines: ['a'], logo: 5 } } }), null);
+});

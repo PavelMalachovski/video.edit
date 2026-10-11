@@ -85,6 +85,8 @@ const QUESTIONS = { questions: [
     options: [{ id: 'r', label: 'р*бли' }, { id: 'b', label: 'беспл*тно' }, { id: 'p', label: 'подп*ска' }], default: ['r', 'b', 'p'] },
   { id: 'stickers', type: 'multi', title: 'Стикеры-тезисы', body: 'Поставлю на ключевые мысли — сними лишние.',
     options: [{ id: 's1', label: '0:12 — «3 ошибки 🔥»' }], default: ['s1'] },
+  { id: 'end', type: 'choice', title: 'Финальная карточка', body: 'Последние 2 секунды: призыв, твой ник и логотип.',
+    options: [{ id: 'e1', label: '«Подпишись, чтобы не пропустить 👇»' }, { id: 'own', label: 'Свой' }, { id: 'none', label: 'Не надо' }], default: 'e1' },
 ] };
 const FIXTURE = JSON.parse(fs.readFileSync(path.resolve('../engine/tests/fixtures/style-merge.json'), 'utf8'));
 const STYLES = { ...FIXTURE.styles, sample: { ...FIXTURE.styles.sample, inserts: [{ kind: 'image', x: 70, y: 500, w: 250, question: 'logo' }] } };
@@ -234,7 +236,7 @@ const segments = [
     engineValidate('status.json', waiting);
     await session(ctx, { 'questions.json': QUESTIONS, 'styles.json': STYLES, 'frame.png': PNG, 'q-logo.png': PNG, 'status.json': waiting });
     const cards = page.locator('[data-question]');
-    await until(async () => (await cards.count()) === 6, 10_000, 'шесть карточек вопросов');
+    await until(async () => (await cards.count()) === 7, 10_000, 'семь карточек вопросов');
     const go = page.getByRole('button', { name: 'Показать превью' });
     check(await go.isDisabled(), '«Показать превью» включена, хотя brand и logo без ответа');
     await shot(page, 'questions');
@@ -251,7 +253,7 @@ const segments = [
     check(!(await go.isDisabled()), '«Показать превью» выключена после всех ответов');
 
     await page.reload();
-    await until(async () => (await cards.count()) === 6, 10_000, 'карточки после перезагрузки');
+    await until(async () => (await cards.count()) === 7, 10_000, 'карточки после перезагрузки');
     check(await card('hook').getByLabel('Или напиши свой').inputValue() === 'Как я снимаю reels', 'свой хук пропал');
     check(await card('stars').getByRole('button', { name: 'беспл*тно' }).getAttribute('aria-pressed') === 'false', 'снятая звёздочка вернулась');
     check(await card('brand').getByRole('button', { name: 'Copilot' }).getAttribute('aria-pressed') === 'true', 'выбор написания пропал');
@@ -300,6 +302,7 @@ const segments = [
       ...STYLES,
       sample: {
         ...STYLES.sample, hook: 'Cum învăț limbi', words: ['Vă', 'mulțumesc', 'pentru', 'întrebare'], spoken: 1,
+        end: { lines: ['Abonează-te 👇'], handle: '@pavel.malakhouski', logo: 'q-logo.png' },
         inserts: [...STYLES.sample.inserts, { kind: 'image', src: 'q-logo.png', x: 600, y: 900, w: 250 }, // вставка из ТЗ: её размер меняет Павел
           { kind: 'text', id: 's1', text: '3 ошибки 🔥', x: 120, y: 1100, w: 420 }], // стикер-тезис
       },
@@ -315,6 +318,16 @@ const segments = [
       check(await page.getByRole('button', { name: lacking, exact: true }).count() === 0, `${lacking} без «ț» предложен Павлу`);
     }
     await shot(page, 'previews-romanian');
+
+    // финальная карточка: призыв — из ответа на вопрос end, ник и логотип — из образца (бренд Павла)
+    await page.getByRole('button', { name: 'Финальная карточка' }).click();
+    await until(async () => JSON.parse(await big.getAttribute('data-state')).end?.lines?.[0] === 'Подпишись, чтобы не пропустить 👇', 5000, 'карточка на превью');
+    const cardState = JSON.parse(await big.getAttribute('data-state')).end;
+    check(cardState.handle === '@pavel.malakhouski' && /q-logo\.png/.test(cardState.logo ?? ''), `карточка: ${JSON.stringify(cardState)}`);
+    check(await page.getByRole('slider', { name: 'Высота субтитров' }).count() === 0, 'на карточке нет ручек текста');
+    await shot(page, 'previews-end-card');
+    await page.getByRole('button', { name: 'Кадр с текстом' }).click();
+    await page.getByRole('slider', { name: 'Высота субтитров' }).waitFor();
 
     await page.getByRole('button', { name: /^B · / }).click();
     await page.getByRole('button', { name: 'Rubik', exact: true }).click();
@@ -430,6 +443,7 @@ const segments = [
     check(isDeepStrictEqual(answers.insertBoxes?.['q-logo.png'], placed), `insertBoxes: ${JSON.stringify(answers.insertBoxes)}`);
     check(isDeepStrictEqual(answers.insertBoxes?.s1, stickerPlaced), `стикер в insertBoxes: ${JSON.stringify(answers.insertBoxes)}`);
     check(isDeepStrictEqual(answers.answers?.stickers, ['s1']), `stickers: ${JSON.stringify(answers.answers?.stickers)}`);
+    check(answers.answers?.end === 'e1', `end: ${JSON.stringify(answers.answers?.end)}`);
     check(answers.style?.subSize === grown - 4 && answers.style?.hookSize === pinched, `размеры: ${answers.style?.subSize}, ${answers.style?.hookSize}`);
     check(isDeepStrictEqual(finalStyle(restyled, answers.style), last), `стиль ответа ${JSON.stringify(answers.style)} ≠ последнему превью`);
   }],

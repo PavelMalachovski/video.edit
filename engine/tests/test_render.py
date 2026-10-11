@@ -14,7 +14,7 @@ import pytest
 
 from vm.job import Job
 from vm.media import mp4_boxes
-from vm.render import RenderError, _ffmpeg, render, timeline
+from vm.render import RenderError, _ffmpeg, _sounds, render, timeline
 
 pytestmark = [
     pytest.mark.slow,
@@ -166,6 +166,34 @@ def test_final_has_no_edit_lists_and_stays_in_sync(tmp_path, sources):
     after = pcm[int(0.75 * 48000):int(1.25 * 48000)]
     onset = 0.75 + int(np.argmax(np.abs(after) > 0.05)) / 48000
     assert onset == pytest.approx(1.0, abs=0.004), f"синус вернулся на {onset:.4f} с"
+
+
+def test_end_card_freezes_the_last_frame_darker_with_the_call_to_action(tmp_path, sources):
+    """Финальная карточка: после стоп-кадра ещё seconds того же кадра, затемнённого; поверх — призыв на плашке цвета
+    подсветки, ник и логотип; звук появления — в её начало."""
+    job = make_job(tmp_path, sources["short"], keep=[[0.0, 3.0]], hold=0.5,
+                   end={"seconds": 1.5, "lines": ["Подпишись 👇"], "handle": "@pavel", "logo": "in/uploads/upload-i1.png",
+                        "sfx": None})
+    result = render(job, job.path("out"), preset="ultrafast")
+    final = job.path("out/final.mp4")
+    assert result["durations"]["final"] == pytest.approx(3.0 + 0.5 + 1.5, abs=0.01)
+    assert float(probe(final)["format"]["duration"]) == pytest.approx(5.0, abs=0.05)
+    held, card = frame(final, 3.3), frame(final, 4.6)
+    assert card[300:1500].mean() < 0.75 * held[300:1500].mean(), "карточка затемняет кадр"
+    accent = np.all(np.abs(card.astype(int) - (0xFF, 0xD2, 0x3F)) <= 16, axis=2)
+    assert accent[200:1500, 60:890].sum() > 5000, "плашка призыва цвета подсветки"
+    blue = np.all(np.abs(card.astype(int) - (0x33, 0x66, 0xFF)) <= 20, axis=2)
+    assert blue[120:1530, 60:890].sum() > 2000, "логотип (синий квадрат из загрузки) на карточке"
+
+
+def test_end_card_sound_plays_when_it_appears(tmp_path):
+    job = Job(tmp_path / "jobs" / "abc")
+    job.path("in/uploads").mkdir(parents=True)
+    ffmpeg("-f", "lavfi", "-i", "sine=f=900:d=0.3", job.path("in/uploads/pop.wav"))
+    edit = {"speed": 1.0, "keep": [[0.0, 6.0]], "hook": None, "music": None, "inserts": [], "hold": 0.5,
+            "end": {"seconds": 2.0, "lines": ["Подпишись"], "sfx": "in/uploads/pop.wav"}}
+    sfx, _, notes = _sounds(job, edit, timeline(edit), skip=set())
+    assert sfx == [(6.5, job.path("in/uploads/pop.wav").resolve())] and notes == []
 
 
 def test_render_without_words_has_no_subs(tmp_path, sources):

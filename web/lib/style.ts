@@ -13,7 +13,8 @@ export type InsertState = {
   params?: Record<string, unknown>;
   key?: string; // ключ для рамки Павла (insertKey); шаблон его не читает
 };
-export type OverlayState = { sub?: SubState; hook?: { text: string }; cta?: { lines: string[]; word: string }; inserts: InsertState[] };
+export type EndState = { lines: string[]; handle?: string; logo?: string; t: number }; // финальная карточка (t — с от её начала)
+export type OverlayState = { sub?: SubState; hook?: { text: string }; cta?: { lines: string[]; word: string }; inserts: InsertState[]; end?: EndState };
 
 type Variant = StyleChoice['variant'];
 

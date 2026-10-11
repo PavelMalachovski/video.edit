@@ -23,7 +23,7 @@ W, H = 1080, 1920
 SLOTS = ("hook", "subs", "insert", "cta")  # порядок клеток листа: слева направо, сверху вниз
 HEAD = 0.5  # с — начало музыки, которое должно звучать
 SILENT_DB = -50.0  # пик тише этого — тишина
-NAMES = {"sub": "субтитры", "hook": "хук", "cta": "титр"}
+NAMES = {"sub": "субтитры", "hook": "хук", "cta": "титр", "end": "финальная карточка"}
 
 
 def face_box(face: dict | None) -> dict | None:
@@ -87,6 +87,8 @@ def check_layout(boxes_by_event: list[dict], face: dict | None, inserts: list[di
         boxes = e.get("boxes") or {}
         texts = [(key, boxes[key]) for key in ("sub", "hook", "cta") if boxes.get(key)]
         shown = [(_insert_name(b, inserts), b) for b in boxes.get("inserts") or []]
+        if boxes.get("end") and _outside(boxes["end"]):  # карточка — на затемнённом кадре: лицо закрывать можно
+            problem(f"{NAMES['end']} вне безопасной зоны", e)
         for key, b in texts:
             if _outside(b):
                 problem(f"{NAMES[key]} вне безопасной зоны", e)
@@ -142,11 +144,13 @@ def check_render(final: Path, edit: dict, boxes_by_event: list[dict], report: di
     expected = report["durations"]["final"]
     if abs(info.duration - expected) > 0.1:
         problems.append(f"длительность {_sec(info.duration)} с вместо {_sec(expected)} с")
-    shown = {key for e in boxes_by_event for key in ("hook", "cta") if (e.get("boxes") or {}).get(key)}
+    shown = {key for e in boxes_by_event for key in ("hook", "cta", "end") if (e.get("boxes") or {}).get(key)}
     if edit.get("hook") and "hook" not in shown:
         problems.append("хук есть в edit.json, но в ролике его нет")
     if edit.get("cta") and "cta" not in shown:
         problems.append("титр с кодовым словом есть в edit.json, но в ролике его нет")
+    if edit.get("end") and "end" not in shown:
+        problems.append("финальная карточка есть в edit.json, но в ролике её нет")
     music = edit.get("music")
     if music:  # по миксу не проверить: голос с первого кадра заглушает отсутствие музыки
         lost = [m for m in report.get("missing", []) if Path(music["file"]).name in m]

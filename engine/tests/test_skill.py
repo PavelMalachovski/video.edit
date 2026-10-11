@@ -119,3 +119,12 @@ def test_thesis_stickers_have_rules_a_question_and_a_render_step():
     assert "`stickers` (multi)" in section("Вопросы (questions.json)")
     assert "стикеры-тезисы" in section("Шаг render") and "`stickers`" in section("Шаг render")
     assert "стикеры-тезисы" in section("Страница")
+
+
+def test_the_end_card_has_a_rule_a_question_a_sample_and_a_render_step():
+    rules = section("8. Стоп-кадр и финальная карточка")
+    assert "end: {seconds, lines, handle, logo, sfx}" in rules and "только здесь" in rules
+    assert "`end` (choice)" in section("Вопросы (questions.json)")
+    assert "sample.end" in section("Стили (styles.json)")
+    render = section("Шаг render")
+    assert "финальная карточка" in render and 'answers["end.own"]' in render

@@ -60,7 +60,7 @@ export type Option = { id: string; label: string; image?: string };
 export type Question = { id: string; type: QuestionType; title: string; body?: string; options?: Option[]; default?: string | string[]; image?: string };
 
 /** Зарезервированные id: вопрос `hook` (его ответ — хук превью); варианты «свой текст», «своя картинка», «не надо». */
-export const RESERVED = { hook: 'hook', own: 'own', upload: 'upload', none: 'none' } as const;
+export const RESERVED = { hook: 'hook', end: 'end', own: 'own', upload: 'upload', none: 'none' } as const;
 export const ownKey = (qid: string): string => `${qid}.own`;
 
 /** questions.json сессии → вопросы; не та форма — null (страница скажет, что вопросов нет, и даст повторить шаг). */
@@ -96,7 +96,7 @@ export type SampleInsert = {
 export type Styles = {
   frame: string;
   frameTime: number;
-  sample: { hook?: string; words: string[]; spoken: number; inserts?: SampleInsert[] };
+  sample: { hook?: string; words: string[]; spoken: number; inserts?: SampleInsert[]; end?: { lines: string[]; handle?: string; logo?: string } };
   variants: { id: 'A' | 'B' | 'C'; label: string; spec: StyleSpec }[];
   /** Шрифты, в которых есть все буквы ролика (`vm fonts`); нет поля — годятся все. */
   fonts?: { main: string[]; hand: string[] };
@@ -144,6 +144,9 @@ export function parseStyles(raw: unknown): Styles | null {
   const insertOk = (i: unknown) => isObject(i) && (SAMPLE_INSERT_KINDS as readonly string[]).includes(i.kind as string) && isNum(i.x) && isNum(i.y) && isNum(i.w) && i.w > 0
     && (i.id === undefined || (isStr(i.id) && /^[a-z0-9_-]{1,24}$/.test(i.id))) && (i.params === undefined || isObject(i.params));
   if (sample.inserts !== undefined && !(Array.isArray(sample.inserts) && sample.inserts.every(insertOk))) return null;
+  const end = sample.end;
+  if (end !== undefined && !(isObject(end) && Array.isArray(end.lines) && end.lines.length >= 1 && end.lines.length <= 2 && end.lines.every((l) => isStr(l) && l !== '')
+    && (end.handle === undefined || isStr(end.handle)) && (end.logo === undefined || isStr(end.logo)))) return null;
   const ids = (x: unknown) => Array.isArray(x) && x.every((i) => isStr(i) && i !== '');
   if (raw.fonts !== undefined && !(isObject(raw.fonts) && ids(raw.fonts.main) && ids(raw.fonts.hand))) return null;
   const v = raw.variants;

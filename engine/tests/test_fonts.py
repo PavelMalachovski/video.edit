@@ -229,3 +229,12 @@ def test_mohave_is_bold_not_the_light_default_of_the_variable_font():
     font = next(f for f in fonts.catalog() if f.id == "Mohave")
     with TTFont(font.path) as ttf:
         assert "fvar" not in ttf and ttf["OS/2"].usWeightClass == 700
+
+
+def test_the_end_card_is_drawn_by_the_main_font():
+    e = edit(["ahoj"], font="russo-one")
+    e["end"] = {"seconds": 2, "lines": ["Mulțumesc 👇"], "handle": "@pavel"}
+    (problem,) = fonts.check(e)
+    assert "russo-one" in problem and "Țț" in problem
+    main_text, _ = fonts.texts(e)
+    assert "Mulțumesc" in main_text and "@pavel" in main_text

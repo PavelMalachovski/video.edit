@@ -161,3 +161,4 @@ ul.plain { list-style: none; margin: 0; padding: 0; display: flex; flex-directio
   padding: 0 14px; border: 1px solid var(--line); border-radius: 22px; }
 .brand-logo { max-width: 160px; max-height: 96px; border-radius: 10px; background: repeating-conic-gradient(#2a2c31 0 25%, #1f2125 0 50%) 0 0 / 16px 16px; }
 .ok { color: var(--ok); }
+.pills.center { justify-content: center; }

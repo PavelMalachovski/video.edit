@@ -10,6 +10,9 @@
 конец хука); показ не короче 1,5 с; появление — три кадра (`anim` = 1/3, 2/3, 1); у анимации (`kind: anim`)
 каждый кадр свой (`t` — секунды от начала показа). Полноэкранные вставки (`fullscreen`) монтирует ffmpeg,
 в слой они не попадают. Что видно в последний кадр ролика, остаётся и на стоп-кадре.
+
+Финальная карточка (`edit.end`) идёт после стоп-кадра ещё `seconds`: на ней ничего другого нет, и каждый её кадр
+свой (`state.end.t` — секунды от начала карточки: призыв «дышит»).
 """
 import math
 from dataclasses import dataclass
@@ -36,19 +39,26 @@ class _Piece:
     value: dict
     insert: bool = False
     every_frame: bool = False
+    timed: bool = False  # не вставка, но каждый кадр свой: в состояние идёт t — секунды от начала
 
 
 def build_overlay_events(edit: dict, tl: Timeline) -> list[dict]:
-    """Промежутки финала `{t0, t1, state}` по возрастанию, встык, от 0 до `tl.duration + edit.hold`."""
+    """Промежутки финала `{t0, t1, state}` по возрастанию, встык, от 0 до конца ролика: `tl.duration + edit.hold`
+    и финальная карточка (`edit.end.seconds`), если она есть."""
     hold = float(edit.get("hold") or 0.0)
-    end = tl.duration + hold
-    last = _frame(end)  # кадров во всём ролике со стоп-кадром
+    card = edit.get("end") or None
+    end = tl.duration + hold + (float(card["seconds"]) if card else 0.0)
+    last = _frame(end)  # кадров во всём ролике со стоп-кадром и карточкой
+    still = _frame(tl.duration + hold)  # кадр, после которого стоп-кадр кончается (с него — карточка)
     video = _frame(tl.duration)  # последний кадр ролика без стоп-кадра
     # что начинается не раньше конца ролика, в ролике не видно — на стоп-кадре тоже не появляется
     pieces = [p for p in _subtitles(edit, tl) + _titles(edit, tl) + _inserts(edit, tl) if p.start < video]
     for piece in pieces:
-        if piece.stop >= video:  # видно в последний кадр — остаётся на стоп-кадре
-            piece.stop = last
+        if piece.stop >= video:  # видно в последний кадр — остаётся на стоп-кадре, но не на карточке
+            piece.stop = still
+    if card:
+        shown = {k: card[k] for k in ("handle", "logo") if card.get(k)}
+        pieces.append(_Piece(still, last, "end", {"lines": list(card["lines"]), **shown}, timed=True))
 
     borders = {0, last}
     for piece in pieces:
@@ -57,7 +67,7 @@ def build_overlay_events(edit: dict, tl: Timeline) -> list[dict]:
         borders.update((piece.start, piece.stop))
         if piece.insert:
             borders.update(f for f in range(piece.start + 1, piece.start + APPEAR) if f < piece.stop)
-        if piece.every_frame:
+        if piece.every_frame or piece.timed:
             borders.update(range(piece.start, piece.stop))
     marks = sorted(b for b in borders if 0 <= b <= last)
 
@@ -144,6 +154,8 @@ def _state(pieces: list[_Piece], frame: int) -> dict:
             shown = frame - piece.start
             moving = shown / FPS if piece.every_frame else 0  # время нужно только анимации
             inserts.append({**piece.value, "anim": min(1, (shown + 1) / APPEAR), "t": moving})
+        elif piece.timed:
+            state[piece.key] = {**piece.value, "t": (frame - piece.start) / FPS}
         else:
             state[piece.key] = piece.value
     if inserts:

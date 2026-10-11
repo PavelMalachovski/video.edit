@@ -273,3 +273,30 @@ def test_short_subtitle_between_frames_does_not_break_the_grid():
     for e in events[1:]:
         assert math.isclose(e["t0"] * FPS, round(e["t0"] * FPS), abs_tol=1e-6)
 
+
+# ---------- финальная карточка ----------
+
+END = {"seconds": 2.0, "lines": ["Подпишись 👇"], "handle": "@pavel", "logo": "in/brand/logo.png", "sfx": None}
+
+
+def test_end_card_comes_after_the_hold_frame_by_frame():
+    words = [{"t0": 9.0, "t1": 9.8, "text": "конец"}]
+    edit = make_edit(hold=0.5, end=END, words=words, cta={"lines": ["ПИШИ"], "word": "план", "t0": 9.0, "t1": 10.0})
+    tl = timeline(edit)
+    events = build_overlay_events(edit, tl)
+    assert events[-1]["t1"] == pytest.approx(tl.duration + 0.5 + 2.0)
+    assert "cta" in at(events, 10.2) and "sub" in at(events, 10.2), "на стоп-кадре — то, что было в последний кадр"
+    card = [e for e in events if "end" in e["state"]]
+    assert card[0]["t0"] == pytest.approx(10.5)
+    assert len(card) == 60, "каждый кадр карточки свой: она дышит"
+    assert card[0]["state"] == {"end": {"lines": ["Подпишись 👇"], "handle": "@pavel", "logo": "in/brand/logo.png", "t": 0}}
+    assert card[1]["state"]["end"]["t"] == pytest.approx(FRAME)
+    assert all(set(e["state"]) == {"end"} for e in card), "на карточке нет ни субтитров, ни титра, ни вставок"
+
+
+def test_end_card_without_hold_starts_right_after_the_video():
+    edit = make_edit(end={**END, "seconds": 1.5, "handle": None, "logo": None})
+    events = build_overlay_events(edit, timeline(edit))
+    card = [e for e in events if "end" in e["state"]]
+    assert card[0]["t0"] == pytest.approx(10.0) and card[-1]["t1"] == pytest.approx(11.5)
+    assert card[0]["state"]["end"] == {"lines": ["Подпишись 👇"], "t": 0}

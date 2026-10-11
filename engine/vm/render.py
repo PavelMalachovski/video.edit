@@ -2,7 +2,8 @@
 
 Кадр: вырезка отрезков `keep` (по целым кадрам исходника; звук — с микро-фейдами 10 мс на стыках) → ускорение →
 лёгкий цветокор → зум (якорь — лицо) → у невертикального исходника фон из размытой копии кадра → полноэкранные
-перебивки (масштаб с обрезкой по центру, без своего звука) → стоп-кадр в конце (`hold`) → слой PNG (субтитры, хук,
+перебивки (масштаб с обрезкой по центру, без своего звука) → стоп-кадр в конце (`hold` и финальная карточка
+`end.seconds`: её затемнение, призыв, ник и логотип рисует слой) → слой PNG (субтитры, хук,
 титр, вставки; кадры рисует template/render-frames.mjs тем же шаблоном, что и превью) → шкала времени → H.264/AAC
 с метками BT.709, без B-кадров и edit lists (их не принимает Meta). Звук — граф `audio_graph`: голос, музыка, звуки
 вставок.
@@ -123,7 +124,7 @@ def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium")
     source = job.path("source.mp4")
     missing: list[str] = []
     warnings = list(drawn.warnings)
-    hold = float(edit.get("hold") or 0.0)
+    hold = float(edit.get("hold") or 0.0) + _card_seconds(edit)  # карточка стоит на том же стоп-кадре
     total = tl.duration + hold
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -308,6 +309,12 @@ def _picture(job, edit, tl, info, index, hold, missing, warnings) -> tuple[list[
     return chains, inputs, skipped
 
 
+def _card_seconds(edit: dict) -> float:
+    """Секунды финальной карточки (`edit.end`); её нет — 0."""
+    card = edit.get("end") or None
+    return float(card["seconds"]) if card else 0.0
+
+
 def _decodes(path: Path) -> bool:
     """Из файла декодируется хотя бы один кадр. Битая картинка с `-loop 1` или GIF без кадров по кругу иначе
     вешают ffmpeg до таймаута (ffprobe такой GIF пропускает)."""
@@ -357,6 +364,13 @@ def _sounds(job: Job, edit: dict, tl: Timeline, skip: set[int]) -> tuple[list, d
             sfx.append((first / FPS, path))
     if silent and not (SFX.is_dir() and any(p.suffix.lower() in SOUNDS for p in SFX.iterdir())):
         notes.append("в assets/sfx нет звуков — вставки без звука появления")
+    card = edit.get("end") or None
+    if card and card.get("sfx"):  # звук появления карточки — сразу после стоп-кадра
+        path = _resolve(job, card["sfx"])
+        if path is None:
+            notes.append(f"нет звука {card['sfx']} — финальная карточка без звука появления")
+        else:
+            sfx.append((tl.duration + float(edit.get("hold") or 0.0), path))
     music = edit.get("music")
     if music:
         path = _resolve(job, music["file"])

@@ -423,6 +423,19 @@ def test_styles_sample_shows_thesis_stickers(job):
     job.write("styles.json", styles)
 
 
+def test_edit_takes_an_end_card(job):
+    edit = make_edit()
+    edit["end"] = {"seconds": 2.0, "lines": ["Подпишись 👇"], "handle": "@pavel", "logo": "in/brand/logo.png", "sfx": None}
+    job.write("edit.json", edit)
+    edit["end"] = None
+    job.write("edit.json", edit)
+    for bad, field in (({"seconds": 0.5, "lines": ["x"]}, "seconds"), ({"seconds": 2, "lines": []}, "lines"),
+                       ({"seconds": 2, "lines": ["a", "b", "c"]}, "lines")):
+        edit["end"] = bad
+        with pytest.raises(ValueError, match=rf"end\.{field}"):
+            job.write("edit.json", edit)
+
+
 def test_edit_rejects_unknown_insert_kind(job):
     edit = make_edit()
     edit["inserts"][0]["kind"] = "gif"

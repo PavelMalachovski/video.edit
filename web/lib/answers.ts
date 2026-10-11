@@ -97,6 +97,19 @@ export function previewHook(qs: Question[], d: Draft, sampleHook?: string): stri
   return label ? unquote(label) || null : null;
 }
 
+/** Финальная карточка на превью (`styles.sample.end`: ник и логотип бренда); призыв — по вопросу `end` (`none` — без
+ *  карточки, `own` — свой текст, иначе подпись варианта без кавычек). Вопроса нет — карточка образца. */
+export type EndCard = { lines: string[]; handle?: string; logo?: string };
+export function previewEnd(qs: Question[], d: Draft, sample?: EndCard): EndCard | null {
+  const q = qs.find((x) => x.id === RESERVED.end);
+  if (!q) return sample ?? null;
+  const id = chosen(q, d);
+  if (!id || id === RESERVED.none || id === RESERVED.upload) return null;
+  const text = id === RESERVED.own ? (d.texts[q.id] ?? '').trim() : unquote(q.options?.find((o) => o.id === id)?.label ?? '');
+  if (!text) return null;
+  return { ...(sample?.handle ? { handle: sample.handle } : {}), ...(sample?.logo ? { logo: sample.logo } : {}), lines: [text] };
+}
+
 // ---------- localStorage ----------
 
 const key = (jobId: string): string => `vm:draft:${jobId}`;

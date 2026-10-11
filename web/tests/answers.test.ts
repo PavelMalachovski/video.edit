@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildAnswers, initialDraft, loadDraft, pick, pictureAsset, previewHook, saveDraft, type LocalUpload } from '../lib/answers.ts';
+import { buildAnswers, initialDraft, loadDraft, pick, pictureAsset, previewEnd, previewHook, saveDraft, type LocalUpload } from '../lib/answers.ts';
 import type { Question } from '../lib/jobfiles.ts';
 import { blockedStorage, memoryStorage } from './helpers.ts';
 
@@ -110,4 +110,18 @@ test('a re-picked answer picture never reuses an asset that has parts in the dra
   assert.deepEqual(pictureAsset('logo', 'мой.png', 'image/png', new Set()), { asset: 'upload-q-logo.png', n: 1 });
   assert.deepEqual(pictureAsset('logo', 'мой.png', 'image/png', new Set(['upload-q-logo.png'])), { asset: 'upload-q-logo-2.png', n: 2 });
   assert.deepEqual(pictureAsset('logo', 'b.jpg', 'image/jpeg', new Set(['upload-q-logo-2.jpg']), 2), { asset: 'upload-q-logo-3.jpg', n: 3 });
+});
+
+test('previewEnd: the call from the end question, the handle and the logo from the sample', () => {
+  const end = { id: 'end', type: 'choice' as const, title: 'Финальная карточка', options: [
+    { id: 'e1', label: '«Подпишись, чтобы не пропустить 👇»' }, { id: 'own', label: 'Свой' }, { id: 'none', label: 'Не надо' }], default: 'e1' };
+  const sample = { lines: ['Сохрани ✅'], handle: '@pavel', logo: 'in/brand/logo.png' };
+  const d = initialDraft([end]);
+  assert.deepEqual(previewEnd([end], d, sample), { lines: ['Подпишись, чтобы не пропустить 👇'], handle: '@pavel', logo: 'in/brand/logo.png' });
+  assert.equal(previewEnd([end], pick(d, end, 'none'), sample), null);
+  const own = { ...pick(d, end, 'own'), texts: { end: 'Пиши «план» в директ' } };
+  assert.deepEqual(previewEnd([end], own, sample)?.lines, ['Пиши «план» в директ']);
+  assert.deepEqual(previewEnd([], d, sample), sample, 'вопроса нет — карточка образца');
+  assert.equal(previewEnd([], d, undefined), null);
+  assert.deepEqual(previewEnd([end], d, undefined), { lines: ['Подпишись, чтобы не пропустить 👇'] }, 'без бренда — только призыв');
 });

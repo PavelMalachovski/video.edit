@@ -214,3 +214,22 @@ def test_slot_times_skip_intervals_shorter_than_a_tenth():
     assert times["cta"] == pytest.approx((2.033 + 3.0) / 2)
     assert times["hook"] == pytest.approx(1.0) and times["subs"] == pytest.approx(1.0)
 
+
+
+# ---------- финальная карточка ----------
+
+
+def test_end_card_must_stay_in_the_safe_zone_but_may_cover_the_face():
+    face = face_box({"x": 0.5, "y": 0.4})
+    inside = {"x": 200, "y": 600, "w": 550, "h": 500}
+    assert check_layout([event(5, 7, end=inside)], face) == [], "карточка на затемнённом кадре — лицо закрывать можно"
+    problems = check_layout([event(5, 7, end={**inside, "y": 1200, "h": 400})], face)
+    assert problems == ["финальная карточка вне безопасной зоны (5,0–7,0 с ролика)"]
+
+
+@needs_ffmpeg
+def test_check_render_flags_a_lost_end_card(tmp_path):
+    final = make_clip(tmp_path / "final.mp4", 3)
+    edit = edit_for(3.0, end={"seconds": 1.0, "lines": ["Подпишись"]})
+    assert any("финальная карточка" in p for p in check_render(final, edit, [event(0, 3)], report(3.0)))
+    assert check_render(final, edit, [event(0, 2), event(2, 3, end={"x": 200, "y": 600, "w": 550, "h": 500})], report(3.0)) == []

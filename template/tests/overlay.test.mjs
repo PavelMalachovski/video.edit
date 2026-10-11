@@ -503,3 +503,66 @@ test('a caps line never starts with an emoji: it stays with the word before it',
     assert.equal(alone, 0, text);
   }
 });
+
+// ---------- финальная карточка ----------
+
+const CARD = { lines: ['Подпишись, чтобы не пропустить 👇'], handle: '@pavel.malakhouski', logo: 'emoji/1f4f7.png' };
+
+test('the end card dims the whole frame and puts the call to action, the handle and the logo in the safe zone', async () => {
+  await render(spec(), { end: { ...CARD, t: 1 } });
+  const corner = await pixels({ x: 2, y: 2, width: 4, height: 4 });
+  assert.ok(corner[3] > 100 && corner[3] < 200 && corner[0] < 10, `кадр затемнён полупрозрачным чёрным: ${corner.slice(0, 4)}`);
+  const b = (await boxes()).end;
+  assert.ok(b && insideSafe(b), JSON.stringify(b));
+  const parts = await page.evaluate(() => ({
+    logo: document.querySelector('#end img.logo')?.getBoundingClientRect().toJSON(),
+    plate: document.querySelector('#end .call')?.getBoundingClientRect().toJSON(),
+    handle: document.querySelector('#end .handle')?.textContent,
+    emoji: document.querySelectorAll('#end .call img.emo').length,
+  }));
+  assert.ok(parts.logo && parts.logo.width > 100, `логотип: ${JSON.stringify(parts.logo)}`);
+  assert.equal(parts.handle, '@pavel.malakhouski');
+  assert.equal(parts.emoji, 1);
+  for (const r of [parts.logo, parts.plate]) assert.ok(contains(b, { x: r.x, y: r.y, w: r.width, h: r.height }), JSON.stringify(r));
+  assert.ok((await shareColor(parts.plate, SPEC.colors.accent)) > 0.4, 'плашка призыва — цвета подсветки');
+  // всё непрозрачное (кроме затемнения) — внутри рамки
+  assert.ok(contains(b, await drawnBox(page, scratch, 230)), 'нарисованное внутри рамки карточки');
+});
+
+test('the call to action breathes: bigger and smaller over time, always inside its box', async () => {
+  const widths = [];
+  for (const t of [0.5, 0.69, 0.88]) {
+    await render(spec(), { end: { ...CARD, t } });
+    const b = (await boxes()).end;
+    const seen = await drawnBox(page, scratch, 230);
+    assert.ok(contains(b, seen), `t=${t}: ${JSON.stringify(seen)} вне ${JSON.stringify(b)}`);
+    widths.push(await page.evaluate(() => document.querySelector('#end .call').getBoundingClientRect().width));
+  }
+  assert.ok(Math.max(...widths) - Math.min(...widths) > 8, `призыв не дышит: ${widths}`);
+});
+
+test('the end card appears quickly and without the handle and logo it is just the call', async () => {
+  await render(spec(), { end: { lines: ['Сохрани ✅'], t: 0 } });
+  const first = await page.evaluate(() => Number(getComputedStyle(document.querySelector('#end')).opacity));
+  assert.ok(first > 0 && first < 1, `первый кадр — уже видно, но не целиком: ${first}`);
+  await render(spec(), { end: { lines: ['Сохрани ✅'], t: 1 } });
+  assert.equal(await page.evaluate(() => document.querySelectorAll('#end img.logo, #end .handle').length), 0);
+  assert.ok(insideSafe((await boxes()).end));
+});
+
+/** Доля пикселей цвета `hex` (±12) в рамке. */
+async function shareColor(r, hex) {
+  return share(await pixels(clipOf({ x: r.x, y: r.y, w: r.width, h: r.height })), hex);
+}
+
+test('a long call to action wraps instead of shrinking', async () => {
+  await render(spec(), { end: { lines: ['Подпишись, чтобы не пропустить новые ролики про монтаж 👇'], t: 1 } });
+  const call = await page.evaluate(() => {
+    const el = document.querySelector('#end .call');
+    return { size: parseFloat(getComputedStyle(el).fontSize), width: el.offsetWidth, height: el.offsetHeight }; // без «дыхания»
+  });
+  assert.ok(call.size >= 0.9 * 72, `кегль ${call.size}`);
+  assert.ok(call.width <= 700 + 1, `ширина ${call.width}`);
+  assert.ok(call.height > 2 * call.size, `в несколько строк: ${call.height}`);
+  assert.ok(insideSafe((await boxes()).end));
+});

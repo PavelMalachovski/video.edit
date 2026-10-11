@@ -83,6 +83,8 @@ def texts(edit: dict) -> tuple[str, str]:
     main = [w.get("text", "") for w in edit.get("words") or []]
     main += [hook, *(cta.get("lines") or [])]
     main += [i.get(key) or "" for i in edit.get("inserts") or [] for key in ("title", "text")]
+    card = edit.get("end") or {}
+    main += [*(card.get("lines") or []), card.get("handle") or ""]  # финальная карточка — основным шрифтом
     # рукописное — последнее слово хука вместе с эмодзи после него (как hookTitle в template/overlay.js)
     words = hook.split()
     last = len(words) - 1

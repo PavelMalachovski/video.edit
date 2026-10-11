@@ -289,8 +289,18 @@ const segments = [
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 - 50, { steps: 4 });
     await page.mouse.up();
     await until(async () => (await bigSpec()).subtitles.y === variantY - 200, 5000, `субтитры перетащены на ${variantY - 200}`);
-    await page.getByRole('button', { name: 'Ниже', exact: true }).click();
+    await page.getByRole('button', { name: 'Субтитры ниже', exact: true }).click();
     await until(async () => (await bigSpec()).subtitles.y === variantY - 180, 5000, 'кнопка «Ниже» — на 20 px');
+    // хук — так же: 30 px экрана вниз — это 120 px кадра
+    const hookY = restyled.variants[1].spec.hook.y ?? 400;
+    const hookHandle = page.getByRole('slider', { name: 'Высота хука' });
+    await hookHandle.scrollIntoViewIfNeeded(); // после кнопок страница прокручена ниже превью
+    const hookBox = await hookHandle.boundingBox();
+    await page.mouse.move(hookBox.x + hookBox.width / 2, hookBox.y + hookBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(hookBox.x + hookBox.width / 2, hookBox.y + hookBox.height / 2 + 30, { steps: 6 });
+    await page.mouse.up();
+    await until(async () => (await bigSpec()).hook.y === hookY + 120, 5000, `хук перетащен на ${hookY + 120}`);
     await shot(page, 'previews-subtitles-moved');
     check(await page.getByRole('button', { name: '×1.1', exact: true }).getAttribute('aria-pressed') === 'true', 'скорость по умолчанию не ×1.1');
     await page.getByRole('button', { name: '×1.3', exact: true }).click();
@@ -306,6 +316,7 @@ const segments = [
     check(answers.brief === 'ХУК: Как я учу чешский', `brief: ${answers.brief}`);
     check(answers.speed === 1.3, `speed: ${answers.speed}`);
     check(answers.style?.subY === variantY - 180, `style.subY: ${answers.style?.subY}`);
+    check(answers.style?.hookY === hookY + 120, `style.hookY: ${answers.style?.hookY}`);
     check(isDeepStrictEqual(finalStyle(restyled, answers.style), last), `стиль ответа ${JSON.stringify(answers.style)} ≠ последнему превью`);
   }],
 

@@ -1,6 +1,6 @@
 'use client';
 // Экран «3 · Три превью»: три варианта стиля на настоящем кадре и крупное превью выбора Павла — всё рисует шаблон слоя;
-// шрифт и цвета меняются сразу, субтитры перетаскиваются по крупному превью выше или ниже. «Ещё три варианта» — шаг
+// шрифт и цвета меняются сразу, хук и субтитры перетаскиваются по крупному превью выше или ниже. «Ещё три варианта» — шаг
 // restyle; «Монтировать» — ответы, стиль и шаг render.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { buildAnswers, previewHook, type Draft } from '@/lib/answers.ts';
@@ -9,8 +9,8 @@ import { mmss } from '@/lib/format.ts';
 import type { Question, StyleChoice, Styles } from '@/lib/jobfiles.ts';
 import { MAX_NOTE } from '@/lib/jobs.ts';
 import {
-  allowedFonts, choiceFor, clampSubY, finalStyle, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y,
-  SWATCHES,
+  allowedFonts, choiceFor, clampHookY, clampSubY, finalStyle, HOOK_Y, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed,
+  SPEEDS, SUB_Y, SWATCHES,
 } from '@/lib/style.ts';
 import PreviewFrame from '../../preview-frame';
 import type { Act } from './job';
@@ -32,7 +32,8 @@ type Props = {
 
 const BIG = 270; // ширина крупного превью, px экрана
 const SCALE = BIG / 1080;
-const SUB_STEP = 20; // px кадра на нажатие «Выше» / «Ниже» и стрелку
+const STEP = 20; // px кадра на нажатие «Выше» / «Ниже» и стрелку
+const HOOK_DEFAULT = 400; // центр хука, если в стиле не задан (template/overlay.js, HOOK_Y)
 
 const ROWS: { key: ColorKey; title: string; own: string }[] = [
   { key: 'accent', title: 'Подсветка слова', own: 'Своя подсветка' },
@@ -104,16 +105,23 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
   }
 
   const pickFont = (kind: 'font' | 'hand', id: string) => setChoice({ ...choice, [kind]: id });
-  // смена варианта сбрасывает шрифты и цвета к нему, а место субтитров, которое Павел выбрал сам, остаётся
-  const pickVariant = (id: StyleChoice['variant']) =>
-    setChoice({ ...choiceFor(styles, id), ...(choice.subY === undefined ? {} : { subY: choice.subY }) });
-  const subY = spec.subtitles.y;
-  const moveSub = (y: number) => setChoice({ ...choice, subY: clampSubY(y) });
-  const resetSub = () => {
-    const { subY: _, ...rest } = choice;
-    setChoice(rest);
-  };
-  const drag = useRef<{ from: number; y: number } | null>(null);
+  // смена варианта сбрасывает шрифты и цвета к нему, а места хука и субтитров, которые Павел выбрал сам, остаются
+  const pickVariant = (id: StyleChoice['variant']) => setChoice({
+    ...choiceFor(styles, id),
+    ...(choice.subY === undefined ? {} : { subY: choice.subY }),
+    ...(choice.hookY === undefined ? {} : { hookY: choice.hookY }),
+  });
+  const place = (key: 'subY' | 'hookY') => ({
+    moved: choice[key] !== undefined,
+    move: (y: number) => setChoice({ ...choice, [key]: key === 'subY' ? clampSubY(y) : clampHookY(y) }),
+    reset: () => {
+      const { [key]: _, ...rest } = choice;
+      setChoice(rest);
+    },
+  });
+  const subs = { ...place('subY'), y: spec.subtitles.y, range: SUB_Y, name: 'Субтитры', label: 'Высота субтитров' };
+  const hookPlace = { ...place('hookY'), y: spec.hook.y ?? HOOK_DEFAULT, range: HOOK_Y, name: 'Хук', label: 'Высота хука' };
+  const movable = state.hook ? [hookPlace, subs] : [subs]; // хук двигается, когда он есть на превью
   const pickColor = (key: ColorKey, color: string) => setChoice({ ...choice, colors: { ...choice.colors, [key]: color.toUpperCase() } });
 
   return (
@@ -140,30 +148,19 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
       <div className="big-wrap">
         <div className="big-host">
           <PreviewFrame frameUrl={frameUrl} spec={spec} state={state} progress={progress} width={BIG} big />
-          <div className="sub-handle" role="slider" tabIndex={0} aria-label="Высота субтитров" aria-orientation="vertical"
-            aria-valuemin={SUB_Y.min} aria-valuemax={SUB_Y.max} aria-valuenow={subY} title="Потяни субтитры выше или ниже"
-            style={{ top: subY * SCALE }}
-            onPointerDown={(e) => {
-              e.currentTarget.setPointerCapture(e.pointerId);
-              drag.current = { from: e.clientY, y: subY };
-            }}
-            onPointerMove={(e) => drag.current && moveSub(drag.current.y + (e.clientY - drag.current.from) / SCALE)}
-            onPointerUp={() => { drag.current = null; }}
-            onPointerCancel={() => { drag.current = null; }}
-            onKeyDown={(e) => {
-              if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
-              e.preventDefault();
-              moveSub(subY + (e.key === 'ArrowUp' ? -SUB_STEP : SUB_STEP));
-            }}>
-            <span aria-hidden="true">⇅</span>
-          </div>
+          {movable.map((m) => <DragHandle key={m.name} label={m.label} y={m.y} range={m.range} onMove={m.move} />)}
         </div>
       </div>
       <div className="sub-move">
-        <span className="muted small">Субтитры можно потянуть на превью выше или ниже</span>
-        <button type="button" className="pill" disabled={subY <= SUB_Y.min} onClick={() => moveSub(subY - SUB_STEP)}>Выше</button>
-        <button type="button" className="pill" disabled={subY >= SUB_Y.max} onClick={() => moveSub(subY + SUB_STEP)}>Ниже</button>
-        {choice.subY !== undefined ? <button type="button" className="link" onClick={resetSub}>Как в варианте</button> : null}
+        <span className="muted small">Хук и субтитры можно потянуть на превью выше или ниже</span>
+        {movable.map((m) => (
+          <div key={m.name} className="sub-move-row">
+            <span className="small">{m.name}</span>
+            <button type="button" className="pill" aria-label={`${m.name} выше`} disabled={m.y <= m.range.min} onClick={() => m.move(m.y - STEP)}>Выше</button>
+            <button type="button" className="pill" aria-label={`${m.name} ниже`} disabled={m.y >= m.range.max} onClick={() => m.move(m.y + STEP)}>Ниже</button>
+            {m.moved ? <button type="button" className="link" aria-label={`${m.name}: как в варианте`} onClick={m.reset}>Как в варианте</button> : null}
+          </div>
+        ))}
       </div>
 
       <div className="card">
@@ -227,5 +224,31 @@ export default function Previews({ jobId, styles, questions, draft, duration, fi
       </button>
       {error?.at === 'answers' ? <div className="err small">{error.text}</div> : null}
     </>
+  );
+}
+
+type HandleProps = { label: string; y: number; range: { min: number; max: number }; onMove: (y: number) => void };
+
+/** Ручка на крупном превью: полоса на высоте `y` (px кадра), тянется мышкой или пальцем, стрелками — по STEP. */
+function DragHandle({ label, y, range, onMove }: HandleProps) {
+  const drag = useRef<{ from: number; y: number } | null>(null);
+  return (
+    <div className="sub-handle" role="slider" tabIndex={0} aria-label={label} aria-orientation="vertical"
+      aria-valuemin={range.min} aria-valuemax={range.max} aria-valuenow={y} title={`${label}: потяни выше или ниже`}
+      style={{ top: y * SCALE }}
+      onPointerDown={(e) => {
+        e.currentTarget.setPointerCapture(e.pointerId);
+        drag.current = { from: e.clientY, y };
+      }}
+      onPointerMove={(e) => drag.current && onMove(drag.current.y + (e.clientY - drag.current.from) / SCALE)}
+      onPointerUp={() => { drag.current = null; }}
+      onPointerCancel={() => { drag.current = null; }}
+      onKeyDown={(e) => {
+        if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+        e.preventDefault();
+        onMove(y + (e.key === 'ArrowUp' ? -STEP : STEP));
+      }}>
+      <span aria-hidden="true">⇅</span>
+    </div>
   );
 }

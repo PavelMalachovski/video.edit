@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { initialDraft, pick } from '../lib/answers.ts';
 import type { Question, StyleChoice, Styles } from '../lib/jobfiles.ts';
-import { allowedFonts, choiceFor, clampSubY, finalStyle, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES } from '../lib/style.ts';
+import { allowedFonts, choiceFor, clampHookY, clampSubY, finalStyle, HOOK_Y, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES } from '../lib/style.ts';
 import { blockedStorage, memoryStorage } from './helpers.ts';
 
 // Общая с движком фикстура: final_style в engine/vm/style.py обязан давать то же самое.
@@ -129,5 +129,20 @@ test('subtitles: Pavel moves them up or down, inside the safe zone, by 10 px', (
   saveChoice(store, id, STYLES, { ...plain, subY: 900 });
   assert.equal(loadChoice(store, id, STYLES).subY, 900);
   saveChoice(store, id, STYLES, { ...plain, subY: 50 });
+  assert.deepEqual(loadChoice(store, id, STYLES), choiceFor(STYLES, 'A'), 'a place outside the zone is not taken back');
+});
+
+test('hook: Pavel moves it up or down, inside the safe zone, by 10 px', () => {
+  const plain = choiceFor(STYLES, 'B');
+  assert.equal(finalStyle(STYLES, plain).hook.y, STYLES.variants[1].spec.hook.y, 'not moved — as in the variant');
+  assert.equal(finalStyle(STYLES, { ...plain, hookY: 700 }).hook.y, 700);
+  assert.equal(clampHookY(456), 460);
+  assert.equal(clampHookY(0), HOOK_Y.min);
+  assert.equal(clampHookY(1900), HOOK_Y.max);
+  const store = memoryStorage();
+  const id = '261010-120000-ab98';
+  saveChoice(store, id, STYLES, { ...plain, hookY: 700 });
+  assert.equal(loadChoice(store, id, STYLES).hookY, 700);
+  saveChoice(store, id, STYLES, { ...plain, hookY: 1500 });
   assert.deepEqual(loadChoice(store, id, STYLES), choiceFor(STYLES, 'A'), 'a place outside the zone is not taken back');
 });

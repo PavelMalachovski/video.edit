@@ -81,3 +81,8 @@ def test_the_speed_pavel_picks_reaches_the_video():
 def test_subtitles_pavel_dragged_stay_where_he_put_them():
     render = section("Шаг render")
     assert "subY" in render and "хук" in render  # мешают — двигается хук или вставка, а не субтитры
+
+
+def test_a_hook_pavel_dragged_stays_where_he_put_it():
+    render = section("Шаг render")
+    assert "hookY" in render and "unsure" in render

@@ -138,7 +138,8 @@
         "accent": "#00AAFF",
         "bar": "#7CF2B0"
       },
-      "subY": 1150
+      "subY": 1150,
+      "hookY": 520
     },
     "uploads": {},
     "brief": ""
@@ -162,7 +163,7 @@
     "hook": {
       "mode": "outline",
       "size": 76,
-      "y": 420
+      "y": 520
     },
     "bar": {
       "pos": "top",

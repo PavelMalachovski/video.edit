@@ -163,3 +163,13 @@ test('answers keep where Pavel dragged the subtitles; outside the safe zone — 
   const { properties } = schema('answers.json').properties.style;
   assert.deepEqual([properties.subY.minimum, properties.subY.maximum], [240, 1440]);
 });
+
+test('answers keep where Pavel dragged the hook; outside the safe zone — refused', () => {
+  const p = parseAnswersBody({ answers: { hook: 'h1' }, style: { ...STYLE, hookY: 600 } }, QS);
+  assert.ok(!('error' in p) && p.style.hookY === 600, JSON.stringify(p));
+  for (const hookY of [150, 1400, '600', Number.NaN]) {
+    assert.ok('error' in parseAnswersBody({ answers: { hook: 'h1' }, style: { ...STYLE, hookY } }, QS), String(hookY));
+  }
+  const { properties } = schema('answers.json').properties.style;
+  assert.deepEqual([properties.hookY.minimum, properties.hookY.maximum], [200, 1330]);
+});

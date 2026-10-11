@@ -37,3 +37,17 @@ def test_a_subtitle_place_outside_the_safe_zone_is_refused(tmp_path, sub_y):
     job.root.mkdir(parents=True)
     with pytest.raises(ValueError, match="subY"):
         job.write("answers.json", {**FIXTURE["answers"], "style": {**FIXTURE["answers"]["style"], "subY": sub_y}})
+
+
+def test_the_hook_stays_where_the_variant_has_it_unless_pavel_moved_it():
+    answers = {**FIXTURE["answers"], "style": {k: v for k, v in FIXTURE["answers"]["style"].items() if k != "hookY"}}
+    variant = next(v for v in FIXTURE["styles"]["variants"] if v["id"] == answers["style"]["variant"])
+    assert final_style(FIXTURE["styles"], answers)["hook"].get("y") == variant["spec"]["hook"].get("y")
+
+
+@pytest.mark.parametrize("hook_y", [150, 1400, "500"])
+def test_a_hook_place_outside_the_safe_zone_is_refused(tmp_path, hook_y):
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    with pytest.raises(ValueError, match="hookY"):
+        job.write("answers.json", {**FIXTURE["answers"], "style": {**FIXTURE["answers"]["style"], "hookY": hook_y}})

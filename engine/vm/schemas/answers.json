@@ -21,6 +21,12 @@
         "variant": { "enum": ["A", "B", "C"] },
         "font": { "type": "string", "minLength": 1 },
         "hand": { "type": "string", "minLength": 1 },
+        "hookY": {
+          "description": "Куда Павел перетащил хук на превью: центр строки капсом, px кадра (титр — на той же высоте); нет — как в варианте.",
+          "type": "number",
+          "minimum": 200,
+          "maximum": 1330
+        },
         "subY": {
           "description": "Куда Павел перетащил субтитры на превью: центр блока, px кадра; нет — как в варианте.",
           "type": "number",

@@ -2,8 +2,10 @@
 // Коммит никогда не форсится: если ветку сдвинула сессия или Action, всё собирается заново от новой головы.
 import { apiBase, call, GitHubError, headers, ok, retryAfter, type GH } from './github.ts';
 
-/** Путь от корня репозитория → текст UTF-8. */
-export type FileMap = Record<string, string>;
+/** Путь от корня репозитория → текст UTF-8, байты в base64, готовый blob git по sha (файл другой ветки) или null —
+ *  удалить файл. */
+export type FileContent = string | { base64: string } | { sha: string } | null;
+export type FileMap = Record<string, FileContent>;
 export type DirEntry = { name: string; type: 'file' | 'dir'; sha: string; size: number };
 
 const JSON_BODY = { 'Content-Type': 'application/json' };
@@ -37,7 +39,15 @@ export async function commitFiles(gh: GH, branch: string, files: FileMap, messag
       if (!head) throw new GitHubError(`commit to ${branch}: no base branch ${opts.base}`, 404);
     }
     const parent = ok(await call<{ tree: { sha: string } }>(gh, 'GET', `${repo(gh)}/git/commits/${head}`), 'get commit');
-    const entries = Object.entries(files).map(([path, content]) => ({ path, mode: '100644', type: 'blob', content }));
+    const entries = await Promise.all(Object.entries(files).map(async ([path, content]) => {
+      const entry = { path, mode: '100644', type: 'blob' };
+      if (typeof content === 'string') return { ...entry, content };
+      if (content === null) return { ...entry, sha: null };
+      if ('sha' in content) return { ...entry, sha: content.sha };
+      const blob = ok(await call<{ sha: string }>(gh, 'POST', `${repo(gh)}/git/blobs`,
+        JSON.stringify({ content: content.base64, encoding: 'base64' }), JSON_BODY), `blob ${path}`);
+      return { ...entry, sha: blob.sha };
+    }));
     const tree = ok(await call<{ sha: string }>(gh, 'POST', `${repo(gh)}/git/trees`,
       JSON.stringify({ base_tree: parent.tree.sha, tree: entries }), JSON_BODY), 'create tree');
     const commit = ok(await call<{ sha: string }>(gh, 'POST', `${repo(gh)}/git/commits`,

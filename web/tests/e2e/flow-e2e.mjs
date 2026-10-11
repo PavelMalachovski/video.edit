@@ -106,6 +106,35 @@ const segments = [
     await page.waitForURL(`${APP}/`);
   }],
 
+  ['brand', async ({ page, tmp }) => {
+    await page.getByRole('link', { name: 'Мой бренд' }).click();
+    await page.waitForURL(`${APP}/brand`);
+    await page.locator('#handle').waitFor();
+    await page.fill('#handle', 'pavel.malakhouski');
+    const logo = path.join(tmp, 'brand-logo.png');
+    fs.writeFileSync(logo, PNG);
+    await page.setInputFiles('input[type=file]', logo);
+    await page.getByRole('img', { name: 'Логотип' }).waitFor();
+    await page.getByRole('button', { name: 'Розовый' }).first().click();
+    await page.getByRole('button', { name: 'Rubik', exact: true }).click();
+    await page.fill('#signature', 'Пишите в директ — отвечу лично');
+    await page.fill('#hashtags', '#монтаж reels');
+    await page.waitForFunction(() => document.querySelector('iframe')?.contentWindow?.layoutBoxes?.().hook);
+    await shot(page, 'brand');
+    await page.getByRole('button', { name: 'Сохранить' }).click();
+    await page.getByText('Сохранено').waitFor();
+    const r = await fetch(`${FAKE}/__file?ref=claude/brand&path=brand/brand.json`);
+    check(r.ok, `brand.json: ${r.status}`);
+    const brand = await r.json();
+    check(brand.handle === '@pavel.malakhouski' && brand.colors?.accent === '#FF5C8A' && brand.font === 'rubik' && brand.logo === 'logo.png'
+      && isDeepStrictEqual(brand.hashtags, ['монтаж', 'reels']) && brand.signature === 'Пишите в директ — отвечу лично', `brand.json: ${JSON.stringify(brand)}`);
+    await page.reload();
+    check(await page.inputValue('#handle') === '@pavel.malakhouski', 'бренд не прочитался после перезагрузки');
+    await page.getByRole('img', { name: 'Логотип' }).waitFor();
+    await page.getByRole('link', { name: '← Мои видео' }).click();
+    await page.waitForURL(`${APP}/`);
+  }],
+
   ['upload', async (ctx) => {
     const { page, tmp } = ctx;
     const source = path.join(tmp, 'clip.mov');
@@ -145,6 +174,10 @@ const segments = [
     check(f.length === 1 && f[0].step === 'analyze' && f[0].attempt === 1 && f[0].job === ctx.jobId, `запуски: ${JSON.stringify(f)}`);
     const left = await page.evaluate(() => localStorage.getItem('vm:pending'));
     check(left === null, 'vm:pending не удалён');
+    // задача взяла копию бренда: job.json.brand и логотип в своей папке
+    const job = JSON.parse((await branchFile(ctx, 'job.json')) ?? '{}');
+    check(job.brand?.handle === '@pavel.malakhouski' && job.brand?.logo === 'in/brand/logo.png', `job.json.brand: ${JSON.stringify(job.brand)}`);
+    check((await branchFile(ctx, 'in/brand/logo.png')) !== null, 'логотип бренда не скопирован в задачу');
   }],
 
   ['list', async (ctx) => {

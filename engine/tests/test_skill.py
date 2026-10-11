@@ -103,3 +103,11 @@ def test_emoji_are_allowed_as_pictures_but_not_in_subtitles():
     assert "Эмодзи" in texts and "картинками" in texts and "U+FE0F" in texts
     assert "В субтитрах\n  эмодзи нет" in texts or "В субтитрах эмодзи нет" in texts
     assert "убери их (и из своего\n  хука" not in texts  # старое «эмодзи — убери всегда» ушло
+
+
+def test_style_a_follows_pavels_brand():
+    style = section("2. Стиль A — домашний стиль Павла")
+    assert "job.json.brand" in style and "vm fonts" in style
+    page = section("Страница")
+    assert "brand" in page and "in/brand/logo.png" in page and "hashtags" in page
+    assert "бренда Павла" in section("Стили (styles.json)")

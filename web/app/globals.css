@@ -155,3 +155,9 @@ button.back.link { background: none; border: none; padding: 0; color: var(--acce
 .two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .two .btn { font-size: 16px; padding: 0 12px; }
 ul.plain { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 15px; line-height: 1.55; }
+
+/* мой бренд */
+.top-link { font-size: 14px; font-weight: 700; color: var(--text); text-decoration: none; min-height: 44px; display: flex; align-items: center;
+  padding: 0 14px; border: 1px solid var(--line); border-radius: 22px; }
+.brand-logo { max-width: 160px; max-height: 96px; border-radius: 10px; background: repeating-conic-gradient(#2a2c31 0 25%, #1f2125 0 50%) 0 0 / 16px 16px; }
+.ok { color: var(--ok); }

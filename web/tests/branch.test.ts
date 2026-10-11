@@ -70,3 +70,14 @@ test('listHeads returns only matching branches', () => withFake(async ({ fake, g
   const heads = await listHeads(gh, 'claude/job-');
   assert.deepEqual([...heads.entries()].sort(), [['claude/job-f1', a], ['claude/job-f2', b]]);
 }));
+
+test('commitFiles writes binary files from base64 and reuses a blob of another branch by sha', () => withFake(async ({ fake, gh }) => {
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 1, 2, 255]);
+  await commitFiles(gh, 'claude/brand', { 'brand/logo.png': { base64: png.toString('base64') }, 'brand/brand.json': '{}' }, 'brand', { base: 'master' });
+  const raw = await readRaw(gh, 'claude/brand', 'brand/logo.png');
+  assert.deepEqual(Buffer.from(await raw!.arrayBuffer()), png);
+  const entry = (await listDir(gh, 'claude/brand', 'brand'))!.find((e) => e.name === 'logo.png')!;
+  await commitFiles(gh, 'claude/job-e', { 'jobs/e/in/brand/logo.png': { sha: entry.sha } }, 'job', { base: 'master' });
+  const copied = await readRaw(gh, 'claude/job-e', 'jobs/e/in/brand/logo.png');
+  assert.deepEqual(Buffer.from(await copied!.arrayBuffer()), png);
+}));

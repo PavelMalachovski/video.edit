@@ -3,6 +3,7 @@
 // fix.json; сессия — status.json, questions.json, styles.json, result.json; Action — out/released.json.
 import { isUploadFile, MAX_NOTE } from './jobs.ts';
 import type { Step } from './routine.ts';
+import type { Brand } from './brand.ts';
 
 // ---------- status.json ----------
 
@@ -158,6 +159,7 @@ export type Run = { step: Step; attempt: number; at: string; sessionUrl?: string
 export type JobFile = {
   id: string; name: string; size: number; type: string; duration: number | null; createdAt: string;
   brief: string; uploads: UploadRef[]; runs: Run[];
+  brand?: Brand; // копия «Моего бренда» на момент старта; логотип — путь от папки задачи (in/brand/logo.png)
 };
 
 export function buildJobFile(m: Manifest, now: Date): JobFile {

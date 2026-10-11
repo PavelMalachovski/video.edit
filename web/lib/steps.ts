@@ -1,7 +1,8 @@
 // Шаги задачи: запуск анализа, ответы («Монтировать»), «Ещё три варианта», «Поправить», повтор и удаление.
 // Входные файлы шага, новая запись в job.json и статус «queued» ложатся одним коммитом ДО запуска рутины: сессия,
 // стартовав, уже видит всё в ветке. Текст запуска — только {job, step, attempt}.
-import { commitFiles, deleteBranch, readText } from './branch.ts';
+import { brandForJob } from './brand.ts';
+import { commitFiles, deleteBranch, readText, type FileMap } from './branch.ts';
 import { deleteRelease, findReleaseByTag, listAllAssets, readAssetText, type GH } from './github.ts';
 import { backStatus, buildJobFile, errorStatus, queuedStatus, type FixFile, type JobFile, type Manifest, type Run } from './jobfiles.ts';
 import { jobBranch, jobDir, jobTag } from './jobs.ts';
@@ -21,7 +22,7 @@ async function readJob(gh: GH, id: string): Promise<JobFile | null> {
  * затем запуск рутины. Сбой запуска — статус ошибки с её текстом и та же ошибка дальше. `opts.job` — старт: job.json
  * ещё нет, ветка создаётся от master (удалённую задачу другие шаги не воскрешают).
  */
-export async function runStep(d: Deps, id: string, step: Step, files: Record<string, string>, opts: { retry?: boolean; job?: JobFile } = {}): Promise<{ attempt: number; sessionUrl: string }> {
+export async function runStep(d: Deps, id: string, step: Step, files: FileMap, opts: { retry?: boolean; job?: JobFile } = {}): Promise<{ attempt: number; sessionUrl: string }> {
   const now = () => (d.now ?? (() => new Date()))();
   const dir = jobDir(id);
   const branch = jobBranch(id);
@@ -54,7 +55,7 @@ export async function runStep(d: Deps, id: string, step: Step, files: Record<str
   return { attempt, sessionUrl };
 }
 
-/** Первый шаг: job.json из manifest.json черновика и запуск анализа. */
+/** Первый шаг: job.json из manifest.json черновика (с копией бренда Павла и его логотипом) и запуск анализа. */
 export async function startJob(d: Deps, id: string): Promise<{ attempt: number; sessionUrl: string }> {
   const existing = await readJob(d.gh, id);
   if (existing?.runs.length) throw new Error('Анализ уже запущен');
@@ -63,7 +64,8 @@ export async function startJob(d: Deps, id: string): Promise<{ attempt: number; 
   const manifest = (await listAllAssets(d.gh, release.id)).find((a) => a.name === 'manifest.json');
   if (!manifest) throw new Error('Видео ещё не загружено до конца');
   const job = buildJobFile(JSON.parse(await readAssetText(d.gh, manifest.id)) as Manifest, (d.now ?? (() => new Date()))());
-  return runStep(d, id, 'analyze', {}, { job });
+  const brand = await brandForJob(d.gh);
+  return runStep(d, id, 'analyze', brand?.files ?? {}, { job: brand ? { ...job, brand: brand.brand } : job });
 }
 
 /** Повтор: шаг последнего запуска с попыткой + 1 (запусков не было — первый запуск). */

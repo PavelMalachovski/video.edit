@@ -27,7 +27,7 @@ async function find(roots, urlPath) {
   const rel = decodeURIComponent(urlPath.split('?')[0]).replace(/^\/+/, '');
   for (const root of roots) {
     const file = path.resolve(root, rel);
-    if (file !== root && !file.startsWith(root + path.sep)) continue;
+    if (!file.startsWith(root + path.sep)) continue; // только внутри корня (сам корень — папка, не файл)
     try {
       const st = await stat(file);
       if (st.isFile()) return { file, size: st.size };

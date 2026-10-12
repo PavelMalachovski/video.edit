@@ -242,6 +242,12 @@ const segments = [
 
   ['list', async (ctx) => {
     const { page } = ctx;
+    if (WEBKIT) { // переход со страницы задачи на список в WebKit застревал — по шагам, с временем
+      const t = Date.now();
+      console.log(`  страница задачи отвечает: ${await within(page.evaluate(() => document.readyState), 10_000)} за ${Date.now() - t} мс`);
+      await page.goto(`${APP}/`, { waitUntil: 'commit' });
+      console.log(`  переход начался (commit) за ${Date.now() - t} мс`);
+    }
     await page.goto(`${APP}/`);
     const row = page.locator(`[data-job="${ctx.jobId}"]`);
     await row.getByText('Запускаю сессию…').waitFor();
@@ -1008,10 +1014,52 @@ const page = await context.newPage();
 console.log(`браузер: ${BROWSER}`);
 // запросы, что ещё идут: при сбое видно, чего ждала страница (например, `load` так и не наступил)
 const inflight = new Map();
+const answered = new Map(); // запрос → код ответа (заголовки пришли, тело ещё может идти)
+const consoleTail = []; // последние сообщения консоли страницы
 page.on('request', (r) => inflight.set(r, Date.now()));
+page.on('response', (r) => answered.set(r.request(), r.status()));
 page.on('requestfinished', (r) => inflight.delete(r));
 page.on('requestfailed', (r) => inflight.delete(r));
 page.on('pageerror', (e) => console.log(`ошибка на странице: ${e.message}`));
+page.on('crash', () => console.log('страница упала (crash)'));
+page.on('console', (m) => {
+  consoleTail.push(`${m.type()}: ${m.text().slice(0, 300)}`);
+  if (consoleTail.length > 40) consoleTail.shift();
+});
+const within = (promise, ms) => Promise.race([promise, new Promise((ok) => setTimeout(() => ok(`не ответило за ${ms / 1000} с`), ms))]);
+
+/** Что видно при сбое: жива ли страница, чего она ждёт, отвечает ли сервер, открывается ли та же страница в новой вкладке,
+ *  сколько соединений держит браузер к серверу. */
+async function diagnose(name) {
+  const doc = await within(page.evaluate(() => ({ url: location.href, ready: document.readyState })).catch((e) => `ошибка: ${e.message.split('\n')[0]}`), 10_000);
+  console.log(`страница: ${JSON.stringify(doc)}`);
+  for (const [r, t] of inflight) {
+    console.log(`  ещё идёт ${Math.round((Date.now() - t) / 1000)} с: ${r.method()} ${r.resourceType()} ${r.url()} — ответ: ${answered.get(r) ?? 'нет'}`);
+  }
+  for (const port of [3000, 4010]) {
+    try {
+      const out = execFileSync('ss', ['-Htn', 'state', 'established', `( sport = :${port} )`]).toString().trim();
+      console.log(`соединений к :${port}: ${out ? out.split('\n').length : 0}`);
+    } catch (e) {
+      console.log(`ss: ${e.message.split('\n')[0]}`);
+    }
+  }
+  const cookie = (await within(context.cookies(), 10_000).then((c) => (Array.isArray(c) ? c.map((x) => `${x.name}=${x.value}`).join('; ') : ''), () => ''));
+  for (const url of [`${APP}/`, `${APP}/api/jobs`]) {
+    const t = Date.now();
+    const code = await fetch(url, { headers: { cookie }, redirect: 'manual', signal: AbortSignal.timeout(20_000) }).then((r) => r.status, (e) => e.message);
+    console.log(`сервер ${url}: ${code} за ${Date.now() - t} мс`);
+  }
+  const fresh = await within(context.newPage(), 10_000);
+  if (typeof fresh !== 'string') {
+    const t = Date.now();
+    const code = await fresh.goto(`${APP}/`, { timeout: 20_000 }).then((r) => r?.status(), (e) => e.message.split('\n')[0]);
+    console.log(`новая вкладка ${APP}/: ${code} за ${Date.now() - t} мс`);
+    if (process.env.E2E_SHOTS) await within(fresh.screenshot({ path: path.join(process.env.E2E_SHOTS, `FAIL-${name}-fresh.png`) }).catch(() => {}), 10_000);
+  } else console.log(`новая вкладка: ${fresh}`);
+  if (consoleTail.length) console.log(`консоль страницы (хвост):\n  ${consoleTail.join('\n  ')}`);
+  if (process.env.E2E_SHOTS) await within(page.screenshot({ path: path.join(process.env.E2E_SHOTS, `FAIL-${name}.png`), fullPage: true }).catch(() => {}), 10_000);
+}
 const ctx = { page, browser, tmp: fs.mkdtempSync(path.join(os.tmpdir(), 'vm-e2e-')), jobId: null, fires, state, branchFile, session, until, check };
 let code = 0;
 for (const [name, run] of segments) {
@@ -1020,10 +1068,7 @@ for (const [name, run] of segments) {
     console.log(`ok ${name}`);
   } catch (e) {
     console.log(`FAIL ${name}: ${e instanceof Error ? e.stack : e}`);
-    const doc = await page.evaluate(() => ({ url: location.href, ready: document.readyState })).catch(() => null);
-    console.log(`страница: ${JSON.stringify(doc)}`);
-    for (const [r, t] of inflight) console.log(`  ещё идёт ${Math.round((Date.now() - t) / 1000)} с: ${r.method()} ${r.resourceType()} ${r.url()}`);
-    if (process.env.E2E_SHOTS) await page.screenshot({ path: path.join(process.env.E2E_SHOTS, `FAIL-${name}.png`), fullPage: true }).catch(() => {});
+    await diagnose(name).catch((d) => console.log(`диагностика упала: ${d instanceof Error ? d.message : d}`));
     code = 1;
     break;
   }

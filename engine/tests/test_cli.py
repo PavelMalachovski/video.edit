@@ -91,7 +91,7 @@ def github(monkeypatch):
             if m := re.fullmatch(r"/repos/o/r/releases/assets/(\d+)", url.path):
                 assert self.headers.get("Accept") == "application/octet-stream"
                 self.send_response(302)
-                self.send_header("Location", f"/blob/{m[1]}")
+                self.send_header("Location", f"/blob/{int(m[1])}")
                 self.end_headers()
                 return None
             if m := re.fullmatch(r"/blob/(\d+)", url.path):

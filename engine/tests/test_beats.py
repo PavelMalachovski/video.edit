@@ -171,6 +171,28 @@ def test_a_short_track_from_its_middle_loops_from_its_start(tmp_path):
     assert snapped["zooms"][0]["t"] == pytest.approx(3.4, abs=0.02)
 
 
+@needs_ffmpeg
+def test_render_writes_the_beats_of_the_whole_track_for_the_editor(tmp_path):
+    """Доли всего трека — в beats.json (редактор ставит вставки на те же доли), а не только той части, что звучит в
+    ролике: от длины ролика и правок они не зависят."""
+    job, music = music_job(tmp_path, 12)
+    on_beats(job, edit_with(music=music, zooms=[{"t": 1.0, "level": 1.05}]), Timeline([(0.0, 3.0)], 1.0))
+    saved = job.read("beats.json")
+    assert saved["file"] == music["file"] and saved["length"] == pytest.approx(12.0, abs=0.01) and 117 <= saved["bpm"] <= 123
+    assert saved["times"][0] == pytest.approx(0.1, abs=0.02) and saved["times"][-1] > 11, "доли до конца трека, а не ролика"
+    assert saved["times"] == sorted(saved["times"])
+
+
+def test_beats_in_the_video_follow_where_the_track_plays_and_repeat_with_it():
+    times = [0.1, 0.6, 1.1, 1.6]  # трек 2 с
+    assert beats.beat_times(times, 4.0, 0.0, 0.0, 1.0) == [0.1, 0.6, 1.1, 1.6], "трек длиннее нужного (ролик и 2 с) — без повтора"
+    looped = beats.beat_times(times, 2.0, 0.0, 0.0, 3.0)
+    assert looped[:8] == pytest.approx([0.1, 0.6, 1.1, 1.6, 2.1, 2.6, 3.1, 3.6]), "короче ролика — по кругу"
+    late = beats.beat_times(times, 2.0, 1.3, 0.35, 1.0)
+    assert late[:3] == pytest.approx([1.55, 2.05, 2.55]), "с 1,3 с ролика и с 0,35 с трека; доли до from — нет"
+    assert beats.played(10.0, 1.0, 2.0, 5.0) == pytest.approx(8.0) and beats.played(3.0, 0.0, 0.0, 9.0) == 3.0
+
+
 def test_an_insert_does_not_jump_to_a_beat_across_a_join_into_another_piece():
     """Кусок 5–8 Павел поставил перед 0–3: доля на 3,05 с ролика — уже в куске 0–3. Вставка с 7,9 (2,9 с ролика) к ней
     не прыгает: на 0,05 с исходника она оказалась бы в другом месте записи (ревью фазы 4)."""

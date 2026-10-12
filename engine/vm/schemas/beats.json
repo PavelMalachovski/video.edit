@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://video.edit/schemas/beats.json",
+  "title": "beats.json — доли музыки ролика (пишет vm render, читает редактор на странице: вставки и зум встают на те же доли)",
+  "type": "object",
+  "required": ["file", "length", "bpm", "times"],
+  "additionalProperties": false,
+  "properties": {
+    "file": { "description": "Трек — как music.file в edit.json: доли годятся, только пока музыка та же.", "type": "string", "minLength": 1 },
+    "length": { "description": "Длина трека, с (не больше 600: дальше доли не разбираются).", "type": "number", "minimum": 0 },
+    "bpm": { "description": "Темп, уд/мин; ритма нет — 0.", "type": "number", "minimum": 0 },
+    "times": { "description": "Доли — секунды от начала трека, по возрастанию.", "type": "array", "items": { "type": "number", "minimum": 0 } }
+  }
+}

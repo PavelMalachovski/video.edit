@@ -4,9 +4,13 @@
 → сетка долей динамикой (D. Ellis, «Beat Tracking by Dynamic Programming», 2007): доля — на всплеске, соседние доли —
 примерно через период. Только numpy; трек читает ffmpeg (`load`).
 
-`track(y, sr)` → `Grid(bpm, times)`; `snap(t, times)` — ближайшая доля не дальше 0,25 с, иначе `t` как было;
+`track(y, sr)` → `Grid(bpm, times)`; `track_file(path)` — доли всего трека (с длиной, один раз на файл: их же
+`vm render` пишет в beats.json — редактор ставит вставки на те же доли); `beat_times` — доли во времени ролика (где и с
+какого места звучит трек, повтор по кругу); `snap(t, times)` — ближайшая доля не дальше 0,25 с, иначе `t` как было;
 `snap_edit(edit, tl, times)` — смены зума и появления вставок на долях (в шкале ролика), время речи и резка те же.
+Доли во времени ролика и `snap_edit` повторяет страница (web/lib/beats.ts, общая фикстура overlay-events.json).
 """
+import functools
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,6 +32,7 @@ TIGHTNESS = 100.0  # как строго соседние доли держат 
 SNAP = 0.25  # с — дальше этого событие к доле не двигается
 MIN_SHOWN = 0.3  # с — вставка, сдвинутая позже, остаётся на экране не меньше этого
 CHUNK = 2048  # кадров спектра за раз — чтобы длинный трек не занял сотни мегабайт
+MAX_TRACK = 600.0  # с — дальше трек на доли не разбираем: ролик столько не длится
 
 
 @dataclass(frozen=True)
@@ -131,6 +136,38 @@ def track(y: np.ndarray, sr: int = SR) -> Grid:
         return Grid(0.0, [])
     frames = _grid(env, period)
     return Grid(round(60 * fps / period, 1), [round((f * HOP + LAG) / SR, 4) for f in frames])
+
+
+@functools.lru_cache(maxsize=8)
+def _tracked(path: str, stamp: tuple[int, int]) -> tuple[Grid, float]:
+    y = load(Path(path), seconds=MAX_TRACK)
+    return track(y), round(len(y) / SR, 4)
+
+
+def track_file(path: Path) -> tuple[Grid, float]:
+    """Доли всего трека (до MAX_TRACK) и его длина, с; файл тот же (время и размер) — посчитанное раньше. Доли не
+    зависят от длины ролика и правок — их берёт и редактор."""
+    st = path.stat()
+    return _tracked(str(path), (st.st_mtime_ns, st.st_size))
+
+
+def played(length: float, at: float, skip: float, duration: float) -> float:
+    """Сколько трека нужно ролику (не больше самого трека): с места `skip`, звучит с `at` до конца ролика и ещё 2 с —
+    чтобы последняя доля нашлась."""
+    return min(length, skip + max(0.0, duration - at) + 2.0)
+
+
+def beat_times(times: list[float], length: float, at: float, skip: float, duration: float) -> list[float]:
+    """Доли во времени ролика: трек звучит с `at` ролика, с места `skip`; короче ролика — дальше по кругу целиком (с
+    начала), и доли повторяются с ним."""
+    want = skip + max(0.0, duration - at) + 2.0
+    period = played(length, at, skip, duration)
+    out = [at + t - skip for t in times if t >= skip]
+    start = at + period - skip
+    while period < want - 0.05 and start < duration + 2.0:
+        out += [start + t for t in times]
+        start += period
+    return out
 
 
 def snap(t: float, times: list[float], limit: float = SNAP) -> float:

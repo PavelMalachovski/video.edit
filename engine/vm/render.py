@@ -138,29 +138,23 @@ def variant_b(edit: dict) -> dict:
 
 def on_beats(job: Job, edit: dict, tl: Timeline) -> tuple[dict, dict | None]:
     """Монтаж в такт: с музыкой (и без `music.beats: false`) смены зума и появления вставок встают на её доли
-    (`beats.snap_edit`, не дальше 0,25 с). Трек звучит с начала ролика и по кругу — доли повторяются с ним.
+    (`beats.snap_edit`, не дальше 0,25 с). Трек звучит с начала ролика и по кругу — доли повторяются с ним. Доли трека
+    пишутся в beats.json: редактор на странице ставит вставки на те же доли.
     → (edit со сдвигами, {bpm, moved}); без музыки, файла или ритма в нём — (edit как был, None)."""
     music = edit.get("music")
     path = _resolve(job, music["file"]) if music and music.get("beats", True) else None
     if path is None:
         return edit, None
     at, skip = float(music.get("at") or 0.0), float(music.get("from") or 0.0)  # правка Павла: где и с какого места
-    want = skip + max(0.0, tl.duration - at) + 2.0  # доли дальше ролика не нужны; запас — чтобы последняя доля нашлась
     try:
-        y = beats.load(path, seconds=want)
+        grid, length = beats.track_file(path)
     except (subprocess.SubprocessError, OSError):
         return edit, None  # не читается — микс скажет об этом в missing
-    length = len(y) / beats.SR
-    if length < MIN_MUSIC or skip > length - MIN_MUSIC:
+    period = beats.played(length, at, skip, tl.duration)
+    if period < MIN_MUSIC or skip > period - MIN_MUSIC:
         return edit, None
-    grid = beats.track(y)
-    # доли во времени ролика: трек звучит с `at`, с места `from`; короче ролика — дальше по кругу целиком
-    times = [at + t - skip for t in grid.times if t >= skip]
-    start = at + length - skip
-    while length < want - 0.05 and start < tl.duration + 2.0:
-        times += [start + t for t in grid.times]
-        start += length
-    snapped, moved = beats.snap_edit(edit, tl, times)
+    job.write("beats.json", {"file": music["file"], "length": length, "bpm": grid.bpm, "times": grid.times})
+    snapped, moved = beats.snap_edit(edit, tl, beats.beat_times(grid.times, length, at, skip, tl.duration))
     return snapped, {"bpm": grid.bpm, "moved": moved}
 
 

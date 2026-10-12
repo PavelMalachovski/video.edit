@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { buildOverlayEvents, frameOf, insertSpans, layerBlocks, pyRound, renderTimeline, stateAt, type OverlayEdit } from '../lib/overlay.ts';
 import { buildSubEvents, subBlocks, type Word } from '../lib/subs.ts';
 import { Timeline } from '../lib/timeline.ts';
+import { beatTimes, musicBeats, played, snapEdit } from '../lib/beats.ts';
 import { lookWindows, transitionMarks, zoomAt, zoomLevels, type TransitionSpec, type Zoom } from '../lib/zoom.ts';
 
 // Общая с движком фикстура (engine/tests/shared_events.py): события субтитров и слоя — ровно как у движка, число в число.
@@ -18,6 +19,11 @@ const FIXTURE = JSON.parse(fs.readFileSync(new URL('../../engine/tests/fixtures/
   look: (Base & {
     edit: { zooms: Zoom[]; transitions: TransitionSpec[]; looks: { t0: number; t1: number }[] };
     zoom: [number, number][]; marks: { t: number; kind: string; source: number }[]; looks: [number, number][];
+  })[];
+  beats: (Base & {
+    grid: { length: number; times: number[] }; music: { at?: number; from?: number };
+    edit: { zooms: Zoom[]; inserts: { kind: string; t0: number; t1: number }[] };
+    times: number[]; zoomsAt: number[]; insertsAt: number[]; moved: number; played: number;
   })[];
 };
 type RenderCase = {
@@ -115,6 +121,27 @@ test('zoom, transitions at the joins and black-and-white pieces match the engine
     assert.deepStrictEqual(lookWindows(c.edit.looks, tl), c.looks, c.name);
   }
   assert.ok(FIXTURE.look.some((c) => c.zoom.some(([, z]) => z > 1.2)), 'в фикстуре есть смена крупности');
+});
+
+test('beats of the music in the video and what lands on them match the engine', () => {
+  for (const c of FIXTURE.beats) {
+    const tl = tlOf(c);
+    const at = c.music.at ?? 0;
+    const skip = c.music.from ?? 0;
+    assert.equal(played(c.grid.length, at, skip, tl.duration), c.played, c.name);
+    const times = beatTimes(c.grid.times, c.grid.length, at, skip, tl.duration);
+    assert.deepStrictEqual(times, c.times, c.name);
+    const { edit, moved } = snapEdit(c.edit, tl, times);
+    assert.deepStrictEqual(edit.zooms.map((z) => z.t), c.zoomsAt, c.name);
+    assert.deepStrictEqual(edit.inserts.map((i) => i.t0), c.insertsAt, c.name);
+    assert.equal(moved, c.moved, c.name);
+  }
+  const grid = { file: 'assets/music/a.mp3', length: 12, bpm: 120, times: [0.1, 0.6] };
+  assert.ok(musicBeats(grid, { file: 'assets/music/a.mp3' }, 5), 'та же музыка — её доли');
+  assert.equal(musicBeats(grid, { file: 'assets/music/b.mp3' }, 5), null, 'доли другого трека не годятся');
+  assert.equal(musicBeats(grid, { file: 'assets/music/a.mp3', beats: false }, 5), null, 'монтаж в такт выключен');
+  assert.equal(musicBeats(grid, null, 5), null, 'музыки нет (или она без звука)');
+  assert.equal(musicBeats(grid, { file: 'assets/music/a.mp3', from: 11.8 }, 5), null, 'трека после from не хватает');
 });
 
 test('rounding is Python’s: a frame on a half rounds to even, decimals by the exact value', () => {

@@ -544,3 +544,9 @@ def test_the_render_timeline_refuses_what_the_shared_fixture_refuses(bad):
 @pytest.mark.parametrize("case", SHARED["look"], ids=lambda c: c["name"])
 def test_zoom_transitions_and_looks_match_the_shared_fixture(case):
     assert json.loads(json.dumps(shared_events.look_case(case))) == {k: case[k] for k in ("zoom", "marks", "looks")}
+
+
+@pytest.mark.parametrize("case", SHARED["beats"], ids=lambda c: c["name"])
+def test_beats_of_the_video_and_snapping_match_the_shared_fixture(case):
+    got = json.loads(json.dumps(shared_events.beats_case(case)))
+    assert got == {k: case[k] for k in ("times", "zoomsAt", "insertsAt", "moved", "played")}

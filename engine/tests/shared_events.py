@@ -9,7 +9,7 @@ import json
 import sys
 from pathlib import Path
 
-from vm import transitions
+from vm import beats, transitions
 from vm.asr import Word
 from vm.overlay import build_overlay_events, insert_spans
 from vm.render import look_windows
@@ -192,6 +192,37 @@ LOOK = [
 ]
 
 
+# Монтаж в такт (render.on_beats без чтения файла: доли трека — как в beats.json): доли во времени ролика
+# (beats.beat_times) и сдвиг смен зума и появлений вставок на них (beats.snap_edit) — web/lib/beats.ts
+CLICKS = [round(0.1 + 0.5 * k, 4) for k in range(24)]  # трек 12 с, 120 уд/мин
+BEATS = [
+    {"name": "inserts and zooms land on beats within 0.25 s; a sharp change of shot stays at its cut",
+     "keep": [[0.0, 10.0]], "speed": 1.0, "teaser": None, "grid": {"length": 12.0, "times": CLICKS}, "music": {},
+     "edit": {"zooms": [{"t": 2.2, "level": 1.05}, {"t": 4.42, "level": 1.2, "over": 0}, {"t": 7.0, "level": 1.0}],
+              "inserts": [{"kind": "image", "t0": 3.45, "t1": 5.0}, {"kind": "image", "t0": 6.2, "t1": 6.4}]}},
+    {"name": "music later and from its middle; a short track repeats",
+     "keep": [[0.0, 3.0], [3.5, 9.0]], "speed": 1.1, "teaser": None, "grid": {"length": 4.0, "times": CLICKS[:8]},
+     "music": {"at": 1.3, "from": 0.35}, "edit": {"zooms": [{"t": 1.5, "level": 1.05}, {"t": 0.6, "level": 1.0}],
+                                                 "inserts": [{"kind": "sticker", "t0": 5.0, "t1": 7.0}, {"kind": "image", "t0": 8.6, "t1": 9.0}]}},
+    {"name": "pieces reordered by hand: an insert does not jump across a join into another piece",
+     "keep": [[5.0, 8.0], [0.0, 3.0]], "speed": 1.0, "teaser": None, "grid": {"length": 12.0, "times": [1.0, 3.05]}, "music": {},
+     "edit": {"zooms": [], "inserts": [{"kind": "image", "t0": 7.9, "t1": 8.0}, {"kind": "image", "t0": 5.9, "t1": 7.0}]}},
+    {"name": "with a teaser: no beat inside the teaser; the music starts after its end",
+     "keep": [[0.0, 9.0]], "speed": 1.25, "teaser": [5.0, 7.0], "grid": {"length": 12.0, "times": CLICKS},
+     "music": {"at": 2.0}, "edit": {"zooms": [{"t": 1.0, "level": 1.1}], "inserts": [{"kind": "image", "t0": 3.0, "t1": 4.0}]}},
+]
+
+
+def beats_case(case: dict) -> dict:
+    tl = _timeline(case)
+    music = case["music"]
+    at, skip = float(music.get("at") or 0.0), float(music.get("from") or 0.0)
+    times = beats.beat_times(case["grid"]["times"], case["grid"]["length"], at, skip, tl.duration)
+    snapped, moved = beats.snap_edit(case["edit"], tl, times)
+    return {"times": times, "zoomsAt": [z["t"] for z in snapped["zooms"]], "insertsAt": [i["t0"] for i in snapped["inserts"]],
+            "moved": moved, "played": beats.played(case["grid"]["length"], at, skip, tl.duration)}
+
+
 def look_case(case: dict) -> dict:
     tl = _timeline(case)
     edit = case["edit"]
@@ -233,6 +264,7 @@ def build() -> dict:
         "render": [{**case, **render_case(case)} for case in RENDER],
         "renderRefused": RENDER_REFUSED,
         "look": [{**case, **look_case(case)} for case in LOOK],
+        "beats": [{**case, **beats_case(case)} for case in BEATS],
     }
 
 
@@ -267,7 +299,8 @@ def dump(data: dict) -> str:
         out.append(f'  {json.dumps(refused)}: {_rows(data[refused], "  ")},')
     out.append(f'  "render": {_rows(data["render"], "  ")},')
     out.append(f'  "renderRefused": {_rows(data["renderRefused"], "  ")},')
-    out.append(f'  "look": {_rows(data["look"], "  ")}')
+    out.append(f'  "look": {_rows(data["look"], "  ")},')
+    out.append(f'  "beats": {_rows(data["beats"], "  ")}')
     out.append("}")
     return "\n".join(out) + "\n"
 

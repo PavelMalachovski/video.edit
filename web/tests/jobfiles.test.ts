@@ -128,6 +128,13 @@ test('fix versions: final.mp4, then final-v2.mp4', () => {
   assert.deepEqual(r.requests.map((n) => n.text), ['ярче', 'крупнее']);
 });
 
+test('a fix from the editor carries the revision of the hand edits and a new style', () => {
+  const f = appendFix(null, 'Правки в редакторе', NOW, { timeline: 3, style: true });
+  assert.deepEqual(f.fixes[0], { text: 'Правки в редакторе', at: NOW.toISOString(), version: 2, timeline: 3, style: true });
+  assert.deepEqual(appendFix(f, 'только стиль', NOW, { style: true }).fixes[1], { text: 'только стиль', at: NOW.toISOString(), version: 3, style: true });
+  assert.deepEqual(Object.keys(appendFix(null, 'x', NOW).fixes[0]), ['text', 'at', 'version'], 'правка текстом — как раньше');
+});
+
 test('parseNote trims and limits to 2000 chars', () => {
   assert.equal(parseNote({ text: '  сделай ярче  ' }), 'сделай ярче');
   assert.ok(typeof parseNote({ text: '   ' }) === 'object');

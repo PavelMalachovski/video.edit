@@ -313,3 +313,6 @@ def test_hand_edits_from_the_editor_are_known_and_left_alone():
     assert "timeline.json" in files and "edit_of" not in files
     fix = section("Шаг fix")
     assert "timeline" in fix and "edit.json не меняй" in fix
+    # новый стиль из редактора: он уже в answers.json — сессия берёт его через vm style, остальное в edit.json не трогает
+    assert "`style`" in fix and "vm style" in fix and "answers.json.style" in fix
+    assert "style: true" in files

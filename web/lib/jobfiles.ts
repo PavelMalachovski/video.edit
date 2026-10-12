@@ -254,7 +254,8 @@ const isNum = (x: unknown): x is number => typeof x === 'number' && Number.isFin
 /** id шрифта: встроенный (`montserrat`) или свой — имя файла из assets/fonts без расширения (кириллица и пробелы можно). */
 const isFontId = (x: unknown): x is string => isStr(x) && x.trim() !== '' && x.length <= 200 && !/[\u0000-\u001f\u007f/\\]/.test(x);
 
-function parseStyle(raw: unknown): StyleChoice | string {
+/** Стиль от страницы (ответы, «Монтировать» из редактора) → выбор; не так — что не так, по-русски. */
+export function parseStyle(raw: unknown): StyleChoice | string {
   if (!isObject(raw)) return 'style: нужен объект';
   const { variant, font, hand, colors } = raw;
   if (variant !== 'A' && variant !== 'B' && variant !== 'C') return 'style.variant: A, B или C';
@@ -353,7 +354,9 @@ export function answersFile(p: ParsedAnswers, job: JobFile): AnswersFile {
 
 export type Note = { text: string; at: string };
 export type RestyleFile = { requests: Note[] };
-export type FixFile = { fixes: (Note & { version: number })[] };
+/** Правка: текстом («Поправить») или «Монтировать» из редактора — `timeline` (ревизия timeline.json с правками руками) и
+ *  `style` (стиль поменян: новый — в answers.json). */
+export type FixFile = { fixes: (Note & { version: number; timeline?: number; style?: true })[] };
 
 export function parseNote(body: unknown): string | { error: string } {
   const text = isObject(body) && typeof body.text === 'string' ? body.text.trim() : '';
@@ -366,10 +369,16 @@ export function appendRestyle(prev: RestyleFile | null, text: string, now: Date)
   return { requests: [...(prev?.requests ?? []), { text, at: now.toISOString() }] };
 }
 
-/** Правка k получает версию k + 1: первый ролик — final.mp4, после первой правки — final-v2.mp4. */
-export function appendFix(prev: FixFile | null, text: string, now: Date): FixFile {
+/** Правка k получает версию k + 1: первый ролик — final.mp4, после первой правки — final-v2.mp4. `editor` — что
+ *  монтировать из редактора. */
+export function appendFix(prev: FixFile | null, text: string, now: Date, editor: { timeline?: number; style?: boolean } = {}): FixFile {
   const fixes = prev?.fixes ?? [];
-  return { fixes: [...fixes, { text, at: now.toISOString(), version: 2 + fixes.length }] };
+  return {
+    fixes: [...fixes, {
+      text, at: now.toISOString(), version: 2 + fixes.length,
+      ...(editor.timeline !== undefined ? { timeline: editor.timeline } : {}), ...(editor.style ? { style: true as const } : {}),
+    }],
+  };
 }
 
 export const wantedVersion = (fix: FixFile | null): number => 1 + (fix?.fixes.length ?? 0);

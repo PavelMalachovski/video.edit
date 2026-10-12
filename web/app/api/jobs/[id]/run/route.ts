@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { errorResponse } from '@/lib/http.ts';
 import { listAllAssets } from '@/lib/github.ts';
+import { editorFix, TIMELINE, timelineOf } from '@/lib/editordata.ts';
 import { answersFile, appendFix, appendRestyle, parseAnswersBody, parseNote } from '@/lib/jobfiles.ts';
 import { isJobId, verifyParts } from '@/lib/jobs.ts';
-import { canRun, loadJob, type Action } from '@/lib/jobview.ts';
+import { canRun, loadJob, readJobText, type Action } from '@/lib/jobview.ts';
 import { backStep, retryStep, runStep, startJob, type Deps } from '@/lib/steps.ts';
 import { gh, routine } from '@/lib/env.ts';
 
@@ -43,6 +44,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       }
       if (!files?.job) return NextResponse.json({ error: 'Задача не найдена' }, { status: 404 });
       return NextResponse.json(await runStep(d, id, 'render', { 'answers.json': json(answersFile(parsed, files.job)) }));
+    }
+    if (action === 'fix' && body && 'editor' in body) { // «Монтировать» из редактора: правки руками и стиль
+      const head = files?.head ?? null;
+      const { rev } = timelineOf(head ? await readJobText(d.gh, id, head, TIMELINE) : null);
+      const r = editorFix(body, { rev, answers: files?.answers ?? null, fix: files?.fix ?? null }, new Date());
+      if ('error' in r) return NextResponse.json({ error: r.error }, { status: r.status });
+      return NextResponse.json(await runStep(d, id, 'fix', r.files));
     }
     const text = parseNote(body);
     if (typeof text !== 'string') return NextResponse.json({ error: text.error }, { status: 400 });

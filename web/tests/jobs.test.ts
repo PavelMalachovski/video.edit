@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   newJobId, partName, chunkCount, CHUNK_SIZE, jobTag, jobBranch, jobDir, chunkName, uploadAssetName, isUploadFile, resolveJobPath,
-  imageType, checkSource, checkInsert, checkTotal, partsOf, verifyParts, MAX_SOURCE_BYTES, MAX_INSERT_BYTES,
+  imageType, audioType, audioPaths, checkSource, checkInsert, checkTotal, partsOf, verifyParts, MAX_SOURCE_BYTES, MAX_INSERT_BYTES,
   checkVoice, isVoiceFile, MAX_VOICE_BYTES, voiceAssetName,
 } from '../lib/jobs.ts';
 
@@ -69,6 +70,30 @@ test('only raster images are served', () => {
   assert.equal(imageType('F.PNG'), 'image/png');
   assert.equal(imageType('q-logo.jpg'), 'image/jpeg');
   assert.equal(imageType('x.webp'), 'image/webp');
+});
+
+test('sound for the editor: the engine\'s sound types, from the job folder, else from assets/ (as render finds it)', () => {
+  assert.equal(audioType('assets/music/a.MP3'), 'audio/mpeg');
+  assert.equal(audioType('x.m4a'), 'audio/mp4');
+  assert.equal(audioType('x.wav'), 'audio/wav');
+  assert.equal(audioType('x.ogg'), 'audio/ogg');
+  assert.equal(audioType('x.flac'), 'audio/flac');
+  assert.equal(audioType('x.aac'), 'audio/aac');
+  for (const bad of ['x.mp4', 'page.html', 'a.svg', 'mp3']) assert.equal(audioType(bad), null, bad);
+  // те же расширения, что SOUNDS движка (render.py)
+  const sounds = /^SOUNDS = \{([^}]*)\}/m.exec(readFileSync(new URL('../../engine/vm/render.py', import.meta.url), 'utf8'))?.[1] ?? '';
+  const engine = sounds.split(',').map((x) => x.trim().replace(/^"\.|"$/g, '')).filter(Boolean).sort();
+  assert.deepEqual(engine, ['aac', 'flac', 'm4a', 'mp3', 'ogg', 'wav']);
+  for (const ext of engine) assert.ok(audioType(`a.${ext}`), ext);
+
+  const id = '261010-070509-abcd';
+  assert.deepEqual(audioPaths(id, 'assets/music/a.mp3'), [`jobs/${id}/assets/music/a.mp3`, 'assets/music/a.mp3']);
+  assert.deepEqual(audioPaths(id, 'in/uploads/upload-voice.m4a'), [`jobs/${id}/in/uploads/upload-voice.m4a`]);
+  assert.deepEqual(audioPaths(id, './assets/sfx/../sfx/pop.wav'), [`jobs/${id}/assets/sfx/pop.wav`, 'assets/sfx/pop.wav']);
+  // выше папки задачи (как и выше репозитория) движок звук не берёт — и страница не отдаёт
+  for (const bad of ['../../assets/sfx/pop.wav', '../../engine/x.mp3', '/etc/a.mp3', 'a\\b.mp3', 'https://x/a.mp3', '']) {
+    assert.deepEqual(audioPaths(id, bad), [], bad);
+  }
 });
 
 test('size and type limits', () => {

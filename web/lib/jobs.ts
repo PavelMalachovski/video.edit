@@ -161,6 +161,39 @@ export function resolveJobPath(id: string, rel: string): string | null {
   return inJob || inAssets ? stack.join('/') : null;
 }
 
+/** Путь без `.` и `..` от корня; выход выше корня, `\\`, абсолютный путь или адрес — null. */
+function normalized(rel: string): string[] | null {
+  if (!rel || rel.includes('\\') || rel.startsWith('/') || /^[a-z]+:/i.test(rel)) return null;
+  const stack: string[] = [];
+  for (const part of rel.split('/')) {
+    if (part === '' || part === '.') continue;
+    if (part !== '..') stack.push(part);
+    else if (!stack.pop()) return null;
+  }
+  return stack.length ? stack : null;
+}
+
+/**
+ * Где искать звук из edit.json (музыка, звуки появления) — как `_resolve` движка: от папки задачи, не выходя из неё,
+ * потом от корня репозитория — но страница отдаёт оттуда только `assets/`. Нечего искать — [].
+ */
+export function audioPaths(id: string, rel: string): string[] {
+  const parts = normalized(rel);
+  if (!parts) return [];
+  const root = parts[0] === 'assets' && parts.length > 1 ? [parts.join('/')] : [];
+  return [`jobs/${id}/${parts.join('/')}`, ...root];
+}
+
+const AUDIO: Record<string, string> = {
+  mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', wav: 'audio/wav', ogg: 'audio/ogg', flac: 'audio/flac',
+};
+
+/** Тип звука, который можно отдать редактору: те же расширения, что SOUNDS движка (render.py). */
+export function audioType(path: string): string | null {
+  const ext = /\.([a-z0-9]+)$/i.exec(path)?.[1]?.toLowerCase();
+  return ext ? AUDIO[ext] ?? null : null;
+}
+
 /** Тип картинки, которую можно отдать странице (только растровые: SVG и HTML — нет). */
 export function imageType(path: string): string | null {
   const ext = /\.([a-z0-9]+)$/.exec(path.toLowerCase())?.[1];

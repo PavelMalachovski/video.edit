@@ -28,18 +28,21 @@ export async function listHeads(gh: GH, prefix: string): Promise<Map<string, str
 /**
  * Один коммит с файлами `files` в ветку `branch`. Ветки нет: с `opts.base` — коммит поверх головы `base` и новая
  * ветка, без него — GitHubError 404. Ответ 422 (ветку сдвинули или её уже создали) — всё заново от новой головы.
+ * `files` — функция: файлы считаются от головы, поверх которой коммит, на каждой попытке заново (её ошибка — коммита нет).
  */
-export async function commitFiles(gh: GH, branch: string, files: FileMap, message: string, opts: { base?: string } = {}): Promise<string> {
+export async function commitFiles(gh: GH, branch: string, files: FileMap | ((head: string) => Promise<FileMap>), message: string,
+  opts: { base?: string } = {}): Promise<string> {
   for (let attempt = 0; ; attempt++) {
     let head = await getHead(gh, branch);
     const create = head === null;
-    if (create) {
+    if (head === null) {
       if (!opts.base) throw new GitHubError(`commit to ${branch}: no such branch`, 404);
       head = await getHead(gh, opts.base);
       if (!head) throw new GitHubError(`commit to ${branch}: no base branch ${opts.base}`, 404);
     }
+    const map = typeof files === 'function' ? await files(head) : files;
     const parent = ok(await call<{ tree: { sha: string } }>(gh, 'GET', `${repo(gh)}/git/commits/${head}`), 'get commit');
-    const entries = await Promise.all(Object.entries(files).map(async ([path, content]) => {
+    const entries = await Promise.all(Object.entries(map).map(async ([path, content]) => {
       const entry = { path, mode: '100644', type: 'blob' };
       if (typeof content === 'string') return { ...entry, content };
       if (content === null) return { ...entry, sha: null };

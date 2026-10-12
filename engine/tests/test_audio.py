@@ -217,6 +217,26 @@ def test_only_the_part_of_the_track_in_the_video_is_measured(tmp_path):
     assert loudness_of(out, 1.0, 4.0) == pytest.approx(-14 - 18, abs=1.0)
 
 
+def test_the_part_measured_starts_where_pavel_starts_the_track(tmp_path):
+    """Павел пропустил тихое вступление (`from`): выравнивается по той части трека, что звучит в ролике, — с `from`."""
+    voice = bursts(tmp_path / "voice.wav", 3000, 6, "lt(t,0)")
+    music = synth(tmp_path / "music.wav", f"sine=f=440:r={RATE},volume='if(lt(t,8),0.5,8)':eval=frame", 20)
+    out, _, _, _ = mix(tmp_path, voice, speed=1.0, final_dur=6.0, music={"file": str(music), "gainDb": -18, "from": 8.0}, sfx=[])
+    assert loudness_of(out, 1.0, 4.0) == pytest.approx(-14 - 18, abs=1.0)
+
+
+def test_no_fade_in_means_the_music_starts_at_full_level(tmp_path):
+    """fadeIn 0 — без нарастания (afade с d=0 у ffmpeg — это 44100 отсчётов, почти секунда нарастания)."""
+    voice = bursts(tmp_path / "voice.wav", 3000, 6, "lt(t,0)")
+    music = synth(tmp_path / "music.wav", f"sine=f=200:r={RATE}", 10)
+    _, samples, rate, _ = mix(tmp_path, voice, speed=1.0, final_dur=6.0, sfx=[],
+                              music={"file": str(music), "gainDb": -14, "fadeIn": 0, "fadeOut": 0})
+    x = samples[0]
+    full = rms_db(x[int(2.0 * rate) : int(3.0 * rate)])
+    assert rms_db(x[int(0.05 * rate) : int(0.3 * rate)]) == pytest.approx(full, abs=1.0), "с первых долей секунды — в полную силу"
+    assert rms_db(x[int(5.6 * rate) : int(5.95 * rate)]) == pytest.approx(full, abs=1.0), "и без затухания до конца"
+
+
 def test_an_mp3_with_cover_art_is_leveled_too(tmp_path):
     voice = bursts(tmp_path / "voice.wav", 3000, 6, "lt(t,0)")
     art = tmp_path / "art.png"

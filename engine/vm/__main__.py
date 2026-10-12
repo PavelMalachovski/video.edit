@@ -51,7 +51,7 @@ from .render import (
     variant_ad,
     variant_b,
 )
-from .style import final_style
+from .style import final_style, merge_style
 from .timeline import Timeline
 from .zoom import zoom_at
 
@@ -203,7 +203,14 @@ def _style(args: argparse.Namespace) -> None:
     styles, answers = job.read("styles.json"), job.read("answers.json")
     validate("styles.json", styles)
     validate("answers.json", answers)
-    print(json.dumps(final_style(styles, answers), ensure_ascii=False, indent=2))
+    spec = final_style(styles, answers)
+    if args.onto:  # «Монтировать» из редактора: новый выбор поверх стиля ролика (правки текстом остаются)
+        fixes = job.read("fix.json").get("fixes") if job.path("fix.json").is_file() else None
+        before = fixes[-1].get("styleFrom") if fixes else None
+        if before and job.path("edit.json").is_file():
+            validate("answers.json", {**answers, "style": before})
+            spec = merge_style(final_style(styles, {"style": before}), job.read("edit.json")["style"], spec)
+    print(json.dumps(spec, ensure_ascii=False, indent=2))
 
 
 def _fonts(args: argparse.Namespace) -> None:
@@ -531,7 +538,9 @@ def _parser() -> argparse.ArgumentParser:
 
     command("validate", _validate, "файлы задачи по схемам и файлы, на которые они ссылаются")
 
-    command("style", _style, "итоговый стиль: вариант из answers.json с выбранными шрифтами и цветами (для edit.json.style)")
+    style = command("style", _style, "итоговый стиль: вариант из answers.json с выбранными шрифтами и цветами (для edit.json.style)")
+    style.add_argument("--onto", action="store_true",
+                       help="«Монтировать» из редактора со стилем: новый выбор поверх edit.json.style — правки текстом остаются")
 
     command("fonts", _fonts, "шрифты, в которых есть все буквы текста ролика, и чего каким не хватает")
 

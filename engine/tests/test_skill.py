@@ -314,5 +314,7 @@ def test_hand_edits_from_the_editor_are_known_and_left_alone():
     fix = section("Шаг fix")
     assert "timeline" in fix and "edit.json не меняй" in fix
     # новый стиль из редактора: он уже в answers.json — сессия берёт его через vm style, остальное в edit.json не трогает
-    assert "`style`" in fix and "vm style" in fix and "answers.json.style" in fix
+    assert "`style`" in fix and "vm style --onto" in fix and "answers.json.style" in fix
+    # правка текстом не спорит с правками руками: вырезанное Павлом возвращает он сам, в редакторе
+    assert "вырезал в редакторе" in fix and "unsure" in fix
     assert "style: true" in files

@@ -63,12 +63,13 @@ def _probe(path: Path) -> tuple[int | None, float | None]:
     return channels, duration
 
 
-def _loudness(path: Path, channels: int, seconds: float) -> float | None:
-    """Интегральная громкость (LUFS) первых `seconds` с файла в том виде, в каком он идёт в микс (стерео); не
-    меряется или тишина — None."""
+def _loudness(path: Path, channels: int, seconds: float, start: float = 0.0) -> float | None:
+    """Интегральная громкость (LUFS) `seconds` с файла с секунды `start` в том виде, в каком он идёт в микс (стерео);
+    не меряется или тишина — None."""
     try:
         err = subprocess.run(
-            ["ffmpeg", "-hide_banner", "-nostats", "-nostdin", "-t", _num(seconds), "-i", str(path), "-map", "0:a:0",
+            ["ffmpeg", "-hide_banner", "-nostats", "-nostdin", *(["-ss", _num(start)] if start > 0 else []), "-t", _num(seconds),
+             "-i", str(path), "-map", "0:a:0",
              "-af", f"{_source(channels)},ebur128", "-f", "null", "-"],
             check=True, capture_output=True, text=True, timeout=120,
         ).stderr
@@ -152,7 +153,7 @@ def audio_graph(
             inputs += ["-stream_loop", str(loops), *(["-ss", _num(skip)] if skip else []), "-i", str(path)]
             fade_in = min(float(music.get("fadeIn", FADE_IN)), plays)
             fade = min(float(music.get("fadeOut", FADE_OUT)), plays)
-            level = _loudness(path, channels, min(plays, length))
+            level = _loudness(path, channels, min(plays, length - skip), skip)  # та часть трека, что звучит в ролике
             if level is None:
                 warn(f"громкость музыки {path.name} не измерилась — трек без выравнивания к голосу")
             gain = float(music.get("gainDb", -14)) + (min(MUSIC_BOOST, VOICE_LUFS - level) if level is not None else 0.0)
@@ -160,8 +161,10 @@ def audio_graph(
             chains.append("[a_vo]asplit=2[a_vmix][a_vsc]")
             chains.append(
                 f"[{index}:a]{_source(channels)},{RETIME},volume={gain:.2f}dB,atrim=end={_num(plays)},"
-                f"afade=t=in:st=0:d={fade_in:g},afade=t=out:st={_num(plays - fade)}:d={_num(fade)},"
-                f"{delay}apad=whole_dur={end},atrim=end={end}[a_mu]"
+                # d=0 у afade — не «без нарастания», а 44100 отсчётов: нулевое — без фильтра
+                + (f"afade=t=in:st=0:d={fade_in:g}," if fade_in > 0 else "")
+                + (f"afade=t=out:st={_num(plays - fade)}:d={_num(fade)}," if fade > 0 else "")
+                + f"{delay}apad=whole_dur={end},atrim=end={end}[a_mu]"
             )
             chains.append(f"[a_mu][a_vsc]{DUCK}[a_md]")
             parts = ["[a_vmix]", "[a_md]"]

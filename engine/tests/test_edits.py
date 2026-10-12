@@ -48,6 +48,22 @@ def test_muted_music_is_no_music_and_without_music_there_is_nothing_to_adjust():
     assert edits.apply({**EDIT, "music": None}, {"rev": 1, "edits": [], "music": {"gainDb": -8}}, 5)["music"] is None
 
 
+def test_music_muted_by_hand_drops_the_ab_test_without_music():
+    """A/B «без музыки», а Павел выключил музыку в редакторе: версия B вышла бы такой же — второй версии нет (а не сбой
+    рендера, который просил бы сессию править edit.json, куда она для правок из редактора не лезет)."""
+    out = edits.apply({**EDIT, "ab": "music"}, {"rev": 1, "edits": [], "music": {"muted": True}}, 5)
+    assert out["music"] is None and out.get("ab") is None
+    teaser = {**EDIT, "ab": "teaser", "teaser": {"t0": 1, "t1": 2}}
+    assert edits.apply(teaser, {"rev": 1, "edits": [], "music": {"muted": True}}, 5)["ab"] == "teaser", "другой A/B — как был"
+
+
+def test_without_cuts_and_restores_the_session_pieces_stay_as_they_are():
+    """Только звук (edits пустой) — куски сессии как есть: не склеиваются и не округляются (как показывает редактор)."""
+    edit = {**EDIT, "keep": [[0, 1], [1, 2], [3, 3.02]]}
+    assert edits.apply(edit, {"rev": 1, "edits": [], "voice": {"gainDb": -3}}, 5)["keep"] == [[0, 1], [1, 2], [3, 3.02]]
+    assert edits.apply(edit, {"rev": 1, "edits": [{"op": "split", "t": 0.5}]}, 5)["keep"] == [[0, 2]], "правки есть — по общему правилу"
+
+
 def test_edits_that_cut_the_whole_video_are_named_not_rendered_empty():
     """Страница не даёт вырезать последний кусок, но timeline.json мог прийти и не от неё: пустой ролик — понятная
     ошибка про правки, а не сбой рендера."""

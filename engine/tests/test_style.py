@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from vm.job import Job
-from vm.style import final_style
+from vm.style import final_style, merge_style
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "style-merge.json").read_text(encoding="utf-8"))
 
@@ -117,3 +117,25 @@ def test_answers_take_insert_boxes_within_the_safe_zone(tmp_path):
     for bad in bad_boxes:
         with pytest.raises(ValueError, match="insertBoxes"):
             job.write("answers.json", {**FIXTURE["answers"], "insertBoxes": bad})
+
+
+# ---------- новый стиль из редактора поверх стиля ролика ----------
+
+
+def test_a_new_style_from_the_editor_keeps_what_text_fixes_changed():
+    """Стиль ролика = выбор Павла + правки текстом (затемнение и т. п.). Он поменял в редакторе цвет: новое — цвет, а
+    затемнение из правки текстом остаётся; поменял и затемнение — его выбор."""
+    old = {k: v for k, v in FIXTURE["answers"]["style"].items() if k != "subShade"}
+    base = final_style(FIXTURE["styles"], {"style": old})
+    ours = {**base, "subtitles": {**base["subtitles"], "shade": 0.4}}  # правка «затемни под субтитрами»
+    new = {**old, "colors": {**old["colors"], "accent": "#FF3B30"}}
+    theirs = final_style(FIXTURE["styles"], {"style": new})
+    merged = merge_style(base, ours, theirs)
+    assert merged["colors"]["accent"] == "#FF3B30" and merged["subtitles"]["shade"] == 0.4
+    assert merged == {**theirs, "subtitles": {**theirs["subtitles"], "shade": 0.4}}
+    shaded = final_style(FIXTURE["styles"], {"style": {**new, "subShade": 0.3}})
+    assert merge_style(base, ours, shaded)["subtitles"]["shade"] == 0.3, "затемнение поменял в редакторе — его выбор"
+    other = final_style(FIXTURE["styles"], {"style": {**old, "variant": "A"}})
+    assert merge_style(base, ours, other) == {**other, "subtitles": {**other["subtitles"], "shade": 0.4}}
+    gone = {k: v for k, v in theirs.items() if k != "hand"}
+    assert "hand" not in merge_style(base, ours, gone), "чего в новом стиле нет — нет и в итоге"

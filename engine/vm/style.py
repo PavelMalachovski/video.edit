@@ -50,3 +50,23 @@ def final_style(styles: dict, answers: dict) -> dict:
         if key in choice:
             spec[part][field] = choice[key]
     return spec
+
+
+_MISSING = object()
+
+
+def merge_style(base: dict, ours: dict, theirs: dict) -> dict:
+    """Новый стиль из редактора поверх стиля ролика: `base` — стиль по прошлому выбору Павла, `ours` — стиль ролика
+    (`edit.json.style`: тот выбор и правки текстом), `theirs` — стиль по новому выбору. Что Павел поменял (`base` ≠
+    `theirs`) — из `theirs`, остальное — как в `ours`: правки текстом (затемнение и т. п.) не теряются."""
+    out = copy.deepcopy(ours)
+    for key in {*base, *theirs}:
+        b, o, t = base.get(key, _MISSING), ours.get(key, _MISSING), theirs.get(key, _MISSING)
+        if isinstance(b, dict) and isinstance(o, dict) and isinstance(t, dict):
+            out[key] = merge_style(b, o, t)
+        elif b != t:
+            if t is _MISSING:
+                out.pop(key, None)
+            else:
+                out[key] = copy.deepcopy(t)
+    return out

@@ -208,6 +208,28 @@ def test_cli_style_prints_final_spec(tmp_path, capsys):
     assert json.loads(capsys.readouterr().out) == fixture["expected"]
 
 
+def test_cli_style_onto_lays_the_editor_style_over_the_video_style(tmp_path, capsys):
+    """«Монтировать» из редактора со стилем: в последней правке fix.json — прошлый выбор (`styleFrom`); `vm style
+    --onto` берёт из нового выбора только то, что Павел поменял, остальное — из edit.json.style (правки текстом)."""
+    fixture = json.loads((Path(__file__).parent / "fixtures" / "style-merge.json").read_text(encoding="utf-8"))
+    old = {k: v for k, v in fixture["answers"]["style"].items() if k != "subShade"}  # выбор Павла без затемнения
+    new = {**old, "colors": {**old["colors"], "accent": "#FF3B30"}}
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    job.write("styles.json", fixture["styles"])
+    job.write("answers.json", {**fixture["answers"], "style": new})
+    job.write("edit.json", {"speed": 1.0, "keep": [[0.0, 1.0]], "words": [], "hook": None, "cta": None, "inserts": [], "zooms": [],
+                            "face": {"x": 0.5, "y": 0.3}, "music": None, "hold": 0.0,
+                            "style": fixture["expected"]})  # стиль ролика: тот выбор + затемнение 0,6 из правки текстом
+    job.write("fix.json", {"fixes": [{"text": "Правки в редакторе", "at": "2026-10-12T15:00:00Z", "version": 2, "style": True, "styleFrom": old}]})
+    assert main(["style", str(job.root), "--onto"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["colors"]["accent"] == "#FF3B30" and out["subtitles"]["shade"] == 0.6
+    job.write("fix.json", {"fixes": [{"text": "x", "at": "2026-10-12T15:00:00Z", "version": 2}]})
+    assert main(["style", str(job.root), "--onto"]) == 0
+    assert "shade" not in json.loads(capsys.readouterr().out)["subtitles"], "прошлого выбора нет — новый стиль целиком"
+
+
 def test_fetch_rejects_a_size_mismatch(tmp_path, github, capsys):
     body = random.Random(4).randbytes(6000)
     files = parts("source", body, 3000)

@@ -12,7 +12,10 @@ import { isDeepStrictEqual } from 'node:util';
 import { finalStyle } from '../../lib/style.ts';
 
 const require = createRequire(import.meta.url);
-const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const playwright = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+// браузер прогона: chromium (как рендер движка) или webkit — Safari, как у Павла на iPhone (E2E_BROWSER)
+const BROWSER = process.env.E2E_BROWSER || 'chromium';
+const WEBKIT = BROWSER === 'webkit';
 
 const APP = 'http://127.0.0.1:3000';
 const FAKE = 'http://127.0.0.1:4010';
@@ -134,7 +137,10 @@ const STYLES = { ...FIXTURE.styles, sample: { ...FIXTURE.styles.sample, inserts:
   cover: { frames: [{ t: 1.2, image: 'cover-1.jpg' }, { t: 7.5, image: 'cover-2.jpg' }, { t: 21, image: 'cover-3.jpg' }], text: 'Как я учу чешский' } };
 
 /** Снимок экрана в папку E2E_SHOTS (если задана) — посмотреть вёрстку глазами. */
+/** Экран снят: на телефоне страница не шире экрана (вбок не листается) и, если просили, скриншот. */
 async function shot(page, name) {
+  const { inner, scroll } = await page.evaluate(() => ({ inner: window.innerWidth, scroll: document.documentElement.scrollWidth }));
+  if (inner <= 430) check(scroll <= inner + 1, `экран «${name}» шире телефона: ${scroll} px при ${inner} px`);
   if (process.env.E2E_SHOTS) await page.screenshot({ path: path.join(process.env.E2E_SHOTS, `${name}.png`), fullPage: true });
 }
 
@@ -710,7 +716,8 @@ const segments = [
     check([...((await card.locator('b').textContent()) ?? '')].length === 72, 'до «ещё» — 72 знака');
     await card.getByRole('button', { name: 'Скопировать подпись' }).click();
     await card.getByRole('button', { name: 'Скопировано' }).waitFor();
-    const copied = await page.evaluate(() => navigator.clipboard.readText());
+    // Chromium читает буфер обмена; у WebKit без разрешений — то, что страница туда записала (см. запуск)
+    const copied = await page.evaluate((webkit) => (webkit ? window.__copied?.at(-1) : navigator.clipboard.readText()), WEBKIT);
     check(copied === `${result.caption.text}\n\n#чешский #языки`, `скопировано: ${copied}`);
 
     const got = await page.request.get(`${APP}/api/jobs/${ctx.jobId}/download?name=final.mp4`, { maxRedirects: 0 });
@@ -771,6 +778,8 @@ const segments = [
     } catch {
       playable = false;
     }
+    // этот браузер WebM (VP9 и Opus) не играет — дорожки проверяем, пуск — нет
+    playable &&= await page.evaluate(() => document.createElement('video').canPlayType('video/webm; codecs="vp9, opus"') !== '');
     const proxy = await asset('proxy.mp4', playable ? fs.readFileSync(webm) : crypto.randomBytes(2048));
     const edit = {
       speed: 1.1, keep: [[0.2, 1.2], [1.6, 2.9]],
@@ -960,9 +969,21 @@ const segments = [
 
 // ---------- прогон ----------
 
-const browser = await chromium.launch();
-// контекст — чтобы открыть вторую вкладку с тем же входом; касания — чтобы тапать пальцем (мышь работает как раньше)
-const page = await (await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, permissions: ['clipboard-read', 'clipboard-write'] })).newPage();
+const browser = await playwright[BROWSER].launch();
+// контекст — чтобы открыть вторую вкладку с тем же входом; касания — чтобы тапать пальцем (мышь работает как раньше).
+// WebKit — iPhone 13 (Safari): буфер обмена без разрешений не читается — запоминаем, что страница в него пишет.
+const context = await browser.newContext(WEBKIT
+  ? { ...playwright.devices['iPhone 13'], viewport: { width: 390, height: 844 } }
+  : { viewport: { width: 390, height: 844 }, hasTouch: true, permissions: ['clipboard-read', 'clipboard-write'] });
+if (WEBKIT) {
+  await context.addInitScript(() => {
+    window.__copied = [];
+    if (!navigator.clipboard) return;
+    navigator.clipboard.writeText = async (text) => { window.__copied.push(text); };
+  });
+}
+const page = await context.newPage();
+console.log(`браузер: ${BROWSER}`);
 const ctx = { page, browser, tmp: fs.mkdtempSync(path.join(os.tmpdir(), 'vm-e2e-')), jobId: null, fires, state, branchFile, session, until, check };
 let code = 0;
 for (const [name, run] of segments) {

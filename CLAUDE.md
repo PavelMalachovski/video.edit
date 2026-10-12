@@ -31,6 +31,10 @@
   Порты заняты остатком прошлого прогона — `pgrep -af '[n]ext start|[f]ake-github'`.
 - Движок: `cd engine && python3 -m pytest -q -m "not slow"`; медленные — `-m slow` (~4 мин); `ruff check .` — из `engine/`.
 - Шаблон: `cd template && npm test`.
+- CI на GitHub (`.github/workflows/ci.yml`) гоняет всё это сам: на каждый пуш, на PR в `master` и каждую ночь на
+  `master`. e2e — в Chromium и в Safari (WebKit, iPhone 13: `E2E_BROWSER=webkit`); шаблон — ещё «Safari рисует как
+  рендер» (`template/tests/safari.test.mjs`, без WebKit локально пропускается); shellcheck и actionlint; поиск
+  уязвимостей — CodeQL (`.github/workflows/codeql.yml`). Скриншоты e2e — артефакты прогона.
 
 ## Как работаем
 - Без процессов superpowers (так попросил Павел): без отдельных планов, ревьюеров дизайна и журналов. Делаю сам,

@@ -1,0 +1,39 @@
+# Поиск уязвимостей в коде (CodeQL от GitHub): страница (TypeScript), движок (Python) и сами workflow. Находки — во
+# вкладке Security репозитория. На пуши (кроме веток задач), PR в master и раз в неделю — новые правила CodeQL.
+name: codeql
+on:
+  push:
+    branches-ignore: ['claude/job-*']
+  pull_request:
+    branches: [master]
+  schedule:
+    - cron: '41 4 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: codeql — ${{ matrix.language }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, python, actions]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:${{ matrix.language }}

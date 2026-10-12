@@ -207,3 +207,14 @@ def test_an_insert_pavel_switched_off_is_not_moved_to_a_beat_and_not_counted():
     out, moved = beats.snap_edit(edit, Timeline([(0.0, 9.0)], 1.0), [3.0, 6.0])
     assert [i["t0"] for i in out["inserts"]] == [2.9, 6.0]
     assert moved == 1
+
+
+def test_music_beats_are_taken_only_when_the_render_uses_them():
+    from vm.render import music_beats
+
+    grid = [0.1 + 0.5 * k for k in range(24)]
+    assert music_beats({"file": "a.mp3", "gainDb": -14}, grid, 12.0, 8.0)[:3] == [0.1, 0.6, 1.1]
+    assert music_beats({"file": "a.mp3", "gainDb": -14, "beats": False}, grid, 12.0, 8.0) is None, "монтаж не в такт"
+    assert music_beats(None, grid, 12.0, 8.0) is None, "музыки нет"
+    assert music_beats({"file": "a.mp3", "gainDb": -14}, [0.1], 0.4, 8.0) is None, "трек короче MIN_MUSIC"
+    assert music_beats({"file": "a.mp3", "gainDb": -14, "from": 11.8}, grid, 12.0, 8.0) is None, "с этого места трека почти не осталось"

@@ -141,6 +141,19 @@ def variant_b(edit: dict) -> dict:
     return {**edit, kind: None, "ab": None}
 
 
+def music_beats(music: dict | None, times: list[float], length: float, duration: float) -> list[float] | None:
+    """Доли музыки во времени ролика, если монтаж идёт в такт: музыка есть и не `beats: false`, её хватает с места
+    `from` (не меньше MIN_MUSIC) — иначе None, вставки и зум не двигаются. `times` и `length` — доли и длина трека.
+    То же решает редактор на странице (musicBeats в web/lib/beats.ts, фикстура overlay-events.json, раздел pipeline)."""
+    if not music or music.get("beats") is False:
+        return None
+    at, skip = float(music.get("at") or 0.0), float(music.get("from") or 0.0)  # правка Павла: где и с какого места
+    period = beats.played(length, at, skip, duration)
+    if period < MIN_MUSIC or skip > period - MIN_MUSIC:
+        return None
+    return beats.beat_times(times, length, at, skip, duration)
+
+
 def on_beats(job: Job, edit: dict, tl: Timeline) -> tuple[dict, dict | None]:
     """Монтаж в такт: с музыкой (и без `music.beats: false`) смены зума и появления вставок встают на её доли
     (`beats.snap_edit`, не дальше 0,25 с). Трек звучит с начала ролика и по кругу — доли повторяются с ним. Доли трека
@@ -150,16 +163,15 @@ def on_beats(job: Job, edit: dict, tl: Timeline) -> tuple[dict, dict | None]:
     path = _resolve(job, music["file"]) if music and music.get("beats", True) else None
     if path is None:
         return edit, None
-    at, skip = float(music.get("at") or 0.0), float(music.get("from") or 0.0)  # правка Павла: где и с какого места
     try:
         grid, length = beats.track_file(path)
     except (subprocess.SubprocessError, OSError):
         return edit, None  # не читается — микс скажет об этом в missing
-    period = beats.played(length, at, skip, tl.duration)
-    if period < MIN_MUSIC or skip > period - MIN_MUSIC:
+    times = music_beats(music, grid.times, length, tl.duration)
+    if times is None:
         return edit, None
     job.write("beats.json", {"file": music["file"], "length": length, "bpm": grid.bpm, "times": grid.times})
-    snapped, moved = beats.snap_edit(edit, tl, beats.beat_times(grid.times, length, at, skip, tl.duration))
+    snapped, moved = beats.snap_edit(edit, tl, times)
     return snapped, {"bpm": grid.bpm, "moved": moved}
 
 

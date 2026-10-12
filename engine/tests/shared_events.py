@@ -15,7 +15,7 @@ from pathlib import Path
 from vm import beats, edits, transitions
 from vm.asr import Word
 from vm.overlay import FPS, build_overlay_events, insert_spans
-from vm.render import BW_CSS_BRIGHTNESS, BW_CSS_CONTRAST, look_windows
+from vm.render import BW_CSS_BRIGHTNESS, BW_CSS_CONTRAST, look_windows, music_beats
 from vm.render import timeline as render_timeline
 from vm.subs import build_sub_events
 from vm.timeline import Timeline
@@ -31,7 +31,9 @@ NOTE = (
     "вспышка и смаз у каждого стыка по кадрам финала [n, значение] (transitions.flash_alpha — белизна 0..1, blur_sigma — "
     "sigma смаза по x, px кадра 1080); bwFilter — CSS-фильтр ч/б-кадра в превью: grayscale(1) brightness contrast "
     "(render.BW_CSS_BRIGHTNESS, BW_CSS_CONTRAST ↔ BW_FILTER в web/lib/picture.ts); beats — доли музыки в ролике и "
-    "что на них встаёт (web/lib/beats.ts); text — текст и вставки руками (edits.apply_text ↔ web/lib/edits.ts). "
+    "что на них встаёт (web/lib/beats.ts); text — текст и вставки руками (edits.apply_text ↔ web/lib/edits.ts); "
+    "pipeline — весь путь правок Павла до слоя, как у монтажа (edits.apply → render.timeline → render.music_beats и "
+    "beats.snap_edit → build_overlay_events ↔ withHandEdits, musicBeats, draftTracks, buildOverlayEvents). "
     "Времена слов и edit — по исходнику, событий — секунды финала; keep — в порядке финала. Пишет "
     "engine/tests/shared_events.py (python3 -m tests.shared_events из engine/)."
 )
@@ -232,6 +234,53 @@ BEATS = [
 ]
 
 
+# Весь путь правок Павла, как у монтажа: edits.apply (куски → звук → текст) → render.timeline → доли музыки
+# (render.music_beats → beats.snap_edit, как render.on_beats) → слой. Страница — withHandEdits, musicBeats, draftTracks
+# (web/tests/overlay.test.ts): тот же путь, что у кадра редактора.
+_LAYER_EDIT = {
+    "speed": 1.1, "keep": [[0.3, 2.5], [2.9, 9.5]], "teaser": None, "words": SPEECH, "style": _style("soft", 3),
+    "hook": {"text": "Как я снимаю", "until": 2.0}, "accents": [ACCENT],
+    "cta": {"t0": 7.2, "t1": 8.6, "lines": ["Пиши в комментариях"], "word": "ВИДЕО"},
+    "inserts": [{"kind": "image", "src": "assets/logos/tg.png", "t0": 1.0, "t1": 2.2, "x": 600, "y": 300, "w": 300},
+                {"kind": "image", "src": "c.png", "t0": 3.0, "t1": 4.0, "x": 100, "y": 100, "w": 300},
+                {"kind": "sticker", "text": "5 минут", "t0": 8.8, "t1": 9.3, "x": 120, "y": 1100, "w": 400}],
+    "zooms": [{"t": 3.3, "level": 1.08}, {"t": 6.5, "level": 1.0}], "looks": [], "transitions": [],
+    "music": {"file": "assets/music/a.mp3", "gainDb": -14}, "hold": 0.4,
+    "end": {"seconds": 1.5, "lines": ["Подпишись 🔥"], "handle": "@pavel", "logo": "brand/logo.png"},
+}
+PIPELINE = [
+    {"name": "pieces split, moved and cut; hook, title, accent and inserts fixed; words typed and removed; an insert off",
+     "duration": 9.6, "edit": _LAYER_EDIT, "grid": None,
+     "timeline": {"edits": [{"op": "split", "t": 5.0}, {"op": "move", "t0": 5.0, "t1": 9.5, "before": 2.9},
+                            {"op": "cut", "t0": 3.0, "t1": 3.4}],
+                  "text": {"hook": {"until": 1.5, "text": "Снимаю на телефон"}, "cta": {"at": [7.2, 8.6], "word": "ПЛАН"},
+                           "accents": [{"at": [5.0, 6.2], "t0": 5.22, "t1": 6.0}],
+                           "inserts": [{"at": [1.0, 2.2], "t1": 2.4}, {"at": [3.0, 4.0], "off": True}]},
+                  "words": [{"t0": 0.76, "t1": 1.08, "text": "вот"}, {"t0": 6.08, "t1": 6.4, "text": ""}]}},
+    {"name": "on the music's beats: inserts and zooms land on them; the music moved by hand moves the beats",
+     "duration": 9.6, "edit": _LAYER_EDIT, "grid": {"length": 12.0, "times": CLICKS},
+     "timeline": {"edits": [], "music": {"at": 0.3, "from": 0.2},
+                  "text": {"inserts": [{"at": [8.8, 9.3], "t0": 7.0, "t1": 8.0}]}}},
+    {"name": "the music switched off by hand: no beats, nothing moves",
+     "duration": 9.6, "edit": _LAYER_EDIT, "grid": {"length": 12.0, "times": CLICKS}, "timeline": {"edits": [], "music": {"muted": True}}},
+    {"name": "a teaser, the hook on the whole teaser; a track too short for beats",
+     "duration": 9.6, "edit": {**_LAYER_EDIT, "keep": [[0.3, 3.0], [3.3, 9.5]], "teaser": {"t0": 3.3, "t1": 4.8}, "style": _style("karaoke", 3, "plate")},
+     "grid": {"length": 0.4, "times": [0.1]},
+     "timeline": {"edits": [{"op": "cut", "t0": 0.3, "t1": 0.7}], "words": [{"t0": 3.42, "t1": 3.74, "text": "как,"}]}},
+]
+
+
+def pipeline_case(case: dict) -> dict:
+    edit = edits.apply(case["edit"], case["timeline"], case["duration"])
+    tl = render_timeline(edit, case["duration"])
+    grid = case["grid"]
+    times = music_beats(edit.get("music"), grid["times"], grid["length"], tl.duration) if grid else None
+    if times is not None:
+        edit, _ = beats.snap_edit(edit, tl, times)
+    return {"beatsUsed": times is not None, "events": build_overlay_events(edit, tl),
+            "insertSpans": [list(s) for s in insert_spans(edit, tl)]}
+
+
 def beats_case(case: dict) -> dict:
     tl = _timeline(case)
     music = case["music"]
@@ -341,6 +390,7 @@ def build() -> dict:
         "beats": [{**case, **beats_case(case)} for case in BEATS],
         "text": [{**case, "expected": text_case(case)} for case in TEXT],
         "textRefused": TEXT_REFUSED,
+        "pipeline": [{**case, **pipeline_case(case)} for case in PIPELINE],
     }
 
 
@@ -379,7 +429,8 @@ def dump(data: dict) -> str:
     out.append(f'  "bwFilter": {json.dumps(data["bwFilter"])},')
     out.append(f'  "beats": {_rows(data["beats"], "  ")},')
     out.append(f'  "text": {_rows(data["text"], "  ")},')
-    out.append(f'  "textRefused": {_rows(data["textRefused"], "  ")}')
+    out.append(f'  "textRefused": {_rows(data["textRefused"], "  ")},')
+    out.append(f'  "pipeline": {_rows(data["pipeline"], "  ")}')
     out.append("}")
     return "\n".join(out) + "\n"
 

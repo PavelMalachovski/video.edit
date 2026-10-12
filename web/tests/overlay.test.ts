@@ -6,6 +6,8 @@ import { buildSubEvents, subBlocks, type Word } from '../lib/subs.ts';
 import { Timeline } from '../lib/timeline.ts';
 import { beatTimes, musicBeats, played, snapEdit } from '../lib/beats.ts';
 import { BW_FILTER } from '../lib/picture.ts';
+import { draftTracks, parseDraft, timelineOf, withHandEdits, type LayerStyle } from '../lib/tracks.ts';
+import type { Edit, MusicAdjust, TextEdits, WordFix } from '../lib/edits.ts';
 import { blurSigma, flashAlpha, lookWindows, transitionMarks, zoomAt, zoomLevels, type TransitionSpec, type Zoom } from '../lib/zoom.ts';
 
 // Общая с движком фикстура (engine/tests/shared_events.py): события субтитров и слоя — ровно как у движка, число в число.
@@ -28,6 +30,11 @@ const FIXTURE = JSON.parse(fs.readFileSync(new URL('../../engine/tests/fixtures/
     edit: { zooms: Zoom[]; inserts: { kind: string; t0: number; t1: number }[] };
     times: number[]; zoomsAt: number[]; insertsAt: number[]; moved: number; played: number;
   })[];
+  pipeline: {
+    name: string; duration: number; edit: unknown; grid: { length: number; times: number[] } | null;
+    timeline: { edits: Edit[]; music?: MusicAdjust; text?: TextEdits; words?: WordFix[] };
+    beatsUsed: boolean; events: unknown[]; insertSpans: [number, number, number][];
+  }[];
 };
 type RenderCase = {
   name: string; keep: [number, number][]; speed: number; teaser: { t0: number; t1: number } | null; limit: number | null;
@@ -187,4 +194,25 @@ test('the state at a moment of the video is the event that covers it', () => {
   assert.deepStrictEqual(stateAt([], 1), {});
   assert.deepEqual([0, 0.999, 1, 2.5, 9, -1].map((t) => eventIndexAt(events, t)), [0, 0, 1, 1, 1, 0], 'номер события — по нему кадр перерисовывается');
   assert.equal(eventIndexAt([], 1), -1);
+});
+
+test('the whole way of Pavel\'s edits to the layer is the engine\'s: pieces, text and words, the music\'s beats (shared fixture)', () => {
+  // тот же путь, что у кадра редактора: правки кусков и музыки → доли (музыка выключена — без них) → дорожки с правками
+  // текста → события слоя; у движка — edits.apply → render.timeline → music_beats и snap_edit → build_overlay_events
+  for (const c of FIXTURE.pipeline) {
+    const draft = parseDraft(c.edit);
+    assert.ok(draft, c.name);
+    const edited = withHandEdits(draft, { edits: c.timeline.edits, music: c.timeline.music }, c.duration);
+    const music = c.timeline.music?.muted ? null : edited.draft.music;
+    const beats = c.grid && music ? musicBeats({ file: music.file, length: c.grid.length, bpm: 120, times: c.grid.times }, music,
+      timelineOf(edited.draft, c.duration).duration) : null;
+    assert.equal(beats !== null, c.beatsUsed, `${c.name}: доли`);
+    const tracks = draftTracks(edited.draft, {
+      style: (c.edit as { style: LayerStyle }).style, sourceDuration: c.duration, splits: edited.splits, beats,
+      fixes: { text: c.timeline.text, words: c.timeline.words },
+    });
+    const { edit, tl } = tracks.layer;
+    assert.deepStrictEqual(insertSpans(edit, tl), c.insertSpans, `${c.name}: кадры вставок`);
+    assert.deepStrictEqual(plain(buildOverlayEvents(edit, tl)), c.events, c.name);
+  }
 });

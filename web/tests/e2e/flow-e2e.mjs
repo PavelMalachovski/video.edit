@@ -831,7 +831,8 @@ const segments = [
     const media = {
       duration: 3, proxy: { file: 'out/proxy.mp4', width: 540, height: 960, key: 0.5 }, film: { file: 'film.jpg', step: 0.5, w: 54, h: 96, n: 6 },
       peaks: { perS: 50, data: Buffer.from(Array.from({ length: 150 }, (_, i) => Math.round(127 + 120 * Math.sin(i / 4)))).toString('base64') },
-      videos: [{ name: 'clip.mov', t0: 0, t1: 1.4 }, { name: 'clip2.mov', t0: 1.4, t1: 3 }], // стык видео — в вырезанном между кусками
+      // стык видео — в вырезанном между кусками; третье видео (последние 0,05 с) вырезано целиком
+      videos: [{ name: 'clip.mov', t0: 0, t1: 1.4 }, { name: 'clip2.mov', t0: 1.4, t1: 2.95 }, { name: 'clip3.mov', t0: 2.95, t1: 3 }],
     };
     engineValidate('editor.json', media);
     const released = JSON.parse((await branchFile(ctx, 'out/released.json')) ?? '{}');
@@ -847,7 +848,7 @@ const segments = [
     await page.locator('.ed-piece').first().waitFor({ timeout: 10_000 });
     check(await page.locator('.ed-piece').count() === 2, 'два куска на дорожке «Видео»');
     check(isDeepStrictEqual(await page.locator('.ed-piece .ed-vno').allTextContents(), ['1', '2']), 'на кусках — номер видео задачи');
-    check(isDeepStrictEqual(await page.locator('.ed-videos li .grow').allTextContents(), ['clip.mov', 'clip2.mov']), 'список видео задачи');
+    check(isDeepStrictEqual(await page.locator('.ed-videos li .grow').allTextContents(), ['clip.mov', 'clip2.mov', 'clip3.mov']), 'список видео задачи');
     check(await page.locator('.ed-cut').count() === 3, 'вырезанное: до, между и после кусков');
     const subs = await page.locator('.ed-clip.sub').allTextContents();
     check(isDeepStrictEqual(subs, ['Привет, это мой', 'новый ролик']), `субтитры по кускам: ${JSON.stringify(subs)}`);
@@ -900,6 +901,11 @@ const segments = [
 
     const pieces = page.locator('.ed-piece');
     const bar = page.locator('.ed-bar');
+    // видео, вырезанное целиком, — «Вернуть» из списка видео: оно встаёт куском (за куском перед ним в исходнике); отмена
+    await page.locator('.ed-videos li', { hasText: 'clip3.mov' }).getByRole('button', { name: 'Вернуть' }).click();
+    await until(async () => isDeepStrictEqual(await page.locator('.ed-piece .ed-vno').allTextContents(), ['1', '2', '3']), 3000, 'третье видео вернулось куском');
+    await bar.getByRole('button', { name: 'Отменить' }).click();
+    await until(async () => (await pieces.count()) === 2, 3000, 'отмена: третье видео снова вырезано');
     // удалить второй кусок и отменить
     await pieces.nth(1).click();
     await page.locator('.ed-insp').getByText('Видео 2 «clip2.mov» · 0:00.2–0:01.5').waitFor({ timeout: 3000 }); // время — в своём файле

@@ -451,9 +451,11 @@ ul.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:
   background: var(--e-ink); color: #fff; flex: none; }
 .ed-vno.on-piece { position: absolute; left: 14px; top: 4px; opacity: .85; pointer-events: none; }
 .ed-videos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.ed-videos button { width: 100%; display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 10px; border-radius: 9px; border: 1px solid var(--e-line);
-  background: var(--e-surface); color: var(--e-ink); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
-.ed-videos button:disabled { cursor: default; opacity: .55; }
+.ed-videos li { display: flex; gap: 6px; align-items: center; }
+.ed-videos li > .ed-btn { flex: none; }
+.ed-videos li > button:first-child { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 10px; border-radius: 9px;
+  border: 1px solid var(--e-line); background: var(--e-surface); color: var(--e-ink); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.ed-videos li > button:first-child:disabled { cursor: default; opacity: .55; }
 .ed-videos .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ed-drop { position: absolute; top: 0; bottom: 0; width: 0; margin-left: -2px; border-left: 4px solid var(--e-select); border-radius: 2px; z-index: 5; pointer-events: none; }
 .ed-clip.music.dragging { cursor: grabbing; opacity: .85; }

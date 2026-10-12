@@ -734,6 +734,11 @@ export default function Editor({ id }: { id: string }) {
                         <span className="grow">{v.name}</span>
                         <span className="mono">{first ? tenths(v.t1 - v.t0) : T('videoCut')}</span>
                       </button>
+                      {!first && editable ? ( // вырезано целиком — вернуть всё видео (как «＋», только сразу всё)
+                        <button type="button" className="ed-btn" title={T('restoreVideoT')} onClick={() => edit(restoreSpan(hand, v.t0, v.t1))}>
+                          {T('restoreVideo')}
+                        </button>
+                      ) : null}
                     </li>
                   );
                 })}

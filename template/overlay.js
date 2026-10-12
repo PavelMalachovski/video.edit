@@ -259,22 +259,26 @@ function subExtent(mode, size) {
 
 // Мягкое пятно под субтитрами (spec.subtitles.shade, решение Павла 12.10.2026): размытый тёмный прямоугольник под
 // видимыми строками, чтобы их было видно на светлом фоне. shade — насколько темнее фон в середине пятна (0..0,8);
-// поля, скругление и размытие — доли кегля. Раскладку не меняет и в рамку для проверок не входит.
+// поля, скругление и размытие — доли кегля. Раскладку не меняет и в рамку для проверок не входит. Слой #shade — под
+// вставками: его мягкий край не затемняет логотип или стикер рядом с субтитрами.
 const SHADE = { x: 0.55, y: 0.45, radius: 0.8, blur: 0.38 };
 
-function drawShade(root, shade, rect, px) {
+function drawShade(shade, rect, px) {
   const amount = Number(shade);
   if (!rect || !(amount > 0)) return;
+  const root = document.getElementById('shade');
   const spot = el('div', 'shade');
   place(spot, grow(rect, SHADE.x * px, SHADE.y * px), {
     background: `rgba(0, 0, 0, ${Math.min(amount, 1)})`,
     borderRadius: `${SHADE.radius * px}px`,
     filter: `blur(${SHADE.blur * px}px)`,
   });
-  root.prepend(spot);
+  root.append(spot);
+  root.hidden = false;
 }
 
 function drawSub({ spec, main }, sub) {
+  layer('shade');
   const root = layer('sub');
   if (!sub || !Array.isArray(sub.words) || sub.words.length === 0) return null;
   root.hidden = false;
@@ -346,7 +350,7 @@ function drawSub({ spec, main }, sub) {
   if (mode === 'plate') place(plate, shift(grow(words0, ext.x, ext.y), dy), { background: c.plate, borderRadius: `${Math.round(0.28 * px)}px` });
   if (bar) place(underline, shift(bar, dy), { background: c.accent, borderRadius: `${(bar.bottom - bar.top) / 2}px` });
   const said = spans.filter((_, i) => i < visible).map((s) => wordRect(s, main, px)); // блок уже на месте
-  drawShade(root, spec.subtitles.shade, said.length ? union([...said, bar && shift(bar, dy)]) : null, px);
+  drawShade(spec.subtitles.shade, said.length ? union([...said, bar && shift(bar, dy)]) : null, px);
   return box(shift(outer, dy));
 }
 
@@ -465,7 +469,7 @@ function drawSoftSub(root, { spec, main }, sub) {
   const shown = rows.map((_, k) => k).filter((k) => rows[k].shown);
   const all = shown.length ? union(shown.map(inkOf)) : null;
   const before = shown.length > 1 ? union(shown.slice(0, -1).map(inkOf)) : null;
-  drawShade(root, spec.subtitles.shade, before && p < 1 ? lerpRect(before, all, p) : all, px);
+  drawShade(spec.subtitles.shade, before && p < 1 ? lerpRect(before, all, p) : all, px);
   rows.forEach(({ row, shown: on }, k) => {
     if (!on) {
       row.style.visibility = 'hidden';

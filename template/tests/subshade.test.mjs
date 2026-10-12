@@ -68,7 +68,7 @@ test('no shade by default: beside the line the frame stays clear', async () => {
   assert.ok((await alphaAt(...leftOf(first))) < 8);
   await render(spec({ shade: 0 }), { sub: { words: WORDS, active: 0, visible: 6, lines: [3, 3], t: 1 } });
   assert.ok((await alphaAt(...leftOf(first))) < 8, 'shade 0 — выключено');
-  assert.equal(await page.evaluate(() => document.querySelectorAll('#sub .shade').length), 0);
+  assert.equal(await page.evaluate(() => document.querySelectorAll('#shade .shade').length), 0);
 });
 
 test('shade: the background under the lines is darker by the amount, the edge dissolves, far away is clear', async () => {
@@ -132,4 +132,30 @@ test('shade: other subtitle modes get it too', async () => {
     const dark = await alphaAt(...leftOf(line, 0.5));
     assert.ok(clear < 8 && dark > 0.3 * 255, `${mode}: ${clear} → ${dark}`);
   }
+});
+
+test('shade: it lies under the inserts — a sticker right above the subtitles keeps its colour', async () => {
+  const sub = { words: WORDS, active: 0, visible: 6, lines: [3, 3], t: 1 };
+  const sticker = (y) => ({ kind: 'text', text: 'стикер', x: 330, y, w: 300, anim: 1, t: 0, params: { tone: 'light' } });
+  await render(spec(), { sub, inserts: [sticker(1000)] });
+  const first = await page.evaluate(() => window.layoutBoxes());
+  const y = 1000 + (first.sub.y - 10) - (first.inserts[0].y + first.inserts[0].h); // низ рамки стикера — в 10 px над субтитрами
+  const look = async (shade) => {
+    await render(spec({ shade }), { sub, inserts: [sticker(y)] });
+    const ib = (await page.evaluate(() => window.layoutBoxes())).inserts[0];
+    return pixels(page, scratch, { x: ib.x, y: ib.y, width: ib.w, height: ib.h });
+  };
+  const plain = await look(0);
+  const shaded = await look(0.6);
+  let solid = 0;
+  let worst = 0;
+  let reached = 0;
+  for (let k = 0; k < plain.length; k += 4) {
+    if (plain[k + 3] === 255) { // сам стикер: плашка и буквы
+      solid++;
+      for (let c = 0; c < 3; c++) worst = Math.max(worst, Math.abs(plain[k + c] - shaded[k + c]));
+    } else if (shaded[k + 3] > plain[k + 3] + 20) reached++; // у края стикера пятно видно
+  }
+  assert.ok(solid > 5000 && reached > 500, `стикер ${solid} px, пятно до него дотянулось на ${reached} px`);
+  assert.ok(worst <= 2, `пятно легло на стикер: разница до ${worst}`);
 });

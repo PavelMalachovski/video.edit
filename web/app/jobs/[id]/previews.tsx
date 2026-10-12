@@ -233,9 +233,9 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
     changed: choice.hookY !== undefined || choice.hookSize !== undefined, reset: reset('hookY', 'hookSize'),
   };
   const movable = ending ? [] : state.hook ? [hookPart, subs] : [subs]; // хук настраивается, когда он есть на превью
-  // мягкое пятно под субтитрами — в процентах на ползунке; 0 — выключено (поле выбора убирается)
+  // мягкое пятно под субтитрами — в процентах на ползунке; 0 — выключено (и тогда, когда пятно есть у самого варианта)
   const shade = Math.round((spec.subtitles.shade ?? 0) * 100);
-  const setShade = (pct: number) => (pct > 0 ? set('subShade')(pct / 100) : reset('subShade')());
+  const setShade = (pct: number) => set('subShade')(pct / 100);
   // вставки на крупном превью, у которых есть ключ (question, src или id стикера-тезиса): перетаскиваются куда угодно;
   // размер — щипком, уголком и кнопками. Рамка — от шаблона (вместе с тенью), высота — по ней
   const sized = state.inserts.flatMap((ins, i) => {

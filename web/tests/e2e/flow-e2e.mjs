@@ -494,7 +494,12 @@ const segments = [
     await shade.focus();
     for (let k = 0; k < 12; k++) await shade.press('ArrowRight');
     await until(async () => (await bigSpec()).subtitles.shade === 0.6, 5000, 'пятно под субтитрами — 60 %');
-    await until(async () => (await page.frameLocator('iframe[data-big]').locator('#sub .shade').count()) === 1, 5000, 'на крупном превью — пятно');
+    const spots = () => page.frameLocator('iframe[data-big]').locator('#shade .shade').count();
+    await until(async () => (await spots()) === 1, 5000, 'на крупном превью — пятно');
+    await shade.press('Home'); // до конца влево — выключено
+    await until(async () => (await bigSpec()).subtitles.shade === 0 && (await spots()) === 0, 5000, 'пятно выключено');
+    for (let k = 0; k < 12; k++) await shade.press('ArrowRight');
+    await until(async () => (await bigSpec()).subtitles.shade === 0.6 && (await spots()) === 1, 5000, 'пятно снова 60 %');
     // вставка из ТЗ (картинка из ответа после перезагрузки уже не видна): уголок ⤢ вправо на 27 px — ×1,2; «больше» — +20 px
     const insertW = restyled.sample.inserts[1].w;
     const bigInsert = async () => JSON.parse(await big.getAttribute('data-state')).inserts.find((i) => i.key === 'q-logo.png');

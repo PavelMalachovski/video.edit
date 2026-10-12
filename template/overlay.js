@@ -973,6 +973,10 @@ async function draw(spec, state, opts) {
   const card = drawEnd(look, s.end, s.end?.logo ? await logoImage(s.end.logo) : null);
   if (card) boxes.end = card;
   drawBar(spec, opts?.bar);
+  // картинки эмодзи на кадре готовы до ответа: кадр финала снимают сразу. Обычно <img> берёт уже загруженную loadEmoji
+  // картинку мгновенно, но не всегда (в CI раз попался пустой) — тогда ждём её здесь
+  await Promise.all(emojiImages(document.getElementById('frame')).filter((img) => !img.complete || !img.naturalWidth)
+    .map((img) => img.decode().catch(() => undefined)));
   lastBoxes = boxes;
 }
 

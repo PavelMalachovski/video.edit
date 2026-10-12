@@ -449,6 +449,7 @@ test('emoji in the hook are pictures from emoji/, the trailing one goes with the
   const [fire, ...rest] = await emojiIn('#hook .hand');
   assert.equal(rest.length, 0);
   assert.equal(fire.file, '1f525.png');
+  assert.ok(fire.done, 'картинка готова, когда renderState ответил: кадр финала снимают сразу');
   assert.deepEqual(fire.natural, [136, 128]);
   assert.equal(fire.alt, '🔥');
   assert.ok((await fiery(fire)) > 0.1, 'огонь нарисован картинкой');

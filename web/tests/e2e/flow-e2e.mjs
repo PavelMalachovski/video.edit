@@ -1016,7 +1016,11 @@ const segments = [
 
 // ---------- прогон ----------
 
-const browser = await playwright[BROWSER].launch();
+// вывод самого браузера (stderr WebKit и т. п.) — в лог прогона: при зависании видно, что он говорил
+const browserLog = [];
+const browser = await playwright[BROWSER].launch({
+  logger: { isEnabled: (name) => name === 'browser', log: (name, _severity, message) => { browserLog.push(String(message).slice(0, 300)); if (browserLog.length > 60) browserLog.shift(); } },
+});
 // контекст — чтобы открыть вторую вкладку с тем же входом; касания — чтобы тапать пальцем (мышь работает как раньше).
 // WebKit — iPhone 13 (Safari): буфер обмена без разрешений не читается — запоминаем, что страница в него пишет.
 const context = await browser.newContext(WEBKIT
@@ -1077,6 +1081,33 @@ async function diagnose(name) {
     if (process.env.E2E_SHOTS) await within(fresh.screenshot({ path: path.join(process.env.E2E_SHOTS, `FAIL-${name}-fresh.png`) }).catch(() => {}), 10_000);
   } else console.log(`новая вкладка: ${fresh}`);
   if (consoleTail.length) console.log(`консоль страницы (хвост):\n  ${consoleTail.join('\n  ')}`);
+  if (browserLog.length) console.log(`браузер (хвост):\n  ${browserLog.join('\n  ')}`);
+  // опыты на свежих вкладках: застревает ли переход после перехода внутри приложения (pushState) и после выбора видео
+  const probe = async (label, setup) => {
+    const p = await within(context.newPage(), 10_000);
+    if (typeof p === 'string') return console.log(`опыт «${label}»: вкладка ${p}`);
+    try {
+      await setup(p);
+      const t = Date.now();
+      const r = await p.goto(`${APP}/script`, { timeout: 15_000 }).then(() => 'открылась', (e) => e.message.split('\n')[0]);
+      console.log(`опыт «${label}»: переход на /script — ${r} за ${Date.now() - t} мс`);
+    } catch (e) {
+      console.log(`опыт «${label}»: подготовка не вышла — ${e.message.split('\n')[0]}`);
+    }
+  };
+  await probe('после ссылки внутри приложения', async (p) => {
+    await p.goto(`${APP}/brand`, { timeout: 15_000 });
+    await p.getByRole('link', { name: 'Мои видео' }).click({ timeout: 10_000 });
+    await p.waitForURL(`${APP}/`, { timeout: 10_000 });
+  });
+  await probe('после выбора видео', async (p) => {
+    await p.goto(`${APP}/`, { timeout: 15_000 });
+    const file = path.join(ctx.tmp, 'probe.mov');
+    sampleVideo(file, 2, 1024 * 1024);
+    await p.setInputFiles('#source', file, { timeout: 10_000 });
+    await p.getByText('probe.mov').waitFor({ timeout: 10_000 });
+    await new Promise((ok) => setTimeout(ok, 6000)); // зонд длительности успевает кончиться (5 с)
+  });
   if (process.env.E2E_SHOTS) await within(page.screenshot({ path: path.join(process.env.E2E_SHOTS, `FAIL-${name}.png`), fullPage: true }).catch(() => {}), 10_000);
 }
 const ctx = { page, browser, tmp: fs.mkdtempSync(path.join(os.tmpdir(), 'vm-e2e-')), jobId: null, fires, state, branchFile, session, until, check };

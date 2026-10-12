@@ -5,8 +5,7 @@ import {
 } from '../lib/tracks.ts';
 import { setSound, setVoice } from '../lib/edits.ts';
 import { cutSpan, EMPTY, moveSpan, setMusic, splitAt } from '../lib/edits.ts';
-import { overlayAt, subGroupSize } from '../lib/style.ts';
-import type { StyleSpec } from '../lib/jobfiles.ts';
+import { buildOverlayEvents, stateAt } from '../lib/overlay.ts';
 
 const near = (a: number, b: number) => Math.abs(a - b) < 1e-6;
 
@@ -37,21 +36,28 @@ test('video track: kept pieces in final time with their source spans; the cut pa
   assert.ok(near(t.cuts[1].at, 1.2) && near(t.cuts[2].at, 2.8));
 });
 
-test('subtitles: the words that stay, in groups, without the cut ones and the accent words', () => {
+test('subtitles: groups as the engine shows them — by phrase, without the cut words and the accent words', () => {
   const t = draftTracks(DRAFT);
-  assert.deepEqual(t.subtitles.map((c) => c.label), ['Сегодня покажу, как', 'снимаю айфон']);
+  // «на» — слова акцента: в субтитры не идёт и рвёт фразу (build_sub_events: hidden)
+  assert.deepEqual(t.subtitles.map((c) => c.label), ['Сегодня покажу, как', 'снимаю', 'айфон']);
   assert.ok(near(t.subtitles[0].t0, (0.6 - 0.5) / 1.25));
-  assert.ok(near(t.subtitles[1].t1, (1.5 + 1.4) / 1.25), 'конец — конец последнего слова группы');
-  assert.deepEqual(draftTracks(DRAFT, { perGroup: 2 }).subtitles.map((c) => c.label), ['Сегодня покажу,', 'как', 'снимаю айфон'], 'группа не переходит через склейку');
+  assert.ok(near(t.subtitles[2].t1, (1.5 + 1.4) / 1.25 + 0.3), 'после слова — ещё 0,3 с (дальше никто не говорит)');
+  const two = { subtitles: { mode: 'karaoke', words: 2 }, hook: { mode: 'plate' } };
+  assert.deepEqual(draftTracks(DRAFT, { style: two }).subtitles.map((c) => c.label), ['Сегодня', 'покажу, как', 'снимаю', 'айфон'],
+    'фраза из трёх слов — на ровные группы до двух слов');
+  const sub = t.subtitles[0];
+  assert.deepEqual(sub.ref, { kind: 'sub', words: DRAFT.words.slice(0, 3).map(({ t0, t1, text }) => ({ t0, t1, text })) }, 'слова группы — как в edit.json');
 });
 
 test('text, inserts, looks, music and transitions are placed in final time', () => {
   const t = draftTracks(DRAFT);
   assert.deepEqual(t.text.map((c) => [c.kind, c.label]), [['hook', 'Как я снимаю'], ['accent', 'на']]);
-  assert.ok(near(t.text[0].t0, 0) && near(t.text[0].t1, (1.5 + 0.2) / 1.25));
-  assert.deepEqual(t.inserts.map((c) => [c.kind, c.label]), [['image', 'insert-1'], ['text', '3 ошибки']]);
-  assert.ok(near(t.inserts[0].t0, (1.5 + 0.2) / 1.25) && near(t.inserts[0].t1, (1.5 + 0.2) / 1.25 + 1.5), 'после хука, не короче 1,5 с');
-  assert.deepEqual(t.looks.map((c) => [c.t0, c.t1]), [[0, 0.5 / 1.25]]);
+  const hookEnd = 41 / 30; // (1,5 + 0,2) / 1,25 = 1,36 с — на кадре 40,8 → 41: слой меняется на целых кадрах
+  assert.ok(near(t.text[0].t0, 0) && near(t.text[0].t1, hookEnd));
+  assert.deepEqual(t.inserts.map((c) => [c.kind, c.label, c.drawn]), [['image', 'insert-1', false], ['text', '3 ошибки', false]],
+    'вставка ждёт ответа, у стикера нет места на кадре — на дорожке есть, на кадре их не рисует слой');
+  assert.ok(near(t.inserts[0].t0, hookEnd) && near(t.inserts[0].t1, t.duration), 'после хука; видна в последний кадр — до конца ролика');
+  assert.deepEqual(t.looks.map((c) => [c.t0, c.t1]), [[0, 12 / 30]], 'ч/б — на кадрах склейки');
   assert.deepEqual(t.music, { label: 'Calm Morning', gainDb: -14 });
   assert.ok(t.transitions.length === 1 && near(t.transitions[0].t, 1.2));
 });
@@ -87,21 +93,16 @@ test('editor.json: peaks decode to bytes and are read by source time', () => {
   assert.equal(parseMedia({ duration: 2 }), null);
 });
 
-test('the frame layer at a moment: the subtitle group with the word being said, and the hook at the start', () => {
-  const spec = { subtitles: { mode: 'karaoke', words: 3, size: 64, y: 1300 } } as unknown as StyleSpec;
-  const t = draftTracks(DRAFT, { perGroup: subGroupSize(spec) });
-  const at = (x: number) => overlayAt(spec, t, x);
+test('the frame at a moment is what the engine draws there: the subtitle group being said, the hook, the accent', () => {
+  const t = draftTracks(DRAFT);
+  const events = buildOverlayEvents(t.layer.edit, t.layer.tl);
+  const at = (x: number) => stateAt(events, x);
   const second = (1.0 - 0.5 + 0.1) / 1.25; // внутри «покажу,»
   assert.deepEqual(at(second).sub, { words: ['Сегодня', 'покажу,', 'как'], active: 1, visible: 3 });
   assert.deepEqual(at(second).hook, { text: 'Как я снимаю' });
-  assert.equal(at(2.5).hook, undefined, 'хук ушёл');
-  assert.equal(at(2.75).sub, undefined, 'после последнего слова — пусто');
-  const acc = { subtitles: { mode: 'accumulate', words: 3, size: 64, y: 1300 } } as unknown as StyleSpec;
-  assert.deepEqual(overlayAt(acc, draftTracks(DRAFT, { perGroup: subGroupSize(acc) }), second).sub, { words: ['Сегодня', 'покажу,', 'как'], active: 1, visible: 2 });
-  const soft = { subtitles: { mode: 'soft', words: 2, size: 64, y: 1300 } } as unknown as StyleSpec;
-  assert.equal(subGroupSize(soft), 4);
-  const s = overlayAt(soft, draftTracks(DRAFT, { perGroup: subGroupSize(soft) }), second).sub;
-  assert.deepEqual(s, { words: ['Сегодня', 'покажу,', 'как'], active: 0, visible: 2, lines: [1, 2], opens: true, t: second - 0.5 / 1.25 }, 'новая строка «покажу, как» появилась с «покажу,»');
+  assert.equal(at(1.5).hook, undefined, 'хук ушёл');
+  assert.ok(at(1.7).accent && at(1.7).sub === undefined, 'акцент — вместо субтитров');
+  assert.equal(at(t.duration - 0.05).sub, undefined, 'после последнего слова — пусто');
 });
 
 test('with a teaser the hook stands on the whole teaser, as the engine has it', () => {
@@ -111,10 +112,11 @@ test('with a teaser the hook stands on the whole teaser, as the engine has it', 
 });
 
 test('inserts show after the hook and at least 1.5 s, as insert_spans of the engine', () => {
-  const t = draftTracks({ ...DRAFT, inserts: [{ kind: 'image', src: 'in/a.png', t0: 0.6, t1: 0.8 }] });
-  const hookEnd = (1.5 + 0.2) / 1.25;
+  const t = draftTracks({ ...DRAFT, hook: { text: 'Хук', until: 1.0 }, inserts: [{ kind: 'image', src: 'in/a.png', t0: 0.6, t1: 0.8, x: 70, y: 500, w: 250 }] });
+  const hookEnd = 12 / 30; // 1,0 с исходника — 0,4 с ролика, кадр 12
   assert.ok(near(t.inserts[0].t0, hookEnd), `не раньше конца хука: ${t.inserts[0].t0}`);
   assert.ok(near(t.inserts[0].t1, hookEnd + 1.5), `не короче 1,5 с: ${t.inserts[0].t1}`);
+  assert.equal(t.inserts[0].drawn, true);
 });
 
 test('editor.json without a proxy (a very long source) is read; junk film or peaks are refused', () => {
@@ -137,7 +139,7 @@ test('Pavel\'s splits divide the video pieces on screen; each part knows its pie
 
 test('the sounds track: each sound where the engine plays it, with its key', () => {
   const d: Draft = {
-    ...DRAFT, hold: 0.5, end: { seconds: 1.5, sfx: 'assets/sfx/pop.mp3' }, teaser: { t0: 3.5, t1: 4.5, sfx: 'assets/sfx/whoosh.mp3' },
+    ...DRAFT, hold: 0.5, end: { seconds: 1.5, sfx: 'assets/sfx/pop.mp3', lines: ['Подпишись'] }, teaser: { t0: 3.5, t1: 4.5, sfx: 'assets/sfx/whoosh.mp3' },
     inserts: [{ kind: 'image', src: 'in/a.png', t0: 3.0, t1: 4.0, sfx: 'assets/sfx/pop.mp3' }, { kind: 'image', src: 'in/b.png', t0: 4.2, t1: 4.8 }],
     transitions: [{ t: 3.0, kind: 'flash', sfx: 'assets/sfx/swoosh.mp3' }, { t: 5.0, kind: 'flash', sfx: 'assets/sfx/swoosh.mp3' }],
   };
@@ -217,7 +219,7 @@ test('a moved piece: the tracks follow the new order — words where they are he
   // вставка 3–4 с исходника — в куске 3–5 (первом): после хука, до 4 с исходника (0,8 с ролика), но не короче 1,5 с
   const ins = t.inserts.find((c) => c.label === 'insert-1');
   const hookEnd = t.text.find((c) => c.kind === 'hook')?.t1 ?? 0;
-  assert.ok(ins && near(ins.t0, hookEnd) && near(ins.t1, Math.max(0.8, hookEnd + 1.5)), JSON.stringify(ins));
+  assert.ok(ins && near(ins.t0, hookEnd) && near(ins.t1, Math.min(hookEnd + 1.5, t.duration)), JSON.stringify(ins));
 });
 
 test('reorder: a piece goes before the piece at the slot (past the last — to the end); its own place, the teaser and the teaser slot — no edit', () => {

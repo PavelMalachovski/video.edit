@@ -1,20 +1,25 @@
-// Дорожки редактора (бета) по черновику монтажа: edit.json сессии (времена — по исходнику) → куски видео, вырезанное,
-// субтитры, тексты, вставки, ч/б, музыка и переходы во времени финала (Timeline — как у движка); правки Павла руками
-// (timeline.json) — поверх черновика, как их положит движок. И файлы редактора от vm prepare (editor.json): прокси,
-// лента кадров, волна.
-import { applyKeep, SLIVER, type HandEdits } from './edits.ts';
+// Дорожки редактора по черновику монтажа: edit.json сессии (времена — по исходнику) → куски видео, вырезанное,
+// субтитры, тексты, вставки, ч/б, музыка, переходы и звуки во времени ролика — на шкале монтажа (края кусков на целых
+// кадрах, renderTimeline) и по правилам движка (перенос build_overlay_events, build_sub_events, look_windows,
+// transitions.marks): блок на дорожке — ровно там, где его нарисует ролик. Правки Павла руками (timeline.json) —
+// поверх черновика, как их положит движок. И файлы редактора от vm prepare (editor.json): прокси, лента кадров, волна.
+import { snapEdit } from './beats.ts';
+import { applyKeep, applyText, SLIVER, type At, type HandEdits, type TextEdits, type WordFix } from './edits.ts';
 import type { StyleSpec } from './jobfiles.ts';
-import type { AccentSpec } from './overlay.ts';
-import { Timeline } from './timeline.ts';
+import { FPS, frameOf, hookEnd, insertSpans, layerBlocks, renderTimeline, type AccentSpec, type InsertSpec, type OverlayEdit } from './overlay.ts';
+import { roundHalfEven } from './pyround.ts';
+import { subBlocks } from './subs.ts';
+import type { Timeline } from './timeline.ts';
+import { HALF, lookWindows, transitionMarks } from './zoom.ts';
 
 type Span = { t0: number; t1: number };
 export type DraftWord = Span & { text: string };
-export type DraftInsert = Partial<Span> & {
+export type DraftInsert = Span & {
   kind: string; src?: string; question?: string; id?: string; text?: string; title?: string; x?: number; y?: number; w?: number; sfx?: string | null;
-  params?: Record<string, unknown>;
+  params?: Record<string, unknown>; off?: boolean;
 };
 /** Финальная карточка: сколько длится, звук появления, призыв, ник и логотип (путь от папки задачи). */
-export type DraftEnd = { seconds: number; sfx?: string | null; lines?: string[]; handle?: string | null; logo?: string | null };
+export type DraftEnd = { seconds: number; sfx?: string | null; lines: string[]; handle?: string | null; logo?: string | null };
 /** То из edit.json, что показывает редактор. */
 export type Draft = {
   speed: number;
@@ -26,7 +31,8 @@ export type Draft = {
   accents?: AccentSpec[];
   looks?: (Span & { look: string })[];
   zooms: { t: number; level: number; over?: number }[];
-  music: { file: string; gainDb: number; at?: number; from?: number; fadeIn?: number; fadeOut?: number } | null;
+  face?: { x: number; y: number } | null; // лицо — доли кадра: зум приближает к нему
+  music: { file: string; gainDb: number; at?: number; from?: number; fadeIn?: number; fadeOut?: number; beats?: boolean } | null;
   teaser?: (Span & { sfx?: string | null }) | null;
   transitions?: { t: number; kind: string; sfx?: string | null }[];
   hold?: number;
@@ -43,28 +49,44 @@ export type EditorMedia = {
   videos?: { name: string; t0: number; t1: number }[]; // из каких видео задачи склеен исходник, по порядку (vm prepare)
 };
 
-/** Клип дорожки во времени финала. У кусков видео: `src0`–`src1` исходника, `piece` — номер куска монтажа (`keep`),
- *  `edgeStart`/`edgeEnd` — край куска (его можно тянуть), а не разрез Павла. У субтитров `words` — слова группы
- *  (время финала), у звуков `key` — ключ правки громкости (insert:<n>, teaser, transition:<n>, end). */
+/** Блок текста или вставки на дорожке — что это в черновике (для выбора и правки руками): хук; титр, акцент, вставка — по
+ *  месту в речи `at` ([t0, t1], как его записала сессия; `occurrence` — какой по счёту с тем же местом) и номеру в
+ *  edit.json; группа субтитров — её слова (время — как в edit.words, `text` — как у сессии). */
+export type BlockRef =
+  | { kind: 'hook' }
+  | { kind: 'cta'; at: At }
+  | { kind: 'accent'; n: number; at: At; occurrence: number }
+  | { kind: 'insert'; n: number; at: At; occurrence: number }
+  | { kind: 'sub'; words: { t0: number; t1: number; text: string }[] };
+
+/** Клип дорожки во времени ролика. У кусков видео: `src0`–`src1` исходника (как в keep — по ним правки), `piece` — номер
+ *  куска монтажа (`keep`), `edgeStart`/`edgeEnd` — край куска (его можно тянуть), а не разрез Павла. У субтитров `words` —
+ *  слова группы (время ролика), у звуков `key` — ключ правки громкости (insert:<n>, teaser, transition:<n>, end). У
+ *  текста и вставок `ref` — что это в черновике; `ghost` — Павел убрал блок: на дорожке — тенью, его можно вернуть;
+ *  `drawn: false` — на кадре его не рисует слой (fullscreen монтирует ffmpeg; вставка ждёт ответа на вопрос). */
 export type Clip = Span & {
   kind: string; label: string; src0?: number; src1?: number; words?: DraftWord[]; piece?: number; edgeStart?: boolean; edgeEnd?: boolean; key?: string;
   file?: string; // у звуков — файл (как в edit.json)
   videoNo?: number; // у кусков — из какого видео задачи (номер в EditorMedia.videos), если их список есть
+  ref?: BlockRef; ghost?: boolean; drawn?: boolean;
 };
+/** Из чего слой строит события (как его увидит монтаж) и его шкала: и кадр редактора, и дорожки — из них. */
+export type Layer = { edit: OverlayEdit & { zooms: Draft['zooms'] }; tl: Timeline };
 export type Tracks = {
-  duration: number; // длина финала без хвоста (кусков), с
+  duration: number; // длина ролика без хвоста (кусков), с
   tail: number; // после кусков — стоп-кадр (hold) и финальная карточка, с
-  video: Clip[]; // куски по порядку (тизер — первым): t0–t1 финала, src0–src1 исходника
-  // вырезанное исходника — на стыке финала; `side` — куда оно вернётся: в конец куска перед ним в исходнике (метка — у
+  video: Clip[]; // куски по порядку (тизер — первым): t0–t1 ролика, src0–src1 исходника
+  // вырезанное исходника — на стыке ролика; `side` — куда оно вернётся: в конец куска перед ним в исходнике (метка — у
   // конца того куска) или, если перед ним кусков нет, в начало первого
   cuts: { at: number; src0: number; src1: number; side: 'end' | 'start' }[];
-  subtitles: Clip[];
+  subtitles: Clip[]; // группы субтитров, как их покажет ролик (у soft — блок до двух строк)
   text: Clip[]; // хук, акцентные фразы, титр
   inserts: Clip[];
   looks: Clip[]; // ч/б куски
   music: { label: string; gainDb: number; at?: number; from?: number; fadeIn?: number; fadeOut?: number } | null;
   transitions: { t: number; kind: string }[];
   sounds: Clip[]; // звуки: появления вставок, стык тизера, переходы, карточка
+  layer: Layer;
 };
 
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
@@ -72,18 +94,18 @@ const isNum = (x: unknown): x is number => typeof x === 'number' && Number.isFin
 const isStr = (x: unknown): x is string => typeof x === 'string';
 const isSpan = (x: unknown): x is Span & Record<string, unknown> => isObj(x) && isNum(x.t0) && isNum(x.t1);
 
-/** edit.json → черновик для показа; не та форма (или Timeline его не примет) — null. */
+/** edit.json → черновик для показа; не та форма (или шкала монтажа его не примет) — null. */
 export function parseDraft(raw: unknown): Draft | null {
   if (!isObj(raw) || !isNum(raw.speed) || raw.speed <= 0 || !Array.isArray(raw.keep) || !Array.isArray(raw.words)) return null;
-  if (!raw.keep.every((k) => Array.isArray(k) && k.length === 2 && isNum(k[0]) && isNum(k[1]))) return null;
+  if (!raw.keep.every((k) => Array.isArray(k) && k.length === 2 && isNum(k[0]) && isNum(k[1]) && k[1] > k[0])) return null;
   if (!raw.words.every((w) => isSpan(w) && isStr(w.text))) return null;
   const list = <T>(x: unknown, ok: (y: unknown) => boolean): T[] => (Array.isArray(x) ? (x.filter(ok) as T[]) : []);
-  // хук, титр, акценты, вставки, карточка — как в edit.json (правки руками сверяют их с тем, что было)
+  // хук, титр, акценты, вставки, карточка — как в edit.json (правки руками держатся за их место в речи)
   const hook = isObj(raw.hook) && isStr(raw.hook.text) && isNum(raw.hook.until) ? (raw.hook as Draft['hook']) : null;
   const cta = isSpan(raw.cta) && Array.isArray(raw.cta.lines) && isStr(raw.cta.word) ? (raw.cta as Draft['cta']) : null;
   const place = (m: Record<string, unknown>) => Object.fromEntries(MUSIC_PLACE.filter((k) => isNum(m[k])).map((k) => [k, m[k] as number]));
   const music = isObj(raw.music) && isStr(raw.music.file) && isNum(raw.music.gainDb)
-    ? { file: raw.music.file, gainDb: raw.music.gainDb, ...place(raw.music) } : null;
+    ? { file: raw.music.file, gainDb: raw.music.gainDb, ...place(raw.music), ...(raw.music.beats === false ? { beats: false } : {}) } : null;
   const sfx = (x: unknown) => (isStr(x) ? x : null);
   const draft: Draft = {
     speed: raw.speed,
@@ -91,15 +113,18 @@ export function parseDraft(raw: unknown): Draft | null {
     words: raw.words as DraftWord[],
     hook,
     cta,
-    inserts: list(raw.inserts, (i) => isObj(i) && isStr(i.kind)),
-    accents: list(raw.accents, (a) => isSpan(a) && Array.isArray(a.lines) && a.lines.every((l) => isObj(l) && isStr(l.text)) && isNum(a.x) && isNum(a.y)),
+    inserts: list(raw.inserts, (i) => isSpan(i) && isStr(i.kind)),
+    accents: list(raw.accents, (a) => isSpan(a) && Array.isArray(a.lines) && a.lines.length > 0 && a.lines.every((l) => isObj(l) && isStr(l.text))
+      && isNum(a.x) && isNum(a.y)),
     looks: list(raw.looks, (l) => isSpan(l) && isStr(l.look)),
     zooms: list(raw.zooms, (z) => isObj(z) && isNum(z.t) && isNum(z.level)),
+    face: isObj(raw.face) && isNum(raw.face.x) && isNum(raw.face.y) ? { x: raw.face.x, y: raw.face.y } : null,
     music,
     teaser: isSpan(raw.teaser) ? { t0: raw.teaser.t0, t1: raw.teaser.t1, sfx: sfx(raw.teaser.sfx) } : null,
     transitions: list(raw.transitions, (x) => isObj(x) && isNum(x.t) && isStr(x.kind)),
     hold: isNum(raw.hold) ? raw.hold : 0,
-    end: isObj(raw.end) && isNum(raw.end.seconds) ? { ...(raw.end as DraftEnd), sfx: sfx(raw.end.sfx) } : null,
+    end: isObj(raw.end) && isNum(raw.end.seconds) && Array.isArray(raw.end.lines) && raw.end.lines.every(isStr)
+      ? { ...(raw.end as DraftEnd), sfx: sfx(raw.end.sfx) } : null,
     style: isStyle(raw.style) ? raw.style : null,
   };
   try {
@@ -144,54 +169,95 @@ export function peakAt(peaks: Uint8Array, perS: number, t: number): number {
   return peaks[i] / 255;
 }
 
-export const timelineOf = (d: Draft): Timeline => new Timeline(d.keep, d.speed, d.teaser ? [d.teaser.t0, d.teaser.t1] : null);
+/** Шкала монтажа черновика (render.timeline): края кусков и тизера — на целых кадрах, не дальше последнего кадра
+ *  исходника `limit`. Тизер не той длины — Error. */
+export const timelineOf = (d: Draft, limit?: number): Timeline => renderTimeline(d, limit);
 
-const GROUP_GAP = 0.6; // с финала: пауза длиннее — новая группа субтитров
 const MUSIC_PLACE = ['at', 'from', 'fadeIn', 'fadeOut'] as const; // где звучит музыка — правка Павла в редакторе
-const HALF = 0.12; // с — половина перехода; переход у самого начала или конца ролика пропадает (transitions.py)
 const SOUND_SHOW = 0.4; // с — ширина метки звука на дорожке
-const MIN_SHOW = 1.5; // с — вставка показывается не короче (MIN_SHOW движка, overlay.py)
 const FILM_MAX = 1000; // кадров в ленте — не больше (FILM['max'] движка, editor.py)
+const DRAWN = ['image', 'badge', 'sticker', 'text', 'anim']; // что рисует слой (overlay.DRAWN)
+const TEXTUAL = ['sticker', 'text']; // вставки из одного текста: картинка им не нужна (render.TEXTUAL)
+/** Вставка «добавь сюда» ждёт ответа на вопрос: на дорожке она есть, а слой её не рисует — картинки ещё нет. */
+export const WAITING = 'waiting';
+
+/** Стиль, по которому слой строит события: режим и слов субтитров, вид хука. */
+export type LayerStyle = { subtitles: { mode: string; words: number }; hook: { mode: string } };
+const PLAIN: LayerStyle = { subtitles: { mode: 'karaoke', words: 3 }, hook: { mode: 'plate' } };
 
 /** Имя файла без папки и расширения. */
 const stem = (path: string): string => path.split('/').at(-1)?.replace(/\.[^.]+$/, '') ?? path;
 
-/** Дорожки черновика во времени финала. `perGroup` — слов в группе субтитров (как `subtitles.words` стиля);
- *  `sourceDuration` — длина исходника: вырезанный хвост после последнего куска; `splits` — разрезы Павла (с исходника):
- *  делят куски видео на экране (на монтаж не влияют). */
-export function draftTracks(d: Draft, { perGroup = 3, sourceDuration, splits = [], videos }: {
-  perGroup?: number; sourceDuration?: number; splits?: number[]; videos?: EditorMedia['videos'];
-} = {}): Tracks {
-  const tl = timelineOf(d);
-  const at = (t: number) => tl.toFinalSnap(t);
-  // событие — с места начала и до конца его серии кусков (Timeline.span): переставленный кусок его не тянет
-  const span = (s: Span, cut = false) => {
-    const [t0, t1] = tl.span(s.t0, s.t1, cut);
-    return { t0, t1 };
+/** Откуда блок в черновике сессии: номер, место в речи и какой по счёту с тем же местом. Символ — в JSON и в состояния
+ *  слоя не попадает, а через правки (копии блоков) — проходит. */
+const ORIGIN = Symbol('origin');
+type Origin = { n: number; at: At; occurrence: number };
+function tagged<T extends Span>(items: readonly T[]): T[] {
+  const seen = new Map<string, number>();
+  return items.map((x, n) => {
+    const key = `${x.t0}|${x.t1}`;
+    const occurrence = seen.get(key) ?? 0;
+    seen.set(key, occurrence + 1);
+    return { ...x, [ORIGIN]: { n, at: [x.t0, x.t1], occurrence } satisfies Origin };
+  });
+}
+const originOf = (x: object): Origin | undefined => (x as { [ORIGIN]?: Origin })[ORIGIN];
+
+/** Черновик с правками → то, из чего слой строит события, как их увидит монтаж: стиль ролика; вставки, ждущие ответа
+ *  (картинки ещё нет) или без места на кадре (монтаж такой черновик не примет), — на дорожке есть, а на кадре не
+ *  рисуются; доли музыки (`beats`, время ролика) — вставки и зум встают на них, как в render.on_beats. */
+export function layerEdit(d: Draft, style: LayerStyle, tl: Timeline, beats: readonly number[] | null = null): Layer['edit'] {
+  const unplaced = (i: DraftInsert) => DRAWN.includes(i.kind) && [i.x, i.y, i.w].some((v) => typeof v !== 'number');
+  const inserts = d.inserts.map((i) => ((i.question && !i.src && !TEXTUAL.includes(i.kind)) || unplaced(i) ? { ...i, kind: WAITING } : i));
+  const timed = beats ? snapEdit({ zooms: d.zooms, inserts }, tl, beats).edit : { zooms: d.zooms, inserts };
+  return {
+    words: d.words, style, hook: d.hook, cta: d.cta, accents: d.accents ?? [], inserts: timed.inserts as InsertSpec[], hold: d.hold ?? 0,
+    end: d.end ?? null, zooms: timed.zooms,
   };
+}
+
+/** Дорожки черновика во времени ролика. `style` — режим субтитров и хука, каким его нарисует монтаж; `sourceDuration` —
+ *  длина исходника: вырезанный хвост и последний кадр; `splits` — разрезы Павла (с исходника, на монтаж не влияют);
+ *  `videos` — из каких видео склеен исходник; `fixes` — правки текста и слов (timeline.json): дорожки показывают блоки с
+ *  ними, убранное — тенью; `beats` — доли музыки во времени ролика (вставки и зум встают на них). */
+export function draftTracks(d: Draft, { style = PLAIN, sourceDuration, splits = [], videos, fixes, beats = null }: {
+  style?: LayerStyle; sourceDuration?: number; splits?: number[]; videos?: EditorMedia['videos'];
+  fixes?: { text?: TextEdits; words?: WordFix[] }; beats?: readonly number[] | null;
+} = {}): Tracks {
+  const tl = timelineOf(d, sourceDuration);
+  const last = sourceDuration === undefined ? null : Math.floor(sourceDuration * FPS + 0.01);
+  const kept = (a: number, b: number) => (last === null ? roundHalfEven(b * FPS) : Math.min(roundHalfEven(b * FPS), last)) > roundHalfEven(a * FPS);
+
+  // куски: время исходника — как в keep (по нему правки), время ролика — по шкале монтажа (края на целых кадрах)
+  const segs = tl.segments;
+  let k = d.teaser ? 1 : 0;
+  const placed: { src0: number; src1: number; t0: number; t1: number; keep: number }[] = [];
+  d.keep.forEach(([a, b], i) => {
+    if (!kept(a, b)) return; // короче кадра — в ролике его нет
+    const [s0, s1, f0] = segs[k++];
+    placed.push({ src0: a, src1: b, t0: f0, t1: f0 + (s1 - s0) / d.speed, keep: i });
+  });
 
   // на экране куски делятся разрезами Павла и стыками видео задачи (несколько видео склеены в один исходник)
   const cutsAt = [...splits, ...(videos ?? []).slice(1).map((v) => v.t0)].sort((x, y) => x - y);
   const videoOf = (src0: number, src1: number): number | undefined => {
     if (!videos) return undefined;
-    const k = videos.findIndex((v) => (src0 + src1) / 2 < v.t1);
-    return k < 0 ? videos.length - 1 : k;
+    const n = videos.findIndex((v) => (src0 + src1) / 2 < v.t1);
+    return n < 0 ? videos.length - 1 : n;
   };
-  let pieceNo = 0;
-  const video: Clip[] = tl.segments.flatMap(([src0, src1, t0], i): Clip[] => {
-    if (d.teaser && i === 0) return [{ kind: 'teaser', label: '', src0, src1, t0, t1: t0 + (src1 - src0) / d.speed, videoNo: videoOf(src0, src1) }];
-    const piece = pieceNo++;
-    const edges = [src0, ...cutsAt.filter((t) => t > src0 + SLIVER && t < src1 - SLIVER), src1];
-    return edges.slice(1).map((b, k) => ({
-      kind: 'piece', label: '', src0: edges[k], src1: b, t0: t0 + (edges[k] - src0) / d.speed, t1: t0 + (b - src0) / d.speed,
-      piece, edgeStart: k === 0, edgeEnd: k === edges.length - 2, videoNo: videoOf(edges[k], b),
+  const video: Clip[] = [];
+  if (d.teaser) video.push({ kind: 'teaser', label: '', src0: d.teaser.t0, src1: d.teaser.t1, t0: 0, t1: tl.teaserDuration, videoNo: videoOf(d.teaser.t0, d.teaser.t1) });
+  for (const p of placed) {
+    const edges = [p.src0, ...cutsAt.filter((t) => t > p.src0 + SLIVER && t < p.src1 - SLIVER), p.src1];
+    const at = (e: number) => (e === p.src1 ? p.t1 : p.t0 + (e - p.src0) / d.speed);
+    edges.slice(1).forEach((b, j) => video.push({
+      kind: 'piece', label: '', src0: edges[j], src1: b, t0: at(edges[j]), t1: at(b), piece: p.keep, edgeStart: j === 0, edgeEnd: j === edges.length - 2,
+      videoNo: videoOf(edges[j], b),
     }));
-  });
-  const pieces = video.filter((c) => c.kind === 'piece');
+  }
   // вырезанное — по исходнику: «＋» стоит в конце куска, что перед ним в исходнике (где бы тот ни стоял), а вырезанное до
   // первого куска — в начале первого по исходнику
   const cuts: Tracks['cuts'] = [];
-  const placed = tl.segments.slice(d.teaser ? 1 : 0).map(([src0, src1, t0]) => ({ src0, src1, t0, t1: t0 + (src1 - src0) / d.speed }));
   const bySource = [...placed].sort((a, b) => a.src0 - b.src0);
   let prev = 0;
   let before: (typeof placed)[number] | null = null;
@@ -202,79 +268,99 @@ export function draftTracks(d: Draft, { perGroup = 3, sourceDuration, splits = [
   }
   if (sourceDuration !== undefined && sourceDuration > prev + 1e-6) cuts.push({ at: before ? before.t1 : tl.duration, src0: prev, src1: sourceDuration, side: 'end' });
 
-  // субтитры: слова, что остались (середина слова — в куске), без слов акцентов; группы — не через склейку
-  // слова акцента прячутся только в серии кусков, где стоит акцент: переставленные в другое место — субтитрами там
-  const inAccent = (t: number) => (d.accents ?? []).some((a) => t >= a.t0 && t <= a.t1 && tl.runOf(t) === tl.runOf(a.t0));
-  const pieceOf = (t: number) => pieces.find((c) => t >= (c.src0 as number) && t <= (c.src1 as number))?.piece ?? -1;
-  const subtitles: Clip[] = [];
-  let group: { words: DraftWord[]; piece: number } | null = null;
-  const close = () => {
-    if (!group) return;
-    // конец слова в вырезанном — конец своего куска (span), а не чужого куска далеко в ролике (_spoken движка)
-    const words = group.words.map((w) => {
-      const [t0, t1] = tl.span(w.t0, Math.max(w.t0, w.t1));
-      return { text: w.text, t0, t1: Math.max(t0, t1) };
-    });
-    subtitles.push({ kind: 'sub', label: group.words.map((w) => w.text).join(' '), t0: words[0].t0, t1: (words.at(-1) as DraftWord).t1, words });
-    group = null;
+  // текст и вставки — с правками Павла; каждый блок помнит, откуда он в черновике сессии
+  const base: Draft = { ...d, accents: tagged(d.accents ?? []), inserts: tagged(d.inserts) };
+  const shown = applyText(base, fixes?.text, fixes?.words);
+  const layer = layerEdit(shown, style, tl, beats);
+  const blocks = layerBlocks(layer, tl);
+  const video0 = frameOf(tl.duration);
+  const still = frameOf(tl.duration + (d.hold ?? 0));
+  const ghost = (s: Span): Span => {
+    const [t0, t1] = tl.span(s.t0, s.t1);
+    return { t0, t1: Math.max(t1, t0 + 0.3) };
   };
-  // слова — по месту в ролике (куски могут стоять не по порядку исходника)
-  const heard = d.words.filter((w) => {
-    const mid = (w.t0 + w.t1) / 2;
-    return pieceOf(mid) >= 0 && !inAccent(mid);
-  }).sort((a, b) => at(a.t0) - at(b.t0));
-  for (const w of heard) {
-    const piece = pieceOf((w.t0 + w.t1) / 2);
-    const prevWord = group?.words.at(-1);
-    const gap = prevWord ? at(w.t0) - at(prevWord.t1) : 0;
-    if (group && (group.piece !== piece || group.words.length >= perGroup || gap > GROUP_GAP)) close();
-    if (!group) group = { words: [], piece };
-    group.words.push(w);
-  }
-  close();
 
-  // хук — до hook.until на его месте в ролике по порядку исходника (переставленный в начало кусок его не удлиняет), а
-  // с тизером — на весь тизер (_hook_end движка)
-  const hookEnd = d.hook ? (d.teaser ? tl.teaserDuration : tl.inSourceOrder().toFinalSnap(d.hook.until)) : 0;
-  const text: Clip[] = [];
-  if (d.hook) text.push({ kind: 'hook', label: d.hook.text, t0: 0, t1: hookEnd });
-  for (const a of d.accents ?? []) text.push({ kind: 'accent', label: a.lines.map((l) => l.text).join(' '), ...span(a) });
-  if (d.cta) text.push({ kind: 'cta', label: [...d.cta.lines, d.cta.word].join(' '), ...span(d.cta) });
-
-  // вставки — не раньше конца хука, до конца своей серии кусков и не короче MIN_SHOW (insert_spans движка)
-  const inserts: (Clip & { index: number })[] = d.inserts.flatMap((i, index) => {
-    if (!isSpan(i)) return [];
-    const s = span(i);
-    const t0 = Math.max(s.t0, hookEnd);
-    return [{
-      kind: i.kind, label: i.kind === 'text' ? (i.text ?? i.id ?? '') : (i.question ?? (i.src ? stem(i.src) : i.id ?? '')),
-      t0, t1: Math.max(s.t1, t0 + MIN_SHOW), index,
-    }];
+  // субтитры — группы, как их покажет ролик (слова акцентов — не в них); у слова — время из edit.json и текст сессии
+  const sessionText = new Map(d.words.map((w) => [`${w.t0}|${w.t1}`, w.text]));
+  const hidden = (layer.accents ?? []).map((a) => [Number(a.t0), Number(a.t1)]);
+  const subtitles: Clip[] = subBlocks(layer.words ?? [], tl, style.subtitles.mode, style.subtitles.words, hidden).map((b) => {
+    const words = b.words.map((w) => (layer.words ?? [])[w.i]);
+    return {
+      kind: 'sub', label: b.words.map((w) => w.text).join(' '), t0: b.t0, t1: b.t1, words: b.words.map((w) => ({ text: w.text, t0: w.t0, t1: w.t1 })),
+      ref: { kind: 'sub', words: words.map((w) => ({ t0: w.t0, t1: w.t1, text: sessionText.get(`${w.t0}|${w.t1}`) ?? w.text })) },
+    };
   });
-  const looks: Clip[] = (d.looks ?? []).map((l) => ({ kind: l.look, label: l.look, ...span(l, true) }));
-  // переходы — на стыке (to_final_snap), у самого начала и конца ролика их нет (marks движка)
-  const fits = (t: number) => t >= HALF && t <= tl.duration - HALF;
-  const transitions = (d.transitions ?? []).map((x) => ({ t: at(x.t), kind: x.kind })).filter((x) => fits(x.t));
 
-  // звуки — где их ставит движок (_sounds): вставка — с её появлением, тизер — на стыке, переход — с его началом,
-  // карточка — в конце ролика
+  // хук, титр, акценты — где их рисует слой; убранные Павлом — тенью
+  const text: Clip[] = [];
+  if (blocks.hook && shown.hook) text.push({ kind: 'hook', label: shown.hook.text, t0: blocks.hook.t0, t1: blocks.hook.t1, ref: { kind: 'hook' } });
+  else if (d.hook && !shown.hook) text.push({ kind: 'hook', label: d.hook.text, t0: 0, t1: Math.max(0.3, hookEnd(d as OverlayEdit, tl) / FPS), ref: { kind: 'hook' }, ghost: true });
+  for (const b of blocks.accents) {
+    const a = (layer.accents ?? [])[b.n];
+    const o = originOf(a);
+    if (o) text.push({ kind: 'accent', label: a.lines.map((l) => l.text).join(' '), t0: b.t0, t1: b.t1, ref: { kind: 'accent', n: o.n, at: o.at, occurrence: o.occurrence } });
+  }
+  const left = new Set((shown.accents ?? []).map((a) => originOf(a)?.n));
+  for (const a of base.accents ?? []) {
+    const o = originOf(a) as Origin;
+    if (!left.has(o.n)) text.push({ kind: 'accent', label: a.lines.map((l) => l.text).join(' '), ...ghost(a), ref: { kind: 'accent', n: o.n, at: o.at, occurrence: o.occurrence }, ghost: true });
+  }
+  if (blocks.cta && shown.cta && d.cta) {
+    text.push({ kind: 'cta', label: [...shown.cta.lines, shown.cta.word].join(' '), t0: blocks.cta.t0, t1: blocks.cta.t1, ref: { kind: 'cta', at: [d.cta.t0, d.cta.t1] } });
+  } else if (d.cta && !shown.cta) {
+    text.push({ kind: 'cta', label: [...d.cta.lines, d.cta.word].join(' '), ...ghost(d.cta), ref: { kind: 'cta', at: [d.cta.t0, d.cta.t1] }, ghost: true });
+  }
+  text.sort((a, b) => a.t0 - b.t0);
+
+  // вставки — все, что в ролике (и fullscreen, и ждущие ответа): не раньше конца хука, не короче 1,5 с, в своей серии
+  // кусков, на долях музыки; видна в последний кадр — до конца стоп-кадра (кроме fullscreen); убранные — тенью
+  const label = (i: DraftInsert) => (i.kind === 'text' || i.kind === 'sticker' ? (i.text ?? i.id ?? '') : (i.question ?? (i.src ? stem(i.src) : i.id ?? '')));
+  const inserts: Clip[] = [];
+  const spans = insertSpans(layer, tl);
+  for (const [n, start, stop] of spans) {
+    const ins = (layer.inserts ?? [])[n] as DraftInsert;
+    if (start >= video0) continue; // начинается после конца ролика — в ролике её нет
+    const end = stop >= video0 ? (ins.kind === 'fullscreen' ? video0 : still) : stop; // fullscreen монтирует ffmpeg — до конца кусков
+    const o = originOf(ins) as Origin;
+    const own = (shown.inserts as DraftInsert[])[n]; // как в черновике: ждущая ответа на дорожке — своего вида
+    inserts.push({
+      kind: own.kind, label: label(own), t0: start / FPS, t1: end / FPS, ref: { kind: 'insert', n, at: o.at, occurrence: o.occurrence },
+      drawn: DRAWN.includes(ins.kind),
+    });
+  }
+  for (const ins of (shown.inserts ?? []) as DraftInsert[]) {
+    const o = originOf(ins) as Origin;
+    if (ins.off) inserts.push({ kind: ins.kind, label: label(ins), ...ghost(ins), ref: { kind: 'insert', n: o.n, at: o.at, occurrence: o.occurrence }, ghost: true });
+  }
+  inserts.sort((a, b) => a.t0 - b.t0);
+
+  // ч/б — кадры, где ролик чёрно-белый (look_windows: край у склейки — на склейке; копия в тизере)
+  const looks: Clip[] = lookWindows(d.looks ?? [], tl).map(([a, b]) => ({ kind: 'bw', label: 'bw', t0: a / FPS, t1: b / FPS }));
+  // переходы — на стыке, у самого начала и конца ролика их нет (transitions.marks)
+  const marks = transitionMarks(d.transitions ?? [], tl);
+  const transitions = marks.map((m) => ({ t: m.t, kind: m.kind }));
+
+  // звуки — где их ставит движок (render._sounds): вставка — с её появлением, тизер — на стыке, переход — с его началом,
+  // карточка — после стоп-кадра
   const sounds: Clip[] = [];
   const sound = (key: string, t: number, file: string) => sounds.push({ kind: 'sound', key, file, label: stem(file), t0: t, t1: t + SOUND_SHOW });
-  d.inserts.forEach((ins, i) => {
-    const shown = inserts.find((c) => c.index === i);
-    if (ins.sfx && shown) sound(`insert:${i}`, shown.t0, ins.sfx);
-  });
+  for (const [n, start] of spans) {
+    const sfx = ((layer.inserts ?? [])[n] as DraftInsert).sfx;
+    if (sfx) sound(`insert:${n}`, start / FPS, sfx);
+  }
   if (d.teaser?.sfx) sound('teaser', tl.teaserDuration, d.teaser.sfx);
-  (d.transitions ?? []).forEach((x, i) => {
-    const t = at(x.t);
-    if (x.sfx && fits(t)) sound(`transition:${i}`, Math.max(0, t - HALF), x.sfx);
-  });
-  if (d.end?.sfx) sound('end', tl.duration + (d.hold ?? 0), d.end.sfx); // карточка — после стоп-кадра (render._sounds)
+  const sources = (d.transitions ?? []).map((x) => Number(x.t));
+  for (const m of marks) {
+    const sfx = (d.transitions ?? [])[sources.indexOf(m.source)]?.sfx;
+    if (sfx) sound(`transition:${sources.indexOf(m.source)}`, Math.max(0, m.t - HALF), sfx);
+  }
+  if (d.end?.sfx) sound('end', tl.duration + (d.hold ?? 0), d.end.sfx);
   sounds.sort((a, b) => a.t0 - b.t0);
 
   return {
     duration: tl.duration, tail: (d.hold ?? 0) + (d.end?.seconds ?? 0), video, cuts, subtitles, text, inserts, looks, transitions, sounds,
-    music: d.music ? { label: stem(d.music.file), gainDb: d.music.gainDb, ...Object.fromEntries(MUSIC_PLACE.filter((k) => d.music?.[k] !== undefined).map((k) => [k, d.music?.[k]])) } : null,
+    music: d.music ? { label: stem(d.music.file), gainDb: d.music.gainDb, ...Object.fromEntries(MUSIC_PLACE.filter((m) => d.music?.[m] !== undefined).map((m) => [m, d.music?.[m]])) } : null,
+    layer: { edit: layer, tl },
   };
 }
 
@@ -282,7 +368,7 @@ export function draftTracks(d: Draft, { perGroup = 3, sourceDuration, splits = [
 
 /** Черновик с правками Павла (timeline.json): куски — как их вырежет движок (applyKeep — apply_keep), музыка — с его
  *  местом и громкостью («без звука» дорожка показывает отдельно); `splits` — его разрезы для draftTracks. Правок нет —
- *  тот же черновик. */
+ *  тот же черновик. Текст и вставки сюда не входят — их кладёт draftTracks (`fixes`): правка текста не двигает плеер. */
 export function withHandEdits(d: Draft, h: HandEdits, sourceDuration?: number): { draft: Draft; splits: number[] } {
   const splits = h.edits.flatMap((e) => (e.op === 'split' ? [e.t] : []));
   const keep = h.edits.length ? applyKeep(d.keep, h.edits, sourceDuration) : d.keep;
@@ -291,7 +377,7 @@ export function withHandEdits(d: Draft, h: HandEdits, sourceDuration?: number): 
   return { draft: keep === d.keep && music === d.music ? d : { ...d, keep, music }, splits };
 }
 
-/** Где разрезать по плейхеду `at` (время финала): момент исходника внутри куска (не у самого края); в тизере, у края
+/** Где разрезать по плейхеду `at` (время ролика): момент исходника внутри куска (не у самого края); в тизере, у края
  *  или мимо кусков — null. */
 export function splitTarget(t: Tracks, at: number): number | null {
   const c = t.video.find((x) => x.kind === 'piece' && at > x.t0 && at < x.t1);
@@ -316,13 +402,13 @@ export function moveTarget(t: Tracks, index: number, slot: number): { t0: number
 /** Перед каким куском встанет перетаскиваемый, если отпустить его на моменте `tf` ролика: стык, ближайший к `tf` (номер
  *  куска за ним; за серединой последнего — длина дорожки). Перед тизером — не встаёт. */
 export function slotAt(t: Tracks, tf: number): number {
-  const k = t.video.findIndex((c) => c.kind === 'piece' && tf < (c.t0 + c.t1) / 2);
-  return k < 0 ? t.video.length : k;
+  const n = t.video.findIndex((c) => c.kind === 'piece' && tf < (c.t0 + c.t1) / 2);
+  return n < 0 ? t.video.length : n;
 }
 
 /** Границы слов (с исходника) по порядку — к ним липнут края кусков. */
 export const wordEdges = (d: Draft): number[] => [...new Set(d.words.flatMap((w) => [w.t0, w.t1]))].sort((a, b) => a - b);
 
 /** Ключ кусков дорожки «Видео»: меняется, только когда меняются куски (вырезать, вернуть, разрезать), — тогда плеер
- *  встаёт на тот же момент ролика на новых кусках; громкость и музыка его не трогают. */
+ *  встаёт на тот же момент ролика на новых кусках; громкость, музыка и текст его не трогают. */
 export const videoKey = (t: Tracks): string => t.video.map((c) => `${c.src0}-${c.src1}@${c.t0.toFixed(4)}`).join('|');

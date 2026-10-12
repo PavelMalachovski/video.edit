@@ -47,3 +47,22 @@ test('music: moved within the video (not past half a second before its end); its
   const t = dragTo(trim, 150, view); // на 0,5 с позже: и в ролике, и в треке
   assert.ok(t.kind === 'music' && near(t.at, 1.5) && near(t.from, 2.5));
 });
+
+test('a text or insert block: moved whole or by an edge, its edges stick to words, never before its floor or past the end', () => {
+  const v = { ...view, finalEdges: [1.0, 1.5, 2.25] };
+  const block: Drag = { kind: 'block', ref: { kind: 'insert', n: 0, at: [3, 4], occurrence: 0 }, mode: 'move', x0: 100, t0: 1.0, t1: 2.0, a: 1.0, b: 2.0, floor: 0.5, max: 3.5, moved: false };
+  const small = dragTo(block, 102, v);
+  assert.ok(small.kind === 'block' && !small.moved, 'сдвиг на 2 px — щелчок');
+  const moved = dragTo(block, 100 + 47, v); // +0,47 с → начало 1,47 — у слова на 1,5 (3 px)
+  assert.ok(moved.kind === 'block' && moved.moved && near(moved.a, 1.5) && near(moved.b, 2.5), JSON.stringify(moved));
+  const early = dragTo(block, 100 - 200, v);
+  assert.ok(early.kind === 'block' && near(early.a, 0.5) && near(early.b, 1.5), 'раньше floor (конец хука) — нет');
+  const late = dragTo(block, 100 + 500, v);
+  assert.ok(late.kind === 'block' && near(late.b, 3.5), 'позже конца ролика — нет');
+  const end = dragTo({ ...block, mode: 'end' }, 100 + 26, v); // конец 2,26 — у слова на 2,25
+  assert.ok(end.kind === 'block' && near(end.a, 1.0) && near(end.b, 2.25), JSON.stringify(end));
+  const short = dragTo({ ...block, mode: 'end' }, 100 - 300, v);
+  assert.ok(short.kind === 'block' && near(short.b, 1.2), 'не короче 0,2 с');
+  const start = dragTo({ ...block, mode: 'start' }, 100 - 80, v);
+  assert.ok(start.kind === 'block' && near(start.a, 0.5) && near(start.b, 2.0), 'начало — не раньше floor');
+});

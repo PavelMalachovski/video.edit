@@ -2,7 +2,6 @@
 // состояния слоя на кадре (субтитры — по правилу build_sub_events), вставки по ответам и запомненный выбор.
 import { chosen, type Draft } from './answers.ts';
 import { sameJson } from './equal.ts';
-import type { Tracks } from './tracks.ts';
 import { AB_KINDS, ADJUST, COVER, type CoverChoice, ADJUSTABLE, HOOK_SIZE, HOOK_Y, INSERT_W, INSERT_ZONE, inRange, isInsertBox, RESERVED, SUB_SHADE, SUB_SIZE, SUB_Y, type AbKind, type Adjustable, type InsertBox, type Question, type SampleInsert, type StyleChoice, type StyleSpec, type Styles } from './jobfiles.ts';
 
 export { HOOK_SIZE, HOOK_Y, INSERT_W, SUB_SHADE, SUB_SIZE, SUB_Y };
@@ -121,32 +120,6 @@ export function subGroupSize(spec: StyleSpec): number {
   const mode = spec.subtitles.mode;
   const perLine = Math.max(1, Math.trunc(spec.subtitles.words) || 1);
   return mode === 'accumulate' ? ACCUMULATE_BLOCK : mode === 'word' ? 1 : mode === 'soft' ? SOFT_LINES * perLine : perLine;
-}
-
-const SUB_HOLD = 0.25; // с — группа субтитров держится после своего последнего слова
-
-/** Слой кадра в момент `t` финала по дорожкам черновика (редактор): группа субтитров со словом, которое звучит, и хук.
- *  Приблизительно — группы считаются проще, чем build_sub_events движка; точно — в фазе текста на таймлайне. */
-export function overlayAt(spec: StyleSpec, tracks: Pick<Tracks, 'subtitles' | 'text'>, t: number): OverlayState {
-  const state: OverlayState = { inserts: [] };
-  const group = tracks.subtitles.find((c) => c.words?.length && t >= c.t0 && t <= c.t1 + SUB_HOLD);
-  if (group?.words) {
-    const words = group.words;
-    const texts = words.map((w) => w.text);
-    const said = Math.max(1, words.filter((w) => w.t0 <= t).length);
-    const mode = spec.subtitles.mode;
-    if (mode === 'soft') {
-      const lines = evenCounts(words.length, Math.max(1, Math.trunc(spec.subtitles.words) || 1));
-      let first = 0; // первое слово новой видимой строки
-      for (let k = 0, i = 0; k < lines.length && i < said; i += lines[k], k++) first = i;
-      state.sub = { words: texts, active: 0, visible: said, lines, opens: true, t: Math.max(0, t - words[first].t0) };
-    } else {
-      state.sub = { words: texts, active: said - 1, visible: mode === 'accumulate' ? said : words.length };
-    }
-  }
-  const hook = tracks.text.find((c) => c.kind === 'hook' && t < c.t1);
-  if (hook) state.hook = { text: hook.label };
-  return state;
 }
 
 /**

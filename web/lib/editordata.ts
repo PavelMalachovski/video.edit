@@ -8,6 +8,7 @@ import type { GH } from './github.ts';
 import { appendFix, parseStyle, type AnswersFile, type FixFile, type Released, type Styles } from './jobfiles.ts';
 import { jobBranch, jobDir } from './jobs.ts';
 import { loadJob, readJobText, type Screen } from './jobview.ts';
+import type { BeatsFile } from './beats.ts';
 import { parseDraft, parseMedia, type Draft, type EditorMedia } from './tracks.ts';
 
 /** Что редактор отдаёт плееру из релиза: только прокси (готовый ролик — через download). */
@@ -54,8 +55,20 @@ export type EditorData = {
   styles: Styles | null;
   answers: AnswersFile | null;
   timeline: TimelineFile | null; // правки руками (нет или кривой файл — null)
+  beats: BeatsFile | null; // доли музыки (beats.json от vm render): вставки и зум встают на них, как в ролике
   rev: number; // ревизия timeline.json в ветке (нет — 0): от неё сохраняется следующая
 };
+
+/** Картинка загрузки Павла (вставка к ролику `upload-i<n>`, картинка к ответу `upload-q-…`) — её отдаёт /upload. */
+export const isUploadPicture = (name: string): boolean => /^upload-(i\d{1,3}|q-[a-z0-9_-]{1,41})\.(png|jpe?g|webp|gif)$/.test(name);
+
+/** Адрес картинки слоя (вставка, логотип карточки — путь от папки задачи или от корня репозитория, как в edit.json) для
+ *  шаблона в редакторе: загрузки Павла (in/uploads/…) — из черновика релиза, остальное — из ветки (как render._resolve). */
+export function layerUrl(id: string, head: string | null, path: string): string {
+  const upload = /^in\/uploads\/([^/]+)$/.exec(path)?.[1];
+  if (upload && isUploadPicture(upload)) return `/api/jobs/${id}/upload?name=${encodeURIComponent(upload)}`;
+  return `/api/jobs/${id}/file?path=${encodeURIComponent(path)}${head ? `&v=${head}` : ''}`;
+}
 
 /** Ассет `name` из out/released.json ветки; не файл редактора или его нет — null. */
 export function mediaAsset(files: { released: Released | null } | null, name: string): { id: number; name: string } | null {
@@ -77,9 +90,9 @@ export async function loadEditor(gh: GH, id: string): Promise<EditorData | null>
   if (!loaded) return null;
   const f = loaded.files;
   const head = f?.head ?? null;
-  const [edit, editor, timeline, schema] = head
-    ? await Promise.all([...['edit.json', 'editor.json', TIMELINE].map((name) => readJobText(gh, id, head, name)), readText(gh, head, ENGINE_SCHEMA)])
-    : [null, null, null, null];
+  const [edit, editor, timeline, beats, schema] = head
+    ? await Promise.all([...['edit.json', 'editor.json', TIMELINE, 'beats.json'].map((name) => readJobText(gh, id, head, name)), readText(gh, head, ENGINE_SCHEMA)])
+    : [null, null, null, null, null];
   const media = parseMedia(json(editor));
   return {
     id,
@@ -93,8 +106,18 @@ export async function loadEditor(gh: GH, id: string): Promise<EditorData | null>
     filmUrl: media && head ? `/api/jobs/${id}/file?path=${encodeURIComponent(media.film.file)}&v=${head}` : null,
     styles: f?.styles ?? null,
     answers: f?.answers ?? null,
+    beats: parseBeats(json(beats)),
     ...timelineOf(timeline),
   };
+}
+
+/** beats.json → доли; не та форма — null (вставки — без долей, как будто музыки нет). */
+export function parseBeats(raw: unknown): BeatsFile | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const b = raw as Record<string, unknown>;
+  const num = (x: unknown) => typeof x === 'number' && Number.isFinite(x) && x >= 0;
+  if (typeof b.file !== 'string' || !b.file || !num(b.length) || !num(b.bpm) || !Array.isArray(b.times) || !b.times.every(num)) return null;
+  return { file: b.file, length: b.length as number, bpm: b.bpm as number, times: b.times as number[] };
 }
 
 // ---------- правки руками: timeline.json ----------

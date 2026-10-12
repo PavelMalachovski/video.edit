@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { abilitiesOf, editorFix, ENGINE_SCHEMA, loadEditor, MEDIA_NAMES, mediaAsset, refusedBy, saveTimeline, timelineOf } from '../lib/editordata.ts';
+import { abilitiesOf, editorFix, ENGINE_SCHEMA, isUploadPicture, layerUrl, loadEditor, MEDIA_NAMES, mediaAsset, refusedBy, saveTimeline, timelineOf } from '../lib/editordata.ts';
 import type { AnswersFile } from '../lib/jobfiles.ts';
 import { withFake } from './helpers.ts';
 
@@ -180,3 +180,12 @@ test('a job made before text edits: the editor knows it, and the server does not
   assert.equal(timelineFile(fake), null, 'ничего не записано');
   assert.ok((await saveTimeline(gh, ID, { base: 0, ...HAND }, NOW)).ok, 'куски — как всегда');
 }));
+
+test('pictures of the layer in the editor: Pavel\'s uploads from the release, the rest from the branch as the engine finds them', () => {
+  assert.equal(layerUrl(ID, 'abc', 'in/uploads/upload-i2.png'), `/api/jobs/${ID}/upload?name=upload-i2.png`);
+  assert.equal(layerUrl(ID, 'abc', 'in/uploads/upload-q-logo.jpg'), `/api/jobs/${ID}/upload?name=upload-q-logo.jpg`);
+  assert.equal(layerUrl(ID, 'abc', 'assets/library/arrow.png'), `/api/jobs/${ID}/file?path=assets%2Flibrary%2Farrow.png&v=abc`);
+  assert.equal(layerUrl(ID, null, 'in/brand/logo.png'), `/api/jobs/${ID}/file?path=in%2Fbrand%2Flogo.png`);
+  assert.ok(isUploadPicture('upload-i12.webp') && isUploadPicture('upload-q-x1a2b3c4d.png'));
+  for (const bad of ['upload-i2.mov', 'source.mp4', '../upload-i2.png', 'upload-voice.m4a', 'upload-i2.png.part-00001']) assert.ok(!isUploadPicture(bad), bad);
+});

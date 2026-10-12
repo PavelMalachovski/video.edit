@@ -18,7 +18,8 @@ import {
 import { tenths } from '@/lib/format.ts';
 import { loadLang, saveLang, tr, type Key, type Lang } from '@/lib/i18n.ts';
 import type { StyleChoice } from '@/lib/jobfiles.ts';
-import { allowedFonts, finalStyle, loadChoice, overlayAt, sampleState, saveChoice, subGroupSize } from '@/lib/style.ts';
+import { buildOverlayEvents, stateAt } from '@/lib/overlay.ts';
+import { allowedFonts, finalStyle, loadChoice, sampleState, saveChoice } from '@/lib/style.ts';
 import { advance, locate } from '@/lib/player.ts';
 import { dragTo, type Drag, type DragView } from '@/lib/drag.ts';
 import { Saver, type PutResult } from '@/lib/saver.ts';
@@ -214,8 +215,8 @@ export default function Editor({ id }: { id: string }) {
   const edited = useMemo(() => (data?.draft ? withHandEdits(data.draft, { edits: hand.edits, music: hand.music }, sourceDuration) : null),
     [data, hand.edits, hand.music, sourceDuration]);
   const tracks: Tracks | null = useMemo(() => (edited
-    ? draftTracks(edited.draft, { perGroup: spec ? subGroupSize(spec) : 3, sourceDuration, splits: edited.splits, videos: data?.media?.videos })
-    : null), [edited, spec, sourceDuration, data?.media?.videos]);
+    ? draftTracks(edited.draft, { ...(spec ? { style: spec } : {}), sourceDuration, splits: edited.splits, videos: data?.media?.videos, fixes: { text: hand.text, words: hand.words } })
+    : null), [edited, spec, sourceDuration, data?.media?.videos, hand.text, hand.words]);
   const videos = (data?.media?.videos?.length ?? 0) > 1 ? data?.media?.videos ?? null : null; // несколько видео задачи — где какое
   const mix = useMemo(() => musicMix(data?.draft?.music ?? null, hand.music), [data, hand.music]);
   const edges = useMemo(() => (data?.draft ? wordEdges(data.draft) : []), [data]);
@@ -452,7 +453,15 @@ export default function Editor({ id }: { id: string }) {
     ro.observe(el);
     return () => ro.disconnect();
   }, [data]);
-  const overlay = useMemo(() => (spec && tracks ? overlayAt(spec, tracks, t) : null), [spec, tracks, t]);
+  const events = useMemo(() => {
+    if (!tracks) return null;
+    try {
+      return buildOverlayEvents(tracks.layer.edit, tracks.layer.tl);
+    } catch {
+      return null;
+    }
+  }, [tracks]);
+  const overlay = useMemo(() => (events ? stateAt(events, t) : null), [events, t]);
   // черновика ещё нет — кадр-образец сессии с текстом-образцом: стиль видно и так
   const sample = useMemo(() => (spec && styles && !tracks ? sampleState(spec, styles.sample, styles.sample.hook ?? null, []) : null),
     [spec, styles, tracks]);
@@ -520,6 +529,8 @@ export default function Editor({ id }: { id: string }) {
       }
       noClick.current = true; // щелчок после перетаскивания — не выбор (номер куска уже другой)
       if (released.slot !== null) doMove(released.index, released.slot);
+    } else if (released.kind === 'block') {
+      return;
     } else if (!released.moved) { // щелчок по музыке — выбрать и встать туда
       setSel({ kind: 'music' });
       const box = lanes.current?.querySelector('.ed-row.music .ed-lane')?.getBoundingClientRect();

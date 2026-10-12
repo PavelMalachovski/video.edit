@@ -610,5 +610,10 @@
         }
       }
     }
+  ],
+  "choices": [
+    {"name": "subtitle mode and words per group chosen by hand", "choice": {"variant": "A", "font": "montserrat", "hand": "caveat", "colors": {"text": "#FFFFFF", "accent": "#FFD400", "bar": "#FFD400"}, "subMode": "soft", "subWords": 4}, "expected": {"font": "montserrat", "hand": "caveat", "colors": {"text": "#FFFFFF", "accent": "#FFD400", "bar": "#FFD400", "plate": "#111111", "outline": "#000000"}, "subtitles": {"mode": "soft", "words": 4, "size": 64, "y": 1300}, "hook": {"mode": "plate", "size": 72, "y": 400}, "bar": {"pos": "bottom", "height": 14}}},
+    {"name": "only the words per group: the variant's mode stays", "choice": {"variant": "C", "font": "rubik", "hand": "caveat", "colors": {"text": "#FFFFFF", "accent": "#FFD400", "bar": "#FFD400"}, "subWords": 2, "subSize": 72}, "expected": {"font": "rubik", "hand": "caveat", "colors": {"text": "#FFFFFF", "accent": "#FFD400", "bar": "#FFD400", "plate": "#111111", "outline": "#171717"}, "subtitles": {"mode": "accumulate", "words": 2, "size": 72, "y": 1320}, "hook": {"mode": "shadow", "size": 80, "y": 380}, "bar": {"pos": "bottom", "height": 20}}},
+    {"name": "nothing chosen: as the variant", "choice": {"variant": "B", "font": "oswald", "hand": "marck-script", "colors": {"text": "#FFFFFF", "accent": "#FFD400", "bar": "#FFD400"}}, "expected": {"font": "oswald", "hand": "marck-script", "colors": {"text": "#FFFFFF", "accent": "#FFD400", "bar": "#FFD400", "plate": "#1B1B1F", "outline": "#000000"}, "subtitles": {"mode": "plate", "words": 3, "size": 60, "y": 1280}, "hook": {"mode": "outline", "size": 76, "y": 420}, "bar": {"pos": "top", "height": 10}}}
   ]
 }

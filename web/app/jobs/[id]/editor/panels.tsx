@@ -6,9 +6,9 @@ import type { EditorMedia } from '@/lib/tracks.ts';
 import { LIMITS, setMusic, setSound, setVoice, type HandEdits, type Level } from '@/lib/edits.ts';
 import { tenths } from '@/lib/format.ts';
 import type { Key } from '@/lib/i18n.ts';
-import { ADJUSTABLE, type StyleChoice } from '@/lib/jobfiles.ts';
+import { ADJUST, SUBTITLE_MODES, type Adjustable, type StyleChoice, type SubtitleMode } from '@/lib/jobfiles.ts';
 import type { MusicMix } from '@/lib/sound.ts';
-import { choiceFor, clampTo, finalStyle, SUB_SHADE, SWATCHES } from '@/lib/style.ts';
+import { choiceFor, clampTo, finalStyle, HOOK_Y_DEFAULT, ownAdjustments, SUB_SHADE, SWATCHES } from '@/lib/style.ts';
 import { moveTarget, type Tracks } from '@/lib/tracks.ts';
 import type { BlockSel, SubSel } from './blockpanel';
 
@@ -140,6 +140,7 @@ export function Inspector({ T, sel, tracks, hand, mix, editable, canMove, splitH
 type Styles = NonNullable<EditorData['styles']>;
 type Spec = ReturnType<typeof finalStyle>;
 type ColorKey = keyof StyleChoice['colors'];
+const MODE_NAMES: Record<SubtitleMode, Key> = { karaoke: 'modeKaraoke', plate: 'modePlate', word: 'modeWord', accumulate: 'modeAccumulate', soft: 'modeSoft' };
 const COLOR_ROWS: [ColorKey, Key][] = [['accent', 'accentColor'], ['text', 'textColor'], ['bar', 'barColor']];
 
 /** Стиль ролика: вариант, шрифты, три цвета и затемнение под субтитрами — как на экране «Превью», в светлой теме.
@@ -151,7 +152,7 @@ export function StylePanel({ T, styles, choice, spec, offered, locked, note, onP
   // другой вариант — его шрифты и цвета; места, размеры и затемнение, что Павел выбрал сам, остаются (как на «Превью»)
   const pickVariant = (variant: StyleChoice['variant']) => onPick({
     ...choiceFor(styles, variant),
-    ...Object.fromEntries(ADJUSTABLE.filter((k) => choice[k] !== undefined).map((k) => [k, choice[k]])),
+    ...ownAdjustments(choice),
   });
   const pickColor = (key: ColorKey, color: string) => onPick({ ...choice, colors: { ...choice.colors, [key]: color.toUpperCase() } });
   const shade = Math.round((spec?.subtitles.shade ?? 0) * 100);
@@ -198,6 +199,43 @@ export function StylePanel({ T, styles, choice, spec, offered, locked, note, onP
           onChange={(e) => onPick({ ...choice, subShade: clampTo('subShade', Number(e.target.value) / 100) })} />
         <span className="mono">{shade ? `${shade} %` : T('shadeOff')}</span>
       </div>
+      {/* вид субтитров и слов в группе; размер и место — как ручки на «Превью»: px кадра 1080×1920 */}
+      <h3>{T('subtitles')}</h3>
+      <div className="ed-modes" role="group" aria-label={T('subMode')}>
+        {SUBTITLE_MODES.map((m) => (
+          <button key={m} type="button" aria-pressed={spec?.subtitles.mode === m} disabled={locked}
+            onClick={() => onPick({ ...choice, subMode: m })}>{T(MODE_NAMES[m])}</button>
+        ))}
+      </div>
+      {spec?.subtitles.mode !== 'word' ? (
+        <Range T={T} label={T('subWords')} name={T('subtitles')} k="subWords" value={spec?.subtitles.words} locked={locked}
+          onPick={(v) => onPick({ ...choice, subWords: v })} />
+      ) : null}
+      <Range T={T} label={T('size')} name={T('subtitles')} k="subSize" value={spec?.subtitles.size} locked={locked}
+        onPick={(v) => onPick({ ...choice, subSize: v })} />
+      <Range T={T} label={T('place')} name={T('subtitles')} k="subY" value={spec?.subtitles.y} locked={locked}
+        onPick={(v) => onPick({ ...choice, subY: v })} />
+      <h3>{T('hook')}</h3>
+      <Range T={T} label={T('size')} name={T('hook')} k="hookSize" value={spec?.hook.size} locked={locked}
+        onPick={(v) => onPick({ ...choice, hookSize: v })} />
+      <Range T={T} label={T('place')} name={T('hook')} k="hookY" value={spec ? spec.hook.y ?? HOOK_Y_DEFAULT : undefined} locked={locked}
+        onPick={(v) => onPick({ ...choice, hookY: v })} />
     </section>
+  );
+}
+
+/** Ползунок стиля: в пределах и с шагом ADJUST (как ручки на «Превью»). */
+function Range({ T, label, name, k, value, locked, onPick }: {
+  T: TFn; label: string; name: string; k: Adjustable; value: number | undefined; locked: boolean; onPick: (v: number) => void;
+}) {
+  const { range, step } = ADJUST[k];
+  if (value === undefined) return null;
+  return (
+    <div className="ed-shade">
+      <span className="ed-range-name">{label}</span>
+      <input type="range" aria-label={`${name}: ${label}`} min={range.min} max={range.max} step={step} value={value} disabled={locked}
+        onChange={(e) => onPick(clampTo(k, Number(e.target.value)))} />
+      <span className="mono">{Math.round(value)}</span>
+    </div>
   );
 }

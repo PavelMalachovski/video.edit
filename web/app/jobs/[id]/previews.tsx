@@ -9,13 +9,9 @@ import { abOptions, buildAnswers, previewEnd, previewHook, type Draft } from '@/
 import { storage } from '@/lib/client.ts';
 import { mmss } from '@/lib/format.ts';
 import { editorTabs, mountSummary, nextTab, STAGE, stageFit, type TabId } from '@/lib/editor.ts';
-import { ADJUSTABLE, COVER, type AbKind, type Adjustable, type Question, type StyleChoice, type Styles } from '@/lib/jobfiles.ts';
+import { COVER, type AbKind, type Adjustable, type Question, type StyleChoice, type Styles } from '@/lib/jobfiles.ts';
 import { MAX_NOTE } from '@/lib/jobs.ts';
-import {
-  allowedFonts, choiceFor, clampTo, coverOf, finalStyle, underCaption, HOOK_SIZE, HOOK_Y, INSERT_W, insertKey, loadAb, loadAd, loadChoice, loadCover, loadInsertBoxes, loadSpeed, moveBox,
-  resizeBox, resolveInserts, sampleState, saveAb, saveAd, saveChoice, saveCover, saveInsertBoxes, saveSpeed, type CoverPick, type InsertBox,
-  SPEEDS, SUB_SHADE, SUB_SIZE, SUB_Y, SWATCHES,
-} from '@/lib/style.ts';
+import { allowedFonts, choiceFor, clampTo, coverOf, ownAdjustments, finalStyle, HOOK_SIZE, HOOK_Y, HOOK_Y_DEFAULT, INSERT_W, insertKey, loadAb, loadAd, loadChoice, loadCover, loadInsertBoxes, loadSpeed, moveBox, resizeBox, resolveInserts, sampleState, saveAb, saveAd, saveChoice, saveCover, saveInsertBoxes, saveSpeed, SPEEDS, SUB_SHADE, SUB_SIZE, SUB_Y, SWATCHES, type CoverPick, type InsertBox, underCaption } from '@/lib/style.ts';
 import {
   FrameIcon, GaugeIcon, LayersIcon, MoveIcon, PaletteIcon, RefreshIcon, ScissorsIcon, SplitIcon, TypeIcon,
 } from '../../icons';
@@ -48,7 +44,6 @@ const INSERT_STEP = 20; // px ширины вставки на нажатие «
 
 type Box = { x: number; y: number; w: number; h: number };
 type LayoutBoxes = { inserts?: Box[]; sub?: Box };
-const HOOK_DEFAULT = 400; // центр хука, если в стиле не задан (template/overlay.js, HOOK_Y)
 const CARD_T = 10 / 13; // с от начала карточки: уже появилась, призыв — в обычном размере (дышит с частотой 1,3 Гц)
 
 const TAB_ICONS: Record<TabId, ReactNode> = {
@@ -199,7 +194,7 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
   // смена варианта сбрасывает шрифты и цвета к нему, а места хука и субтитров, которые Павел выбрал сам, остаются
   const pickVariant = (id: StyleChoice['variant']) => setChoice({
     ...choiceFor(styles, id),
-    ...Object.fromEntries(ADJUSTABLE.filter((k) => choice[k] !== undefined).map((k) => [k, choice[k]])),
+    ...ownAdjustments(choice),
   });
   const set = (key: Adjustable) => (x: number) => setChoice({ ...choice, [key]: clampTo(key, x) });
   const reset = (...keys: Adjustable[]) => () =>
@@ -210,7 +205,7 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
     changed: choice.subY !== undefined || choice.subSize !== undefined, reset: reset('subY', 'subSize'),
   };
   const hookPart = {
-    name: 'Хук', label: 'Высота хука', y: spec.hook.y ?? HOOK_DEFAULT, range: HOOK_Y, move: set('hookY'),
+    name: 'Хук', label: 'Высота хука', y: spec.hook.y ?? HOOK_Y_DEFAULT, range: HOOK_Y, move: set('hookY'),
     size: spec.hook.size, sizes: HOOK_SIZE, resize: set('hookSize'),
     changed: choice.hookY !== undefined || choice.hookSize !== undefined, reset: reset('hookY', 'hookSize'),
   };

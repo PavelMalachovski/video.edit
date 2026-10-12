@@ -145,3 +145,19 @@ def test_a_new_style_from_the_editor_keeps_what_text_fixes_changed():
 def test_merge_style_matches_the_shared_fixture(case):
     """То же правило у редактора (mergeStyle в web/lib/style.ts): каким стиль выйдет в ролике после «Монтировать»."""
     assert merge_style(case["base"], case["ours"], case["theirs"]) == case["expected"]
+
+
+@pytest.mark.parametrize("case", FIXTURE["choices"], ids=lambda c: c["name"])
+def test_pavels_choice_lands_in_the_final_style_as_on_the_page(case):
+    """Выбор Павла в редакторе — и вид субтитров, и слов в группе — в стиле ролика (страница — finalStyle, та же фикстура)."""
+    assert final_style(FIXTURE["styles"], {"style": case["choice"]}) == case["expected"]
+
+
+def test_answers_take_the_subtitle_mode_and_words_within_the_schema(tmp_path):
+    job = Job(tmp_path / "j")
+    job.root.mkdir()
+    style = {**FIXTURE["answers"]["style"], "subMode": "soft", "subWords": 4}
+    job.write("answers.json", {**FIXTURE["answers"], "style": style})
+    for bad in ({"subMode": "fancy"}, {"subWords": 7}, {"subWords": 2.5}):
+        with pytest.raises(ValueError):
+            job.write("answers.json", {**FIXTURE["answers"], "style": {**style, **bad}})

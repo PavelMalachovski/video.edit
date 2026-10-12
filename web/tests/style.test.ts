@@ -317,3 +317,9 @@ test('subtitles may go down to just above the time bar; below the Reels safe zon
   assert.equal(underCaption(low), true, 'низ на 1570 — ниже 1530');
   assert.equal(underCaption(undefined), false);
 });
+
+test('Pavel\'s choice lands in the final style as the engine builds it — the subtitle mode and words too (shared fixture)', () => {
+  const choices = (FIXTURE as unknown as { choices: { name: string; choice: StyleChoice; expected: unknown }[] }).choices;
+  assert.ok(choices.length >= 3);
+  for (const c of choices) assert.deepStrictEqual(finalStyle(FIXTURE.styles as Styles, c.choice), c.expected, c.name);
+});

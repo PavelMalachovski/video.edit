@@ -2,7 +2,7 @@
 // состояния слоя на кадре (субтитры — по правилу build_sub_events), вставки по ответам и запомненный выбор.
 import { chosen, type Draft } from './answers.ts';
 import { sameJson } from './equal.ts';
-import { AB_KINDS, ADJUST, COVER, type CoverChoice, ADJUSTABLE, HOOK_SIZE, HOOK_Y, INSERT_W, INSERT_ZONE, inRange, isInsertBox, RESERVED, SUB_SHADE, SUB_SIZE, SUB_Y, type AbKind, type Adjustable, type InsertBox, type Question, type SampleInsert, type StyleChoice, type StyleSpec, type Styles } from './jobfiles.ts';
+import { AB_KINDS, ADJUST, COVER, type CoverChoice, ADJUSTABLE, HOOK_SIZE, HOOK_Y, INSERT_W, INSERT_ZONE, inRange, isInsertBox, isSubMode, RESERVED, SUB_SHADE, SUB_SIZE, SUB_Y, type AbKind, type Adjustable, type InsertBox, type Question, type SampleInsert, type StyleChoice, type StyleSpec, type Styles } from './jobfiles.ts';
 
 export { HOOK_SIZE, HOOK_Y, INSERT_W, SUB_SHADE, SUB_SIZE, SUB_Y };
 export type { InsertBox };
@@ -33,6 +33,7 @@ export function finalStyle(styles: Styles, c: StyleChoice): StyleSpec {
   spec.font = c.font;
   spec.hand = c.hand;
   spec.colors = { ...spec.colors, text: c.colors.text, accent: c.colors.accent, bar: c.colors.bar };
+  if (c.subMode) spec.subtitles.mode = c.subMode;
   for (const key of ADJUSTABLE) {
     const x = c[key];
     if (x === undefined) continue;
@@ -41,6 +42,17 @@ export function finalStyle(styles: Styles, c: StyleChoice): StyleSpec {
   }
   return spec;
 }
+
+/** То, что Павел выбрал сам (места, размеры, пятно, вид субтитров и слов в группе), — при смене варианта остаётся. */
+export function ownAdjustments(c: StyleChoice): Partial<StyleChoice> {
+  return {
+    ...Object.fromEntries(ADJUSTABLE.filter((k) => c[k] !== undefined).map((k) => [k, c[k]])),
+    ...(c.subMode ? { subMode: c.subMode } : {}),
+  };
+}
+
+/** Центр хука по высоте, если в стиле не задан (HOOK_Y шаблона, template/overlay.js). */
+export const HOOK_Y_DEFAULT = 400;
 
 /** Новый стиль из редактора поверх стиля ролика — как его сложит монтаж (merge_style движка, `vm style --onto`): `base` —
  *  стиль по прошлому выбору Павла, `ours` — стиль ролика (edit.json: тот выбор и правки текстом), `theirs` — по новому
@@ -379,7 +391,7 @@ function isChoice(x: unknown, styles: Styles): x is StyleChoice {
   return typeof c === 'object' && c !== null && styles.variants.some((v) => v.id === c.variant) && typeof c.font === 'string' && c.font !== ''
     && typeof c.hand === 'string' && c.hand !== '' && typeof c.colors === 'object' && c.colors !== null
     && ['text', 'accent', 'bar'].every((k) => COLOR.test(String((c.colors as Record<string, unknown>)[k])))
-    && ADJUSTABLE.every((key) => c[key] === undefined || inRange(key, c[key]))
+    && ADJUSTABLE.every((key) => c[key] === undefined || inRange(key, c[key])) && (c.subMode === undefined || isSubMode(c.subMode))
     && [['main', c.font], ['hand', c.hand]].every(([kind, id]) => {
       const ids = styles.fonts?.[kind as 'main' | 'hand'];
       return !ids?.length || ids.includes(id);

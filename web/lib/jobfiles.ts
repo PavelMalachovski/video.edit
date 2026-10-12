@@ -128,6 +128,7 @@ export const isCoverChoice = (c: unknown): c is CoverChoice => isObject(c) && Nu
 export type StyleChoice = {
   variant: 'A' | 'B' | 'C'; font: string; hand: string; colors: { text: string; accent: string; bar: string }; subY?: number; hookY?: number; subSize?: number; hookSize?: number;
   subShade?: number;
+  subWords?: number; subMode?: SubtitleMode; // слов в группе и вид субтитров — выбор в редакторе; нет — как в варианте
 };
 /** Где могут стоять субтитры (центр блока): блок не выходит из безопасной зоны 120–1530 px. */
 export const SUB_Y = { min: 240, max: 1760 }; // ниже 1530 — под подписью Reels, но над шкалой времени: выбор Павла
@@ -137,6 +138,8 @@ export const SUB_SIZE = { min: 40, max: 110 };
 export const HOOK_SIZE = { min: 48, max: 120 };
 /** Мягкое пятно под субтитрами (решение Павла 12.10.2026): насколько темнее фон в его середине; 0 — без пятна. */
 export const SUB_SHADE = { min: 0, max: 0.8 };
+/** Сколько слов в группе субтитров (как StyleSpec.subtitles.words). */
+export const SUB_WORDS = { min: 2, max: 6 };
 /** Что Павел настраивает на превью: поле выбора → часть и поле StyleSpec, пределы и шаг (то же — ADJUSTED в engine/vm/style.py). */
 export const ADJUST = {
   subY: { part: 'subtitles', field: 'y', range: SUB_Y, step: 10 },
@@ -144,10 +147,13 @@ export const ADJUST = {
   subSize: { part: 'subtitles', field: 'size', range: SUB_SIZE, step: 2 },
   hookSize: { part: 'hook', field: 'size', range: HOOK_SIZE, step: 2 },
   subShade: { part: 'subtitles', field: 'shade', range: SUB_SHADE, step: 0.05 },
+  subWords: { part: 'subtitles', field: 'words', range: SUB_WORDS, step: 1 },
 } as const;
 export type Adjustable = keyof typeof ADJUST;
 export const ADJUSTABLE = Object.keys(ADJUST) as Adjustable[];
-export const inRange = (key: Adjustable, x: unknown): x is number => isNum(x) && x >= ADJUST[key].range.min && x <= ADJUST[key].range.max;
+export const inRange = (key: Adjustable, x: unknown): x is number => isNum(x) && x >= ADJUST[key].range.min && x <= ADJUST[key].range.max
+  && (ADJUST[key].step !== 1 || Number.isInteger(x)); // слов в группе — целое
+export const isSubMode = (x: unknown): x is SubtitleMode => (SUBTITLE_MODES as readonly unknown[]).includes(x);
 
 function isSpec(s: unknown): s is StyleSpec {
   if (!isObject(s) || !isFontId(s.font) || !isFontId(s.hand) || !isObject(s.colors)) return false;
@@ -277,9 +283,10 @@ export function parseStyle(raw: unknown): StyleChoice | string {
     if (!inRange(key, x)) return `style.${key}: от ${ADJUST[key].range.min} до ${ADJUST[key].range.max}`;
     adjusted[key] = x;
   }
+  if (raw.subMode !== undefined && !isSubMode(raw.subMode)) return `style.subMode: ${SUBTITLE_MODES.join(', ')}`;
   return {
     variant, font, hand, colors: { text: colors.text as string, accent: colors.accent as string, bar: colors.bar as string },
-    ...adjusted,
+    ...adjusted, ...(raw.subMode !== undefined ? { subMode: raw.subMode } : {}),
   };
 }
 

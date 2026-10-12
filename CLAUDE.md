@@ -60,8 +60,8 @@
 ## Меняются только вместе
 - Превью = финал: всё, что видно на превью, рисует `template/`.
 - Итоговый стиль: `engine/vm/style.py` (`final_style`, `ADJUSTED`) и `web/lib/style.ts` (`finalStyle`) с
-  `web/lib/jobfiles.ts` (`ADJUST` — что Павел двигает и в каких пределах), общая фикстура
-  `engine/tests/fixtures/style-merge.json`.
+  `web/lib/jobfiles.ts` (`ADJUST` — что Павел двигает и в каких пределах; вид субтитров `subMode` — отдельно, `isSubMode`)
+  и схемой `engine/vm/schemas/answers.json`, общая фикстура `engine/tests/fixtures/style-merge.json` (раздел `choices`).
 - Место и размер вставок Павла: `engine/vm/style.py` (`placed_inserts`) и `web/lib/style.ts` (`placedInserts`;
   рамку в безопасной зоне считают `resizeBox` и `moveBox`), общая фикстура `engine/tests/fixtures/insert-boxes.json`.
 - Группы субтитров: `engine/vm/subs.py` (`build_sub_events`, блоки и строки soft) и `web/lib/style.ts` (`sampleState`).

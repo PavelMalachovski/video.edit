@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 import {
-  abLabels, answersFile, appendFix, appendRestyle, buildJobFile, coverName, errorStatus, finalNames, isFinalName, parseAnswersBody, parseNote, parseResult, parseStatus, parseStyles,
+  abLabels, answersFile, appendFix, appendRestyle, buildJobFile, coverName, errorStatus, finalNames, isFinalName, parseAnswersBody, parseNote, parseResult, parseStatus, parseStyle, parseStyles,
   parseQuestions, QUESTION_LAYOUTS, QUESTION_TYPES, queuedStatus, STATES, wantedVersion, type Manifest, type Question,
   AB_KINDS, CHECK_IDS, parseReview, REVIEW_IDS, SAMPLE_INSERT_KINDS, SUB_SHADE,
 } from '../lib/jobfiles.ts';
@@ -403,4 +403,12 @@ test('ads version: the answers ask for it, it has its own file names and its che
   const ad = { durations: { source: 80.2, final: 71 }, qa: { ok: false, problems: ['вставка 1 вне безопасной зоны'] } };
   assert.deepEqual(parseResult({ ...result, ad })?.ad, ad);
   assert.equal(parseResult({ ...result, ad: { qa: 1 } })?.ad, undefined);
+});
+
+test('the style choice takes the subtitle look and words per group, within the engine schema', () => {
+  const base = { variant: 'A', font: 'montserrat', hand: 'caveat', colors: { text: '#FFFFFF', accent: '#FFD400', bar: '#FFD400' } };
+  assert.deepEqual(parseStyle({ ...base, subMode: 'soft', subWords: 4 }), { ...base, subMode: 'soft', subWords: 4 });
+  for (const bad of [{ subMode: 'fancy' }, { subWords: 7 }, { subWords: 1 }, { subWords: 2.5 }]) {
+    assert.equal(typeof parseStyle({ ...base, ...bad }), 'string', JSON.stringify(bad));
+  }
 });

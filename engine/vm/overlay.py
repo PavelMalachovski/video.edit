@@ -130,8 +130,9 @@ def _subtitles(edit: dict, tl: Timeline) -> list[_Piece]:
     pieces = []
     for e in build_sub_events(spoken, tl, style["mode"], style["words"], hidden=hidden):
         sub = {"words": list(e["words"]), "active": e["active"], "visible": e["visible"]}
-        if soft:
+        if soft:  # opens — блок начинает предложение: иначе шаблон сделал бы строчным и имя посреди фразы
             sub["lines"] = list(e["lines"])
+            sub["opens"] = e["opens"]
         pieces.append(_Piece(_frame(e["t0"]), _frame(e["t1"]), "sub", sub, appear=SUB_APPEAR if soft else 0))
     return pieces
 

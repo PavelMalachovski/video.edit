@@ -96,6 +96,11 @@ export class Timeline {
     return this.#duration;
   }
 
+  /** Тизер — `[начало, конец]` в исходнике; нет — null. */
+  get teaser(): readonly [number, number] | null {
+    return this.#teaser;
+  }
+
   /** Длина тизера в финале, с (нет тизера — 0). */
   get teaserDuration(): number {
     return this.#lead / this.#speed;

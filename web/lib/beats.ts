@@ -36,11 +36,11 @@ export function snap(t: number, times: readonly number[], limit = SNAP): number 
   return Math.abs(times[k] - t) <= limit + 1e-9 ? times[k] : t;
 }
 
-type Snappable = { zooms?: readonly { t: number; over?: number }[] | null; inserts?: readonly { t0: number; t1: number }[] | null };
+type Snappable = { zooms?: readonly { t: number; over?: number }[] | null; inserts?: readonly { t0: number; t1: number; off?: boolean }[] | null };
 
 /** Копия edit, где смены зума (кроме резких — over: 0) и появления вставок стоят на долях `times` (секунды ролика) —
  *  snap_edit движка: доля в тизере, в вырезке, за стыком с другой серией кусков или так поздно, что вставке останется
- *  меньше 0,3 с, — событие на месте. → копия и сколько событий подвинуто. */
+ *  меньше 0,3 с, — событие на месте; выключенная Павлом вставка (`off`) — тоже. → копия и сколько событий подвинуто. */
 export function snapEdit<T extends Snappable>(edit: T, tl: Timeline, times: readonly number[], limit = SNAP): { edit: T; moved: number } {
   let moved = 0;
   const place = (t: number, until?: number): number => {
@@ -55,7 +55,7 @@ export function snapEdit<T extends Snappable>(edit: T, tl: Timeline, times: read
     return pyRound(back, 4);
   };
   const zooms = (edit.zooms ?? []).map((z) => (Number(z.over ?? 1) === 0 ? z : { ...z, t: place(Number(z.t)) }));
-  const inserts = (edit.inserts ?? []).map((i) => ({ ...i, t0: place(Number(i.t0), Number(i.t1)) }));
+  const inserts = (edit.inserts ?? []).map((i) => (i.off ? i : { ...i, t0: place(Number(i.t0), Number(i.t1)) }));
   return { edit: { ...edit, zooms, inserts }, moved };
 }
 

@@ -28,6 +28,7 @@ export type AccentSpec = { t0: number; t1: number; x: number; y: number; lines: 
 export type InsertSpec = {
   kind: string; t0: number; t1: number; src?: string; text?: string; title?: string; x?: number | null; y?: number | null; w?: number | null;
   params?: Record<string, unknown>;
+  off?: boolean; // выключил Павел в редакторе: в ролике её нет, номер остаётся
 };
 /** То из edit.json (уже с правками руками), из чего строится слой; `style` — стиль, который увидит ролик. */
 export type OverlayEdit = {
@@ -285,14 +286,15 @@ export function hookEnd(edit: OverlayEdit, tl: Timeline): number {
 }
 
 /** Кадры показа вставок `[номер в edit.inserts, первый кадр, кадр после последнего]`: не раньше конца хука, не короче
- *  1,5 с, не дальше своей серии кусков. Все виды, и fullscreen (insert_spans движка). */
+ *  1,5 с, не дальше своей серии кусков. Все виды, и fullscreen; выключенных Павлом (`off`) — нет (insert_spans движка). */
 export function insertSpans(edit: OverlayEdit, tl: Timeline): [number, number, number][] {
   const afterHook = hookEnd(edit, tl);
   const minShow = Math.ceil(MIN_SHOW * FPS - 1e-9);
-  return (edit.inserts || []).map((ins, i) => {
+  return (edit.inserts || []).flatMap((ins, i): [number, number, number][] => {
+    if (ins.off) return []; // номер остаётся: по нему ключи звуков insert:<n> и рамки в boxes.json
     const [a, b] = tl.span(Number(ins.t0), Number(ins.t1));
     const start = Math.max(frameOf(a), afterHook);
-    return [i, start, Math.max(frameOf(b), start + minShow)];
+    return [[i, start, Math.max(frameOf(b), start + minShow)]];
   });
 }
 

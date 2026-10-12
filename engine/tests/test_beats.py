@@ -199,3 +199,11 @@ def test_an_insert_does_not_jump_to_a_beat_across_a_join_into_another_piece():
     edit = {"zooms": [], "inserts": [{"kind": "image", "t0": 7.9, "t1": 8.0}, {"kind": "image", "t0": 5.9, "t1": 7.0}]}
     out, moved = beats.snap_edit(edit, Timeline([(5.0, 8.0), (0.0, 3.0)], 1.0), [1.0, 3.05])
     assert [i["t0"] for i in out["inserts"]] == [7.9, 6.0] and moved == 1, out["inserts"]
+
+
+def test_an_insert_pavel_switched_off_is_not_moved_to_a_beat_and_not_counted():
+    # в ролике её нет (insert_spans): к доле не двигаем — «подвинуто» считает только видимое
+    edit = {"zooms": [], "inserts": [{"kind": "image", "t0": 2.9, "t1": 4.0, "off": True}, {"kind": "image", "t0": 5.9, "t1": 7.0}]}
+    out, moved = beats.snap_edit(edit, Timeline([(0.0, 9.0)], 1.0), [3.0, 6.0])
+    assert [i["t0"] for i in out["inserts"]] == [2.9, 6.0]
+    assert moved == 1

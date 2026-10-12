@@ -291,3 +291,44 @@ test('a word whose end is cut ends with its piece, and accent words said in a mo
   const shown = draftTracks(accent).subtitles.flatMap((c) => c.words?.map((w) => w.text) ?? []);
   assert.ok(shown.includes('очень') && shown.includes('важное.') && !shown.includes('это'), JSON.stringify(shown));
 });
+
+test('Pavel\'s text fixes: blocks move and change where the engine puts them; what he removed stays as a ghost; sound keys keep their numbers', () => {
+  const d: Draft = {
+    ...DRAFT,
+    cta: { t0: 4.0, t1: 4.9, lines: ['Пиши'], word: 'ВИДЕО' },
+    inserts: [
+      { kind: 'image', src: 'in/a.png', t0: 3.0, t1: 4.0, x: 70, y: 500, w: 250, sfx: 'assets/sfx/pop.mp3' },
+      { kind: 'sticker', text: '3 ошибки', t0: 3.2, t1: 3.6, x: 100, y: 300, w: 400, sfx: 'assets/sfx/ding.mp3' },
+    ],
+  };
+  const fixes = {
+    text: {
+      hook: { until: 3.6, text: 'Как я снимаю на телефон' },
+      cta: { at: [4.0, 4.9] as [number, number], off: true as const },
+      accents: [{ at: [3.45, 3.95] as [number, number], t0: 4.0, t1: 4.4 }],
+      inserts: [{ at: [3.0, 4.0] as [number, number], off: true as const }, { at: [3.2, 3.6] as [number, number], text: '5 ошибок', t1: 4.2 }],
+    },
+    words: [{ t0: 3.1, t1: 3.4, text: 'снимаю,' }, { t0: 0.6, t1: 0.9, text: '' }],
+  };
+  const t = draftTracks(d, { fixes, sourceDuration: 6 });
+  const hook = t.text.find((c) => c.kind === 'hook');
+  assert.equal(hook?.label, 'Как я снимаю на телефон');
+  assert.ok(hook && !hook.ghost && near(hook.t1, Math.round(((1.5 + 0.6) / 1.25) * 30) / 30), `хук — до 3,6 с исходника: ${hook?.t1}`);
+  const cta = t.text.find((c) => c.kind === 'cta');
+  assert.ok(cta?.ghost, 'титр убран — тенью: его можно вернуть');
+  assert.deepEqual(cta?.ref, { kind: 'cta', at: [4.0, 4.9] });
+  const accent = t.text.find((c) => c.kind === 'accent');
+  assert.deepEqual(accent?.ref, { kind: 'accent', n: 0, at: [3.45, 3.95], occurrence: 0 }, 'правка держится за место сессии');
+  assert.ok(accent && near(accent.t0, Math.round(((1.5 + 1.0) / 1.25) * 30) / 30), `акцент — на новом месте: ${accent?.t0}`);
+  assert.deepEqual(t.subtitles.map((c) => c.label), ['покажу, как', 'снимаю, на'],
+    'слово акцента на старом месте («на») — снова в субтитрах, на новом («айфон») — под акцентом; убранное слово пропало, исправленное — с правкой');
+  const sub = t.subtitles[1];
+  assert.deepEqual(sub.ref, { kind: 'sub', words: [{ t0: 3.1, t1: 3.4, text: 'снимаю' }, { t0: 3.5, t1: 3.9, text: 'на' }] }, 'в ref — текст сессии: «Как было»');
+  const ins = t.inserts.map((c) => [c.label, c.ref && 'n' in c.ref ? c.ref.n : null, Boolean(c.ghost)]);
+  assert.deepEqual(ins, [['a', 0, true], ['5 ошибок', 1, false]], 'убранная вставка — тенью, номер другой — тот же');
+  assert.deepEqual(t.sounds.map((c) => c.key), ['insert:1'], 'у убранной вставки нет звука; ключ другой — по её номеру');
+  const sticker = t.inserts.find((c) => !c.ghost);
+  assert.ok(sticker && sticker.drawn && near(sticker.t0, 50 / 30) && near(sticker.t1, t.duration),
+    `стикер — после нового конца хука и до конца ролика (1,5 с не влезают — режет конец): ${sticker?.t0}–${sticker?.t1}`);
+  assert.ok(!t.layer.edit.inserts?.some((i, n) => n === 0 && !i.off), 'в слое — выключенной');
+});

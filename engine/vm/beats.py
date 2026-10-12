@@ -181,7 +181,7 @@ def snap(t: float, times: list[float], limit: float = SNAP) -> float:
 
 def snap_edit(edit: dict, tl: Timeline, times: list[float], limit: float = SNAP) -> tuple[dict, int]:
     """Копия edit.json, где смены зума (`zooms[].t`, кроме резких — `over: 0`) и появления вставок (`inserts[].t0`) стоят на долях `times`
-    (секунды ролика), если доля не дальше `limit`; → (копия, сколько событий подвинуто). Время — по исходнику, как в
+    (секунды ролика), если доля не дальше `limit`; → (копия, сколько событий подвинуто). Выключенные вставки (`off`) — на месте. Время — по исходнику, как в
     edit.json: момент ролика переводится обратно через `tl`. Событие остаётся на месте, если доля — в тизере или в
     вырезке (обратный перевод не вернёт её же), а вставка — и если позже ей осталось бы меньше MIN_SHOWN."""
     moved = 0
@@ -205,6 +205,7 @@ def snap_edit(edit: dict, tl: Timeline, times: list[float], limit: float = SNAP)
     out = {**edit}
     # резкая смена крупности стоит на стыке отрезков (vm.zoom) — к долям её не двигаем
     out["zooms"] = [z if float(z.get("over", 1)) == 0 else {**z, "t": place(float(z["t"]))} for z in edit.get("zooms") or []]
-    out["inserts"] = [{**i, "t0": place(float(i["t0"]), float(i["t1"]))} for i in edit.get("inserts") or []]
+    # выключенную Павлом вставку (`off`) не двигаем: в ролике её нет, «подвинуто» считает только видимое
+    out["inserts"] = [i if i.get("off") else {**i, "t0": place(float(i["t0"]), float(i["t1"]))} for i in edit.get("inserts") or []]
     return out, moved
 

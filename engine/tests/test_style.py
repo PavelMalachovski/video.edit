@@ -74,6 +74,23 @@ def test_a_size_out_of_range_is_refused(tmp_path, key, size):
         job.write("answers.json", {**FIXTURE["answers"], "style": {**FIXTURE["answers"]["style"], key: size}})
 
 
+def test_no_shade_under_the_subtitles_unless_pavel_turned_it_on():
+    style = {k: v for k, v in FIXTURE["answers"]["style"].items() if k != "subShade"}
+    assert "shade" not in final_style(FIXTURE["styles"], {**FIXTURE["answers"], "style": style})["subtitles"]
+
+
+@pytest.mark.parametrize("shade", [-0.1, 0.85, "0.5"])
+def test_a_shade_out_of_range_is_refused(tmp_path, shade):
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    with pytest.raises(ValueError, match="subShade"):
+        job.write("answers.json", {**FIXTURE["answers"], "style": {**FIXTURE["answers"]["style"], "subShade": shade}})
+    styles = json.loads(json.dumps(FIXTURE["styles"]))
+    styles["variants"][0]["spec"]["subtitles"]["shade"] = shade
+    with pytest.raises(ValueError, match="shade"):
+        job.write("styles.json", styles)
+
+
 # ---------- место и размер вставок ----------
 
 BOXES = json.loads((Path(__file__).parent / "fixtures" / "insert-boxes.json").read_text(encoding="utf-8"))

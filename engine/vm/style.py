@@ -1,14 +1,21 @@
 """Итоговый стиль ролика: `spec` варианта, выбранного Павлом на превью, с его шрифтом, рукописным, тремя цветами
 (текст, подсветка, шкала), высотой и размером субтитров и хука, если он их поменял (`subY`, `hookY`, `subSize`,
-`hookSize`); остальное — как у варианта. То же правило — у страницы (web/lib/style.ts): превью и
-финал рисуются одним `spec`. Общая фикстура — tests/fixtures/style-merge.json.
+`hookSize`), и пятном под субтитрами, если он его включил (`subShade` → `subtitles.shade`); остальное — как у
+варианта. То же правило — у страницы (web/lib/style.ts): превью и финал рисуются одним `spec`. Общая фикстура —
+tests/fixtures/style-merge.json.
 
 Место и ширина вставок (`answers.insertBoxes`) — не стиль: `placed_inserts` ставит вставкам edit.json рамки, которые
 Павел выбрал на превью (web/lib/style.ts, placedInserts; общая фикстура — tests/fixtures/insert-boxes.json)."""
 import copy
 
 CHOSEN_COLORS = ("text", "accent", "bar")
-ADJUSTED = {"subY": ("subtitles", "y"), "hookY": ("hook", "y"), "subSize": ("subtitles", "size"), "hookSize": ("hook", "size")}
+ADJUSTED = {
+    "subY": ("subtitles", "y"),
+    "hookY": ("hook", "y"),
+    "subSize": ("subtitles", "size"),
+    "hookSize": ("hook", "size"),
+    "subShade": ("subtitles", "shade"),
+}
 
 
 def insert_key(insert: dict) -> str | None:

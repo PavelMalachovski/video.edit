@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { initialDraft, pick } from '../lib/answers.ts';
 import type { Question, StyleChoice, Styles } from '../lib/jobfiles.ts';
-import { loadAb, saveAb, loadAd, saveAd, loadCover, saveCover, coverOf, underCaption, allowedFonts, choiceFor, clampHookSize, insertKey, INSERT_W, loadInsertBoxes, moveBox, placedInserts, resizeBox, saveInsertBoxes, clampHookY, clampSubSize, clampSubY, finalStyle, HOOK_SIZE, HOOK_Y, SUB_SIZE, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES } from '../lib/style.ts';
+import { loadAb, saveAb, loadAd, saveAd, loadCover, saveCover, coverOf, underCaption, allowedFonts, choiceFor, clampHookSize, insertKey, INSERT_W, loadInsertBoxes, moveBox, placedInserts, resizeBox, saveInsertBoxes, clampHookY, clampSubShade, clampSubSize, clampSubY, finalStyle, HOOK_SIZE, HOOK_Y, SUB_SHADE, SUB_SIZE, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES } from '../lib/style.ts';
 import { blockedStorage, memoryStorage } from './helpers.ts';
 
 // Общая с движком фикстура: final_style в engine/vm/style.py обязан давать то же самое.
@@ -173,6 +173,24 @@ test('sizes: Pavel makes the hook and subtitles bigger or smaller, within limits
   assert.deepEqual([loadChoice(store, id, STYLES).subSize, loadChoice(store, id, STYLES).hookSize], [80, 100]);
   saveChoice(store, id, STYLES, { ...plain, hookSize: 300 });
   assert.deepEqual(loadChoice(store, id, STYLES), choiceFor(STYLES, 'A'), 'a size out of range is not taken back');
+});
+
+test('shade under the subtitles: off unless Pavel turns it on, from none to 80 % by 5 %', () => {
+  const plain = choiceFor(STYLES, 'B');
+  assert.equal(finalStyle(STYLES, plain).subtitles.shade, undefined, 'по умолчанию — без пятна');
+  assert.equal(finalStyle(STYLES, { ...plain, subShade: 0.6 }).subtitles.shade, 0.6);
+  assert.deepEqual([SUB_SHADE.min, SUB_SHADE.max], [0, 0.8]);
+  assert.equal(clampSubShade(0.63), 0.65);
+  assert.equal(clampSubShade(0.15 + 0.05 + 0.4), 0.6, 'без хвоста дробей: 0.6, а не 0.6000000000000001');
+  for (let k = 0; k <= 16; k++) assert.equal(clampSubShade(k * 0.05), (k * 5) / 100);
+  assert.equal(clampSubShade(-1), 0);
+  assert.equal(clampSubShade(2), SUB_SHADE.max);
+  const store = memoryStorage();
+  const id = '261012-120000-ab96';
+  saveChoice(store, id, STYLES, { ...plain, subShade: 0.6 });
+  assert.equal(loadChoice(store, id, STYLES).subShade, 0.6);
+  saveChoice(store, id, STYLES, { ...plain, subShade: 0.95 });
+  assert.deepEqual(loadChoice(store, id, STYLES), choiceFor(STYLES, 'A'), 'a shade out of range is not taken back');
 });
 
 test('insert boxes follow the shared engine fixture', () => {

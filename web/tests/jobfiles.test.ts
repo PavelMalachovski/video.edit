@@ -5,7 +5,7 @@ import { isDeepStrictEqual } from 'node:util';
 import {
   abLabels, answersFile, appendFix, appendRestyle, buildJobFile, coverName, errorStatus, finalNames, isFinalName, parseAnswersBody, parseNote, parseResult, parseStatus, parseStyles,
   parseQuestions, QUESTION_LAYOUTS, QUESTION_TYPES, queuedStatus, STATES, wantedVersion, type Manifest, type Question,
-  AB_KINDS, CHECK_IDS, parseReview, REVIEW_IDS, SAMPLE_INSERT_KINDS,
+  AB_KINDS, CHECK_IDS, parseReview, REVIEW_IDS, SAMPLE_INSERT_KINDS, SUB_SHADE,
 } from '../lib/jobfiles.ts';
 import { STEPS } from '../lib/routine.ts';
 
@@ -156,6 +156,14 @@ test('parseStyles takes the fonts that have every letter of the video, or none',
   }
 });
 
+test('parseStyles takes a variant with the shade under the subtitles, within its range', () => {
+  const styles = JSON.parse(readFileSync(new URL('../../engine/tests/fixtures/style-merge.json', import.meta.url), 'utf8')).styles;
+  const a = styles.variants[0];
+  const shaded = (shade: unknown) => ({ ...styles, variants: [{ ...a, spec: { ...a.spec, subtitles: { ...a.spec.subtitles, shade } } }, ...styles.variants.slice(1)] });
+  assert.equal(parseStyles(shaded(0.5))?.variants[0].spec.subtitles.shade, 0.5);
+  for (const bad of [0.9, -0.1, '0.5']) assert.equal(parseStyles(shaded(bad)), null, String(bad));
+});
+
 test('parseStyles takes the reference style: soft subtitles and the accent hook', () => {
   const styles = JSON.parse(readFileSync(new URL('../../engine/tests/fixtures/style-merge.json', import.meta.url), 'utf8')).styles;
   const a = styles.variants[0];
@@ -217,6 +225,18 @@ test('answers keep the sizes Pavel set; out of range — refused', () => {
   }
   const { properties } = schema('answers.json').properties.style;
   assert.deepEqual([properties.subSize.minimum, properties.subSize.maximum, properties.hookSize.minimum, properties.hookSize.maximum], [40, 110, 48, 120]);
+});
+
+test('answers keep the shade under the subtitles Pavel set; out of range — refused', () => {
+  const p = parseAnswersBody({ answers: { hook: 'h1' }, style: { ...STYLE, subShade: 0.6 } }, QS);
+  assert.ok(!('error' in p) && p.style.subShade === 0.6, JSON.stringify(p));
+  for (const subShade of [-0.05, 0.85, '0.6', Number.NaN]) {
+    assert.ok('error' in parseAnswersBody({ answers: { hook: 'h1' }, style: { ...STYLE, subShade } }, QS), String(subShade));
+  }
+  const { properties } = schema('answers.json').properties.style;
+  assert.deepEqual([properties.subShade.minimum, properties.subShade.maximum], [SUB_SHADE.min, SUB_SHADE.max]);
+  const { shade } = schema('styles.json').$defs.StyleSpec.properties.subtitles.properties;
+  assert.deepEqual([shade.minimum, shade.maximum], [SUB_SHADE.min, SUB_SHADE.max]);
 });
 
 test('answers keep insert boxes Pavel set; out of the safe zone or junk — refused', () => {

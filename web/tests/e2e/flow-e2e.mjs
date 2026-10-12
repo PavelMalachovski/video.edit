@@ -486,6 +486,20 @@ const segments = [
     await until(async () => (await bigSpec()).hook.size === pinched, 5000, `хук крупнее щипком: ${pinched}`);
     await page.getByRole('button', { name: 'Субтитры меньше', exact: true }).click();
     await until(async () => (await bigSpec()).subtitles.size === grown - 4, 5000, 'кнопка «Меньше» — на 4 px');
+    // затемнение под субтитрами: ползунок на вкладке «Место», по умолчанию выключен; 12 шагов по 5 % — 60 %, на крупном
+    // превью под субтитрами — пятно
+    const shade = page.getByRole('slider', { name: 'Затемнение под субтитрами' });
+    check((await bigSpec()).subtitles.shade === undefined, `пятно по умолчанию: ${(await bigSpec()).subtitles.shade}`);
+    await shade.scrollIntoViewIfNeeded();
+    await shade.focus();
+    for (let k = 0; k < 12; k++) await shade.press('ArrowRight');
+    await until(async () => (await bigSpec()).subtitles.shade === 0.6, 5000, 'пятно под субтитрами — 60 %');
+    const spots = () => page.frameLocator('iframe[data-big]').locator('#shade .shade').count();
+    await until(async () => (await spots()) === 1, 5000, 'на крупном превью — пятно');
+    await shade.press('Home'); // до конца влево — выключено
+    await until(async () => (await bigSpec()).subtitles.shade === 0 && (await spots()) === 0, 5000, 'пятно выключено');
+    for (let k = 0; k < 12; k++) await shade.press('ArrowRight');
+    await until(async () => (await bigSpec()).subtitles.shade === 0.6 && (await spots()) === 1, 5000, 'пятно снова 60 %');
     // вставка из ТЗ (картинка из ответа после перезагрузки уже не видна): уголок ⤢ вправо на 27 px — ×1,2; «больше» — +20 px
     const insertW = restyled.sample.inserts[1].w;
     const bigInsert = async () => JSON.parse(await big.getAttribute('data-state')).inserts.find((i) => i.key === 'q-logo.png');
@@ -604,6 +618,7 @@ const segments = [
     check(answers.ad === true, `ad: ${JSON.stringify(answers.ad)}`);
     check(answers.answers?.dim === '50', `dim: ${JSON.stringify(answers.answers?.dim)}`);
     check(answers.style?.subSize === grown - 4 && answers.style?.hookSize === pinched, `размеры: ${answers.style?.subSize}, ${answers.style?.hookSize}`);
+    check(answers.style?.subShade === 0.6, `пятно под субтитрами: ${answers.style?.subShade}`);
     check(isDeepStrictEqual(finalStyle(restyled, answers.style), last), `стиль ответа ${JSON.stringify(answers.style)} ≠ последнему превью`);
   }],
 

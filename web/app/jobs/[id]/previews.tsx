@@ -20,10 +20,10 @@ import {
   FrameIcon, GaugeIcon, LayersIcon, MoveIcon, PaletteIcon, RefreshIcon, ScissorsIcon, SplitIcon, TypeIcon,
 } from '../../icons';
 import PreviewFrame from '../../preview-frame';
+import { useTemplateFonts } from '../../use-fonts';
 import { TopBar } from '../../top-bar';
 import type { Act } from './job';
 
-type FontEntry = { id: string; family: string; file: string; kind: 'main' | 'hand' };
 type ColorKey = keyof StyleChoice['colors'];
 
 type Props = {
@@ -137,25 +137,7 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
     saveAb(storage(), jobId, x);
   };
 
-  const [fonts, setFonts] = useState<FontEntry[]>([]);
-  useEffect(() => {  // шрифты шаблона — и для кнопок выбора: название написано самим шрифтом
-    let live = true;
-    fetch('/template/fonts.json')
-      .then((r) => (r.ok ? r.json() : []))
-      .then((list: FontEntry[]) => {
-        if (!live) return;
-        setFonts(list);
-        for (const f of list) {
-          const face = new FontFace(`pv-${f.id}`, `url("/template/${f.file}")`, { weight: '1 1000' });
-          document.fonts.add(face);
-          void face.load().catch(() => undefined);
-        }
-      })
-      .catch(() => undefined);
-    return () => {
-      live = false;
-    };
-  }, []);
+  const fonts = useTemplateFonts(); // шрифты шаблона — и для кнопок выбора: название написано самим шрифтом
 
   const hook = useMemo(() => previewHook(questions, draft, styles.sample.hook), [questions, draft, styles]);
   const cover = coverOf(coverPick, styles, hook);

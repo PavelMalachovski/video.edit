@@ -41,6 +41,20 @@ const ru = {
   source: 'Исходник {s}',
   seconds: '{n} с',
   previewNote: 'Текст на кадре — примерно; точно его нарисует монтаж',
+  style: 'Стиль',
+  font: 'Шрифт',
+  hand: 'Рукописный',
+  colors: 'Цвета',
+  accentColor: 'Подсветка слова',
+  textColor: 'Текст',
+  barColor: 'Шкала времени',
+  own: 'Свой',
+  shade: 'Затемнение под субтитрами',
+  shadeOff: 'нет',
+  styleShared: 'Выбор общий с экраном «Превью»: «Монтировать» возьмёт его.',
+  styleLocked: 'Ролик уже смонтирован в этом стиле. Поменять стиль — при следующем монтаже из редактора.',
+  draft: 'Черновик',
+  sample: 'Кадр-образец: черновика монтажа ещё нет',
 };
 
 const en: Record<keyof typeof ru, string> = {
@@ -80,6 +94,20 @@ const en: Record<keyof typeof ru, string> = {
   source: 'Source {s}',
   seconds: '{n} s',
   previewNote: 'Text on the frame is approximate; the render draws it exactly',
+  style: 'Style',
+  font: 'Font',
+  hand: 'Handwriting',
+  colors: 'Colours',
+  accentColor: 'Word highlight',
+  textColor: 'Text',
+  barColor: 'Progress bar',
+  own: 'Custom',
+  shade: 'Shade under the subtitles',
+  shadeOff: 'off',
+  styleShared: 'Shared with the “Preview” screen: “Render” takes it.',
+  styleLocked: 'The video is already rendered in this style. Changing it comes with the next render from the editor.',
+  draft: 'Draft',
+  sample: 'Sample frame: no draft edit yet',
 };
 
 export type Key = keyof typeof ru;

@@ -8,12 +8,15 @@ import { storage } from '@/lib/client.ts';
 import type { EditorData } from '@/lib/editordata.ts';
 import { tenths } from '@/lib/format.ts';
 import { loadLang, saveLang, tr, type Key, type Lang } from '@/lib/i18n.ts';
-import type { StyleChoice } from '@/lib/jobfiles.ts';
-import { finalStyle, loadChoice, overlayAt, subGroupSize } from '@/lib/style.ts';
+import { ADJUSTABLE, type StyleChoice } from '@/lib/jobfiles.ts';
+import {
+  allowedFonts, choiceFor, clampTo, finalStyle, loadChoice, overlayAt, sampleState, saveChoice, SUB_SHADE, subGroupSize, SWATCHES,
+} from '@/lib/style.ts';
 import { advance, locate } from '@/lib/player.ts';
 import { decodePeaks, draftTracks, peakAt, type Clip, type Tracks } from '@/lib/tracks.ts';
 import { BackIcon, PauseIcon, PlayIcon } from '../../../icons';
 import PreviewFrame from '../../../preview-frame';
+import { useTemplateFonts } from '../../../use-fonts';
 
 const HEAD = 112; // px — колонка с именами дорожек
 const MAX_WIDTH = 30_000; // px — ширина дорожек
@@ -68,11 +71,21 @@ export default function Editor({ id }: { id: string }) {
     return () => clearInterval(timer);
   }, [waiting, load]);
 
-  const choice: StyleChoice | null = useMemo(() => {
-    if (!data?.styles) return null;
-    return data.answers?.style ?? loadChoice(storage(), id, data.styles); // смонтирован — его стиль; иначе выбор на «Превью»
-  }, [data, id]);
-  const spec = useMemo(() => (data?.styles && choice ? finalStyle(data.styles, choice) : null), [data, choice]);
+  // стиль: смонтирован — стиль ролика (панель только показывает); иначе выбор, общий с экраном «Превью»
+  const styles = data?.styles ?? null;
+  const mounted = Boolean(data?.answers);
+  const [choice, setChoiceState] = useState<StyleChoice | null>(null);
+  useEffect(() => {
+    if (styles) setChoiceState(data?.answers?.style ?? loadChoice(storage(), id, styles));
+  }, [styles, data?.answers, id]);
+  const pick = (c: StyleChoice) => {
+    if (!styles || mounted) return;
+    setChoiceState(c);
+    saveChoice(storage(), id, styles, c);
+  };
+  const spec = useMemo(() => (styles && choice ? finalStyle(styles, choice) : null), [styles, choice]);
+  const fonts = useTemplateFonts();
+  const offered = useMemo(() => (styles ? allowedFonts(fonts, styles) : []), [fonts, styles]); // со всеми буквами ролика
   const tracks: Tracks | null = useMemo(() => (data?.draft
     ? draftTracks(data.draft, { perGroup: spec ? subGroupSize(spec) : 3, sourceDuration: data.media?.duration })
     : null), [data, spec]);
@@ -209,6 +222,10 @@ export default function Editor({ id }: { id: string }) {
     return () => ro.disconnect();
   }, [data]);
   const overlay = useMemo(() => (spec && tracks ? overlayAt(spec, tracks, t) : null), [spec, tracks, t]);
+  // черновика ещё нет — кадр-образец сессии с текстом-образцом: стиль видно и так
+  const sample = useMemo(() => (spec && styles && !tracks ? sampleState(spec, styles.sample, styles.sample.hook ?? null, []) : null),
+    [spec, styles, tracks]);
+  const frameUrl = styles && data?.head ? `/api/jobs/${id}/file?path=${encodeURIComponent(styles.frame)}&v=${data.head}` : null;
 
   // ---------- таймлайн ----------
   const lanes = useRef<HTMLDivElement>(null);
@@ -326,12 +343,20 @@ export default function Editor({ id }: { id: string }) {
                 <PreviewFrame frameUrl={null} spec={spec} state={overlay} progress={duration ? t / duration : 0} width={frameW} big />
               </div>
             ) : null}
-            {notice ? <div className="ed-notice">{notice}</div> : null}
+            {spec && sample && frameUrl ? (
+              <div className="ed-layer">
+                <PreviewFrame frameUrl={frameUrl} spec={spec} state={sample} progress={0.3} width={frameW} big />
+                <div className="ed-caption">{T('sample')}</div>
+              </div>
+            ) : notice ? <div className="ed-notice">{notice}</div> : null}
           </div>
         </section>
 
         <aside className="ed-side">
-          <h2>{T('editor')}</h2>
+          {styles && choice ? (
+            <StylePanel T={T} styles={styles} choice={choice} spec={spec} offered={offered} locked={mounted} onPick={pick} />
+          ) : null}
+          <h2>{T('draft')}</h2>
           <p className="ed-note">{T('readOnly')}</p>
           {tracks ? (
             <dl className="ed-facts">
@@ -408,5 +433,69 @@ function Row({ name, cls, width, onSeek, children }: { name: string; cls: string
       <div className="ed-head">{name}</div>
       <div className="ed-lane" style={{ width }} onPointerDown={onSeek}>{children}</div>
     </div>
+  );
+}
+
+type Styles = NonNullable<EditorData['styles']>;
+type Spec = ReturnType<typeof finalStyle>;
+type ColorKey = keyof StyleChoice['colors'];
+const COLOR_ROWS: [ColorKey, Key][] = [['accent', 'accentColor'], ['text', 'textColor'], ['bar', 'barColor']];
+
+/** Стиль ролика: вариант, шрифты, три цвета и затемнение под субтитрами — как на экране «Превью», в светлой теме. */
+function StylePanel({ T, styles, choice, spec, offered, locked, onPick }: {
+  T: (k: Key, v?: Record<string, string | number>) => string; styles: Styles; choice: StyleChoice; spec: Spec | null;
+  offered: { id: string; family: string; kind: 'main' | 'hand' }[]; locked: boolean; onPick: (c: StyleChoice) => void;
+}) {
+  // другой вариант — его шрифты и цвета; места, размеры и затемнение, что Павел выбрал сам, остаются (как на «Превью»)
+  const pickVariant = (variant: StyleChoice['variant']) => onPick({
+    ...choiceFor(styles, variant),
+    ...Object.fromEntries(ADJUSTABLE.filter((k) => choice[k] !== undefined).map((k) => [k, choice[k]])),
+  });
+  const pickColor = (key: ColorKey, color: string) => onPick({ ...choice, colors: { ...choice.colors, [key]: color.toUpperCase() } });
+  const shade = Math.round((spec?.subtitles.shade ?? 0) * 100);
+  const fontButtons = (kind: 'main' | 'hand') => offered.filter((f) => f.kind === kind).map((f) => (
+    <button key={f.id} type="button" className={`ed-font${kind === 'hand' ? ' hand' : ''}`} aria-pressed={(kind === 'hand' ? choice.hand : choice.font) === f.id}
+      disabled={locked} style={{ fontFamily: `"pv-${f.id}", var(--font-ui)` }} onClick={() => onPick({ ...choice, [kind === 'hand' ? 'hand' : 'font']: f.id })}>
+      {f.family}
+    </button>
+  ));
+  return (
+    <section className="ed-style" aria-label={T('style')}>
+      <h2>{T('style')}</h2>
+      <p className="ed-note faint">{locked ? T('styleLocked') : T('styleShared')}</p>
+      <div className="ed-variants" role="group" aria-label={T('style')}>
+        {styles.variants.map((v) => (
+          <button key={v.id} type="button" aria-pressed={choice.variant === v.id} disabled={locked} onClick={() => pickVariant(v.id)}>
+            <b>{v.id}</b> {v.label}
+          </button>
+        ))}
+      </div>
+      <h3>{T('font')}</h3>
+      <div className="ed-fonts">{fontButtons('main')}</div>
+      <h3>{T('hand')}</h3>
+      <div className="ed-fonts">{fontButtons('hand')}</div>
+      <h3>{T('colors')}</h3>
+      {COLOR_ROWS.map(([key, label]) => (
+        <div key={key} className="ed-colors" role="group" aria-label={T(label)}>
+          <span className="ed-colors-name">{T(label)}</span>
+          {SWATCHES[key].map((sw) => (
+            <button key={sw.color} type="button" className="ed-swatch" aria-label={sw.name} aria-pressed={choice.colors[key] === sw.color} disabled={locked}
+              onClick={() => pickColor(key, sw.color)}>
+              <span style={{ background: sw.color }} />
+            </button>
+          ))}
+          <label className="ed-own">
+            <input type="color" aria-label={`${T(label)}: ${T('own')}`} value={choice.colors[key].toLowerCase()} disabled={locked}
+              onChange={(e) => pickColor(key, e.target.value)} />
+          </label>
+        </div>
+      ))}
+      <h3>{T('shade')}</h3>
+      <div className="ed-shade">
+        <input type="range" aria-label={T('shade')} min={0} max={Math.round(SUB_SHADE.max * 100)} step={5} value={shade} disabled={locked}
+          onChange={(e) => onPick({ ...choice, subShade: clampTo('subShade', Number(e.target.value) / 100) })} />
+        <span className="mono">{shade ? `${shade} %` : T('shadeOff')}</span>
+      </div>
+    </section>
   );
 }

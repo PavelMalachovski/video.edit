@@ -314,6 +314,19 @@ const segments = [
     check(await card('brand').getByRole('button', { name: 'Copilot' }).getAttribute('aria-pressed') === 'true', 'выбор написания пропал');
     check(await card('logo').getByText('Загружено').count() > 0, 'загруженная картинка пропала');
     await shot(page, 'questions-answered');
+
+    // редактор (бета) на вопросах: черновика ещё нет — кадр-образец; стиль в его панели общий с «Превью»
+    await page.getByRole('link', { name: /Открыть в редакторе/ }).click();
+    await page.waitForURL(/\/editor$/);
+    const panel = page.locator('.ed-style');
+    await panel.waitFor({ timeout: 10_000 });
+    check(await panel.getByRole('button', { name: /^A / }).getAttribute('aria-pressed') === 'true', 'в редакторе — вариант A, как на «Превью»');
+    await panel.getByRole('group', { name: 'Подсветка слова' }).getByRole('button', { name: 'Мятный' }).click();
+    await until(async () => JSON.parse((await page.locator('.ed-layer iframe').getAttribute('data-spec')) ?? '{}').colors?.accent === '#7CF2B0', 5000,
+      'подсветка — на кадре-образце редактора');
+    await shot(page, 'editor-sample');
+    await page.getByRole('link', { name: 'К задаче' }).click();
+    await until(async () => (await cards.count()) === 9, 10_000, 'вопросы после редактора');
     await page.getByRole('button', { name: 'Показать превью' }).click();
     await page.getByText('Выбери стиль').waitFor();
   }],
@@ -326,6 +339,7 @@ const segments = [
     check(await tab('Стиль').getAttribute('aria-selected') === 'true', 'первая вкладка — не «Стиль»');
     const big = page.locator('iframe[data-big]');
     const bigSpec = async () => JSON.parse(await big.getAttribute('data-spec'));
+    await until(async () => (await bigSpec()).colors.accent === '#7CF2B0', 5000, 'подсветка, выбранная в редакторе, — на «Превью»');
     await page.getByRole('button', { name: /^B · / }).click();
     await tab('Шрифт').click();
     await page.getByRole('button', { name: 'Rubik', exact: true }).click();
@@ -776,10 +790,15 @@ const segments = [
     check((await page.locator('.ed-clip.music').textContent()).includes('lofi'), 'музыка на своей дорожке');
     const bg = await page.locator('.ed').evaluate((el) => getComputedStyle(el).backgroundColor);
     check(bg === 'rgb(243, 244, 241)', `светлая тема редактора: ${bg}`);
+    // ролик смонтирован: панель стиля показывает его стиль и не меняет (новый — при монтаже из редактора)
+    const panel = page.locator('.ed-style');
+    check((await panel.textContent()).includes('уже смонтирован'), 'подсказка: стиль — ролика');
+    check(await panel.getByRole('button', { name: /^B / }).getAttribute('aria-pressed') === 'true', 'выбран вариант ролика (B)');
+    check(await panel.getByRole('button', { name: /^A / }).isDisabled(), 'после монтажа стиль не меняется');
     // язык
-    await page.getByRole('button', { name: 'EN' }).click();
+    await page.getByRole('button', { name: 'EN', exact: true }).click();
     await page.locator('.ed-head', { hasText: 'Subtitles' }).waitFor();
-    await page.getByRole('button', { name: 'RU' }).click();
+    await page.getByRole('button', { name: 'RU', exact: true }).click();
     await page.locator('.ed-head', { hasText: 'Субтитры' }).waitFor();
     // перемотка: тап по дорожке субтитров — часы и слой кадра (слово, которое звучит)
     const clock = page.locator('.ed-clock');

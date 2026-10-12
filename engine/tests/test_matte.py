@@ -66,6 +66,8 @@ def test_the_teaser_is_read_by_its_own_decoder():
     assert any(c.startswith("[2:v]trim=start_frame=48:end_frame=60,") for c in chains)
     assert any(c.startswith("[2:a]atrim=start_sample=76800:end_sample=96000,") for c in chains)
     assert not any(c.startswith("[2:") for c in _cut(Timeline([(0.0, 1.0)], 1.0), True, teaser_input=2))
+    only = _cut(Timeline([], 1.0, teaser=(1.0, 2.0)), True, teaser_input=2)  # отрезки keep выпали — ролик из тизера
+    assert not any("split=0" in c or c.startswith("[0:") for c in only), only
 
 
 def count_video(path, seconds: float = 3.0):

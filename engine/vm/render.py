@@ -399,9 +399,11 @@ def _cut(tl: Timeline, has_audio: bool, teaser_input: int | None = None) -> list
     plan = segment_frames(tl)
     own = teaser_input is not None and tl.teaser is not None  # первый отрезок — тизер со своим входом
     shared = [i for i in range(len(plan)) if not (own and i == 0)]
-    chains = [f"[0:v]split={len(shared)}" + "".join(f"[sv{i}]" for i in shared)]
-    if has_audio:
-        chains.append(f"[0:a]asplit={len(shared)}" + "".join(f"[sa{i}]" for i in shared))
+    chains = []
+    if shared:  # отрезки keep могли все выпасть (за концом исходника) — тогда ролик из одного тизера
+        chains.append(f"[0:v]split={len(shared)}" + "".join(f"[sv{i}]" for i in shared))
+        if has_audio:
+            chains.append(f"[0:a]asplit={len(shared)}" + "".join(f"[sa{i}]" for i in shared))
     pads = []
     for i, (f0, f1) in enumerate(plan):
         video, audio = (f"[{teaser_input}:v]", f"[{teaser_input}:a]") if i not in shared else (f"[sv{i}]", f"[sa{i}]")

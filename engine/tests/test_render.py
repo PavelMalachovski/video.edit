@@ -669,14 +669,15 @@ def frames_in(path) -> int:
 ODD = [[19 / 30, 176 / 30], [237 / 30, 401 / 30], [430 / 30, 470 / 30]]
 
 
-@pytest.mark.parametrize(("keep", "speed", "hold"), [
-    ([[0.0, 2.0], [3.0, 4.0]], 1.0, 0.0), ([[0.0, 2.0], [3.0, 4.0]], 1.1, 0.5), (ODD, 1.2, 0.0),
+@pytest.mark.parametrize(("keep", "speed", "hold", "teaser"), [
+    ([[0.0, 2.0], [3.0, 4.0]], 1.0, 0.0, None), ([[0.0, 2.0], [3.0, 4.0]], 1.1, 0.5, None), (ODD, 1.2, 0.0, None),
+    (ODD, 1.2, 0.5, {"t0": 14.4, "t1": 15.6, "sfx": None}),  # как в задаче: тизер из конца и затемнение вместе
 ])
-def test_dim_keeps_every_frame_of_the_video(tmp_path, sources, fake_matte, keep, speed, hold):
+def test_dim_keeps_every_frame_of_the_video(tmp_path, sources, fake_matte, keep, speed, hold, teaser):
     """С затемнением столько же кадров, сколько без него: последний кадр склейки не теряется, и картинка не
     обрывается раньше звука (задача 261012-091256-w7eu: с затемнением видео кончалось на 1:22 из 2:00)."""
-    plain = make_job(tmp_path / "a", sources["vertical"], keep=keep, speed=speed, hold=hold)
-    dimmed = make_job(tmp_path / "b", sources["vertical"], keep=keep, speed=speed, hold=hold, dim=0.3)
+    plain = make_job(tmp_path / "a", sources["vertical"], keep=keep, speed=speed, hold=hold, teaser=teaser)
+    dimmed = make_job(tmp_path / "b", sources["vertical"], keep=keep, speed=speed, hold=hold, teaser=teaser, dim=0.3)
     render(plain, plain.path("out"), preset="ultrafast")
     render(dimmed, dimmed.path("out"), preset="ultrafast")
     assert frames_in(dimmed.path("out/final.mp4")) == frames_in(plain.path("out/final.mp4"))

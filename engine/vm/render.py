@@ -35,7 +35,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import beats, matte, transitions
+from . import beats, edits, matte, transitions
 from .asr import Word
 from .audio import MIN_MUSIC, QUIET_LUFS, audio_graph
 from .job import Job, validate
@@ -144,17 +144,23 @@ def on_beats(job: Job, edit: dict, tl: Timeline) -> tuple[dict, dict | None]:
     path = _resolve(job, music["file"]) if music and music.get("beats", True) else None
     if path is None:
         return edit, None
-    want = tl.duration + 2.0  # доли дальше ролика не нужны; запас — чтобы последняя доля нашлась
+    at, skip = float(music.get("at") or 0.0), float(music.get("from") or 0.0)  # правка Павла: где и с какого места
+    want = skip + max(0.0, tl.duration - at) + 2.0  # доли дальше ролика не нужны; запас — чтобы последняя доля нашлась
     try:
         y = beats.load(path, seconds=want)
     except (subprocess.SubprocessError, OSError):
         return edit, None  # не читается — микс скажет об этом в missing
     length = len(y) / beats.SR
-    if length < MIN_MUSIC:
+    if length < MIN_MUSIC or skip > length - MIN_MUSIC:
         return edit, None
     grid = beats.track(y)
-    loops = 1 if length >= want - 0.05 else math.ceil(tl.duration / length)  # короче — весь трек, и он по кругу
-    snapped, moved = beats.snap_edit(edit, tl, [t + k * length for k in range(loops) for t in grid.times])
+    # доли во времени ролика: трек звучит с `at`, с места `from`; короче ролика — дальше по кругу целиком
+    times = [at + t - skip for t in grid.times if t >= skip]
+    start = at + length - skip
+    while length < want - 0.05 and start < tl.duration + 2.0:
+        times += [start + t for t in grid.times]
+        start += length
+    snapped, moved = beats.snap_edit(edit, tl, times)
     return snapped, {"bpm": grid.bpm, "moved": moved}
 
 
@@ -164,9 +170,12 @@ def variant_ad(edit: dict) -> dict:
 
 
 def draw_layer(job: Job, edit: dict | None = None, work: str = "work/render") -> Layer:
-    """edit.json (по схеме; `edit` — вместо него, например версия B) → шкала по исходнику → события на доли музыки
+    """edit.json с правками Павла руками (`edits.edit_of`; по схеме; `edit` — вместо него, например версия B) → шкала по
+    исходнику → события на доли музыки
     (`on_beats`) → кадры слоя в `<work>/frames`."""
-    edit = job.read("edit.json") if edit is None else edit
+    source = job.path("source.mp4")
+    if edit is None:  # с правками Павла руками (timeline.json); вернуть — не дальше конца исходника
+        edit = edits.edit_of(job, probe(source).duration if source.is_file() else None)
     validate("edit.json", edit)  # файл пишет Claude: ошибка называет поле, а не падает KeyError где-то в графе
     waiting = [ins["question"] for ins in edit["inserts"] if ins.get("question") and not ins.get("src") and ins["kind"] not in TEXTUAL]
     if waiting:
@@ -174,7 +183,7 @@ def draw_layer(job: Job, edit: dict | None = None, work: str = "work/render") ->
             "edit.json: вставки ждут ответа на вопросы " + ", ".join(f"«{q}»" for q in waiting)
             + ": по answers.json поставь src (или kind sticker и text), «не надо» — убери вставку; место и время не меняй"
         )
-    info = probe(job.path("source.mp4"))
+    info = probe(source)
     tl = timeline(edit, info.duration)
     if tl.duration <= 0:
         raise RenderError("edit.json: отрезки keep не оставляют ни одного кадра исходника")
@@ -243,7 +252,8 @@ def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium",
     missing += notes
     lufs = loudness(source) if info.has_audio else None
     quiet = lufs is not None and lufs < QUIET_LUFS
-    extra, sound, notes = audio_graph("[ac]", edit["speed"], total, music, sfx, inputs_offset=_count(inputs), denoise=quiet)
+    extra, sound, notes = audio_graph("[ac]", edit["speed"], total, music, sfx, inputs_offset=_count(inputs), denoise=quiet,
+                                      voice_level=edit.get("voice"))
     inputs += extra
     chains.append(sound)
     chains.append(f"[aout]atrim=start_sample={AAC_PRIMING}[aenc]")
@@ -567,11 +577,23 @@ def _layers(style: dict, tl: Timeline) -> list[str]:
     ]
 
 
+MUSIC_PLACE = ("at", "from", "fadeIn", "fadeOut")  # правки Павла в редакторе: где звучит музыка и как входит и уходит
+
+
 def _sounds(job: Job, edit: dict, tl: Timeline, skip: set[int]) -> tuple[list, dict | None, list[str]]:
-    """Звуки появления вставок (время финала, файл) — кроме вставок `skip`, которых в ролике нет, — и музыка.
-    Файлы — только из папки задачи или репозитория; ненайденные — в заметках (третий элемент)."""
+    """Звуки появления вставок (время финала, файл[, дБ]) — кроме вставок `skip`, которых в ролике нет, — и музыка.
+    Файлы — только из папки задачи или репозитория; ненайденные — в заметках (третий элемент). Громкость и «без звука»
+    отдельных звуков — `edit.sounds` (правка Павла в редакторе: insert:<номер вставки>, teaser, transition:<номер>, end)."""
     inserts = edit.get("inserts") or []
+    levels = edit.get("sounds") or {}
     sfx, notes = [], []
+
+    def add(key: str, t: float, path: Path) -> None:
+        level = levels.get(key) or {}
+        if level.get("muted"):
+            return
+        sfx.append((t, path, float(level["gainDb"])) if level.get("gainDb") else (t, path))
+
     silent = False  # есть вставка без своего звука
     for i, first, _ in insert_spans(edit, tl):
         name = inserts[i].get("sfx")
@@ -584,7 +606,7 @@ def _sounds(job: Job, edit: dict, tl: Timeline, skip: set[int]) -> tuple[list, d
         if path is None:
             notes.append(f"нет звука {name} — вставка {i + 1} без звука появления")
         else:
-            sfx.append((first / FPS, path))
+            add(f"insert:{i}", first / FPS, path)
     if silent and not (SFX.is_dir() and any(p.suffix.lower() in SOUNDS for p in SFX.iterdir())):
         notes.append("в assets/sfx нет звуков — вставки без звука появления")
     teaser = edit.get("teaser") or None
@@ -593,7 +615,8 @@ def _sounds(job: Job, edit: dict, tl: Timeline, skip: set[int]) -> tuple[list, d
         if path is None:
             notes.append(f"нет звука {teaser['sfx']} — тизер без звука на стыке")
         else:
-            sfx.append((tl.teaser_duration, path))
+            add("teaser", tl.teaser_duration, path)
+    sources = [t.get("t") for t in edit.get("transitions") or []]
     for cut in transitions.marks(edit, tl):  # свуш перехода — с началом перехода
         if not cut.sfx:
             continue
@@ -602,14 +625,14 @@ def _sounds(job: Job, edit: dict, tl: Timeline, skip: set[int]) -> tuple[list, d
             when = f"{cut.t:.1f}".replace(".", ",")
             notes.append(f"нет звука {cut.sfx} — переход на {when} с без звука")
         else:
-            sfx.append((max(0.0, cut.t - transitions.HALF), path))
+            add(f"transition:{sources.index(cut.source)}" if cut.source in sources else "transition", max(0.0, cut.t - transitions.HALF), path)
     card = edit.get("end") or None
     if card and card.get("sfx"):  # звук появления карточки — сразу после стоп-кадра
         path = _resolve(job, card["sfx"])
         if path is None:
             notes.append(f"нет звука {card['sfx']} — финальная карточка без звука появления")
         else:
-            sfx.append((tl.duration + float(edit.get("hold") or 0.0), path))
+            add("end", tl.duration + float(edit.get("hold") or 0.0), path)
     music = edit.get("music")
     if music:
         path = _resolve(job, music["file"])
@@ -617,7 +640,7 @@ def _sounds(job: Job, edit: dict, tl: Timeline, skip: set[int]) -> tuple[list, d
             notes.append(f"нет музыки {music['file']} — ролик без неё")
             music = None
         else:
-            music = {"file": str(path), "gainDb": music["gainDb"]}
+            music = {"file": str(path), "gainDb": music["gainDb"], **{k: music[k] for k in MUSIC_PLACE if k in music}}
     return sfx, music, notes
 
 

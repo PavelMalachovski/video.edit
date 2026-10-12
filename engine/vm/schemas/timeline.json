@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://video.edit/schemas/timeline.json",
+  "title": "timeline.json — правки Павла руками в редакторе на странице (пишет страница; vm render и vm check кладут их поверх edit.json)",
+  "type": "object",
+  "required": ["rev", "edits"],
+  "additionalProperties": false,
+  "properties": {
+    "rev": { "description": "Ревизия: страница прибавляет 1 на каждое сохранение.", "type": "integer", "minimum": 1 },
+    "at": { "description": "Когда сохранено (ISO 8601).", "type": "string" },
+    "edits": {
+      "description": "Правки кусков по порядку, времена — по исходнику: cut — вырезать отрезок t0–t1, restore — вернуть его, split — граница куска в редакторе (на ролик не влияет).",
+      "type": "array",
+      "maxItems": 2000,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["op", "t0", "t1"],
+            "additionalProperties": false,
+            "properties": {
+              "op": { "enum": ["cut", "restore"] },
+              "t0": { "type": "number", "minimum": 0 },
+              "t1": { "type": "number", "minimum": 0 }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["op", "t"],
+            "additionalProperties": false,
+            "properties": {
+              "op": { "const": "split" },
+              "t": { "type": "number", "minimum": 0 }
+            }
+          }
+        ]
+      }
+    },
+    "voice": { "description": "Голос (звук исходника): громкость после выравнивания к −14 LUFS и без звука.", "$ref": "#/$defs/Level" },
+    "music": { "$ref": "#/$defs/Music" },
+    "sounds": {
+      "description": "Звуки: insert:<номер вставки в edit.json>, teaser — на стыке тизера, transition:<номер перехода>, end — карточка.",
+      "type": "object",
+      "propertyNames": { "pattern": "^(insert:\\d+|transition:\\d+|teaser|end)$" },
+      "additionalProperties": { "$ref": "#/$defs/Level" }
+    }
+  },
+  "$defs": {
+    "Level": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "gainDb": { "description": "дБ к громкости, что дал монтаж: −6 — тише вдвое по громкости.", "type": "number", "minimum": -40, "maximum": 12 },
+        "muted": { "type": "boolean" }
+      }
+    },
+    "Music": {
+      "description": "Музыка: громкость (gainDb — дБ от громкости голоса, как в edit.json), без звука, где начинается в ролике (at, с ролика) и с какого места трека (from, с трека), нарастание и затухание (с).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "gainDb": { "type": "number", "minimum": -40, "maximum": 0 },
+        "muted": { "type": "boolean" },
+        "at": { "type": "number", "minimum": 0 },
+        "from": { "type": "number", "minimum": 0 },
+        "fadeIn": { "type": "number", "minimum": 0, "maximum": 10 },
+        "fadeOut": { "type": "number", "minimum": 0, "maximum": 10 }
+      }
+    }
+  }
+}

@@ -751,3 +751,36 @@ def test_transitions_flash_punch_and_smear_the_picture_only_at_their_seams(tmp_p
     assert np.abs(zoomed - expected).mean() < 0.5 * np.abs(zoomed - flat[:1800]).mean(), "толчок: кадр ×1,25 у лица"
     sharp = lambda f: float((np.diff(f[300:1200].mean(axis=2), axis=1) ** 2).mean())  # размытие гасит перепады по x
     assert sharp(a(4.5)) < 0.5 * sharp(b(4.5)), "смаз на стыке"
+
+
+def test_sounds_take_pavels_gains_mutes_and_the_music_place(tmp_path):
+    from vm.render import _sounds, timeline
+
+    job = Job(tmp_path / "jobs" / "abc")
+    job.path("in/uploads").mkdir(parents=True)
+    for name in ("swoosh.wav", "pop.wav", "music.wav"):
+        ffmpeg("-f", "lavfi", "-i", "sine=f=900:d=0.3", job.path(f"in/uploads/{name}"))
+    edit = {"speed": 1.0, "keep": [[0.0, 6.0]], "hook": None, "hold": 0.0,
+            "music": {"file": "in/uploads/music.wav", "gainDb": -18, "at": 1.0, "from": 2.0, "fadeOut": 2.0},
+            "inserts": [{"kind": "image", "src": "in/uploads/a.png", "t0": 1.0, "t1": 2.5, "sfx": "in/uploads/swoosh.wav"},
+                        {"kind": "image", "src": "in/uploads/a.png", "t0": 3.0, "t1": 4.5, "sfx": "in/uploads/swoosh.wav"}],
+            "end": {"seconds": 1.0, "lines": ["Подпишись"], "sfx": "in/uploads/pop.wav"},
+            "sounds": {"insert:0": {"gainDb": 5}, "insert:1": {"muted": True}, "end": {"gainDb": -4, "muted": False}}}
+    sfx, music, notes = _sounds(job, edit, timeline(edit), skip=set())
+    swoosh, pop = job.path("in/uploads/swoosh.wav").resolve(), job.path("in/uploads/pop.wav").resolve()
+    assert sfx == [(1.0, swoosh, 5.0), (6.0, pop, -4.0)], "вторая вставка — без звука, у остальных — своя громкость"
+    assert music == {"file": str(job.path("in/uploads/music.wav").resolve()), "gainDb": -18, "at": 1.0, "from": 2.0, "fadeOut": 2.0}
+    assert notes == []
+
+
+def test_pavels_hand_edits_from_the_editor_reach_the_video(tmp_path, sources):
+    """timeline.json страницы: вырезан кусок 2–3 с исходника, голос без звука — ролик короче на секунду и без голоса."""
+    job = make_job(tmp_path, sources["short"])
+    job.write("timeline.json", {"rev": 1, "edits": [{"op": "split", "t": 1.0}, {"op": "cut", "t0": 2.0, "t1": 3.0}],
+                                "voice": {"muted": True}})
+    result = render(job, job.path("out"), preset="ultrafast")
+    assert result["durations"]["final"] == pytest.approx(5.0, abs=0.04)
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", str(job.path("out/final.mp4")), "-ac", "1", "-f", "f32le", "-"],
+                         check=True, capture_output=True).stdout
+    assert float(np.sqrt(np.mean(np.square(np.frombuffer(raw, np.float32))))) < 1e-3, "голос без звука"
+    assert job.read("edit.json")["keep"] == [[0.0, 6.0]], "edit.json сессии остался как был"

@@ -5,6 +5,9 @@
 выравнивается к громкости голоса (по своему куску, который войдёт в ролик; тихий поднимается не больше чем на 12 дБ),
 потом `gainDb` (−14 — на 14 дБ тише голоса; громкий и тихий трек звучат одинаково); под речью
 тише примерно на 3 дБ, вход 0,1 с, выход 1 с в самом конце; короткий трек повторяется, длинный обрезается. Звук вставки — −13 дБ точно в момент её появления (время финала). Сумма не выходит за −1,5 дБ.
+Правки Павла в редакторе (edits.py): громкость голоса и «без звука» (`voice_level`), у музыки — с какой секунды ролика
+она звучит (`at`), с какого места трека (`from`), нарастание и затухание (`fadeIn`, `fadeOut`), у звука — своя
+громкость (третий элемент в `sfx`).
 Файла нет или он не читается — его пропускаем и пишем в предупреждения: ролик без звука вставки лучше, чем никакого.
 Метки графа начинаются с `a_` (кроме выхода `[aout]`), чтобы не столкнуться с метками картинки в той же команде.
 """
@@ -94,15 +97,17 @@ def audio_graph(
     speed: float,
     final_dur: float,
     music: dict | None,
-    sfx: list[tuple[float, Path]],
+    sfx: list[tuple],
     inputs_offset: int,
     denoise: bool = False,
+    voice_level: dict | None = None,
 ) -> tuple[list[str], str, list[str]]:
     """→ (аргументы `-i` для музыки и звуков, граф для `-filter_complex` с выходом `[aout]`, предупреждения).
 
     `voice` — метка голоса в графе (`[0:a]` или выход склейки); `final_dur` — длина ролика со стоп-кадром;
-    `sfx` — `(время финала, файл)`; `inputs_offset` — номер первого добавленного входа; `denoise` — тихая
-    запись: шумоподавление до выравнивания громкости."""
+    `music` — `{file, gainDb, at?, from?, fadeIn?, fadeOut?}`; `sfx` — `(время финала, файл[, дБ к громкости])`;
+    `inputs_offset` — номер первого добавленного входа; `denoise` — тихая запись: шумоподавление до выравнивания
+    громкости; `voice_level` — `{gainDb?, muted?}` голоса после выравнивания."""
     if not 0.5 <= speed <= 100:
         raise ValueError(f"speed must be between 0.5 and 100 (atempo), got {speed!r}")
     if not final_dur > 0:
@@ -125,32 +130,44 @@ def audio_graph(
 
     tempo = f"atempo={speed:g}," if abs(speed - 1) > 1e-9 else ""
     clean = f"{DENOISE}," if denoise else ""
-    chains.append(f"{_label(voice)}{tempo}{FORMAT},{clean}{LOUDNORM},{FORMAT},{RETIME},apad=whole_dur={end},atrim=end={end}[a_vo]")
+    level = voice_level or {}
+    gain = "volume=0," if level.get("muted") else f"volume={float(level['gainDb']):.2f}dB," if level.get("gainDb") else ""
+    chains.append(f"{_label(voice)}{tempo}{FORMAT},{clean}{LOUDNORM},{FORMAT},{RETIME},{gain}apad=whole_dur={end},atrim=end={end}[a_vo]")
     parts = ["[a_vo]"]
 
     if music:
         path = Path(music["file"])
         channels, length = probe(path)
-        if channels and length and length >= MIN_MUSIC:
-            loops = max(0, math.ceil(final_dur / length) - 1)
-            inputs += ["-stream_loop", str(loops), "-i", str(path)]
-            fade = min(FADE_OUT, final_dur)
-            level = _loudness(path, channels, min(final_dur, length))
+        at = min(max(0.0, float(music.get("at") or 0.0)), final_dur)  # с какой секунды ролика
+        skip = max(0.0, float(music.get("from") or 0.0))  # с какого места трека
+        if not (channels and length and length >= MIN_MUSIC):
+            warn(f"музыка {path.name} не найдена или не читается — ролик без неё")
+        elif skip > length - MIN_MUSIC:
+            warn(f"музыка {path.name}: с {skip:g} с трека почти ничего не остаётся (он {length:.1f} с) — ролик без неё")
+        elif at >= final_dur:
+            warn(f"музыка {path.name} начинается после конца ролика — ролик без неё")
+        else:
+            plays = final_dur - at
+            loops = max(0, math.ceil((plays - (length - skip)) / length))  # первый проход — с `from`, дальше — весь трек
+            inputs += ["-stream_loop", str(loops), *(["-ss", _num(skip)] if skip else []), "-i", str(path)]
+            fade_in = min(float(music.get("fadeIn", FADE_IN)), plays)
+            fade = min(float(music.get("fadeOut", FADE_OUT)), plays)
+            level = _loudness(path, channels, min(plays, length))
             if level is None:
                 warn(f"громкость музыки {path.name} не измерилась — трек без выравнивания к голосу")
             gain = float(music.get("gainDb", -14)) + (min(MUSIC_BOOST, VOICE_LUFS - level) if level is not None else 0.0)
+            delay = f"adelay=delays={round(at * 1000)}:all=1," if at > 0 else ""
             chains.append("[a_vo]asplit=2[a_vmix][a_vsc]")
             chains.append(
-                f"[{index}:a]{_source(channels)},{RETIME},volume={gain:.2f}dB,atrim=end={end},"
-                f"afade=t=in:st=0:d={min(FADE_IN, final_dur):g},afade=t=out:st={_num(final_dur - fade)}:d={_num(fade)}[a_mu]"
+                f"[{index}:a]{_source(channels)},{RETIME},volume={gain:.2f}dB,atrim=end={_num(plays)},"
+                f"afade=t=in:st=0:d={fade_in:g},afade=t=out:st={_num(plays - fade)}:d={_num(fade)},"
+                f"{delay}apad=whole_dur={end},atrim=end={end}[a_mu]"
             )
             chains.append(f"[a_mu][a_vsc]{DUCK}[a_md]")
             parts = ["[a_vmix]", "[a_md]"]
             index += 1
-        else:
-            warn(f"музыка {path.name} не найдена или не читается — ролик без неё")
 
-    for k, (t, file) in enumerate(sfx):
+    for k, (t, file, *more) in enumerate(sfx):
         path = Path(file)
         channels, _ = probe(path)
         if not channels:
@@ -158,7 +175,8 @@ def audio_graph(
             continue
         inputs += ["-i", str(path)]
         delay = max(0, round(t * 1000))
-        chains.append(f"[{index}:a]{_source(channels)},volume={SFX_GAIN_DB}dB,adelay=delays={delay}:all=1[a_s{k}]")
+        gain = SFX_GAIN_DB + (float(more[0]) if more else 0.0)
+        chains.append(f"[{index}:a]{_source(channels)},volume={gain:g}dB,adelay=delays={delay}:all=1[a_s{k}]")
         parts.append(f"[a_s{k}]")
         index += 1
 

@@ -24,11 +24,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import fonts, matte
+from . import edits, fonts, matte
 from .fetch import fetch
 from .git import MAX_FILE_BYTES, GitError, push
 from .job import Job, set_status, states, validate
-from .media import extract_frame, grid_frames
+from .media import extract_frame, grid_frames, probe
 from .prepare import prepare
 from .qa import (
     ADS_SAFE,
@@ -134,7 +134,8 @@ def _preview(args: argparse.Namespace) -> None:
     print(f"{path.relative_to(job.root)} — кадр {args.at:g} с {what}" + (f", фон темнее на {args.dim:.0%}" if args.dim else ""))
 
 
-CHECKED = ("status.json", "questions.json", "answers.json", "styles.json", "review.json", "edit.json", "result.json", "script.json")
+CHECKED = ("status.json", "questions.json", "answers.json", "styles.json", "review.json", "edit.json", "timeline.json", "result.json",
+           "script.json")
 
 
 def _files(job: Job, name: str, data: dict, unchecked: set[str] | None = None) -> list[str]:
@@ -297,7 +298,8 @@ def _render(args: argparse.Namespace) -> None:
     step = _stepper(job, "rendering", args.status)
     name = "final" if args.version in (None, 1) else f"final-v{args.version}"
     _fonts_ok(job)
-    edit = job.read("edit.json")
+    source = job.path("source.mp4")
+    edit = edits.edit_of(job, probe(source).duration if source.is_file() else None)  # с правками Павла (timeline.json)
     variant = variant_b(edit) if edit.get("ab") else None  # вторая версия A/B-теста; ошибка в ab — до сборки
     previous = job.read("result.json") if job.path("result.json").is_file() else {}
     if previous:  # done, unsure и подпись Claude переносятся в новый result.json: кривые — ошибка до кодирования

@@ -122,3 +122,31 @@ test('editor.json without a proxy (a very long source) is read; junk film or pea
   assert.equal(parseMedia({ ...base, film: { ...base.film, n: 2.5 } }), null);
   assert.equal(parseMedia({ ...base, peaks: { perS: 2.5, data: 'AAAA' } }), null);
 });
+
+test('Pavel\'s splits divide the video pieces on screen; each part knows its piece and which edges can be dragged', () => {
+  const t = draftTracks(DRAFT, { splits: [1.0, 4.0, 2.5] }); // 2,5 — в вырезанном: не виден
+  assert.deepEqual(t.video.map((c) => [c.src0, c.src1, c.piece, c.edgeStart, c.edgeEnd]), [
+    [0.5, 1.0, 0, true, false], [1.0, 2, 0, false, true], [3, 4.0, 1, true, false], [4.0, 5, 1, false, true],
+  ]);
+  assert.ok(near(t.video[1].t0, 0.5 / 1.25));
+});
+
+test('the sounds track: each sound where the engine plays it, with its key', () => {
+  const d: Draft = {
+    ...DRAFT, hold: 0.5, end: { seconds: 1.5, sfx: 'assets/sfx/pop.mp3' }, teaser: { t0: 3.5, t1: 4.5, sfx: 'assets/sfx/whoosh.mp3' },
+    inserts: [{ kind: 'image', src: 'in/a.png', t0: 3.0, t1: 4.0, sfx: 'assets/sfx/pop.mp3' }, { kind: 'image', src: 'in/b.png', t0: 4.2, t1: 4.8 }],
+    transitions: [{ t: 3.0, kind: 'flash', sfx: 'assets/sfx/swoosh.mp3' }, { t: 5.0, kind: 'flash', sfx: 'assets/sfx/swoosh.mp3' }],
+  };
+  const t = draftTracks(d);
+  const by = Object.fromEntries(t.sounds.map((c) => [c.key, c]));
+  assert.deepEqual(Object.keys(by).sort(), ['end', 'insert:0', 'teaser', 'transition:0'], 'переход в самом конце — без звука, как у движка');
+  assert.ok(near(by.teaser.t0, 1 / 1.25), 'на стыке тизера');
+  assert.ok(near(by['transition:0'].t0, (1 + 1.5) / 1.25 - 0.12), 'с началом перехода');
+  assert.equal(by['insert:0'].label, 'pop');
+  assert.ok(near(by.end.t0, t.duration), 'карточка — в конце ролика');
+});
+
+test('music on its track: from where it starts, with its place in the track', () => {
+  const t = draftTracks({ ...DRAFT, music: { file: 'assets/music/Calm.mp3', gainDb: -14, at: 1.0, from: 12 } });
+  assert.deepEqual(t.music, { label: 'Calm', gainDb: -14, at: 1.0, from: 12 });
+});

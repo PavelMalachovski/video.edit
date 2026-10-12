@@ -1,0 +1,23 @@
+{
+  "_": "Правки Павла руками (timeline.json, edits) поверх keep сессии: engine/vm/edits.py (apply_keep) и web/lib/edits.ts (applyKeep) дают одно и то же. Времена — секунды исходника.",
+  "cases": [
+    {"name": "cut inside a piece splits it", "keep": [[0.5, 4.0]], "duration": 5, "edits": [{"op": "cut", "t0": 1.0, "t1": 2.0}], "expected": [[0.5, 1.0], [2.0, 4.0]]},
+    {"name": "cut over a gap trims both pieces", "keep": [[0, 2], [3, 5]], "duration": 6, "edits": [{"op": "cut", "t0": 1.5, "t1": 3.5}], "expected": [[0, 1.5], [3.5, 5]]},
+    {"name": "cut of a whole piece removes it", "keep": [[0, 1], [2, 3], [4, 5]], "duration": 6, "edits": [{"op": "cut", "t0": 2, "t1": 3}], "expected": [[0, 1], [4, 5]]},
+    {"name": "restore fills a gap and joins the pieces", "keep": [[0, 2], [3, 5]], "duration": 6, "edits": [{"op": "restore", "t0": 2, "t1": 3}], "expected": [[0, 5]]},
+    {"name": "restore of part of a gap", "keep": [[0, 2], [3, 5]], "duration": 6, "edits": [{"op": "restore", "t0": 2.2, "t1": 2.6}], "expected": [[0, 2], [2.2, 2.6], [3, 5]]},
+    {"name": "restore beyond the source is clipped", "keep": [[1, 2]], "duration": 3, "edits": [{"op": "restore", "t0": 2.5, "t1": 9}], "expected": [[1, 2], [2.5, 3]]},
+    {"name": "restore over kept time changes nothing", "keep": [[0, 4]], "duration": 5, "edits": [{"op": "restore", "t0": 1, "t1": 2}], "expected": [[0, 4]]},
+    {"name": "edits go in order: cut, then restore the same span", "keep": [[0, 4]], "duration": 5, "edits": [{"op": "cut", "t0": 1, "t1": 2}, {"op": "restore", "t0": 1, "t1": 2}], "expected": [[0, 4]]},
+    {"name": "and restore, then cut", "keep": [[0, 1], [2, 3]], "duration": 5, "edits": [{"op": "restore", "t0": 1, "t1": 2}, {"op": "cut", "t0": 0.5, "t1": 2.5}], "expected": [[0, 0.5], [2.5, 3]]},
+    {"name": "a split does not change the cut", "keep": [[0, 4]], "duration": 5, "edits": [{"op": "split", "t": 2}], "expected": [[0, 4]]},
+    {"name": "a cut leaving a sliver drops it", "keep": [[0, 2]], "duration": 3, "edits": [{"op": "cut", "t0": 0.01, "t1": 2}], "expected": []},
+    {"name": "no edits — the session's cut as is", "keep": [[0.25, 1.5], [2, 3]], "duration": 4, "edits": [], "expected": [[0.25, 1.5], [2, 3]]}
+  ],
+  "refused": [
+    {"op": "cut", "t0": 2, "t1": 1},
+    {"op": "restore", "t0": 1, "t1": 1},
+    {"op": "move", "t0": 0, "t1": 1}
+  ],
+  "sliver": 0.04
+}

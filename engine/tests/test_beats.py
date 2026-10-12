@@ -150,3 +150,22 @@ def test_a_short_track_repeats_and_so_do_its_beats(tmp_path):
     tl = Timeline([(0.0, 10.0)], 1.0)
     snapped, report = on_beats(job, edit_with(music=music, zooms=[{"t": 6.2, "level": 1.05}, {"t": 8.05, "level": 1.0}]), tl)
     assert [z["t"] for z in snapped["zooms"]] == pytest.approx([6.1, 8.1], abs=0.02) and report["moved"] == 2
+
+
+@needs_ffmpeg
+def test_music_placed_later_and_from_its_middle_moves_its_beats(tmp_path):
+    # доли трека — 0,1 с + 0,5 с × k; музыка с 1,3 с ролика и с 0,35 с трека: доля трека 0,6 с — на 1,55 с ролика
+    job, music = music_job(tmp_path, 12, at=1.3, **{"from": 0.35})
+    tl = Timeline([(0.0, 10.0)], 1.0)
+    snapped, report = on_beats(job, edit_with(music=music, zooms=[{"t": 1.5, "level": 1.05}, {"t": 0.6, "level": 1.0}]), tl)
+    assert [z["t"] for z in snapped["zooms"]] == pytest.approx([1.55, 0.6], abs=0.02), "до начала музыки долей нет"
+    assert report["moved"] == 1
+
+
+@needs_ffmpeg
+def test_a_short_track_from_its_middle_loops_from_its_start(tmp_path):
+    # 2,8 с трека с 1,2-й секунды (доли 1,6…3,6 → 0,4…2,4 с ролика), дальше трек сначала с 2,8 с: доли 2,9 с, 3,4 с…
+    job, music = music_job(tmp_path, 4, **{"from": 1.2})
+    tl = Timeline([(0.0, 10.0)], 1.0)
+    snapped, _ = on_beats(job, edit_with(music=music, zooms=[{"t": 3.3, "level": 1.05}]), tl)
+    assert snapped["zooms"][0]["t"] == pytest.approx(3.4, abs=0.02)

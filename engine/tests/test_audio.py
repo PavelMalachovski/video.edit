@@ -331,3 +331,63 @@ def test_denoise_lowers_the_hiss_between_phrases(tmp_path):
     clean_out, clean, rate, _ = mix(tmp_path, voice, speed=1.0, final_dur=8.0, music=None, sfx=[], denoise=True)
     assert rms_db(gaps(clean[0], rate)) <= plain_gap - 6, (rms_db(gaps(clean[0], rate)), plain_gap)
     assert loudness(clean_out) == pytest.approx(-14, abs=2)
+
+
+# ---------- правки Павла в редакторе: голос, место и затухания музыки, громкость звуков ----------
+
+def test_voice_level_moves_the_voice_after_leveling_and_mute_silences_it(tmp_path):
+    voice = bursts(tmp_path / "voice.wav", 440, 10, "lt(mod(t,1),0.5)")
+    out, _, _, _ = mix(tmp_path, voice, speed=1.0, final_dur=10.0, music=None, sfx=[], voice_level={"gainDb": -6})
+    assert loudness(out) == pytest.approx(-20, abs=1)
+    _, samples, _, _ = mix(tmp_path, voice, speed=1.0, final_dur=10.0, music=None, sfx=[], voice_level={"gainDb": 0, "muted": True})
+    assert rms_db(samples[0]) < -70, "без звука — тишина"
+
+
+def test_music_starts_at_its_second_of_the_video_from_its_place_in_the_track(tmp_path):
+    voice = bursts(tmp_path / "voice.wav", 3000, 6, "lt(t,0)")  # тишина
+    # трек: 3 с — 220 Гц, дальше — 880 Гц
+    music = synth(tmp_path / "music.wav", f"aevalsrc=0.5*sin(2*PI*if(lt(t\\,3)\\,220\\,880)*t):s={RATE}", 8)
+    _, samples, rate, warnings = mix(tmp_path, voice, speed=1.0, final_dur=6.0, sfx=[],
+                                     music={"file": str(music), "gainDb": -14, "at": 2.0, "from": 3.0, "fadeIn": 0.1})
+    assert warnings == []
+    assert rms_db(samples[0][: int(1.9 * rate)]) < -60, "до своей секунды музыки нет"
+    tail = samples[0][int(3 * rate) : int(4 * rate)]
+    assert rms_db(band(tail, rate, 800, 1000)) > rms_db(band(tail, rate, 150, 300)) + 20, "звучит трек с 3-й секунды (880 Гц)"
+
+
+def test_music_fades_in_and_out_as_long_as_asked(tmp_path):
+    voice = bursts(tmp_path / "voice.wav", 3000, 8, "lt(t,0)")
+    music = synth(tmp_path / "music.wav", f"sine=f=200:r={RATE}", 10)
+    _, samples, rate, _ = mix(tmp_path, voice, speed=1.0, final_dur=8.0, sfx=[],
+                              music={"file": str(music), "gainDb": -14, "fadeIn": 2.0, "fadeOut": 3.0})
+    x = samples[0]
+
+    def part(a, b):
+        return rms_db(x[int(a * rate) : int(b * rate)])
+
+    full = part(3.0, 4.5)
+    assert part(0.0, 0.5) < full - 10, "нарастание 2 с: в начале много тише"
+    assert part(1.0, 1.5) < full - 2, "и в середине нарастания ещё тише"
+    assert part(5.4, 5.9) < full - 2, "затухание 3 с началось за 3 с до конца"
+    assert part(7.6, 8.0) < full - 12
+
+
+def test_a_sound_has_its_own_gain(tmp_path):
+    voice = bursts(tmp_path / "voice.wav", 440, 4, "lt(t,0)")
+    click = synth(tmp_path / "pop.wav", f"sine=f=1000:r={RATE},volume=8", 0.05)
+    _, plain, _, _ = mix(tmp_path, voice, speed=1.0, final_dur=4.0, music=None, sfx=[(1.0, click)])
+    _, louder, _, _ = mix(tmp_path, voice, speed=1.0, final_dur=4.0, music=None, sfx=[(1.0, click, -6.0)])
+    def peak(s):
+        return 20 * np.log10(float(np.max(np.abs(s[0]))))
+
+    assert peak(louder) == pytest.approx(peak(plain) - 6, abs=0.5)
+
+
+def test_music_placed_past_its_track_or_the_video_is_a_warning(tmp_path):
+    voice = bursts(tmp_path / "voice.wav", 440, 3, "lt(mod(t,1),0.5)")
+    music = synth(tmp_path / "music.wav", f"sine=f=200:r={RATE}", 4)
+    _, samples, rate, warnings = mix(tmp_path, voice, speed=1.0, final_dur=3.0, sfx=[], music={"file": str(music), "gainDb": -14, "from": 3.8})
+    assert any("почти ничего не остаётся" in w for w in warnings)
+    assert samples.shape[1] / rate == pytest.approx(3.0, abs=0.05)
+    _, _, _, warnings = mix(tmp_path, voice, speed=1.0, final_dur=3.0, sfx=[], music={"file": str(music), "gainDb": -14, "at": 3.0})
+    assert any("после конца ролика" in w for w in warnings)

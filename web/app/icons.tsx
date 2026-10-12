@@ -33,6 +33,14 @@ export function PlayIcon({ size = 16 }: P) {
   );
 }
 
+export function PauseIcon({ size = 16 }: P) {
+  return (
+    <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+      <rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" />
+    </svg>
+  );
+}
+
 // вкладки редактора превью
 export const LayersIcon = ({ size = 20 }: P) => <Stroke size={size}><rect x="3" y="4" width="6" height="16" rx="1.5" /><rect x="9" y="4" width="6" height="16" rx="1.5" /><rect x="15" y="4" width="6" height="16" rx="1.5" /></Stroke>;
 export const TypeIcon = ({ size = 20 }: P) => <Stroke size={size}><path d="M5 6V4h14v2" /><path d="M12 4v16" /><path d="M9 20h6" /></Stroke>;

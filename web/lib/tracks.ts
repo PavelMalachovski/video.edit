@@ -30,7 +30,7 @@ export type EditorMedia = {
   peaks: { perS: number; data: string };
 };
 
-export type Clip = Span & { kind: string; label: string; src0?: number; src1?: number };
+export type Clip = Span & { kind: string; label: string; src0?: number; src1?: number; words?: DraftWord[] }; // words — слова группы субтитров, время финала
 export type Tracks = {
   duration: number; // длина финала, с
   video: Clip[]; // куски по порядку (тизер — первым): t0–t1 финала, src0–src1 исходника
@@ -136,9 +136,8 @@ export function draftTracks(d: Draft, { perGroup = 3, sourceDuration }: { perGro
   let group: { words: DraftWord[]; piece: number } | null = null;
   const close = () => {
     if (!group) return;
-    const first = group.words[0];
-    const last = group.words.at(-1) as DraftWord;
-    subtitles.push({ kind: 'sub', label: group.words.map((w) => w.text).join(' '), t0: tl.toFinal(first.t0) ?? at(first.t0), t1: tl.toFinal(last.t1) ?? at(last.t1) });
+    const words = group.words.map((w) => ({ text: w.text, t0: tl.toFinal(w.t0) ?? at(w.t0), t1: tl.toFinal(w.t1) ?? at(w.t1) }));
+    subtitles.push({ kind: 'sub', label: group.words.map((w) => w.text).join(' '), t0: words[0].t0, t1: (words.at(-1) as DraftWord).t1, words });
     group = null;
   };
   for (const w of d.words) {

@@ -732,6 +732,83 @@ const segments = [
     check((await fires()).filter((f) => f.step === 'fix').length === 2, '«Вернуть» ничего не запускает');
   }],
 
+  ['editor', async (ctx) => {
+    const { page } = ctx;
+    const tag = `job-${ctx.jobId}`;
+    const asset = (name, bytes) => fakeJson('/__asset', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ tag, name, base64: bytes.toString('base64') }) });
+    // прокси — WebM: у Chromium из Playwright нет H.264; без ffmpeg — заглушка, тогда без пуска
+    const webm = path.join(ctx.tmp, 'proxy.webm');
+    let playable = true;
+    try {
+      execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=540x960:r=30:d=3', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=3',
+        '-c:v', 'libvpx-vp9', '-deadline', 'realtime', '-cpu-used', '8', '-b:v', '300k', '-g', '15', '-c:a', 'libopus', '-shortest', webm]);
+    } catch {
+      playable = false;
+    }
+    const proxy = await asset('proxy.mp4', playable ? fs.readFileSync(webm) : crypto.randomBytes(2048));
+    const edit = {
+      speed: 1.1, keep: [[0.2, 1.2], [1.6, 2.9]],
+      words: [{ t0: 0.3, t1: 0.6, text: 'Привет,' }, { t0: 0.7, t1: 0.9, text: 'это' }, { t0: 1.0, t1: 1.15, text: 'мой' },
+        { t0: 1.7, t1: 2.0, text: 'новый' }, { t0: 2.1, t1: 2.6, text: 'ролик' }],
+      hook: { text: 'Как я снимаю', until: 1.0 }, cta: null, inserts: [], zooms: [], face: { x: 0.5, y: 0.4 },
+      music: { file: 'assets/music/lofi.mp3', gainDb: -14 }, hold: 0, style: FIXTURE.expected,
+    };
+    engineValidate('edit.json', edit);
+    const media = {
+      duration: 3, proxy: { file: 'out/proxy.mp4', width: 540, height: 960, key: 0.5 }, film: { file: 'film.jpg', step: 0.5, w: 54, h: 96, n: 6 },
+      peaks: { perS: 50, data: Buffer.from(Array.from({ length: 150 }, (_, i) => Math.round(127 + 120 * Math.sin(i / 4)))).toString('base64') },
+    };
+    engineValidate('editor.json', media);
+    const released = JSON.parse((await branchFile(ctx, 'out/released.json')) ?? '{}');
+    await session(ctx, { 'edit.json': edit, 'editor.json': media, 'film.jpg': PNG,
+      'out/released.json': { ...released, assets: [...released.assets, { name: 'proxy.mp4', id: proxy.id, size: proxy.size }] } });
+
+    // вход — со страницы задачи; старый поток не тронут
+    await page.getByRole('link', { name: /Открыть в редакторе/ }).click();
+    await page.waitForURL(/\/editor$/);
+    await page.locator('.ed-piece').first().waitFor({ timeout: 10_000 });
+    check(await page.locator('.ed-piece').count() === 2, 'два куска на дорожке «Видео»');
+    check(await page.locator('.ed-cut').count() === 3, 'вырезанное: до, между и после кусков');
+    const subs = await page.locator('.ed-clip.sub').allTextContents();
+    check(isDeepStrictEqual(subs, ['Привет, это мой', 'новый ролик']), `субтитры по кускам: ${JSON.stringify(subs)}`);
+    check((await page.locator('.ed-clip.text').textContent()).includes('Как я снимаю'), 'хук на дорожке «Текст»');
+    check((await page.locator('.ed-clip.music').textContent()).includes('lofi'), 'музыка на своей дорожке');
+    const bg = await page.locator('.ed').evaluate((el) => getComputedStyle(el).backgroundColor);
+    check(bg === 'rgb(243, 244, 241)', `светлая тема редактора: ${bg}`);
+    // язык
+    await page.getByRole('button', { name: 'EN' }).click();
+    await page.locator('.ed-head', { hasText: 'Subtitles' }).waitFor();
+    await page.getByRole('button', { name: 'RU' }).click();
+    await page.locator('.ed-head', { hasText: 'Субтитры' }).waitFor();
+    // перемотка: тап по дорожке субтитров — часы и слой кадра (слово, которое звучит)
+    const clock = page.locator('.ed-clock');
+    const lane = page.locator('.ed-row.sub .ed-lane');
+    await lane.scrollIntoViewIfNeeded(); // на телефоне таймлайн — под кадром
+    const box = await lane.boundingBox();
+    const second = await page.locator('.ed-clip.sub').nth(1).boundingBox();
+    await page.mouse.click(second.x + second.width / 2, box.y + box.height / 2);
+    await until(async () => !(await clock.textContent()).startsWith('0:00.0'), 3000, 'часы после перемотки');
+    await until(async () => {
+      const st = JSON.parse((await page.locator('.ed-layer iframe').getAttribute('data-state')) ?? '{}');
+      return isDeepStrictEqual(st.sub?.words, ['новый', 'ролик']);
+    }, 5000, 'на кадре — группа субтитров, которую слышно');
+    if (playable) {
+      await page.locator('video[data-editor-video]').evaluate((v) => new Promise((ok) => (v.readyState > 0 ? ok() : v.addEventListener('loadedmetadata', ok, { once: true }))));
+      await page.mouse.click(box.x + 2, box.y + box.height / 2); // в начало
+      await page.getByRole('button', { name: 'Пуск' }).click();
+      await until(async () => (await clock.textContent()) >= '0:00.5', 8000, 'пуск: время идёт');
+      await page.getByRole('button', { name: 'Пауза' }).click();
+    }
+    await shot(page, 'editor-phone');
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.locator('.ed-side').waitFor();
+    await shot(page, 'editor');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole('link', { name: 'К задаче' }).click();
+    await page.getByText('Что я сделал').waitFor({ timeout: 7000 });
+  }],
+
   ['script', async (ctx) => {
     const { page } = ctx;
     const topic = 'Как я учу чешский по 15 минут в день';

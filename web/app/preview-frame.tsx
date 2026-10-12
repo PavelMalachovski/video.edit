@@ -1,5 +1,5 @@
 'use client';
-// Кадр превью: картинка кадра, поверх — прозрачный шаблон слоя (public/template/overlay.html — копия template/) в
+// Кадр превью: картинка кадра (нет — только слой: в редакторе под ним видео), поверх — прозрачный шаблон слоя (public/template/overlay.html — копия template/) в
 // натуральную величину 1080×1920, уменьшенный до ширины `width`. Рисует его window.renderState шаблона — тот же,
 // которым движок рисует кадры финала, поэтому превью совпадает с роликом по шрифту, размеру, цвету и месту.
 import { useEffect, useRef, useState } from 'react';
@@ -11,7 +11,7 @@ type OverlayWindow = Window & {
   layoutBoxes?: () => unknown;
 };
 /** `onBoxes` — рамки нарисованного (window.layoutBoxes шаблона, px кадра) после каждой отрисовки: по ним ручки на превью. */
-type Props = { frameUrl: string; spec: StyleSpec; state: OverlayState; progress: number; width: number; big?: boolean; onBoxes?: (boxes: unknown) => void };
+type Props = { frameUrl: string | null; spec: StyleSpec; state: OverlayState; progress: number; width: number; big?: boolean; onBoxes?: (boxes: unknown) => void };
 
 export default function PreviewFrame({ frameUrl, spec, state, progress, width, big = false, onBoxes }: Props) {
   const ref = useRef<HTMLIFrameElement>(null);
@@ -42,7 +42,7 @@ export default function PreviewFrame({ frameUrl, spec, state, progress, width, b
 
   return (
     <div className={`preview${big ? ' big' : ''}`} style={{ width, height: Math.round((width * 1920) / 1080) }}>
-      <img src={frameUrl} alt="" />
+      {frameUrl ? <img src={frameUrl} alt="" /> : null}
       <iframe ref={ref} src="/template/overlay.html" title="Слой ролика" tabIndex={-1} aria-hidden="true" onLoad={() => setReady(true)}
         data-spec={JSON.stringify(spec)} data-state={JSON.stringify(state)} data-progress={String(progress)} data-big={big ? '' : undefined}
         style={{ transform: `scale(${width / 1080})` }} />

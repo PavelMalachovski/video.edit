@@ -1,6 +1,7 @@
 'use client';
 // Страница задачи: опрос GET /api/jobs/<id> (5 с; GitHub просит подождать — дольше), пока вкладка видна; шапка,
 // полоса шагов и экран по view.screen.
+import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buildAnswers, loadDraft, saveDraft, type Draft } from '@/lib/answers.ts';
 import { errorText, message, post, storage } from '@/lib/client.ts';
@@ -133,10 +134,13 @@ export default function Job({ id }: { id: string }) {
     );
   }
   const view = data?.view;
+  // черновик монтажа есть с вопросов: его можно посмотреть на дорожках в редакторе (бета), старый поток — как был
+  const beta = view?.kind === 'video' && (view.screen === 'questions' || view.screen === 'result');
   const notices = (
     <>
       {wait !== null ? <div className="muted small">GitHub просит подождать, обновлю через {wait} с</div> : null}
       {trouble ? <div className="muted small">{trouble}</div> : null}
+      {beta ? <Link className="beta-link" href={`/jobs/${id}/editor`}>Открыть в редакторе <span>бета</span></Link> : null}
     </>
   );
   // после «Ещё три варианта» вопросы уже отвечены — сразу превью; «← Вопросы» и «Показать превью» решают сами

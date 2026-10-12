@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { decodePeaks, draftTracks, parseDraft, parseMedia, peakAt, type Draft } from '../lib/tracks.ts';
+import { overlayAt, subGroupSize } from '../lib/style.ts';
+import type { StyleSpec } from '../lib/jobfiles.ts';
 
 const near = (a: number, b: number) => Math.abs(a - b) < 1e-6;
 
@@ -79,4 +81,21 @@ test('editor.json: peaks decode to bytes and are read by source time', () => {
   assert.equal(peakAt(peaks, media.peaks.perS, 1.0), 255 / 255);
   assert.equal(peakAt(peaks, media.peaks.perS, 99), 64 / 255, 'после конца — последний');
   assert.equal(parseMedia({ duration: 2 }), null);
+});
+
+test('the frame layer at a moment: the subtitle group with the word being said, and the hook at the start', () => {
+  const spec = { subtitles: { mode: 'karaoke', words: 3, size: 64, y: 1300 } } as unknown as StyleSpec;
+  const t = draftTracks(DRAFT, { perGroup: subGroupSize(spec) });
+  const at = (x: number) => overlayAt(spec, t, x);
+  const second = (1.0 - 0.5 + 0.1) / 1.25; // внутри «покажу,»
+  assert.deepEqual(at(second).sub, { words: ['Сегодня', 'покажу,', 'как'], active: 1, visible: 3 });
+  assert.deepEqual(at(second).hook, { text: 'Как я снимаю' });
+  assert.equal(at(2.5).hook, undefined, 'хук ушёл');
+  assert.equal(at(2.75).sub, undefined, 'после последнего слова — пусто');
+  const acc = { subtitles: { mode: 'accumulate', words: 3, size: 64, y: 1300 } } as unknown as StyleSpec;
+  assert.deepEqual(overlayAt(acc, draftTracks(DRAFT, { perGroup: subGroupSize(acc) }), second).sub, { words: ['Сегодня', 'покажу,', 'как'], active: 1, visible: 2 });
+  const soft = { subtitles: { mode: 'soft', words: 2, size: 64, y: 1300 } } as unknown as StyleSpec;
+  assert.equal(subGroupSize(soft), 4);
+  const s = overlayAt(soft, draftTracks(DRAFT, { perGroup: subGroupSize(soft) }), second).sub;
+  assert.deepEqual(s, { words: ['Сегодня', 'покажу,', 'как'], active: 0, visible: 2, lines: [1, 2], opens: true, t: second - 0.5 / 1.25 }, 'новая строка «покажу, как» появилась с «покажу,»');
 });

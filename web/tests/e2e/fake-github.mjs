@@ -300,7 +300,20 @@ export async function startFake({ port = 0 } = {}) {
     if (req.method === 'GET' && (m = p.match(/^\/__blob\/(\d+)$/))) {
       const b = blobs.get(Number(m[1]));
       if (!b) return notFound(res);
-      res.writeHead(200, { 'content-type': 'application/octet-stream' });
+      // как подписанные ссылки GitHub: куски по Range — плеер перематывает видео
+      const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
+      if (range && (range[1] || range[2])) {
+        const start = range[1] ? Number(range[1]) : Math.max(0, b.length - Number(range[2]));
+        const end = range[1] && range[2] ? Math.min(Number(range[2]), b.length - 1) : b.length - 1;
+        if (start >= b.length || start > end) {
+          res.writeHead(416, { 'content-range': `bytes */${b.length}` });
+          return res.end();
+        }
+        res.writeHead(206, { 'content-type': 'application/octet-stream', 'accept-ranges': 'bytes', 'content-range': `bytes ${start}-${end}/${b.length}`,
+          'content-length': String(end - start + 1) });
+        return res.end(b.subarray(start, end + 1));
+      }
+      res.writeHead(200, { 'content-type': 'application/octet-stream', 'accept-ranges': 'bytes', 'content-length': String(b.length) });
       return res.end(b);
     }
     if (req.method === 'POST' && (m = p.match(/^\/up\/repos\/o\/r\/releases\/(\d+)\/assets$/))) {

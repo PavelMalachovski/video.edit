@@ -66,8 +66,10 @@
   рамку в безопасной зоне считают `resizeBox` и `moveBox`), общая фикстура `engine/tests/fixtures/insert-boxes.json`.
 - Группы субтитров: `engine/vm/subs.py` (`build_sub_events`, блоки и строки soft) и `web/lib/style.ts` (`sampleState`).
 - Шкала времени исходник ↔ финал: `engine/vm/timeline.py` (`Timeline`; `keep` — в порядке финала, серии кусков —
-  `span`, `run_of`) и `web/lib/timeline.ts` (`span`, `runOf`), общая фикстура `engine/tests/fixtures/timeline-map.json`;
-  события по сериям — `overlay.py`, `subs.py` (`_spoken`), `render.py` (`look_windows`) и `draftTracks` в `web/lib/tracks.ts`.
+  `span`, `run_of`; `in_source_order` — та же шкала до перестановок) и `web/lib/timeline.ts` (`span`, `runOf`,
+  `inSourceOrder`), общая фикстура `engine/tests/fixtures/timeline-map.json`; события по сериям — `overlay.py` (хук —
+  по порядку исходника), `subs.py` (`_spoken`), `zoom.py` (`_run_marks`), `beats.py` (`snap_edit`), `render.py`
+  (`look_windows`; входы склейки — `decoders`) и `draftTracks` в `web/lib/tracks.ts`.
 - Файлы редактора (бета): `engine/vm/editor.py` и схема `engine/vm/schemas/editor.json` ↔ `web/lib/tracks.ts`
   (`parseMedia`, `parseDraft`) и `web/lib/editordata.ts` (`MEDIA_NAMES` — что плеер берёт из релиза).
 - Несколько видео задачи: ассеты `source`, `source-2` … `source-10` и куда их кладёт fetch — `web/lib/jobs.ts`

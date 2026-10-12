@@ -91,12 +91,16 @@ export const SUBTITLE_MODES = ['karaoke', 'plate', 'word', 'accumulate', 'soft']
 export const HOOK_MODES = ['plate', 'outline', 'shadow', 'accent'] as const;
 export type SubtitleMode = (typeof SUBTITLE_MODES)[number];
 export type HookMode = (typeof HOOK_MODES)[number];
+/** Вид затемнения субтитров: мягкое пятно под строками (нет поля — оно), тень вокруг букв, плашка под строками. */
+export const SHADE_KINDS = ['spot', 'shadow', 'plate'] as const;
+export type ShadeKind = (typeof SHADE_KINDS)[number];
+export const isShadeKind = (x: unknown): x is ShadeKind => (SHADE_KINDS as readonly unknown[]).includes(x);
 
 export type StyleSpec = {
   font: string;
   hand: string;
   colors: { text: string; accent: string; bar: string; plate: string; outline: string };
-  subtitles: { mode: SubtitleMode; words: number; size: number; y: number; shade?: number }; // shade — пятно под субтитрами
+  subtitles: { mode: SubtitleMode; words: number; size: number; y: number; shade?: number; shadeKind?: ShadeKind }; // shade — затемнение, shadeKind — его вид
   hook: { mode: HookMode; size: number; y?: number };
   bar: { pos: 'bottom' | 'top'; height: number };
 };
@@ -123,11 +127,12 @@ export type CoverChoice = { frame: number; text: string };
 export const isCoverChoice = (c: unknown): c is CoverChoice => isObject(c) && Number.isInteger(c.frame) && (c.frame as number) >= 0
   && (c.frame as number) < COVER.frames && isStr(c.text) && c.text.trim() !== '' && c.text.trim().length <= COVER.text;
 /** Выбор Павла на превью; `subY` и `hookY` — куда он перетащил субтитры (центр блока) и хук (центр строки капсом),
- *  px кадра; `subSize` и `hookSize` — их размер, px; `subShade` — пятно под субтитрами (насколько темнее фон, 0..0,8);
+ *  px кадра; `subSize` и `hookSize` — их размер, px; `subShade` — затемнение субтитров (насколько темнее фон, 0..0,8),
+ *  `subShadeKind` — его вид (пятно, тень, плашка);
  *  нет — как в варианте (пределы — ADJUST). */
 export type StyleChoice = {
   variant: 'A' | 'B' | 'C'; font: string; hand: string; colors: { text: string; accent: string; bar: string }; subY?: number; hookY?: number; subSize?: number; hookSize?: number;
-  subShade?: number;
+  subShade?: number; subShadeKind?: ShadeKind;
 };
 /** Где могут стоять субтитры (центр блока): блок не выходит из безопасной зоны 120–1530 px. */
 export const SUB_Y = { min: 240, max: 1760 }; // ниже 1530 — под подписью Reels, но над шкалой времени: выбор Павла
@@ -157,6 +162,7 @@ function isSpec(s: unknown): s is StyleSpec {
   return isObject(sub) && (SUBTITLE_MODES as readonly string[]).includes(sub.mode as string) && Number.isInteger(sub.words)
     && (sub.words as number) >= 2 && (sub.words as number) <= 6 && isNum(sub.size) && sub.size > 0 && isNum(sub.y)
     && (sub.shade === undefined || (isNum(sub.shade) && sub.shade >= SUB_SHADE.min && sub.shade <= SUB_SHADE.max))
+    && (sub.shadeKind === undefined || isShadeKind(sub.shadeKind))
     && isObject(hook) && (HOOK_MODES as readonly string[]).includes(hook.mode as string) && isNum(hook.size) && hook.size > 0
     && (hook.y === undefined || isNum(hook.y))
     && isObject(bar) && (bar.pos === 'bottom' || bar.pos === 'top') && isNum(bar.height) && bar.height > 0;
@@ -269,9 +275,11 @@ function parseStyle(raw: unknown): StyleChoice | string {
     if (!inRange(key, x)) return `style.${key}: от ${ADJUST[key].range.min} до ${ADJUST[key].range.max}`;
     adjusted[key] = x;
   }
+  const kind = raw.subShadeKind;
+  if (kind !== undefined && !isShadeKind(kind)) return `style.subShadeKind: ${SHADE_KINDS.join(', ')}`;
   return {
     variant, font, hand, colors: { text: colors.text as string, accent: colors.accent as string, bar: colors.bar as string },
-    ...adjusted,
+    ...adjusted, ...(kind !== undefined ? { subShadeKind: kind } : {}),
   };
 }
 

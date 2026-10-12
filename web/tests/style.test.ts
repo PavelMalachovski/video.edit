@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { initialDraft, pick } from '../lib/answers.ts';
 import type { Question, StyleChoice, Styles } from '../lib/jobfiles.ts';
-import { loadAb, saveAb, loadAd, saveAd, loadCover, saveCover, coverOf, underCaption, allowedFonts, choiceFor, clampHookSize, insertKey, INSERT_W, loadInsertBoxes, moveBox, placedInserts, resizeBox, saveInsertBoxes, clampHookY, clampSubShade, clampSubSize, clampSubY, finalStyle, HOOK_SIZE, HOOK_Y, SUB_SHADE, SUB_SIZE, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES } from '../lib/style.ts';
+import { loadAb, saveAb, loadAd, saveAd, loadCover, saveCover, coverOf, underCaption, allowedFonts, choiceFor, clampHookSize, insertKey, INSERT_W, loadInsertBoxes, moveBox, placedInserts, resizeBox, saveInsertBoxes, clampHookY, clampSubShade, clampSubSize, clampSubY, finalStyle, keepAdjusted, SHADE_DEFAULT, shadeKindOf, withShadeKind, HOOK_SIZE, HOOK_Y, SUB_SHADE, SUB_SIZE, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES } from '../lib/style.ts';
 import { blockedStorage, memoryStorage } from './helpers.ts';
 
 // Общая с движком фикстура: final_style в engine/vm/style.py обязан давать то же самое.
@@ -191,6 +191,28 @@ test('shade under the subtitles: off unless Pavel turns it on, from none to 80 %
   assert.equal(loadChoice(store, id, STYLES).subShade, 0.6);
   saveChoice(store, id, STYLES, { ...plain, subShade: 0.95 });
   assert.deepEqual(loadChoice(store, id, STYLES), choiceFor(STYLES, 'A'), 'a shade out of range is not taken back');
+});
+
+test('shade kind: the spot unless Pavel picks the shadow or the plate; kept across variants and reloads', () => {
+  const plain = choiceFor(STYLES, 'A');
+  assert.equal(finalStyle(STYLES, plain).subtitles.shadeKind, undefined, 'по умолчанию — пятно (поля нет)');
+  assert.equal(finalStyle(STYLES, { ...plain, subShade: 0.6, subShadeKind: 'plate' }).subtitles.shadeKind, 'plate');
+  // вид без силы включает затемнение на SHADE_DEFAULT, с силой — оставляет её
+  const on = withShadeKind(plain, 'shadow');
+  assert.deepEqual([on.subShade, on.subShadeKind], [SHADE_DEFAULT, 'shadow']);
+  const kept = withShadeKind({ ...plain, subShade: 0.35 }, 'plate');
+  assert.deepEqual([kept.subShade, kept.subShadeKind], [0.35, 'plate']);
+  assert.equal(shadeKindOf(finalStyle(STYLES, plain)), 'spot');
+  assert.equal(shadeKindOf(finalStyle(STYLES, kept)), 'plate');
+  // другой вариант: шрифты и цвета — его, места, размеры и затемнение Павла — остаются
+  assert.deepEqual(keepAdjusted({ ...plain, subShade: 0.35, subShadeKind: 'plate', subY: 1200 }, choiceFor(STYLES, 'C')),
+    { ...choiceFor(STYLES, 'C'), subShade: 0.35, subShadeKind: 'plate', subY: 1200 });
+  const store = memoryStorage();
+  const id = '261012-120000-ab95';
+  saveChoice(store, id, STYLES, { ...plain, subShade: 0.6, subShadeKind: 'shadow' });
+  assert.equal(loadChoice(store, id, STYLES).subShadeKind, 'shadow');
+  saveChoice(store, id, STYLES, { ...plain, subShade: 0.6, subShadeKind: 'glow' as 'plate' });
+  assert.deepEqual(loadChoice(store, id, STYLES), choiceFor(STYLES, 'A'), 'an unknown kind is not taken back');
 });
 
 test('insert boxes follow the shared engine fixture', () => {

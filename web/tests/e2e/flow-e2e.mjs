@@ -500,6 +500,12 @@ const segments = [
     await until(async () => (await bigSpec()).subtitles.shade === 0 && (await spots()) === 0, 5000, 'пятно выключено');
     for (let k = 0; k < 12; k++) await shade.press('ArrowRight');
     await until(async () => (await bigSpec()).subtitles.shade === 0.6 && (await spots()) === 1, 5000, 'пятно снова 60 %');
+    // вид затемнения: пятно по умолчанию; у B субтитры на своей плашке — тень и плашка выключены
+    const kinds = page.getByRole('group', { name: 'Вид затемнения' });
+    check(await kinds.getByRole('button', { name: 'Пятно' }).getAttribute('aria-pressed') === 'true', 'по умолчанию — пятно');
+    check(await kinds.getByRole('button', { name: 'Тень' }).isDisabled() && await kinds.getByRole('button', { name: 'Плашка' }).isDisabled(),
+      'у варианта с плашкой тень и плашка выключены');
+    check(await page.getByText('уже на плашке').count() === 1, 'подсказка про свою плашку');
     // вставка из ТЗ (картинка из ответа после перезагрузки уже не видна): уголок ⤢ вправо на 27 px — ×1,2; «больше» — +20 px
     const insertW = restyled.sample.inserts[1].w;
     const bigInsert = async () => JSON.parse(await big.getAttribute('data-state')).inserts.find((i) => i.key === 'q-logo.png');

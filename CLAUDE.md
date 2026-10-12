@@ -57,6 +57,9 @@
 - Место и размер вставок Павла: `engine/vm/style.py` (`placed_inserts`) и `web/lib/style.ts` (`placedInserts`;
   рамку в безопасной зоне считают `resizeBox` и `moveBox`), общая фикстура `engine/tests/fixtures/insert-boxes.json`.
 - Группы субтитров: `engine/vm/subs.py` (`build_sub_events`, блоки и строки soft) и `web/lib/style.ts` (`sampleState`).
+- Затемнение субтитров (пятно, тень, плашка): рисует `template/overlay.js` (`shadeOf`, `SHADE`, `HALO`, `SHADE_PLATE`);
+  поля `subtitles.shade`/`shadeKind` — схема `styles.json` и `StyleSpec`; выбор `subShade`/`subShadeKind` — `answers.json`,
+  `ADJUSTED` движка и `ADJUST`, `withShadeKind` страницы.
 - Анимации стиля эталона: `template/overlay.js` (`SOFT`, `ACC` — сколько длится появление) и `engine/vm/overlay.py`
   (`SUB_APPEAR`, `HOOK_APPEAR`, `ACCENT_ANIM`, `TYPE_CPS` — сколько кадров давать им время, с запасом).
 - Файлы задачи: схемы `engine/vm/schemas/*.json` и типы `web/lib/jobfiles.ts`; кто какой файл пишет — SKILL.md,

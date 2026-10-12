@@ -9,10 +9,10 @@ import { abOptions, buildAnswers, previewEnd, previewHook, type Draft } from '@/
 import { storage } from '@/lib/client.ts';
 import { mmss } from '@/lib/format.ts';
 import { editorTabs, mountSummary, nextTab, STAGE, stageFit, type TabId } from '@/lib/editor.ts';
-import { ADJUSTABLE, COVER, type AbKind, type Adjustable, type Question, type StyleChoice, type Styles } from '@/lib/jobfiles.ts';
+import { COVER, type AbKind, type Adjustable, type Question, type ShadeKind, type StyleChoice, type Styles } from '@/lib/jobfiles.ts';
 import { MAX_NOTE } from '@/lib/jobs.ts';
 import {
-  allowedFonts, choiceFor, clampTo, coverOf, finalStyle, underCaption, HOOK_SIZE, HOOK_Y, INSERT_W, insertKey, loadAb, loadAd, loadChoice, loadCover, loadInsertBoxes, loadSpeed, moveBox,
+  allowedFonts, choiceFor, clampTo, coverOf, finalStyle, keepAdjusted, shadeKindOf, withShadeKind, underCaption, HOOK_SIZE, HOOK_Y, INSERT_W, insertKey, loadAb, loadAd, loadChoice, loadCover, loadInsertBoxes, loadSpeed, moveBox,
   resizeBox, resolveInserts, sampleState, saveAb, saveAd, saveChoice, saveCover, saveInsertBoxes, saveSpeed, type CoverPick, type InsertBox,
   SPEEDS, SUB_SHADE, SUB_SIZE, SUB_Y, SWATCHES,
 } from '@/lib/style.ts';
@@ -56,6 +56,7 @@ const TAB_ICONS: Record<TabId, ReactNode> = {
   versions: <SplitIcon />,
 };
 
+const SHADE_LABELS: [ShadeKind, string][] = [['spot', 'Пятно'], ['shadow', 'Тень'], ['plate', 'Плашка']];
 const ROWS: { key: ColorKey; title: string; own: string }[] = [
   { key: 'accent', title: 'Подсветка слова', own: 'Своя подсветка' },
   { key: 'text', title: 'Текст', own: 'Свой цвет текста' },
@@ -215,10 +216,7 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
 
   const pickFont = (kind: 'font' | 'hand', id: string) => setChoice({ ...choice, [kind]: id });
   // смена варианта сбрасывает шрифты и цвета к нему, а места хука и субтитров, которые Павел выбрал сам, остаются
-  const pickVariant = (id: StyleChoice['variant']) => setChoice({
-    ...choiceFor(styles, id),
-    ...Object.fromEntries(ADJUSTABLE.filter((k) => choice[k] !== undefined).map((k) => [k, choice[k]])),
-  });
+  const pickVariant = (id: StyleChoice['variant']) => setChoice(keepAdjusted(choice, choiceFor(styles, id)));
   const set = (key: Adjustable) => (x: number) => setChoice({ ...choice, [key]: clampTo(key, x) });
   const reset = (...keys: Adjustable[]) => () =>
     setChoice(Object.fromEntries(Object.entries(choice).filter(([k]) => !keys.includes(k as Adjustable))) as StyleChoice);
@@ -233,9 +231,12 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
     changed: choice.hookY !== undefined || choice.hookSize !== undefined, reset: reset('hookY', 'hookSize'),
   };
   const movable = ending ? [] : state.hook ? [hookPart, subs] : [subs]; // хук настраивается, когда он есть на превью
-  // мягкое пятно под субтитрами — в процентах на ползунке; 0 — выключено (и тогда, когда пятно есть у самого варианта)
+  // затемнение субтитров — в процентах на ползунке; 0 — выключено (и тогда, когда оно есть у самого варианта). Вид —
+  // пятно, тень вокруг букв или плашка; у варианта с плашкой (режим plate) тень и плашка не нужны
   const shade = Math.round((spec.subtitles.shade ?? 0) * 100);
   const setShade = (pct: number) => set('subShade')(pct / 100);
+  const shadeKind = shadeKindOf(spec);
+  const ownPlate = spec.subtitles.mode === 'plate';
   // вставки на крупном превью, у которых есть ключ (question, src или id стикера-тезиса): перетаскиваются куда угодно;
   // размер — щипком, уголком и кнопками. Рамка — от шаблона (вместе с тенью), высота — по ней
   const sized = state.inserts.flatMap((ins, i) => {
@@ -395,7 +396,14 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
                       value={shade} aria-valuetext={shade ? `фон под субтитрами темнее на ${shade} %` : 'нет'} onChange={(e) => setShade(Number(e.target.value))} />
                     <span className="small mono shade-value">{shade ? `${shade} %` : 'нет'}</span>
                   </div>
-                  <span className="muted small">Мягкое тёмное пятно под субтитрами — их видно и на светлом фоне.</span>
+                  <div className="seg" role="group" aria-label="Вид затемнения">
+                    {SHADE_LABELS.map(([kind, label]) => (
+                      <button key={kind} type="button" aria-pressed={shade > 0 && shadeKind === kind} disabled={ownPlate && kind !== 'spot'}
+                        onClick={() => setChoice(withShadeKind(choice, kind))}>{label}</button>
+                    ))}
+                  </div>
+                  <span className="muted small">{ownPlate ? 'Субтитры этого варианта уже на плашке: под ними можно только мягкое пятно.'
+                    : 'Пятно — мягко под строками, тень — вокруг букв, плашка — под строками. Их видно и на светлом фоне.'}</span>
                   {sized.map((m) => (
                     <div key={m.key} className="sub-move-row">
                       <span className="small">{m.name}</span>

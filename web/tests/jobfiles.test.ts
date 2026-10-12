@@ -5,7 +5,7 @@ import { isDeepStrictEqual } from 'node:util';
 import {
   abLabels, answersFile, appendFix, appendRestyle, buildJobFile, coverName, errorStatus, finalNames, isFinalName, parseAnswersBody, parseNote, parseResult, parseStatus, parseStyles,
   parseQuestions, QUESTION_LAYOUTS, QUESTION_TYPES, queuedStatus, STATES, wantedVersion, type Manifest, type Question,
-  AB_KINDS, CHECK_IDS, parseReview, REVIEW_IDS, SAMPLE_INSERT_KINDS, SUB_SHADE,
+  AB_KINDS, CHECK_IDS, parseReview, REVIEW_IDS, SAMPLE_INSERT_KINDS, SHADE_KINDS, SUB_SHADE,
 } from '../lib/jobfiles.ts';
 import { STEPS } from '../lib/routine.ts';
 
@@ -237,6 +237,23 @@ test('answers keep the shade under the subtitles Pavel set; out of range — ref
   assert.deepEqual([properties.subShade.minimum, properties.subShade.maximum], [SUB_SHADE.min, SUB_SHADE.max]);
   const { shade } = schema('styles.json').$defs.StyleSpec.properties.subtitles.properties;
   assert.deepEqual([shade.minimum, shade.maximum], [SUB_SHADE.min, SUB_SHADE.max]);
+});
+
+test('answers keep the kind of the subtitle shade; an unknown kind is refused; the kinds match the schemas', () => {
+  for (const kind of SHADE_KINDS) {
+    const p = parseAnswersBody({ answers: { hook: 'h1' }, style: { ...STYLE, subShade: 0.6, subShadeKind: kind } }, QS);
+    assert.ok(!('error' in p) && p.style.subShadeKind === kind, JSON.stringify(p));
+  }
+  for (const subShadeKind of ['glow', 1, '']) {
+    assert.ok('error' in parseAnswersBody({ answers: { hook: 'h1' }, style: { ...STYLE, subShade: 0.6, subShadeKind } }, QS), String(subShadeKind));
+  }
+  assert.deepEqual(schema('answers.json').properties.style.properties.subShadeKind.enum, [...SHADE_KINDS]);
+  assert.deepEqual(schema('styles.json').$defs.StyleSpec.properties.subtitles.properties.shadeKind.enum, [...SHADE_KINDS]);
+  const styles = JSON.parse(readFileSync(new URL('../../engine/tests/fixtures/style-merge.json', import.meta.url), 'utf8')).styles;
+  const a = styles.variants[0];
+  const kind = (shadeKind: unknown) => ({ ...styles, variants: [{ ...a, spec: { ...a.spec, subtitles: { ...a.spec.subtitles, shade: 0.4, shadeKind } } }, ...styles.variants.slice(1)] });
+  assert.equal(parseStyles(kind('plate'))?.variants[0].spec.subtitles.shadeKind, 'plate');
+  assert.equal(parseStyles(kind('glow')), null);
 });
 
 test('answers keep insert boxes Pavel set; out of the safe zone or junk — refused', () => {

@@ -1,7 +1,7 @@
 // Стиль на экране превью: итоговый StyleSpec по выбору Павла (то же правило, что final_style движка), образец
 // состояния слоя на кадре (субтитры — по правилу build_sub_events), вставки по ответам и запомненный выбор.
 import { chosen, type Draft } from './answers.ts';
-import { AB_KINDS, ADJUST, COVER, type CoverChoice, ADJUSTABLE, HOOK_SIZE, HOOK_Y, INSERT_W, INSERT_ZONE, inRange, isInsertBox, RESERVED, SUB_SHADE, SUB_SIZE, SUB_Y, type AbKind, type Adjustable, type InsertBox, type Question, type SampleInsert, type StyleChoice, type StyleSpec, type Styles } from './jobfiles.ts';
+import { AB_KINDS, ADJUST, COVER, type CoverChoice, ADJUSTABLE, HOOK_SIZE, HOOK_Y, INSERT_W, INSERT_ZONE, inRange, isInsertBox, isShadeKind, RESERVED, SUB_SHADE, SUB_SIZE, SUB_Y, type AbKind, type Adjustable, type InsertBox, type Question, type SampleInsert, type ShadeKind, type StyleChoice, type StyleSpec, type Styles } from './jobfiles.ts';
 
 export { HOOK_SIZE, HOOK_Y, INSERT_W, SUB_SHADE, SUB_SIZE, SUB_Y };
 export type { InsertBox };
@@ -38,7 +38,25 @@ export function finalStyle(styles: Styles, c: StyleChoice): StyleSpec {
     const { part, field } = ADJUST[key];
     (spec[part] as Record<string, unknown>)[field] = x;
   }
+  if (c.subShadeKind !== undefined) spec.subtitles.shadeKind = c.subShadeKind; // то же — ADJUSTED движка
   return spec;
+}
+
+/** Сила затемнения, когда Павел выбирает его вид, а затемнение ещё выключено. */
+export const SHADE_DEFAULT = 0.6;
+
+/** Вид затемнения в стиле (нет поля — пятно). */
+export const shadeKindOf = (spec: StyleSpec): ShadeKind => spec.subtitles.shadeKind ?? 'spot';
+
+/** Выбор с видом затемнения `kind`: сила — та, что уже есть, а если затемнение выключено — SHADE_DEFAULT. */
+export function withShadeKind(c: StyleChoice, kind: ShadeKind): StyleChoice {
+  return { ...c, subShadeKind: kind, subShade: c.subShade && c.subShade > 0 ? c.subShade : SHADE_DEFAULT };
+}
+
+/** Выбор другого варианта (`next` — его шрифты и цвета) с тем, что Павел настроил сам: места, размеры, затемнение. */
+export function keepAdjusted(c: StyleChoice, next: StyleChoice): StyleChoice {
+  const own = Object.fromEntries(ADJUSTABLE.filter((k) => c[k] !== undefined).map((k) => [k, c[k]]));
+  return { ...next, ...own, ...(c.subShadeKind !== undefined ? { subShadeKind: c.subShadeKind } : {}) };
 }
 
 /** Значение, которое Павел тянет на превью, — внутри пределов ADJUST, с его шагом (10 px места, 2 px размера, 5 %
@@ -352,6 +370,7 @@ function isChoice(x: unknown, styles: Styles): x is StyleChoice {
     && typeof c.hand === 'string' && c.hand !== '' && typeof c.colors === 'object' && c.colors !== null
     && ['text', 'accent', 'bar'].every((k) => COLOR.test(String((c.colors as Record<string, unknown>)[k])))
     && ADJUSTABLE.every((key) => c[key] === undefined || inRange(key, c[key]))
+    && (c.subShadeKind === undefined || isShadeKind(c.subShadeKind))
     && [['main', c.font], ['hand', c.hand]].every(([kind, id]) => {
       const ids = styles.fonts?.[kind as 'main' | 'hand'];
       return !ids?.length || ids.includes(id);

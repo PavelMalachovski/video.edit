@@ -1,5 +1,6 @@
 """Итоговый стиль ролика: вариант, выбранный Павлом на превью, с его шрифтами и тремя цветами. То же правило —
 у страницы (web/lib/style.ts), обе стороны сверяются с общей фикстурой tests/fixtures/style-merge.json."""
+import copy
 import json
 from pathlib import Path
 
@@ -77,6 +78,26 @@ def test_a_size_out_of_range_is_refused(tmp_path, key, size):
 def test_no_shade_under_the_subtitles_unless_pavel_turned_it_on():
     style = {k: v for k, v in FIXTURE["answers"]["style"].items() if k != "subShade"}
     assert "shade" not in final_style(FIXTURE["styles"], {**FIXTURE["answers"], "style": style})["subtitles"]
+
+
+def test_the_shade_kind_is_the_spot_unless_pavel_picked_another():
+    style = {k: v for k, v in FIXTURE["answers"]["style"].items() if k != "subShadeKind"}
+    assert "shadeKind" not in final_style(FIXTURE["styles"], {**FIXTURE["answers"], "style": style})["subtitles"]
+    for kind in ("spot", "shadow", "plate"):
+        style = {**FIXTURE["answers"]["style"], "subShadeKind": kind}
+        assert final_style(FIXTURE["styles"], {**FIXTURE["answers"], "style": style})["subtitles"]["shadeKind"] == kind
+
+
+@pytest.mark.parametrize("kind", ["glow", 1, ""])
+def test_an_unknown_shade_kind_is_refused(tmp_path, kind):
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    with pytest.raises(ValueError, match="subShadeKind"):
+        job.write("answers.json", {**FIXTURE["answers"], "style": {**FIXTURE["answers"]["style"], "subShadeKind": kind}})
+    variants = copy.deepcopy(FIXTURE["styles"]["variants"])
+    variants[0]["spec"]["subtitles"]["shadeKind"] = kind
+    with pytest.raises(ValueError, match="shadeKind"):
+        job.write("styles.json", {**FIXTURE["styles"], "variants": variants})
 
 
 @pytest.mark.parametrize("shade", [-0.1, 0.85, "0.5"])

@@ -142,7 +142,8 @@
       "hookY": 520,
       "subSize": 70,
       "hookSize": 90,
-      "subShade": 0.6
+      "subShade": 0.6,
+      "subShadeKind": "shadow"
     },
     "uploads": {},
     "brief": ""
@@ -162,7 +163,8 @@
       "words": 3,
       "size": 70,
       "y": 1150,
-      "shade": 0.6
+      "shade": 0.6,
+      "shadeKind": "shadow"
     },
     "hook": {
       "mode": "outline",

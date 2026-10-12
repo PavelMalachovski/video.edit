@@ -58,6 +58,10 @@
 - Место и размер вставок Павла: `engine/vm/style.py` (`placed_inserts`) и `web/lib/style.ts` (`placedInserts`;
   рамку в безопасной зоне считают `resizeBox` и `moveBox`), общая фикстура `engine/tests/fixtures/insert-boxes.json`.
 - Группы субтитров: `engine/vm/subs.py` (`build_sub_events`, блоки и строки soft) и `web/lib/style.ts` (`sampleState`).
+- Шкала времени исходник ↔ финал: `engine/vm/timeline.py` (`Timeline`) и `web/lib/timeline.ts`, общая фикстура
+  `engine/tests/fixtures/timeline-map.json`.
+- Файлы редактора (бета): `engine/vm/editor.py` и схема `engine/vm/schemas/editor.json` ↔ `web/lib/tracks.ts`
+  (`parseMedia`, `parseDraft`) и `web/lib/editordata.ts` (`MEDIA_NAMES` — что плеер берёт из релиза).
 - Анимации стиля эталона: `template/overlay.js` (`SOFT`, `ACC` — сколько длится появление) и `engine/vm/overlay.py`
   (`SUB_APPEAR`, `HOOK_APPEAR`, `ACCENT_ANIM`, `TYPE_CPS` — сколько кадров давать им время, с запасом).
 - Файлы задачи: схемы `engine/vm/schemas/*.json` и типы `web/lib/jobfiles.ts`; кто какой файл пишет — SKILL.md,

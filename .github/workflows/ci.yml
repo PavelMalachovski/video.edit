@@ -44,6 +44,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: ffmpeg (render-frames tests)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg >/dev/null
       - run: bash .github/scripts/ci-playwright.sh
       - run: npm test
         working-directory: template
@@ -66,6 +70,10 @@ jobs:
           sudo apt-get install -y -qq ffmpeg espeak-ng >/dev/null
           python -m pip install -q $PY_PACKAGES
           ffmpeg -hide_banner -version | head -1
+      - name: VAD model (small; the speech models are for the slow tests)
+        run: |
+          mkdir -p ~/.cache/vm
+          curl -sSL --retry 3 -o ~/.cache/vm/silero_vad.onnx https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx
       - run: bash .github/scripts/ci-playwright.sh
       - run: python -m pytest -q -m "not slow"
         working-directory: engine

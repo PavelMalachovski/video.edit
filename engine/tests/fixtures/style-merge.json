@@ -173,5 +173,442 @@
       "pos": "top",
       "height": 10
     }
-  }
+  },
+  "merge": [
+    {
+      "name": "a new colour keeps the shade a text fix set",
+      "base": {
+        "font": "rubik",
+        "hand": "marck-script",
+        "colors": {
+          "text": "#FFF1C2",
+          "accent": "#00AAFF",
+          "bar": "#7CF2B0",
+          "plate": "#1B1B1F",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "plate",
+          "words": 3,
+          "size": 70,
+          "y": 1150
+        },
+        "hook": {
+          "mode": "outline",
+          "size": 90,
+          "y": 520
+        },
+        "bar": {
+          "pos": "top",
+          "height": 10
+        }
+      },
+      "ours": {
+        "font": "rubik",
+        "hand": "marck-script",
+        "colors": {
+          "text": "#FFF1C2",
+          "accent": "#00AAFF",
+          "bar": "#7CF2B0",
+          "plate": "#1B1B1F",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "plate",
+          "words": 3,
+          "size": 70,
+          "y": 1150,
+          "shade": 0.4
+        },
+        "hook": {
+          "mode": "outline",
+          "size": 90,
+          "y": 520
+        },
+        "bar": {
+          "pos": "top",
+          "height": 10
+        }
+      },
+      "theirs": {
+        "font": "rubik",
+        "hand": "marck-script",
+        "colors": {
+          "text": "#FFF1C2",
+          "accent": "#FF3B30",
+          "bar": "#7CF2B0",
+          "plate": "#1B1B1F",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "plate",
+          "words": 3,
+          "size": 70,
+          "y": 1150
+        },
+        "hook": {
+          "mode": "outline",
+          "size": 90,
+          "y": 520
+        },
+        "bar": {
+          "pos": "top",
+          "height": 10
+        }
+      },
+      "expected": {
+        "font": "rubik",
+        "hand": "marck-script",
+        "colors": {
+          "text": "#FFF1C2",
+          "accent": "#FF3B30",
+          "bar": "#7CF2B0",
+          "plate": "#1B1B1F",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "plate",
+          "words": 3,
+          "size": 70,
+          "y": 1150,
+          "shade": 0.4
+        },
+        "hook": {
+          "mode": "outline",
+          "size": 90,
+          "y": 520
+        },
+        "bar": {
+          "pos": "top",
+          "height": 10
+        }
+      }
+    },
+    {
+      "name": "the shade changed in the editor wins",
+      "base": {
+        "font": "rubik",
+        "hand": "marck-script",
+        "colors": {
+          "text": "#FFF1C2",
+          "accent": "#00AAFF",
+          "bar": "#7CF2B0",
+          "plate": "#1B1B1F",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "plate",
+          "words": 3,
+          "size": 70,
+          "y": 1150
+        },
+        "hook": {
+          "mode": "outline",
+          "size": 90,
+          "y": 520
+        },
+        "bar": {
+          "pos": "top",
+          "height": 10
+        }
+      },
+      "ours": {
+        "font": "rubik",
+        "hand": "marck-script",
+        "colors": {
+          "text": "#FFF1C2",
+          "accent": "#00AAFF",
+          "bar": "#7CF2B0",
+          "plate": "#1B1B1F",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "plate",
+          "words": 3,
+          "size": 70,
+          "y": 1150,
+          "shade": 0.4
+        },
+        "hook": {
+          "mode": "outline",
+          "size": 90,
+          "y": 520
+        },
+        "bar": {
+          "pos": "top",
+          "height": 10
+        }
+      },
+      "theirs": {
+        "font": "rubik",
+        "hand": "marck-script",
+        "colors": {
+          "text": "#FFF1C2",
+          "accent": "#FF3B30",
+          "bar": "#7CF2B0",
+          "plate": "#1B1B1F",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "plate",
+          "words": 3,
+          "size": 70,
+          "y": 1150,
+          "shade": 0.3
+        },
+        "hook": {
+          "mode": "outline",
+          "size": 90,
+          "y": 520
+        },
+        "bar": {
+          "pos": "top",
+          "height": 10
+        }
+      },
+      "expected": {
+        "font": "rubik",
+        "hand": "marck-script",
+        "colors": {
+          "text": "#FFF1C2",
+          "accent": "#FF3B30",
+          "bar": "#7CF2B0",
+          "plate": "#1B1B1F",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "plate",
+          "words": 3,
+          "size": 70,
+          "y": 1150,
+          "shade": 0.3
+        },
+        "hook": {
+          "mode": "outline",
+          "size": 90,
+          "y": 520
+        },
+        "bar": {
+          "pos": "top",
+          "height": 10
+        }
+      }
+    },
+    {
+      "name": "another variant keeps the text fix",
+      "base": {
+        "font": "rubik",
+        "hand": "marck-script",
+        "colors": {
+          "text": "#FFF1C2",
+          "accent": "#00AAFF",
+          "bar": "#7CF2B0",
+          "plate": "#1B1B1F",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "plate",
+          "words": 3,
+          "size": 70,
+          "y": 1150
+        },
+        "hook": {
+          "mode": "outline",
+          "size": 90,
+          "y": 520
+        },
+        "bar": {
+          "pos": "top",
+          "height": 10
+        }
+      },
+      "ours": {
+        "font": "rubik",
+        "hand": "marck-script",
+        "colors": {
+          "text": "#FFF1C2",
+          "accent": "#00AAFF",
+          "bar": "#7CF2B0",
+          "plate": "#1B1B1F",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "plate",
+          "words": 3,
+          "size": 70,
+          "y": 1150,
+          "shade": 0.4
+        },
+        "hook": {
+          "mode": "outline",
+          "size": 90,
+          "y": 520
+        },
+        "bar": {
+          "pos": "top",
+          "height": 10
+        }
+      },
+      "theirs": {
+        "font": "rubik",
+        "hand": "marck-script",
+        "colors": {
+          "text": "#FFF1C2",
+          "accent": "#00AAFF",
+          "bar": "#7CF2B0",
+          "plate": "#111111",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "karaoke",
+          "words": 3,
+          "size": 70,
+          "y": 1150
+        },
+        "hook": {
+          "mode": "plate",
+          "size": 90,
+          "y": 520
+        },
+        "bar": {
+          "pos": "bottom",
+          "height": 14
+        }
+      },
+      "expected": {
+        "font": "rubik",
+        "hand": "marck-script",
+        "colors": {
+          "text": "#FFF1C2",
+          "accent": "#00AAFF",
+          "bar": "#7CF2B0",
+          "plate": "#111111",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "karaoke",
+          "words": 3,
+          "size": 70,
+          "y": 1150,
+          "shade": 0.4
+        },
+        "hook": {
+          "mode": "plate",
+          "size": 90,
+          "y": 520
+        },
+        "bar": {
+          "pos": "bottom",
+          "height": 14
+        }
+      }
+    },
+    {
+      "name": "what the new style lacks is gone",
+      "base": {
+        "font": "rubik",
+        "hand": "marck-script",
+        "colors": {
+          "text": "#FFF1C2",
+          "accent": "#00AAFF",
+          "bar": "#7CF2B0",
+          "plate": "#1B1B1F",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "plate",
+          "words": 3,
+          "size": 70,
+          "y": 1150
+        },
+        "hook": {
+          "mode": "outline",
+          "size": 90,
+          "y": 520
+        },
+        "bar": {
+          "pos": "top",
+          "height": 10
+        }
+      },
+      "ours": {
+        "font": "rubik",
+        "hand": "marck-script",
+        "colors": {
+          "text": "#FFF1C2",
+          "accent": "#00AAFF",
+          "bar": "#7CF2B0",
+          "plate": "#1B1B1F",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "plate",
+          "words": 3,
+          "size": 70,
+          "y": 1150,
+          "shade": 0.4
+        },
+        "hook": {
+          "mode": "outline",
+          "size": 90,
+          "y": 520
+        },
+        "bar": {
+          "pos": "top",
+          "height": 10
+        }
+      },
+      "theirs": {
+        "font": "rubik",
+        "colors": {
+          "text": "#FFF1C2",
+          "accent": "#FF3B30",
+          "bar": "#7CF2B0",
+          "plate": "#1B1B1F",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "plate",
+          "words": 3,
+          "size": 70,
+          "y": 1150
+        },
+        "hook": {
+          "mode": "outline",
+          "size": 90,
+          "y": 520
+        },
+        "bar": {
+          "pos": "top",
+          "height": 10
+        }
+      },
+      "expected": {
+        "font": "rubik",
+        "colors": {
+          "text": "#FFF1C2",
+          "accent": "#FF3B30",
+          "bar": "#7CF2B0",
+          "plate": "#1B1B1F",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "plate",
+          "words": 3,
+          "size": 70,
+          "y": 1150,
+          "shade": 0.4
+        },
+        "hook": {
+          "mode": "outline",
+          "size": 90,
+          "y": 520
+        },
+        "bar": {
+          "pos": "top",
+          "height": 10
+        }
+      }
+    }
+  ]
 }

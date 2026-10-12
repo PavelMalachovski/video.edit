@@ -1,6 +1,7 @@
 // Стиль на экране превью: итоговый StyleSpec по выбору Павла (то же правило, что final_style движка), образец
 // состояния слоя на кадре (субтитры — по правилу build_sub_events), вставки по ответам и запомненный выбор.
 import { chosen, type Draft } from './answers.ts';
+import { sameJson } from './equal.ts';
 import type { Tracks } from './tracks.ts';
 import { AB_KINDS, ADJUST, COVER, type CoverChoice, ADJUSTABLE, HOOK_SIZE, HOOK_Y, INSERT_W, INSERT_ZONE, inRange, isInsertBox, RESERVED, SUB_SHADE, SUB_SIZE, SUB_Y, type AbKind, type Adjustable, type InsertBox, type Question, type SampleInsert, type StyleChoice, type StyleSpec, type Styles } from './jobfiles.ts';
 
@@ -40,6 +41,26 @@ export function finalStyle(styles: Styles, c: StyleChoice): StyleSpec {
     (spec[part] as Record<string, unknown>)[field] = x;
   }
   return spec;
+}
+
+/** Новый стиль из редактора поверх стиля ролика — как его сложит монтаж (merge_style движка, `vm style --onto`): `base` —
+ *  стиль по прошлому выбору Павла, `ours` — стиль ролика (edit.json: тот выбор и правки текстом), `theirs` — по новому
+ *  выбору. Что Павел поменял (base ≠ theirs) — из theirs, остальное — как в ours. Общая фикстура style-merge.json (merge). */
+export function mergeStyle<T>(base: T, ours: T, theirs: T): T {
+  const isObj = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
+  if (!isObj(base) || !isObj(ours) || !isObj(theirs)) return structuredClone(theirs);
+  const out: Record<string, unknown> = structuredClone(ours);
+  for (const key of new Set([...Object.keys(base), ...Object.keys(theirs)])) {
+    const b = base[key];
+    const o = ours[key];
+    const t = theirs[key];
+    if (isObj(b) && isObj(o) && isObj(t)) out[key] = mergeStyle(b, o, t);
+    else if (!sameJson(b, t)) {
+      if (!(key in theirs)) delete out[key];
+      else out[key] = structuredClone(t);
+    }
+  }
+  return out as T;
 }
 
 /** Значение, которое Павел тянет на превью, — внутри пределов ADJUST, с его шагом (10 px места, 2 px размера, 5 %

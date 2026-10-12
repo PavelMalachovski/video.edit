@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { initialDraft, pick } from '../lib/answers.ts';
 import type { Question, StyleChoice, Styles } from '../lib/jobfiles.ts';
-import { loadAb, saveAb, loadAd, saveAd, loadCover, saveCover, coverOf, underCaption, allowedFonts, choiceFor, clampHookSize, insertKey, INSERT_W, loadInsertBoxes, moveBox, placedInserts, resizeBox, saveInsertBoxes, clampHookY, clampSubShade, clampSubSize, clampSubY, finalStyle, HOOK_SIZE, HOOK_Y, SUB_SHADE, SUB_SIZE, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES } from '../lib/style.ts';
+import { loadAb, saveAb, loadAd, saveAd, loadCover, saveCover, coverOf, underCaption, allowedFonts, choiceFor, clampHookSize, insertKey, INSERT_W, loadInsertBoxes, moveBox, placedInserts, resizeBox, saveInsertBoxes, clampHookY, clampSubShade, clampSubSize, clampSubY, finalStyle, mergeStyle, HOOK_SIZE, HOOK_Y, SUB_SHADE, SUB_SIZE, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES } from '../lib/style.ts';
 import { blockedStorage, memoryStorage } from './helpers.ts';
 
 // Общая с движком фикстура: final_style в engine/vm/style.py обязан давать то же самое.
@@ -14,6 +14,12 @@ const STYLES = FIXTURE.styles;
 
 test('finalStyle matches the shared engine fixture', () => {
   assert.deepEqual(finalStyle(STYLES, FIXTURE.answers.style), FIXTURE.expected);
+});
+
+test('a new style from the editor lands on the video’s style as the engine merges it (vm style --onto)', () => {
+  const merge = (FIXTURE as unknown as { merge: { name: string; base: unknown; ours: unknown; theirs: unknown; expected: unknown }[] }).merge;
+  assert.ok(merge.length >= 4);
+  for (const c of merge) assert.deepStrictEqual(mergeStyle(c.base, c.ours, c.theirs), c.expected, c.name);
 });
 
 test('switching variant resets font, hand and colors', () => {

@@ -139,3 +139,9 @@ def test_a_new_style_from_the_editor_keeps_what_text_fixes_changed():
     assert merge_style(base, ours, other) == {**other, "subtitles": {**other["subtitles"], "shade": 0.4}}
     gone = {k: v for k, v in theirs.items() if k != "hand"}
     assert "hand" not in merge_style(base, ours, gone), "чего в новом стиле нет — нет и в итоге"
+
+
+@pytest.mark.parametrize("case", FIXTURE["merge"], ids=lambda c: c["name"])
+def test_merge_style_matches_the_shared_fixture(case):
+    """То же правило у редактора (mergeStyle в web/lib/style.ts): каким стиль выйдет в ролике после «Монтировать»."""
+    assert merge_style(case["base"], case["ours"], case["theirs"]) == case["expected"]

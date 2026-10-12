@@ -1,8 +1,8 @@
 'use client';
 // Редактор (бета): светлый экран как у veed — кадр с прокси-видео и слоем шаблона (тот же, что рисует финал), под ним
 // таймлайн с дорожками черновика монтажа. Куски играются подряд, как в ролике (вырезанное пропускается, скорость — как у
-// монтажа). Правки руками: разрезать, удалить и вернуть куски, тянуть их края (липнут к словам), громкость и «без
-// звука» голоса, музыки и звуков, где звучит музыка; отмена и повтор. Правки сохраняются сами в timeline.json — движок
+// монтажа). Правки руками: разрезать, удалить, вернуть и переставить куски, тянуть их края (липнут к словам), громкость
+// и «без звука» голоса, музыки и звуков, где звучит музыка; отмена и повтор. Правки сохраняются сами в timeline.json — движок
 // кладёт их поверх черновика при монтаже; прослушивание сводит звук как ролик (mixer.ts). «Монтировать» у готового
 // ролика — новая версия (правка с правками и стилем); до монтажа — старый экран с вопросами.
 import Link from 'next/link';
@@ -12,7 +12,7 @@ import { storage } from '@/lib/client.ts';
 import type { EditorData } from '@/lib/editordata.ts';
 import { sameJson } from '@/lib/equal.ts';
 import {
-  commit, cutSpan, EMPTY, initHistory, redo, restoreSpan, setMusic, setSound, setVoice, snapTo, splitAt, trimEnd, trimStart, undo,
+  commit, cutSpan, EMPTY, initHistory, moveSpan, redo, restoreSpan, setMusic, setSound, setVoice, snapTo, splitAt, trimEnd, trimStart, undo,
   type HandEdits, type History,
 } from '@/lib/edits.ts';
 import { tenths } from '@/lib/format.ts';
@@ -22,7 +22,9 @@ import { allowedFonts, finalStyle, loadChoice, overlayAt, sampleState, saveChoic
 import { advance, locate } from '@/lib/player.ts';
 import { Saver, type PutResult } from '@/lib/saver.ts';
 import { audioUrl, levelsOf, musicMix } from '@/lib/sound.ts';
-import { decodePeaks, draftTracks, peakAt, splitTarget, videoKey, withHandEdits, wordEdges, type Clip, type Tracks } from '@/lib/tracks.ts';
+import {
+  decodePeaks, draftTracks, moveTarget, peakAt, slotAt, splitTarget, videoKey, withHandEdits, wordEdges, type Clip, type Tracks,
+} from '@/lib/tracks.ts';
 import { BackIcon, PauseIcon, PlayIcon, PlusIcon, RedoIcon, ScissorsIcon, SpeakerIcon, TrashIcon, UndoIcon } from '../../../icons';
 import PreviewFrame from '../../../preview-frame';
 import { useTemplateFonts } from '../../../use-fonts';
@@ -45,6 +47,8 @@ const EDITABLE = ['questions', 'result', 'error']; // сессия не рабо
 type SaveState = { state: 'idle' | 'saving' | 'saved' | 'error' | 'conflict'; error?: string };
 type Drag =
   | { kind: 'trim'; index: number; side: 'start' | 'end'; x0: number; to: number }
+  // кусок целиком — на другое место: tf0 — момент ролика под пальцем в начале, slot — перед каким куском встанет
+  | { kind: 'piece'; index: number; x0: number; tf0: number; dx: number; slot: number | null; moved: boolean }
   | { kind: 'music'; mode: 'move' | 'trim'; x0: number; at0: number; from0: number; at: number; from: number; moved: boolean };
 
 /** Правки из timeline.json — без ревизии и времени. */
@@ -384,6 +388,24 @@ export default function Editor({ id }: { id: string }) {
     setSel(null);
   }, [selPiece, edit, hand]);
   const doRestore = (c: { src0: number; src1: number }) => edit(restoreSpan(hand, c.src0, c.src1));
+  // переставить кусок перед куском `slot`; выбранным остаётся он — на новом месте, плейхед — в его начало
+  const follow = useRef<number | null>(null); // момент исходника внутри переставленного куска
+  const doMove = useCallback((index: number, slot: number) => {
+    if (!tracks) return;
+    const m = moveTarget(tracks, index, slot);
+    if (!m) return;
+    follow.current = (m.t0 + m.t1) / 2;
+    edit(moveSpan(hand, m.t0, m.t1, m.before));
+  }, [tracks, edit, hand]);
+  useEffect(() => {
+    const src = follow.current;
+    if (src === null || !tracks) return;
+    follow.current = null;
+    const k = tracks.video.findIndex((c) => c.kind === 'piece' && src > (c.src0 as number) && src < (c.src1 as number));
+    if (k < 0) return;
+    setSel({ kind: 'piece', index: k });
+    seekRef.current(tracks.video[k].t0);
+  }, [tracks]);
 
   useEffect(() => { // клавиши: пробел — пуск, S — разрезать, Delete — удалить кусок, Ctrl+Z / Ctrl+Shift+Z — отмена и повтор
     const onKey = (e: KeyboardEvent) => {
@@ -487,6 +509,9 @@ export default function Editor({ id }: { id: string }) {
       const c = tracks.video[drag.index];
       const edge = (drag.side === 'start' ? c.src0 : c.src1) as number;
       setDrag({ ...drag, to: snapTo(edge + (dx / px) * speed, edges, (SNAP_PX / px) * speed) });
+    } else if (drag.kind === 'piece') {
+      const moved = drag.moved || Math.abs(dx) >= CLICK_PX;
+      setDrag({ ...drag, dx, moved, slot: moved ? slotAt(tracks, drag.tf0 + dx / px) : null });
     } else {
       const d = dx / px;
       const room = Math.max(0, duration - 0.5);
@@ -505,6 +530,14 @@ export default function Editor({ id }: { id: string }) {
       const c = tracks.video[drag.index];
       if (c.piece === undefined) return;
       edit(drag.side === 'start' ? trimStart(hand, keep, c.piece, drag.to) : trimEnd(hand, keep, c.piece, drag.to, sourceDuration));
+    } else if (drag.kind === 'piece') {
+      if (!drag.moved) { // щелчок — выбрать кусок и встать туда
+        setSel({ kind: 'piece', index: drag.index });
+        seek(drag.tf0);
+        return;
+      }
+      noClick.current = true; // щелчок после перетаскивания — не выбор (номер куска уже другой)
+      if (drag.slot !== null) doMove(drag.index, drag.slot);
     } else if (!drag.moved) { // щелчок по музыке — выбрать и встать туда
       setSel({ kind: 'music' });
       const box = lanes.current?.querySelector('.ed-row.music .ed-lane')?.getBoundingClientRect();
@@ -514,6 +547,18 @@ export default function Editor({ id }: { id: string }) {
     }
   };
   const dragProps = { onPointerMove: onDragMove, onPointerUp: onDragEnd, onPointerCancel: () => setDrag(null) };
+  const noClick = useRef(false);
+  // кусок тянут целиком: мышью — сразу, пальцем — выбранный (иначе палец листает дорожки)
+  const grabPiece = (e: React.PointerEvent<HTMLDivElement>, index: number, picked: boolean) => {
+    noClick.current = false;
+    if (!editable || e.button !== 0 || (e.pointerType === 'touch' && !picked)) return;
+    const lane = e.currentTarget.parentElement?.getBoundingClientRect();
+    if (!lane) return;
+    grab(e, { kind: 'piece', index, x0: e.clientX, tf0: (e.clientX - lane.left) / px, dx: 0, slot: null, moved: false });
+  };
+  // куда встанет перетаскиваемый кусок (время ролика) — только если место другое
+  const dropAt = drag?.kind === 'piece' && drag.slot !== null && tracks && moveTarget(tracks, drag.index, drag.slot)
+    ? (drag.slot < tracks.video.length ? tracks.video[drag.slot].t0 : duration) : null;
 
   // волна голоса: громкость исходника в каждом px финала
   const wave = useRef<HTMLCanvasElement>(null);
@@ -668,7 +713,7 @@ export default function Editor({ id }: { id: string }) {
           {mount.state === 'error' ? <p className="ed-note ed-flag bad" role="alert">{T('mountFailed', { e: mount.error ?? '' })}</p> : null}
           {tracks ? (
             <Inspector T={T} sel={sel} tracks={tracks} hand={hand} mix={mix} editable={editable} splitHere={splitHere}
-              onSplit={doSplit} onDelete={doDelete} onEdit={edit} sec={sec} />
+              onSplit={doSplit} onDelete={doDelete} onMove={doMove} onEdit={edit} sec={sec} />
           ) : null}
           {hint ? <p className="ed-note ed-flag bad" role="status">{hint}</p> : null}
           {styles && choice ? (
@@ -725,9 +770,17 @@ export default function Editor({ id }: { id: string }) {
               <Row name={T('video')} cls="video" width={width} onSeek={onLanes}>
                 {tracks.video.map((c, i) => {
                   const picked = sel?.kind === 'piece' && sel.index === i;
+                  const movable = editable && c.kind === 'piece';
+                  const dragging = drag?.kind === 'piece' && drag.index === i && drag.moved;
                   return (
-                    <div key={`${c.src0}-${c.src1}`} className={`ed-clip ed-piece${c.kind === 'teaser' ? ' teaser' : ''}${picked ? ' sel' : ''}`}
-                      style={{ left: X(c.t0), width: Math.max(2, X(c.t1 - c.t0)) }} onClick={() => setSel({ kind: 'piece', index: i })}
+                    <div key={`${c.src0}-${c.src1}`}
+                      className={`ed-clip ed-piece${c.kind === 'teaser' ? ' teaser' : ''}${picked ? ' sel' : ''}${movable ? ' movable' : ''}${dragging ? ' dragging' : ''}`}
+                      style={{ left: X(c.t0), width: Math.max(2, X(c.t1 - c.t0)), ...(dragging ? { transform: `translateX(${drag.dx}px)` } : {}) }}
+                      onClick={() => {
+                        if (noClick.current) noClick.current = false;
+                        else setSel({ kind: 'piece', index: i });
+                      }}
+                      {...(movable ? { onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => grabPiece(e, i, picked), ...dragProps } : {})}
                       title={`${c.kind === 'teaser' ? T('teaser') : T('piece')} · ${tenths(c.src0 as number)}–${tenths(c.src1 as number)}`}>
                       <div className="ed-thumbs">{thumbs(c)}</div>
                       {c.kind === 'teaser' ? <span className="ed-tag">{T('teaser')}</span> : null}
@@ -742,7 +795,9 @@ export default function Editor({ id }: { id: string }) {
                 })}
                 {tracks.looks.map((c, i) => <div key={`l${i}`} className="ed-look" style={{ left: X(c.t0), width: Math.max(2, X(c.t1 - c.t0)) }} title={T('bw')} />)}
                 {tracks.cuts.map((c, i) => (
-                  <span key={`c${i}`} className="ed-cut" style={{ left: X(c.at) }} title={T('cutPart', { s: sec(c.src1 - c.src0) })}>
+                  // две метки на одном стыке (куски переставлены) — «＋» каждой в том куске, к которому вернётся вырезанное
+                  <span key={`c${i}`} style={{ left: X(c.at) }} title={T('cutPart', { s: sec(c.src1 - c.src0) })}
+                    className={`ed-cut${tracks.cuts.some((o) => o !== c && Math.abs(o.at - c.at) < 1e-6) ? ` ${c.side}` : ''}`}>
                     {editable ? (
                       <button type="button" className="ed-restore" aria-label={T('restoreT', { s: sec(c.src1 - c.src0) })} title={T('restoreT', { s: sec(c.src1 - c.src0) })}
                         onPointerDown={(e) => e.stopPropagation()} onClick={() => doRestore(c)}><PlusIcon size={12} /></button>
@@ -750,6 +805,7 @@ export default function Editor({ id }: { id: string }) {
                   </span>
                 ))}
                 {ghost !== null ? <span className="ed-ghost" style={{ left: X(ghost) }} /> : null}
+                {dropAt !== null ? <span className="ed-drop" style={{ left: X(dropAt) }} aria-hidden="true" /> : null}
                 {tracks.tail > 0 ? (
                   <div className="ed-tail" style={{ left: X(duration), width: Math.max(2, X(tracks.tail)) }} title={`${T('tail')} · ${sec(tracks.tail)}`}>
                     <span>{T('tail')}</span>

@@ -887,6 +887,27 @@ const segments = [
     await page.mouse.move(fromX - 0.295 * perSrc, grabY, { steps: 6 });
     await page.mouse.up();
     await until(async () => ((await page.locator('.ed-cut').last().getAttribute('title')) ?? '').includes('0,4 с'), 3000, 'конец куска прилип к слову');
+    // переставить (фаза 4а): второй кусок — мышью перед первым; выбранным остаётся он, «Позже» — обратно, отмена — снова первый
+    const titles = async () => Promise.all([0, 1].map((k) => pieces.nth(k).getAttribute('title')));
+    const order = await titles();
+    const [fb, sb] = [await pieces.nth(0).boundingBox(), await pieces.nth(1).boundingBox()];
+    await page.mouse.move(sb.x + sb.width / 2, sb.y + sb.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(fb.x + 6, sb.y + sb.height / 2, { steps: 8 });
+    check(await page.locator('.ed-drop').count() === 1, 'пока тянут — линия, куда встанет кусок');
+    await page.mouse.up();
+    await until(async () => isDeepStrictEqual(await titles(), [order[1], order[0]]), 3000, 'кусок встал первым');
+    // вырезанное до первого куска и хвост — теперь на одном стыке: «＋» рядом, а не друг на друге
+    const plus = await page.locator('.ed-restore').evaluateAll((els) => els.map((el) => [el.getBoundingClientRect().left, el.getBoundingClientRect().right]));
+    check(plus.length === 2 && (plus[0][1] <= plus[1][0] + 0.5 || plus[1][1] <= plus[0][0] + 0.5), `«＋» на одном стыке закрывают друг друга: ${JSON.stringify(plus)}`);
+    const insp = page.locator('.ed-insp');
+    await insp.getByRole('heading', { name: 'Кусок 1 из 2' }).waitFor({ timeout: 3000 });
+    check(await insp.getByRole('button', { name: '← Раньше' }).isDisabled(), 'первый кусок раньше не поставить');
+    await insp.getByRole('button', { name: 'Позже →' }).click();
+    await until(async () => isDeepStrictEqual(await titles(), order), 3000, '«Позже» вернул кусок на место');
+    await insp.getByRole('heading', { name: 'Кусок 2 из 2' }).waitFor({ timeout: 3000 });
+    await bar.getByRole('button', { name: 'Отменить' }).click();
+    await until(async () => isDeepStrictEqual(await titles(), [order[1], order[0]]), 3000, 'отмена: кусок снова первый');
     // звук: музыка без звука, голос тише, свой стиль
     await page.getByRole('button', { name: 'Музыка: без звука' }).click();
     check(await page.getByRole('button', { name: 'Музыка: без звука' }).getAttribute('aria-pressed') === 'true', 'музыка без звука');
@@ -897,12 +918,13 @@ const segments = [
     const tl = JSON.parse((await branchFile(ctx, 'timeline.json')) ?? '{}');
     engineValidate('timeline.json', tl);
     check(tl.rev >= 1 && tl.music?.muted === true && tl.voice?.gainDb === -6, `timeline.json: ${JSON.stringify(tl)}`);
-    check(isDeepStrictEqual(tl.edits.map((e) => e.op), ['split', 'restore', 'cut']), `правки по порядку: ${JSON.stringify(tl.edits)}`);
-    // движок вырежет так же, как показал редактор
+    check(isDeepStrictEqual(tl.edits.map((e) => e.op), ['split', 'restore', 'cut', 'move']), `правки по порядку: ${JSON.stringify(tl.edits)}`);
+    // движок вырежет и переставит так же, как показал редактор: часть после разреза — первой
     const keep = JSON.parse(execFileSync('python3', ['-c', 'import json, sys\nfrom vm.edits import apply_keep\nd = json.load(sys.stdin)\nprint(json.dumps(apply_keep(d["keep"], d["edits"], d["duration"])))'], {
       input: JSON.stringify({ keep: edit.keep, edits: tl.edits, duration: media.duration }), env: { ...process.env, PYTHONPATH: path.resolve('../engine') },
     }).toString());
-    check(isDeepStrictEqual(keep, [[0.2, 2.6]]), `куски у движка: ${JSON.stringify(keep)}`);
+    const at = tl.edits[0].t;
+    check(isDeepStrictEqual(keep, [[at, 2.6], [0.2, at]]), `куски у движка: ${JSON.stringify(keep)}`);
     await shot(page, 'editor');
 
     // «Монтировать» — новая версия: правка с ревизией правок и новым стилем

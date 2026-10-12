@@ -7,7 +7,7 @@ import type { Key } from '@/lib/i18n.ts';
 import { ADJUSTABLE, type StyleChoice } from '@/lib/jobfiles.ts';
 import type { MusicMix } from '@/lib/sound.ts';
 import { choiceFor, clampTo, finalStyle, SUB_SHADE, SWATCHES } from '@/lib/style.ts';
-import type { Tracks } from '@/lib/tracks.ts';
+import { moveTarget, type Tracks } from '@/lib/tracks.ts';
 
 type TFn = (k: Key, v?: Record<string, string | number>) => string;
 
@@ -37,25 +37,35 @@ function LevelControls({ T, label, level, base, range, disabled, onLevel }: {
   );
 }
 
-export function Inspector({ T, sel, tracks, hand, mix, editable, splitHere, onSplit, onDelete, onEdit, sec }: {
+export function Inspector({ T, sel, tracks, hand, mix, editable, splitHere, onSplit, onDelete, onMove, onEdit, sec }: {
   T: TFn; sel: Selection | null; tracks: Tracks; hand: HandEdits; mix: MusicMix | null; editable: boolean;
   splitHere: boolean; // плейхед внутри выбранного куска
-  onSplit: () => void; onDelete: () => void; onEdit: (next: HandEdits, key?: string) => void; sec: (s: number) => string;
+  onSplit: () => void; onDelete: () => void; onMove: (index: number, slot: number) => void;
+  onEdit: (next: HandEdits, key?: string) => void; sec: (s: number) => string;
 }) {
   if (!sel) return <p className="ed-note faint">{T('selectHint')}</p>;
   if (sel.kind === 'piece') {
     const c = tracks.video[sel.index];
     if (!c || c.src0 === undefined || c.src1 === undefined) return <p className="ed-note faint">{T('selectHint')}</p>;
-    const last = tracks.video.filter((x) => x.kind === 'piece').length <= 1;
+    const all = tracks.video.filter((x) => x.kind === 'piece');
+    const last = all.length <= 1;
+    const i = sel.index;
     return (
       <section className="ed-insp" aria-label={T('piece')}>
-        <h2>{c.kind === 'teaser' ? T('teaser') : T('piece')}</h2>
+        <h2>{c.kind === 'teaser' ? T('teaser') : T('pieceOf', { n: all.indexOf(c) + 1, m: all.length })}</h2>
         <p className="ed-note mono">{T('sourceSpan', { a: tenths(c.src0), b: tenths(c.src1), s: sec((c.src1 - c.src0)) })}</p>
         {c.kind === 'piece' ? (
           <div className="ed-btns">
             <button type="button" className="ed-btn" disabled={!editable || !splitHere} onClick={onSplit} title={T('splitT')}>{T('split')}</button>
             <button type="button" className="ed-btn bad" disabled={!editable || last} onClick={onDelete} title={last ? T('lastPiece') : T('deleteT')}>
               {T('delete')}
+            </button>
+            {/* переставить: перед предыдущим — или за следующий (перед тем, что за ним) */}
+            <button type="button" className="ed-btn" disabled={!editable || !moveTarget(tracks, i, i - 1)} onClick={() => onMove(i, i - 1)} title={T('earlierT')}>
+              {T('earlier')}
+            </button>
+            <button type="button" className="ed-btn" disabled={!editable || !moveTarget(tracks, i, i + 2)} onClick={() => onMove(i, i + 2)} title={T('laterT')}>
+              {T('later')}
             </button>
           </div>
         ) : null}

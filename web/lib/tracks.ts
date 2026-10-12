@@ -47,7 +47,9 @@ export type Tracks = {
   duration: number; // длина финала без хвоста (кусков), с
   tail: number; // после кусков — стоп-кадр (hold) и финальная карточка, с
   video: Clip[]; // куски по порядку (тизер — первым): t0–t1 финала, src0–src1 исходника
-  cuts: { at: number; src0: number; src1: number }[]; // вырезанное исходника — на стыке финала
+  // вырезанное исходника — на стыке финала; `side` — куда оно вернётся: в конец куска перед ним в исходнике (метка — у
+  // конца того куска) или, если перед ним кусков нет, в начало первого
+  cuts: { at: number; src0: number; src1: number; side: 'end' | 'start' }[];
   subtitles: Clip[];
   text: Clip[]; // хук, акцентные фразы, титр
   inserts: Clip[];
@@ -167,11 +169,11 @@ export function draftTracks(d: Draft, { perGroup = 3, sourceDuration, splits = [
   let prev = 0;
   let before: (typeof placed)[number] | null = null;
   for (const s of bySource) {
-    if (s.src0 > prev + 1e-6) cuts.push({ at: before ? before.t1 : s.t0, src0: prev, src1: s.src0 });
+    if (s.src0 > prev + 1e-6) cuts.push(before ? { at: before.t1, src0: prev, src1: s.src0, side: 'end' } : { at: s.t0, src0: prev, src1: s.src0, side: 'start' });
     prev = s.src1;
     before = s;
   }
-  if (sourceDuration !== undefined && sourceDuration > prev + 1e-6) cuts.push({ at: before ? before.t1 : tl.duration, src0: prev, src1: sourceDuration });
+  if (sourceDuration !== undefined && sourceDuration > prev + 1e-6) cuts.push({ at: before ? before.t1 : tl.duration, src0: prev, src1: sourceDuration, side: 'end' });
 
   // субтитры: слова, что остались (середина слова — в куске), без слов акцентов; группы — не через склейку
   const inAccent = (t: number) => (d.accents ?? []).some((a) => t >= a.t0 && t <= a.t1);
@@ -263,6 +265,26 @@ export function splitTarget(t: Tracks, at: number): number | null {
   if (!c || c.src0 === undefined || c.src1 === undefined) return null;
   const src = c.src0 + ((at - c.t0) * (c.src1 - c.src0)) / (c.t1 - c.t0);
   return src > c.src0 + SLIVER && src < c.src1 - SLIVER ? src : null;
+}
+
+/** Переставить кусок `index` дорожки «Видео» перед куском `slot` (номер в той же дорожке; дальше последнего — в конец):
+ *  правка move — кусок исходника и момент, перед которым он встаёт (null — в конец). Своё же место, тизер — null; перед
+ *  тизером — значит, первым после него. */
+export function moveTarget(t: Tracks, index: number, slot: number): { t0: number; t1: number; before: number | null } | null {
+  const c = t.video[index];
+  if (!c || c.kind !== 'piece' || c.src0 === undefined || c.src1 === undefined) return null;
+  const first = t.video.findIndex((x) => x.kind === 'piece');
+  const at = Math.min(t.video.length, Math.max(first, slot));
+  if (at === index || at === index + 1) return null;
+  const next = t.video[at];
+  return { t0: c.src0, t1: c.src1, before: next?.src0 ?? null };
+}
+
+/** Перед каким куском встанет перетаскиваемый, если отпустить его на моменте `tf` ролика: стык, ближайший к `tf` (номер
+ *  куска за ним; за серединой последнего — длина дорожки). Перед тизером — не встаёт. */
+export function slotAt(t: Tracks, tf: number): number {
+  const k = t.video.findIndex((c) => c.kind === 'piece' && tf < (c.t0 + c.t1) / 2);
+  return k < 0 ? t.video.length : k;
 }
 
 /** Границы слов (с исходника) по порядку — к ним липнут края кусков. */

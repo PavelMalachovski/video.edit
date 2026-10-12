@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { decodePeaks, draftTracks, parseDraft, parseMedia, peakAt, splitTarget, videoKey, withHandEdits, wordEdges, type Draft } from '../lib/tracks.ts';
+import {
+  decodePeaks, draftTracks, moveTarget, parseDraft, parseMedia, peakAt, slotAt, splitTarget, videoKey, withHandEdits, wordEdges, type Draft,
+} from '../lib/tracks.ts';
 import { setSound, setVoice } from '../lib/edits.ts';
 import { cutSpan, EMPTY, moveSpan, setMusic, splitAt } from '../lib/edits.ts';
 import { overlayAt, subGroupSize } from '../lib/style.ts';
@@ -31,7 +33,7 @@ test('video track: kept pieces in final time with their source spans; the cut pa
   assert.ok(near(t.duration, 3.5 / 1.25));
   assert.deepEqual(t.video.map((c) => [c.src0, c.src1]), [[0.5, 2], [3, 5]]);
   assert.ok(near(t.video[0].t0, 0) && near(t.video[0].t1, 1.2) && near(t.video[1].t0, 1.2) && near(t.video[1].t1, 2.8));
-  assert.deepEqual(t.cuts.map((c) => [c.src0, c.src1]), [[0, 0.5], [2, 3], [5, 6]], 'before, between and after');
+  assert.deepEqual(t.cuts.map((c) => [c.src0, c.src1, c.side]), [[0, 0.5, 'start'], [2, 3, 'end'], [5, 6, 'end']], 'before, between and after');
   assert.ok(near(t.cuts[1].at, 1.2) && near(t.cuts[2].at, 2.8));
 });
 
@@ -208,10 +210,45 @@ test('a moved piece: the tracks follow the new order — words where they are he
   assert.ok(t.subtitles.every((c, i) => i === 0 || c.t0 >= t.subtitles[i - 1].t0));
   // вырезанное: «＋» — в конце куска, что перед ним в исходнике (2–3 — за 0,5–2, то есть в конце ролика), 0–0,5 — перед
   // первым по исходнику куском, хвост 5–6 — за 3–5
-  const cuts = t.cuts.map((c) => [c.src0, c.src1, Math.round(c.at * 1000) / 1000]);
-  assert.deepEqual(cuts, [[0, 0.5, 1.6], [2, 3, 2.8], [5, 6, 1.6]]);
+  // вырезанное вернётся к куску, что перед ним в исходнике (в его конец), а до первого куска — в начало первого: метки
+  // начала и хвоста встали на один стык — у каждой своя сторона
+  const cuts = t.cuts.map((c) => [c.src0, c.src1, Math.round(c.at * 1000) / 1000, c.side]);
+  assert.deepEqual(cuts, [[0, 0.5, 1.6, 'start'], [2, 3, 2.8, 'end'], [5, 6, 1.6, 'end']]);
   // вставка 3–4 с исходника — в куске 3–5 (первом): после хука, до 4 с исходника (0,8 с ролика), но не короче 1,5 с
   const ins = t.inserts.find((c) => c.label === 'insert-1');
   const hookEnd = t.text.find((c) => c.kind === 'hook')?.t1 ?? 0;
   assert.ok(ins && near(ins.t0, hookEnd) && near(ins.t1, Math.max(0.8, hookEnd + 1.5)), JSON.stringify(ins));
+});
+
+test('reorder: a piece goes before the piece at the slot (past the last — to the end); its own place, the teaser and the teaser slot — no edit', () => {
+  // разрез Павла на 1,2: куски дорожки — [0,5–1,2], [1,2–2], [3–5]
+  const { draft, splits } = withHandEdits(DRAFT, splitAt(EMPTY, 1.2), 6);
+  const t = draftTracks(draft, { splits, sourceDuration: 6 });
+  assert.deepEqual(t.video.map((c) => [c.src0, c.src1]), [[0.5, 1.2], [1.2, 2], [3, 5]]);
+  assert.deepEqual(moveTarget(t, 2, 0), { t0: 3, t1: 5, before: 0.5 }, 'последний — в начало');
+  assert.deepEqual(moveTarget(t, 0, 3), { t0: 0.5, t1: 1.2, before: null }, 'первый — в конец');
+  assert.deepEqual(moveTarget(t, 0, 2), { t0: 0.5, t1: 1.2, before: 3 }, 'первый — за второй (часть того же куска)');
+  assert.equal(moveTarget(t, 1, 1), null, 'перед собой — то же место');
+  assert.equal(moveTarget(t, 1, 2), null, 'за собой — то же место');
+  // правка переставляет так, как сказано: движок и редактор режут одинаково (applyKeep)
+  const moved = withHandEdits(DRAFT, moveSpan(splitAt(EMPTY, 1.2), 0.5, 1.2, 3), 6);
+  assert.deepEqual(moved.draft.keep, [[1.2, 2], [0.5, 1.2], [3, 5]]);
+
+  const teased = draftTracks({ ...DRAFT, teaser: { t0: 3.5, t1: 4.5 } }, { sourceDuration: 6 });
+  assert.equal(teased.video[0].kind, 'teaser');
+  assert.equal(moveTarget(teased, 0, 3), null, 'тизер не переставляется');
+  assert.deepEqual(moveTarget(teased, 2, 0), { t0: 3, t1: 5, before: 0.5 }, 'перед тизером — значит, первым после него');
+  assert.equal(moveTarget(teased, 1, 0), null, 'первый кусок перед тизером — он и так первый');
+});
+
+test('reorder by dragging: the slot is the join nearest to the pointer, never before the teaser', () => {
+  const t = draftTracks(DRAFT, { sourceDuration: 6 }); // куски 0–1,2 и 1,2–2,8 с ролика
+  assert.equal(slotAt(t, 0.2), 0);
+  assert.equal(slotAt(t, 0.7), 1, 'за серединой первого — перед вторым');
+  assert.equal(slotAt(t, 1.9), 1);
+  assert.equal(slotAt(t, 2.1), 2, 'за серединой последнего — в конец');
+  assert.equal(slotAt(t, 99), 2);
+  assert.equal(slotAt(t, -5), 0);
+  const teased = draftTracks({ ...DRAFT, teaser: { t0: 3.5, t1: 4.5 } }, { sourceDuration: 6 });
+  assert.equal(slotAt(teased, 0), 1, 'на тизере — первым после него');
 });

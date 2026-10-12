@@ -14,7 +14,7 @@ import { MAX_NOTE } from '@/lib/jobs.ts';
 import {
   allowedFonts, choiceFor, clampTo, coverOf, finalStyle, underCaption, HOOK_SIZE, HOOK_Y, INSERT_W, insertKey, loadAb, loadAd, loadChoice, loadCover, loadInsertBoxes, loadSpeed, moveBox,
   resizeBox, resolveInserts, sampleState, saveAb, saveAd, saveChoice, saveCover, saveInsertBoxes, saveSpeed, type CoverPick, type InsertBox,
-  SPEEDS, SUB_SIZE, SUB_Y, SWATCHES,
+  SPEEDS, SUB_SHADE, SUB_SIZE, SUB_Y, SWATCHES,
 } from '@/lib/style.ts';
 import {
   FrameIcon, GaugeIcon, LayersIcon, MoveIcon, PaletteIcon, RefreshIcon, ScissorsIcon, SplitIcon, TypeIcon,
@@ -233,6 +233,9 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
     changed: choice.hookY !== undefined || choice.hookSize !== undefined, reset: reset('hookY', 'hookSize'),
   };
   const movable = ending ? [] : state.hook ? [hookPart, subs] : [subs]; // хук настраивается, когда он есть на превью
+  // мягкое пятно под субтитрами — в процентах на ползунке; 0 — выключено (поле выбора убирается)
+  const shade = Math.round((spec.subtitles.shade ?? 0) * 100);
+  const setShade = (pct: number) => (pct > 0 ? set('subShade')(pct / 100) : reset('subShade')());
   // вставки на крупном превью, у которых есть ключ (question, src или id стикера-тезиса): перетаскиваются куда угодно;
   // размер — щипком, уголком и кнопками. Рамка — от шаблона (вместе с тенью), высота — по ней
   const sized = state.inserts.flatMap((ins, i) => {
@@ -386,6 +389,13 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
                       {m.changed ? <button type="button" className="link" aria-label={`${m.name}: как в варианте`} onClick={m.reset}>Как было</button> : null}
                     </div>
                   ))}
+                  <div className="sub-move-row">
+                    <span className="small">Затемнение</span>
+                    <input type="range" className="shade-range" aria-label="Затемнение под субтитрами" min={0} max={Math.round(SUB_SHADE.max * 100)} step={5}
+                      value={shade} aria-valuetext={shade ? `фон под субтитрами темнее на ${shade} %` : 'нет'} onChange={(e) => setShade(Number(e.target.value))} />
+                    <span className="small mono shade-value">{shade ? `${shade} %` : 'нет'}</span>
+                  </div>
+                  <span className="muted small">Мягкое тёмное пятно под субтитрами — их видно и на светлом фоне.</span>
                   {sized.map((m) => (
                     <div key={m.key} className="sub-move-row">
                       <span className="small">{m.name}</span>

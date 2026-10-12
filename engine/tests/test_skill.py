@@ -93,6 +93,12 @@ def test_sizes_pavel_set_stay():
     assert "subSize" in render and "hookSize" in render
 
 
+def test_the_shade_under_the_subtitles_pavel_set_stays_and_a_fix_can_turn_it_on():
+    assert "subShade" in section("Шаг render")
+    fix = section("Шаг fix")
+    assert "subtitles.shade" in fix and "0,8" in fix
+
+
 def test_insert_sizes_pavel_set_reach_the_video():
     render = section("Шаг render")
     assert "insertBoxes" in render and "placed_inserts" in render

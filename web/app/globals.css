@@ -238,6 +238,9 @@ input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); 
 .sub-move-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .sub-move-row > .small { width: 76px; color: var(--muted); }
 .sub-move-row > .pill { min-width: 44px; padding: 0 10px; }
+/* ползунок пятна под субтитрами: на всю свободную ширину, высота под палец */
+.shade-range { flex: 1 1 140px; min-width: 120px; height: 44px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.sub-move-row > .shade-value { width: 44px; text-align: right; color: var(--text); }
 .link { background: none; border: none; padding: 0 6px; min-height: 44px; color: var(--accent); cursor: pointer; font: inherit; font-size: 13px; font-weight: 600; }
 .font-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .font { height: 44px; border-radius: 10px; border: none; background: var(--panel-2); color: var(--text); font-size: 14px; cursor: pointer; white-space: nowrap;

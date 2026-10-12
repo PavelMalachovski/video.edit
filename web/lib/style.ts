@@ -1,9 +1,9 @@
 // Стиль на экране превью: итоговый StyleSpec по выбору Павла (то же правило, что final_style движка), образец
 // состояния слоя на кадре (субтитры — по правилу build_sub_events), вставки по ответам и запомненный выбор.
 import { chosen, type Draft } from './answers.ts';
-import { AB_KINDS, ADJUST, COVER, type CoverChoice, ADJUSTABLE, HOOK_SIZE, HOOK_Y, INSERT_W, INSERT_ZONE, inRange, isInsertBox, RESERVED, SUB_SIZE, SUB_Y, type AbKind, type Adjustable, type InsertBox, type Question, type SampleInsert, type StyleChoice, type StyleSpec, type Styles } from './jobfiles.ts';
+import { AB_KINDS, ADJUST, COVER, type CoverChoice, ADJUSTABLE, HOOK_SIZE, HOOK_Y, INSERT_W, INSERT_ZONE, inRange, isInsertBox, RESERVED, SUB_SHADE, SUB_SIZE, SUB_Y, type AbKind, type Adjustable, type InsertBox, type Question, type SampleInsert, type StyleChoice, type StyleSpec, type Styles } from './jobfiles.ts';
 
-export { HOOK_SIZE, HOOK_Y, INSERT_W, SUB_SIZE, SUB_Y };
+export { HOOK_SIZE, HOOK_Y, INSERT_W, SUB_SHADE, SUB_SIZE, SUB_Y };
 export type { InsertBox };
 
 /** Состояние слоя для window.renderState шаблона (template/overlay.js, inserts.js). */
@@ -41,10 +41,11 @@ export function finalStyle(styles: Styles, c: StyleChoice): StyleSpec {
   return spec;
 }
 
-/** Значение, которое Павел тянет на превью, — внутри пределов ADJUST, с его шагом (10 px места, 2 px размера). */
+/** Значение, которое Павел тянет на превью, — внутри пределов ADJUST, с его шагом (10 px места, 2 px размера, 5 %
+ *  пятна); дробный шаг — без хвоста двоичных дробей (0.6, а не 0.6000000000000001). */
 export function clampTo(key: Adjustable, x: number): number {
   const { range, step } = ADJUST[key];
-  return Math.min(range.max, Math.max(range.min, Math.round(x / step) * step));
+  return Math.min(range.max, Math.max(range.min, Number((Math.round(x / step) * step).toFixed(6))));
 }
 export const clampSubY = (y: number): number => clampTo('subY', y);
 /** Субтитры ниже безопасной зоны Reels (низ рамки ниже 1530): там их может закрыть подпись к ролику — страница скажет. */
@@ -52,6 +53,7 @@ export const underCaption = (b: { y: number; h: number } | null | undefined): bo
 export const clampHookY = (y: number): number => clampTo('hookY', y);
 export const clampSubSize = (size: number): number => clampTo('subSize', size);
 export const clampHookSize = (size: number): number => clampTo('hookSize', size);
+export const clampSubShade = (shade: number): number => clampTo('subShade', shade);
 
 /** Выбор «как у варианта»: его шрифты и цвета (смена варианта сбрасывает выбор к ним). */
 export function choiceFor(styles: Styles, variant: Variant): StyleChoice {

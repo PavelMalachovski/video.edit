@@ -141,7 +141,8 @@
       "subY": 1150,
       "hookY": 520,
       "subSize": 70,
-      "hookSize": 90
+      "hookSize": 90,
+      "subShade": 0.6
     },
     "uploads": {},
     "brief": ""
@@ -160,7 +161,8 @@
       "mode": "plate",
       "words": 3,
       "size": 70,
-      "y": 1150
+      "y": 1150,
+      "shade": 0.6
     },
     "hook": {
       "mode": "outline",

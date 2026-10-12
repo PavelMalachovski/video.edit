@@ -96,7 +96,7 @@ export type StyleSpec = {
   font: string;
   hand: string;
   colors: { text: string; accent: string; bar: string; plate: string; outline: string };
-  subtitles: { mode: SubtitleMode; words: number; size: number; y: number };
+  subtitles: { mode: SubtitleMode; words: number; size: number; y: number; shade?: number }; // shade — пятно под субтитрами
   hook: { mode: HookMode; size: number; y?: number };
   bar: { pos: 'bottom' | 'top'; height: number };
 };
@@ -123,9 +123,11 @@ export type CoverChoice = { frame: number; text: string };
 export const isCoverChoice = (c: unknown): c is CoverChoice => isObject(c) && Number.isInteger(c.frame) && (c.frame as number) >= 0
   && (c.frame as number) < COVER.frames && isStr(c.text) && c.text.trim() !== '' && c.text.trim().length <= COVER.text;
 /** Выбор Павла на превью; `subY` и `hookY` — куда он перетащил субтитры (центр блока) и хук (центр строки капсом),
- *  px кадра; `subSize` и `hookSize` — их размер, px; нет — как в варианте (пределы — ADJUST). */
+ *  px кадра; `subSize` и `hookSize` — их размер, px; `subShade` — пятно под субтитрами (насколько темнее фон, 0..0,8);
+ *  нет — как в варианте (пределы — ADJUST). */
 export type StyleChoice = {
   variant: 'A' | 'B' | 'C'; font: string; hand: string; colors: { text: string; accent: string; bar: string }; subY?: number; hookY?: number; subSize?: number; hookSize?: number;
+  subShade?: number;
 };
 /** Где могут стоять субтитры (центр блока): блок не выходит из безопасной зоны 120–1530 px. */
 export const SUB_Y = { min: 240, max: 1760 }; // ниже 1530 — под подписью Reels, но над шкалой времени: выбор Павла
@@ -133,12 +135,15 @@ export const SUB_Y = { min: 240, max: 1760 }; // ниже 1530 — под под
 export const HOOK_Y = { min: 200, max: 1330 };
 export const SUB_SIZE = { min: 40, max: 110 };
 export const HOOK_SIZE = { min: 48, max: 120 };
+/** Мягкое пятно под субтитрами (решение Павла 12.10.2026): насколько темнее фон в его середине; 0 — без пятна. */
+export const SUB_SHADE = { min: 0, max: 0.8 };
 /** Что Павел настраивает на превью: поле выбора → часть и поле StyleSpec, пределы и шаг (то же — ADJUSTED в engine/vm/style.py). */
 export const ADJUST = {
   subY: { part: 'subtitles', field: 'y', range: SUB_Y, step: 10 },
   hookY: { part: 'hook', field: 'y', range: HOOK_Y, step: 10 },
   subSize: { part: 'subtitles', field: 'size', range: SUB_SIZE, step: 2 },
   hookSize: { part: 'hook', field: 'size', range: HOOK_SIZE, step: 2 },
+  subShade: { part: 'subtitles', field: 'shade', range: SUB_SHADE, step: 0.05 },
 } as const;
 export type Adjustable = keyof typeof ADJUST;
 export const ADJUSTABLE = Object.keys(ADJUST) as Adjustable[];
@@ -151,6 +156,7 @@ function isSpec(s: unknown): s is StyleSpec {
   const { subtitles: sub, hook, bar } = s;
   return isObject(sub) && (SUBTITLE_MODES as readonly string[]).includes(sub.mode as string) && Number.isInteger(sub.words)
     && (sub.words as number) >= 2 && (sub.words as number) <= 6 && isNum(sub.size) && sub.size > 0 && isNum(sub.y)
+    && (sub.shade === undefined || (isNum(sub.shade) && sub.shade >= SUB_SHADE.min && sub.shade <= SUB_SHADE.max))
     && isObject(hook) && (HOOK_MODES as readonly string[]).includes(hook.mode as string) && isNum(hook.size) && hook.size > 0
     && (hook.y === undefined || isNum(hook.y))
     && isObject(bar) && (bar.pos === 'bottom' || bar.pos === 'top') && isNum(bar.height) && bar.height > 0;

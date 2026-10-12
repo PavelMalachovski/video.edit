@@ -138,7 +138,13 @@
             },
             "words": { "type": "integer", "minimum": 2, "maximum": 6 },
             "size": { "type": "number", "exclusiveMinimum": 0 },
-            "y": { "type": "number", "minimum": 0, "maximum": 1920 }
+            "y": { "type": "number", "minimum": 0, "maximum": 1920 },
+            "shade": {
+              "description": "Мягкое пятно под видимыми строками — чтобы субтитры читались на светлом фоне: насколько темнее фон в его середине (0,6 — на 60 %); 0 или нет — без пятна. Включает Павел на превью (answers.style.subShade).",
+              "type": "number",
+              "minimum": 0,
+              "maximum": 0.8
+            }
           }
         },
         "hook": {

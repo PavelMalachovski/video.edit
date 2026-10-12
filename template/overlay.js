@@ -11,8 +11,8 @@
 //     акцентная фраза: центр блока x, y; ages — секунды с появления каждой строки (null — её слово ещё не звучит);
 //     anim — blur (по умолчанию), type, letters, track; out — fade (по умолчанию), zoom; leave — 0..1 ухода.
 //   window.layoutBoxes() → {sub?, hook?, cta?, accent?, end?, inserts: [...]} — рамки {x, y, w, h} в px кадра 1080×1920,
-//     вместе с обводкой, тенью и плашкой (у карточки — без затемнения кадра; у акцента — весь блок, без анимации).
-//     Вставки рисует inserts.js.
+//     вместе с обводкой, тенью и плашкой (у карточки — без затемнения кадра; у акцента — весь блок, без анимации; у
+//     субтитров — без пятна под ними, spec.subtitles.shade: это фон, а не текст). Вставки рисует inserts.js.
 //
 // Шрифты — из fonts.json рядом с этим файлом. Свои шрифты Павла (assets/fonts) дописывает в fonts.json
 // тот, кто отдаёт шаблон. Шрифта нет в списке — ошибка: подменять его другим нельзя, иначе превью
@@ -168,6 +168,12 @@ function grow(r, x, y = x, down = y) {
   return { left: r.left - x, top: r.top - y, right: r.right + x, bottom: r.bottom + down };
 }
 
+/** Рамка на доле `p` пути от `a` к `b` (каждый край). */
+function lerpRect(a, b, p) {
+  const at = (k) => a[k] + (b[k] - a[k]) * p;
+  return { left: at('left'), top: at('top'), right: at('right'), bottom: at('bottom') };
+}
+
 function shift(r, dy) {
   return { left: r.left, top: r.top + dy, right: r.right, bottom: r.bottom + dy };
 }
@@ -251,6 +257,23 @@ function subExtent(mode, size) {
   return { x: w + MITER, y: w + MITER, stroke: w };
 }
 
+// Мягкое пятно под субтитрами (spec.subtitles.shade, решение Павла 12.10.2026): размытый тёмный прямоугольник под
+// видимыми строками, чтобы их было видно на светлом фоне. shade — насколько темнее фон в середине пятна (0..0,8);
+// поля, скругление и размытие — доли кегля. Раскладку не меняет и в рамку для проверок не входит.
+const SHADE = { x: 0.55, y: 0.45, radius: 0.8, blur: 0.38 };
+
+function drawShade(root, shade, rect, px) {
+  const amount = Number(shade);
+  if (!rect || !(amount > 0)) return;
+  const spot = el('div', 'shade');
+  place(spot, grow(rect, SHADE.x * px, SHADE.y * px), {
+    background: `rgba(0, 0, 0, ${Math.min(amount, 1)})`,
+    borderRadius: `${SHADE.radius * px}px`,
+    filter: `blur(${SHADE.blur * px}px)`,
+  });
+  root.prepend(spot);
+}
+
 function drawSub({ spec, main }, sub) {
   const root = layer('sub');
   if (!sub || !Array.isArray(sub.words) || sub.words.length === 0) return null;
@@ -322,6 +345,8 @@ function drawSub({ spec, main }, sub) {
   lines.style.top = `${dy}px`;
   if (mode === 'plate') place(plate, shift(grow(words0, ext.x, ext.y), dy), { background: c.plate, borderRadius: `${Math.round(0.28 * px)}px` });
   if (bar) place(underline, shift(bar, dy), { background: c.accent, borderRadius: `${(bar.bottom - bar.top) / 2}px` });
+  const said = spans.filter((_, i) => i < visible).map((s) => wordRect(s, main, px)); // блок уже на месте
+  drawShade(root, spec.subtitles.shade, said.length ? union([...said, bar && shift(bar, dy)]) : null, px);
   return box(shift(outer, dy));
 }
 
@@ -433,13 +458,20 @@ function drawSoftSub(root, { spec, main }, sub) {
   lines.style.top = `${dy}px`;
   // видна строка, первое слово которой уже звучит; последняя видимая — съезжается и проявляется
   const newest = rows.findLastIndex((r) => r.shown);
-  rows.forEach(({ row, shown }, k) => {
-    if (!shown) {
+  const p = progress(sub.t, SOFT.appear);
+  // пятно — под показанными строками (рамки букв на месте, до анимации); под новой строкой оно дорастает, пока она
+  // проявляется
+  const inkOf = (k) => union([...rows[k].row.querySelectorAll('.w')].map((s) => wordRect(s, main, px)));
+  const shown = rows.map((_, k) => k).filter((k) => rows[k].shown);
+  const all = shown.length ? union(shown.map(inkOf)) : null;
+  const before = shown.length > 1 ? union(shown.slice(0, -1).map(inkOf)) : null;
+  drawShade(root, spec.subtitles.shade, before && p < 1 ? lerpRect(before, all, p) : all, px);
+  rows.forEach(({ row, shown: on }, k) => {
+    if (!on) {
       row.style.visibility = 'hidden';
       return;
     }
     if (k !== newest) return;
-    const p = progress(sub.t, SOFT.appear);
     row.style.opacity = String(p);
     row.style.letterSpacing = `${(1 - p) * SOFT.track}em`;
   });

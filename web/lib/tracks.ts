@@ -141,7 +141,11 @@ const stem = (path: string): string => path.split('/').at(-1)?.replace(/\.[^.]+$
 export function draftTracks(d: Draft, { perGroup = 3, sourceDuration, splits = [] }: { perGroup?: number; sourceDuration?: number; splits?: number[] } = {}): Tracks {
   const tl = timelineOf(d);
   const at = (t: number) => tl.toFinalSnap(t);
-  const span = (s: Span) => ({ t0: at(s.t0), t1: Math.max(at(s.t0), at(s.t1)) });
+  // событие — с места начала и до конца его серии кусков (Timeline.span): переставленный кусок его не тянет
+  const span = (s: Span, cut = false) => {
+    const [t0, t1] = tl.span(s.t0, s.t1, cut);
+    return { t0, t1 };
+  };
 
   const cutsAt = [...splits].sort((x, y) => x - y);
   let pieceNo = 0;
@@ -155,13 +159,19 @@ export function draftTracks(d: Draft, { perGroup = 3, sourceDuration, splits = [
     }));
   });
   const pieces = video.filter((c) => c.kind === 'piece');
+  // вырезанное — по исходнику: «＋» стоит в конце куска, что перед ним в исходнике (где бы тот ни стоял), а вырезанное до
+  // первого куска — в начале первого по исходнику
   const cuts: Tracks['cuts'] = [];
+  const placed = tl.segments.slice(d.teaser ? 1 : 0).map(([src0, src1, t0]) => ({ src0, src1, t0, t1: t0 + (src1 - src0) / d.speed }));
+  const bySource = [...placed].sort((a, b) => a.src0 - b.src0);
   let prev = 0;
-  for (const c of pieces) {
-    if ((c.src0 as number) > prev + 1e-6) cuts.push({ at: c.t0, src0: prev, src1: c.src0 as number });
-    prev = c.src1 as number;
+  let before: (typeof placed)[number] | null = null;
+  for (const s of bySource) {
+    if (s.src0 > prev + 1e-6) cuts.push({ at: before ? before.t1 : s.t0, src0: prev, src1: s.src0 });
+    prev = s.src1;
+    before = s;
   }
-  if (sourceDuration !== undefined && sourceDuration > prev + 1e-6) cuts.push({ at: tl.duration, src0: prev, src1: sourceDuration });
+  if (sourceDuration !== undefined && sourceDuration > prev + 1e-6) cuts.push({ at: before ? before.t1 : tl.duration, src0: prev, src1: sourceDuration });
 
   // субтитры: слова, что остались (середина слова — в куске), без слов акцентов; группы — не через склейку
   const inAccent = (t: number) => (d.accents ?? []).some((a) => t >= a.t0 && t <= a.t1);
@@ -174,10 +184,13 @@ export function draftTracks(d: Draft, { perGroup = 3, sourceDuration, splits = [
     subtitles.push({ kind: 'sub', label: group.words.map((w) => w.text).join(' '), t0: words[0].t0, t1: (words.at(-1) as DraftWord).t1, words });
     group = null;
   };
-  for (const w of d.words) {
+  // слова — по месту в ролике (куски могут стоять не по порядку исходника)
+  const heard = d.words.filter((w) => {
     const mid = (w.t0 + w.t1) / 2;
-    const piece = pieceOf(mid);
-    if (piece < 0 || inAccent(mid)) continue;
+    return pieceOf(mid) >= 0 && !inAccent(mid);
+  }).sort((a, b) => at(a.t0) - at(b.t0));
+  for (const w of heard) {
+    const piece = pieceOf((w.t0 + w.t1) / 2);
     const prevWord = group?.words.at(-1);
     const gap = prevWord ? at(w.t0) - at(prevWord.t1) : 0;
     if (group && (group.piece !== piece || group.words.length >= perGroup || gap > GROUP_GAP)) close();
@@ -193,16 +206,17 @@ export function draftTracks(d: Draft, { perGroup = 3, sourceDuration, splits = [
   for (const a of d.accents ?? []) text.push({ kind: 'accent', label: a.lines.map((l) => l.text).join(' '), ...span(a) });
   if (d.cta) text.push({ kind: 'cta', label: [...d.cta.lines, d.cta.word].join(' '), ...span(d.cta) });
 
-  // вставки — не раньше конца хука и не короче MIN_SHOW (insert_spans движка)
+  // вставки — не раньше конца хука, до конца своей серии кусков и не короче MIN_SHOW (insert_spans движка)
   const inserts: (Clip & { index: number })[] = d.inserts.flatMap((i, index) => {
     if (!isSpan(i)) return [];
-    const t0 = Math.max(at(i.t0), hookEnd);
+    const s = span(i);
+    const t0 = Math.max(s.t0, hookEnd);
     return [{
       kind: i.kind, label: i.kind === 'text' ? (i.text ?? i.id ?? '') : (i.question ?? (i.src ? stem(i.src) : i.id ?? '')),
-      t0, t1: Math.max(at(i.t1), t0 + MIN_SHOW), index,
+      t0, t1: Math.max(s.t1, t0 + MIN_SHOW), index,
     }];
   });
-  const looks: Clip[] = (d.looks ?? []).map((l) => ({ kind: l.look, label: l.look, ...span(l) }));
+  const looks: Clip[] = (d.looks ?? []).map((l) => ({ kind: l.look, label: l.look, ...span(l, true) }));
   // переходы — на стыке (to_final_snap), у самого начала и конца ролика их нет (marks движка)
   const fits = (t: number) => t >= HALF && t <= tl.duration - HALF;
   const transitions = (d.transitions ?? []).map((x) => ({ t: at(x.t), kind: x.kind })).filter((x) => fits(x.t));

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { decodePeaks, draftTracks, parseDraft, parseMedia, peakAt, splitTarget, videoKey, withHandEdits, wordEdges, type Draft } from '../lib/tracks.ts';
 import { setSound, setVoice } from '../lib/edits.ts';
-import { cutSpan, EMPTY, setMusic, splitAt } from '../lib/edits.ts';
+import { cutSpan, EMPTY, moveSpan, setMusic, splitAt } from '../lib/edits.ts';
 import { overlayAt, subGroupSize } from '../lib/style.ts';
 import type { StyleSpec } from '../lib/jobfiles.ts';
 
@@ -194,4 +194,24 @@ test('the video key changes only when the pieces do: sound, voice and music edit
   assert.equal(key(setMusic(EMPTY, { at: 1, gainDb: -20, muted: true })), base);
   assert.notEqual(key(cutSpan(EMPTY, 1, 1.5)), base);
   assert.notEqual(key(splitAt(EMPTY, 1.2)), base);
+});
+
+test('a moved piece: the tracks follow the new order — words where they are heard, events within their run, cuts by the recording', () => {
+  // кусок 3–5 исходника Павел поставил перед 0,5–2: в ролике сначала «снимаю на айфон», потом «Сегодня покажу, как»
+  const { draft, splits } = withHandEdits(DRAFT, moveSpan(EMPTY, 3, 5, 0.5), 6);
+  assert.deepEqual(draft.keep, [[3, 5], [0.5, 2]]);
+  const t = draftTracks(draft, { splits, sourceDuration: 6 });
+  assert.deepEqual(t.video.map((c) => [c.src0, c.src1]), [[3, 5], [0.5, 2]]);
+  assert.ok(near(t.video[1].t0, 2 / 1.25));
+  const words = t.subtitles.flatMap((c) => c.words?.map((w) => w.text) ?? []);
+  assert.deepEqual(words, ['снимаю', 'айфон', 'Сегодня', 'покажу,', 'как'], 'по месту в ролике (слово «на» — в акценте)');
+  assert.ok(t.subtitles.every((c, i) => i === 0 || c.t0 >= t.subtitles[i - 1].t0));
+  // вырезанное: «＋» — в конце куска, что перед ним в исходнике (2–3 — за 0,5–2, то есть в конце ролика), 0–0,5 — перед
+  // первым по исходнику куском, хвост 5–6 — за 3–5
+  const cuts = t.cuts.map((c) => [c.src0, c.src1, Math.round(c.at * 1000) / 1000]);
+  assert.deepEqual(cuts, [[0, 0.5, 1.6], [2, 3, 2.8], [5, 6, 1.6]]);
+  // вставка 3–4 с исходника — в куске 3–5 (первом): после хука, до 4 с исходника (0,8 с ролика), но не короче 1,5 с
+  const ins = t.inserts.find((c) => c.label === 'insert-1');
+  const hookEnd = t.text.find((c) => c.kind === 'hook')?.t1 ?? 0;
+  assert.ok(ins && near(ins.t0, hookEnd) && near(ins.t1, Math.max(0.8, hookEnd + 1.5)), JSON.stringify(ins));
 });

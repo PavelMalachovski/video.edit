@@ -126,3 +126,17 @@ def test_the_schema_refuses_junk(job):
     with pytest.raises(ValueError, match="duration"):
         job.write("editor.json", {**data, "duration": -1})
     json.dumps(data)
+
+
+def test_video_marks_follow_the_voiceover_length(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    monkeypatch.setattr(editor, "part_spans", lambda parts: [(0.0, 2.0), (2.0, 3.0)][: len(parts)])
+    parts = [Path("in/source.mov"), Path("in/source-2.mp4")]
+    assert editor.video_marks(job, parts, 4.5) == [{"name": "source.mov", "t0": 0.0, "t1": 2.0}, {"name": "source-2.mp4", "t0": 2.0, "t1": 4.5}], \
+        "озвучка длиннее видео: стоп-кадр — у последнего"
+    assert editor.video_marks(job, parts, 1.5) == [{"name": "source.mov", "t0": 0.0, "t1": 1.5}], "озвучка короче: второго видео в ролике нет"
+    job.path("job.json").write_text('{"name": "IMG_1.MOV"}', encoding="utf-8")
+    assert editor.video_marks(job, parts[:1], 2.0) == [{"name": "IMG_1.MOV", "t0": 0.0, "t1": 2.0}], "одно видео — имя задачи"

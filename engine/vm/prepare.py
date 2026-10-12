@@ -30,10 +30,10 @@ from .media import (
     normalize,
     probe,
     scene_cuts,
+    source_parts,
     voice_seconds,
 )
 
-VIDEO = {".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi", ".3gp", ".hevc"}
 SHEET_THUMBS = 60  # кадров на контактном листе — не больше, иначе лист выходит в десятки тысяч пикселей
 PHRASE_GAP = 0.6  # с — пауза, после которой сводка начинает новую строку текста
 LINE_MAX = 10.0  # с — строка сводки не длиннее: по её времени Claude выбирает кадры
@@ -156,12 +156,6 @@ def _uncovered(words: list[asr.Word], spans: list[tuple[float, float]]) -> list[
     return out
 
 
-def _videos(folder: Path) -> list[Path]:
-    """Видео исходника: `in/source.*` (так его кладёт fetch), а если такого нет — все видео в `in/` по имени."""
-    videos = sorted(p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in VIDEO) if folder.is_dir() else []
-    return [p for p in videos if p.stem == "source"] or videos
-
-
 def _write_cuts(path: Path, cuts: dict) -> None:
     """cuts.json — по отрезку в строке (json с отступами ставит каждое число на свою строку)."""
     rows = ",\n".join(f"  {json.dumps(list(k))}" for k in cuts["keep"])
@@ -213,16 +207,17 @@ def prepare(
     notes = []
 
     if redo or not source.is_file():
-        parts = _videos(job.path("in"))
+        parts = source_parts(job.path("in"))
         if not parts:
             raise ValueError(f"{job.path('in')}: нет видео — сначала python -m vm fetch {job.root}")
-        if len(parts) > 1:
-            notes.append(f"Части по порядку: {', '.join(p.name for p in parts)}")
         voice = _voice(job)
         step("Готовлю видео", "Привожу к 1080×1920, 30 к/с, SDR" + (" и ставлю озвучку" if voice else ""))
         if voice:
             notes.append(_voice_line(voice[1], voice_seconds(voice[0]), sum(probe(p).duration for p in parts)))
         info = normalize(parts, source, voice=voice[0] if voice else None)
+        if len(parts) > 1:
+            marks = editor.video_marks(job, parts, info.duration)
+            notes.append("Видео по порядку: " + ", ".join(f"{v['name']} {_clock(v['t0'])}–{_clock(v['t1'])}" for v in marks))
     else:
         info = probe(source)
     if not (math.isfinite(info.duration) and info.duration > 0):

@@ -1,6 +1,7 @@
 """Входные файлы задачи из черновика релиза `job-<id>`: куски `<файл>.part-NNNNN` склеиваются по порядку номеров.
 
-`source` → `in/source.<расширение из manifest.json>`; вставки к ролику (`uploads` манифеста) и картинки к ответам
+`source` → `in/source.<расширение из manifest.json>`; несколько видео задачи (`videos` манифеста, по порядку) —
+`source`, `source-2`, … → `in/source.<расширение>`, `in/source-2.<расширение>`, …; вставки к ролику (`uploads` манифеста) и картинки к ответам
 (`uploads` в answers.json) → `in/uploads/<файл>`. Другие группы `upload-*` в черновике — брошенные загрузки (картинку
 выбрали заново, вставку не выбрали при продолжении): их не качаем. Размер каждого склеенного файла сверяется с
 манифестом, и все группы проверяются до того, как качать тяжёлое. Уже скачанный файл нужного размера второй раз не качается; оборванный запуск продолжается с уже
@@ -20,6 +21,7 @@ from pathlib import Path
 from .job import Job
 
 PART = re.compile(r"^(?P<file>.+)\.part-(?P<n>\d{5})$")
+VIDEO_ASSET = re.compile(r"^source(-([2-9]|10))?$")  # видео задачи по порядку: source, source-2 … source-10
 PLACEHOLDERS = {"", "proxy-injected"}
 PARALLEL = 8
 TIMEOUT = 1800  # с на один запрос со всеми повторами (кусок 4 МБ качается секунды; потолок — от зависания)
@@ -147,14 +149,22 @@ def fetch(job: Job) -> dict[str, Path]:
     if not isinstance(uploads, list) or not all(isinstance(u, dict) and isinstance(u.get("asset"), str) for u in uploads):
         raise FetchError(f"{tag}: manifest.json не такой, как пишет страница (объект; uploads — список с asset)")
 
+    videos = manifest.get("videos")
+    if videos is None:  # задача из одного видео (как до нескольких)
+        videos = [{"asset": "source", "name": manifest.get("name"), "size": manifest.get("size"), "parts": manifest.get("parts")}]
+    assets_of = [v.get("asset") if isinstance(v, dict) else None for v in videos] if isinstance(videos, list) else []
+    if not (assets_of and assets_of[0] == "source" and len(set(assets_of)) == len(assets_of)
+            and all(isinstance(a, str) and VIDEO_ASSET.match(a) for a in assets_of)):
+        raise FetchError(f"{tag}: videos в manifest.json не такой, как пишет страница (source, source-2 … без повторов)")
+
     groups: dict[str, list[tuple[int, dict]]] = {}
     for a in assets:
         if m := PART.match(a["name"]):
             groups.setdefault(m["file"], []).append((int(m["n"]), a))
-    ext = Path(str(manifest.get("name", ""))).suffix.lower() or ".mp4"
-    targets: dict[str, tuple[Path, int | None, int | None]] = {
-        "source": (job.path(f"in/source{ext}"), manifest.get("size"), manifest.get("parts")),
-    }
+    targets: dict[str, tuple[Path, int | None, int | None]] = {}
+    for v in videos:
+        ext = Path(str(v.get("name") or "")).suffix.lower() or ".mp4"
+        targets[v["asset"]] = (job.path(f"in/{v['asset']}{ext}"), v.get("size"), v.get("parts"))
     for up in uploads:
         targets[up["asset"]] = (job.path(f"in/uploads/{up['asset']}"), up.get("size"), up.get("parts"))
     for name in _answer_uploads(job):  # картинок к ответам в манифесте нет — размер не сверить

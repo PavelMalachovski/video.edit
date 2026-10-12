@@ -5,7 +5,8 @@
   ролик, и страница отдаёт его плееру ссылкой на ассет. Исходник длиннее MAX_PROXY_SECONDS или прокси всё-таки больше
   предела — прокси нет (`proxy: null`), редактор показывает дорожки без видео.
 - `film.jpg` — лента кадров одной картинкой: кадр каждые `step` с, 54×96.
-- `editor.json` — что где: длительность, прокси, лента и волна (`peaks`: пиков в секунду и base64 байтов 0–255).
+- `editor.json` — что где: длительность, прокси, лента и волна (`peaks`: пиков в секунду и base64 байтов 0–255);
+  `videos` — где в исходнике каждое видео задачи (их несколько — `normalize` склеил их по порядку).
 Времена — по исходнику, как в words.json и edit.json.
 """
 import base64
@@ -20,7 +21,15 @@ import numpy as np
 from .audio import LOUDNORM
 from .git import MAX_FILE_BYTES
 from .job import Job
-from .media import MediaError, _atomic, _ffmpeg, extract_wav, probe
+from .media import (
+    MediaError,
+    _atomic,
+    _ffmpeg,
+    extract_wav,
+    part_spans,
+    probe,
+    source_parts,
+)
 
 PROXY = {"width": 540, "height": 960, "key": 0.5}
 FILM = {"w": 54, "h": 96, "step": 0.5, "max": 1000}  # не больше 1000 кадров: ширина JPEG — до 65 535 px
@@ -115,6 +124,25 @@ def _peaks(source: Path, work: Path, duration: float) -> bytes:
     return bytes(np.clip(peaks / top * 255, 0, 255).astype(np.uint8))
 
 
+def video_marks(job: Job, parts: list[Path], duration: float) -> list[dict]:
+    """Где каждое видео задачи в исходнике длиной `duration`: имя, как у Павла (job.json), и [t0, t1] с. Стоп-кадр под
+    озвучку длиннее видео — у последнего; озвучка короче — видео за её концом нет."""
+    named: dict[str, str] = {}
+    meta = job.read("job.json") if job.path("job.json").is_file() else {}
+    for v in meta.get("videos") or []:
+        if isinstance(v, dict) and isinstance(v.get("file"), str) and isinstance(v.get("name"), str):
+            named[Path(v["file"]).name] = v["name"]
+    if parts and not named and isinstance(meta.get("name"), str):  # задача из одного видео (как до нескольких)
+        named[parts[0].name] = meta["name"]
+    marks = []
+    for k, (part, (a, b)) in enumerate(zip(parts, part_spans(parts), strict=True)):
+        if a >= duration - 1e-3:
+            break
+        end = duration if k == len(parts) - 1 else min(b, duration)
+        marks.append({"name": named.get(part.name, part.name), "t0": round(a, 3), "t1": round(end, 3)})
+    return marks
+
+
 def make(job: Job) -> dict:
     """Прокси, ленту и волну по `source.mp4` задачи заново → данные `editor.json` (он записан)."""
     source = job.path("source.mp4")
@@ -138,6 +166,8 @@ def make(job: Job) -> dict:
         "film": film,
         "peaks": {"perS": PEAKS_PER_S, "data": base64.b64encode(peaks).decode("ascii")},
     }
+    if parts := source_parts(job.path("in")):  # из каких видео склеен исходник (без них — задача без in/)
+        data["videos"] = video_marks(job, parts, duration)
     job.write("editor.json", data)
     return data
 

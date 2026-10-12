@@ -241,6 +241,32 @@ def test_fetch_rejects_a_size_mismatch(tmp_path, github, capsys):
     assert not (job / "in" / "source.mov").exists()
 
 
+def test_fetch_takes_every_video_of_the_job_in_order(tmp_path, github):
+    first = random.Random(21).randbytes(7000)
+    second = random.Random(22).randbytes(4000)
+    videos = [{"asset": "source", "name": "IMG_1.MOV", "size": len(first), "type": "video/quicktime", "parts": 3},
+              {"asset": "source-2", "name": "IMG_2.mp4", "size": len(second), "type": "video/mp4", "parts": 2}]
+    github.draft("job-abc", {**parts("source", first, 3000), **parts("source-2", second, 3000),
+                             "manifest.json": manifest("IMG_1.MOV", first, 3, videos=videos)})
+    job = tmp_path / "jobs" / "abc"
+    assert main(["fetch", str(job)]) == 0
+    assert (job / "in" / "source.mov").read_bytes() == first
+    assert (job / "in" / "source-2.mp4").read_bytes() == second
+
+
+@pytest.mark.parametrize("videos", [
+    [{"asset": "../x", "name": "a.mov", "size": 3000, "parts": 1}],  # не видео задачи
+    [{"asset": "source-2", "name": "a.mov", "size": 3000, "parts": 1}],  # первое — не source
+    [{"asset": "source", "name": "a.mov", "size": 3000, "parts": 1}, {"asset": "source", "name": "b.mov", "size": 3000, "parts": 1}],
+    "source",
+])
+def test_fetch_refuses_a_video_list_the_page_does_not_write(tmp_path, github, capsys, videos):
+    body = random.Random(23).randbytes(3000)
+    github.draft("job-abc", {**parts("source", body, 3000), "manifest.json": manifest("a.mov", body, 1, videos=videos)})
+    assert main(["fetch", str(tmp_path / "jobs" / "abc")]) == 1
+    assert "videos" in capsys.readouterr().err
+
+
 def test_fetch_twice_downloads_once(tmp_path, github):
     body = random.Random(5).randbytes(6000)
     files = parts("source", body, 3000)
@@ -480,6 +506,40 @@ def test_prepare_takes_the_fetched_source_not_every_video_in_in(tmp_path, monkey
     assert probe(job.path("source.mp4")).duration == pytest.approx(2.0, abs=0.1)
     cuts = job.path("cuts.json").read_text(encoding="utf-8")
     assert len(json.loads(cuts)["keep"]) == 2 and len(cuts.splitlines()) <= 6, cuts
+
+
+def test_the_videos_of_a_job_go_in_their_order_not_by_name(tmp_path):
+    from vm.media import source_parts
+
+    folder = tmp_path / "in"
+    folder.mkdir()
+    for name in ("source-10.mp4", "source-2.mov", "source.mp4", "old.mp4", "source-3.txt"):
+        (folder / name).write_bytes(b"x")
+    assert [p.name for p in source_parts(folder)] == ["source.mp4", "source-2.mov", "source-10.mp4"]
+    for name in ("source-10.mp4", "source-2.mov", "source.mp4"):
+        (folder / name).unlink()
+    assert [p.name for p in source_parts(folder)] == ["old.mp4"], "не через fetch — все видео папки по имени"
+
+
+@needs_ffmpeg
+def test_prepare_joins_the_videos_and_the_editor_knows_where_each_one_is(tmp_path, monkeypatch, capsys):
+    from vm.media import probe
+
+    no_models(monkeypatch, tmp_path)
+    job = Job(tmp_path / "jobs" / "abc")
+    make_source(job.path("in/source.mov"), 2)
+    make_source(job.path("in/source-2.mp4"), 1)
+    videos = [{"file": "in/source.mov", "asset": "source", "name": "IMG_1.MOV", "size": 1, "type": "video/quicktime", "duration": 2},
+              {"file": "in/source-2.mp4", "asset": "source-2", "name": "IMG_2.mp4", "size": 1, "type": "video/mp4", "duration": 1}]
+    job.path("job.json").write_text(json.dumps({"brief": "", "name": "IMG_1.MOV", "videos": videos}), encoding="utf-8")
+    job.path("words.json").write_text('[{"t0": 0.2, "t1": 0.6, "text": "раз"}, {"t0": 2.2, "t1": 2.6, "text": "два"}]', encoding="utf-8")
+    assert main(["prepare", str(job.root)]) == 0
+    assert probe(job.path("source.mp4")).duration == pytest.approx(3.0, abs=0.1)
+    marks = job.read("editor.json")["videos"]
+    assert [v["name"] for v in marks] == ["IMG_1.MOV", "IMG_2.mp4"]
+    assert marks[0]["t0"] == 0 and marks[0]["t1"] == pytest.approx(2.0, abs=0.04) and marks[1]["t0"] == marks[0]["t1"]
+    assert marks[1]["t1"] == pytest.approx(job.read("editor.json")["duration"], abs=1e-3)
+    assert "Видео по порядку: IMG_1.MOV 0:00.0–0:02.0, IMG_2.mp4 0:02.0–0:03.0" in capsys.readouterr().out
 
 
 @needs_ffmpeg

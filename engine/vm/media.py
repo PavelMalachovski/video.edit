@@ -259,6 +259,30 @@ def voice_seconds(path: PathLike) -> float:
     return seconds
 
 
+VIDEO = {".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi", ".3gp", ".hevc"}
+SOURCE_PART = re.compile(r"^source(?:-(\d{1,2}))?$")
+
+
+def source_parts(folder: PathLike) -> list[Path]:
+    """Видео исходника по порядку: `source.*`, `source-2.*` … `source-10.*` (так их кладёт fetch: несколько видео
+    задачи — номерами), а если таких нет — все видео папки по имени."""
+    folder = Path(folder)
+    videos = sorted(p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in VIDEO) if folder.is_dir() else []
+    numbered = sorted((int(m[1] or 1), p.name, p) for p in videos if (m := SOURCE_PART.match(p.stem)))
+    return [p for *_, p in numbered] or videos
+
+
+def part_spans(parts: Sequence[PathLike]) -> list[tuple[float, float]]:
+    """Где каждая часть в исходнике, который склеивает `normalize`, с: подряд, по длине части в целых кадрах (столько
+    звука `normalize` даёт каждой части)."""
+    spans, at = [], 0
+    for part in parts:
+        frames = max(1, round(_inspect(part)[1].seconds * FPS))
+        spans.append((at / FPS, (at + frames) / FPS))
+        at += frames
+    return spans
+
+
 def normalize(parts: Sequence[PathLike], out: PathLike, voice: PathLike | None = None) -> Probe:
     """Исходник для всего движка: части подряд в один файл 1080×1920 (или шириной 1080) SDR, 30 к/с, звук 48 кГц.
 

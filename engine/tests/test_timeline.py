@@ -1,5 +1,7 @@
 """Шкала времени: как время исходника становится временем финала (вырезки + ускорение). Чистая арифметика."""
+import json
 import math
+from pathlib import Path
 
 import pytest
 
@@ -184,3 +186,32 @@ def test_in_a_short_piece_a_moment_lands_on_the_nearer_cut():
     tl = Timeline([(0.0, 2.0), (2.5, 2.8), (3.0, 6.0)], 1.0)  # кусок 0,3 с: стыки на 2,0 и 2,3 с финала
     assert tl.to_cut(2.6) == 2.0
     assert tl.to_cut(2.75) == pytest.approx(2.3)
+
+
+# ---------- общая фикстура со страницей (web/lib/timeline.ts) ----------
+
+SHARED = json.loads((Path(__file__).parent / "fixtures" / "timeline-map.json").read_text(encoding="utf-8"))
+
+
+def _same(got, want):
+    return got is None and want is None or (got is not None and want is not None and abs(got - want) <= 1e-9)
+
+
+@pytest.mark.parametrize("case", SHARED["cases"], ids=lambda c: f"{len(c['keep'])}seg-x{c['speed']}-teaser{bool(c['teaser'])}")
+def test_timeline_matches_the_shared_fixture(case):
+    tl = Timeline(case["keep"], case["speed"], case["teaser"])
+    assert _same(tl.duration, case["duration"]) and _same(tl.teaser_duration, case["teaserDuration"])
+    assert len(tl.segments) == len(case["segments"])
+    assert all(_same(x, y) for got, want in zip(tl.segments, case["segments"], strict=True) for x, y in zip(got, want, strict=True))
+    for name, fn in (("toFinal", tl.to_final), ("teaserFinal", tl.teaser_final), ("toFinalSnap", tl.to_final_snap),
+                     ("toCut", tl.to_cut), ("toSource", tl.to_source)):
+        for t, want in case[name]:
+            assert _same(fn(t), want), f"{name}({t}) = {fn(t)}, want {want}"
+    for t, within, want in case["toCutWithin"]:
+        assert _same(tl.to_cut(t, within), want)
+
+
+@pytest.mark.parametrize("bad", SHARED["refused"])
+def test_timeline_refuses_what_the_shared_fixture_refuses(bad):
+    with pytest.raises(ValueError):
+        Timeline(bad["keep"], bad["speed"], bad.get("teaser"))

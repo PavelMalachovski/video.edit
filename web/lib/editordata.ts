@@ -1,7 +1,7 @@
 // Данные редактора (бета): черновик монтажа (edit.json), файлы редактора от vm prepare (editor.json), ссылки на прокси
 // (ассет черновика релиза — через /media) и ленту кадров (картинка ветки — через /file), стили и выбор Павла. Правки
 // руками — timeline.json: сохранение с ревизией (без force, гонка вкладок — конфликт) и «Монтировать» из редактора.
-import { commitFiles } from './branch.ts';
+import { commitFiles, readText } from './branch.ts';
 import { parseTimeline, type HandEdits, type TimelineFile } from './edits.ts';
 import { sameJson } from './equal.ts';
 import type { GH } from './github.ts';
@@ -15,8 +15,35 @@ export const MEDIA_NAMES = ['proxy.mp4'] as const;
 export type MediaName = (typeof MEDIA_NAMES)[number];
 export const isMediaName = (x: string): x is MediaName => (MEDIA_NAMES as readonly string[]).includes(x);
 
+/** Что из правок руками примет движок задачи: ветка задачи создаётся из master один раз, и сессия монтирует её движком
+ *  своей поры — новых полей timeline.json старый движок не примет (схема без лишних полей). По схеме в ветке: `move` —
+ *  перестановка кусков (фаза 4), `text` — текст и вставки, слова субтитров (фаза 5). */
+export type Abilities = { move: boolean; text: boolean };
+export const ENGINE_SCHEMA = 'engine/vm/schemas/timeline.json';
+const ALL: Abilities = { move: true, text: true };
+
+/** Схема timeline.json из ветки задачи → что примет её движок. Схемы нет (или она нечитаема) — движок нынешний. */
+export function abilitiesOf(schema: string | null): Abilities {
+  if (schema === null) return ALL;
+  try {
+    const props = (JSON.parse(schema) as { properties: Record<string, unknown> }).properties;
+    const ops = ((props.edits as { items: { oneOf: { properties: { op: { const: string } } }[] } }).items.oneOf).map((o) => o.properties.op.const);
+    return { move: ops.includes('move'), text: 'text' in props && 'words' in props };
+  } catch {
+    return ALL;
+  }
+}
+
+/** Чего из правок `hand` движок задачи не примет — текст ошибки; всё примет — null. */
+export function refusedBy(a: Abilities, hand: HandEdits): string | null {
+  if (!a.move && hand.edits.some((e) => e.op === 'move')) return 'Эта задача создана до перестановки кусков: её движок их не примет — куски переставляются в новых задачах';
+  if (!a.text && (hand.text || hand.words)) return 'Эта задача создана до правок текста в редакторе: её движок их не примет — текст здесь правится через «Поправить»';
+  return null;
+}
+
 export type EditorData = {
   id: string;
+  abilities: Abilities; // что из правок руками примет движок задачи
   title: string;
   screen: Screen;
   head: string | null;
@@ -50,12 +77,13 @@ export async function loadEditor(gh: GH, id: string): Promise<EditorData | null>
   if (!loaded) return null;
   const f = loaded.files;
   const head = f?.head ?? null;
-  const [edit, editor, timeline] = head
-    ? await Promise.all(['edit.json', 'editor.json', TIMELINE].map((name) => readJobText(gh, id, head, name)))
-    : [null, null, null];
+  const [edit, editor, timeline, schema] = head
+    ? await Promise.all([...['edit.json', 'editor.json', TIMELINE].map((name) => readJobText(gh, id, head, name)), readText(gh, head, ENGINE_SCHEMA)])
+    : [null, null, null, null];
   const media = parseMedia(json(editor));
   return {
     id,
+    abilities: abilitiesOf(schema),
     title: loaded.view.title,
     screen: loaded.view.screen,
     head,
@@ -87,6 +115,8 @@ export type SaveResult =
 
 /** Где правки руками можно сохранять: вопросы (до монтажа), готовый ролик и ошибка — сессия не работает. */
 const EDITABLE: readonly Screen[] = ['questions', 'result', 'error'];
+
+class Refused extends Error {}
 
 class Stale extends Error {
   readonly current: { rev: number; timeline: TimelineFile | null };
@@ -123,12 +153,15 @@ export async function saveTimeline(gh: GH, id: string, body: unknown, now: Date)
   const file: TimelineFile = { rev: parsed.base + 1, at: now.toISOString(), ...parsed.hand };
   try {
     await commitFiles(gh, jobBranch(id), async (head) => {
+      const refused = refusedBy(abilitiesOf(await readText(gh, head, ENGINE_SCHEMA)), parsed.hand);
+      if (refused) throw new Refused(refused);
       const current = timelineOf(await readJobText(gh, id, head, TIMELINE));
       if (current.rev !== parsed.base) throw new Stale(current);
       return { [`${jobDir(id)}/${TIMELINE}`]: `${JSON.stringify(file, null, 2)}\n` };
     }, `web(${id}): правки в редакторе, ревизия ${file.rev}`);
   } catch (e) {
     if (e instanceof Stale) return { ok: false, status: 409, error: 'Правки поменялись в другой вкладке', ...e.current };
+    if (e instanceof Refused) return { ok: false, status: 409, error: e.message };
     throw e;
   }
   return { ok: true, timeline: file };

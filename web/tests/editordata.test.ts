@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { editorFix, loadEditor, MEDIA_NAMES, mediaAsset, saveTimeline, timelineOf } from '../lib/editordata.ts';
+import { abilitiesOf, editorFix, ENGINE_SCHEMA, loadEditor, MEDIA_NAMES, mediaAsset, refusedBy, saveTimeline, timelineOf } from '../lib/editordata.ts';
 import type { AnswersFile } from '../lib/jobfiles.ts';
 import { withFake } from './helpers.ts';
 
@@ -147,3 +147,36 @@ test('«Монтировать» from the editor: a fix with the saved revision 
   const unmounted = editorFix({ editor: { style } }, { rev: 0, answers: null, fix: null }, NOW);
   assert.ok('error' in unmounted && unmounted.status === 409, 'стиль меняется у смонтированного ролика');
 });
+
+// ---------- что примет движок задачи ----------
+
+const SCHEMA_NOW = readFileSync(new URL('../../engine/vm/schemas/timeline.json', import.meta.url), 'utf8');
+/** Схема timeline.json, как она была до фазы `phase` (4 — без перестановки, 5 — без текста). */
+function olderSchema(phase: 4 | 5): string {
+  const s = JSON.parse(SCHEMA_NOW);
+  delete s.properties.text;
+  delete s.properties.words;
+  if (phase === 4) s.properties.edits.items.oneOf = s.properties.edits.items.oneOf.filter((o: { properties: { op: { const: string } } }) => o.properties.op.const !== 'move');
+  return JSON.stringify(s);
+}
+
+test('what the job\'s engine takes is read from its own schema in the job branch', () => {
+  assert.deepEqual(abilitiesOf(SCHEMA_NOW), { move: true, text: true });
+  assert.deepEqual(abilitiesOf(olderSchema(5)), { move: true, text: false });
+  assert.deepEqual(abilitiesOf(olderSchema(4)), { move: false, text: false });
+  assert.deepEqual(abilitiesOf(null), { move: true, text: true }, 'схемы нет — движок нынешний');
+  const text = { edits: [], words: [{ t0: 1, t1: 2, text: 'это' }] };
+  assert.match(refusedBy({ move: true, text: false }, text) ?? '', /до правок текста/);
+  assert.match(refusedBy({ move: false, text: true }, { edits: [{ op: 'move', t0: 1, t1: 2, before: null }] }) ?? '', /до перестановки/);
+  assert.equal(refusedBy({ move: true, text: true }, text), null);
+});
+
+test('a job made before text edits: the editor knows it, and the server does not save what its engine would refuse', () => withFake(async ({ fake, gh }) => {
+  start(fake);
+  fake.commit(`claude/job-${ID}`, { [ENGINE_SCHEMA]: olderSchema(5) }, 'old engine');
+  assert.deepEqual((await loadEditor(gh, ID))?.abilities, { move: true, text: false });
+  const r = await saveTimeline(gh, ID, { base: 0, edits: [], text: { hook: { until: 2 } } }, NOW);
+  assert.ok(!r.ok && r.status === 409 && /до правок текста/.test(r.error), JSON.stringify(r));
+  assert.equal(timelineFile(fake), null, 'ничего не записано');
+  assert.ok((await saveTimeline(gh, ID, { base: 0, ...HAND }, NOW)).ok, 'куски — как всегда');
+}));

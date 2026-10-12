@@ -11,6 +11,7 @@ from pathlib import Path
 
 from vm.asr import Word
 from vm.overlay import build_overlay_events, insert_spans
+from vm.render import timeline as render_timeline
 from vm.subs import build_sub_events
 from vm.timeline import Timeline
 
@@ -19,7 +20,9 @@ NOTE = (
     "События субтитров (subs: build_sub_events) и слоя (overlay: build_overlay_events и insertSpans — кадры показа "
     "вставок) для одних и тех же входов: engine/vm/subs.py и engine/vm/overlay.py ↔ web/lib/subs.ts и "
     "web/lib/overlay.ts. Времена слов и edit — по исходнику, событий — секунды финала; keep — в порядке финала. "
-    "Пишет engine/tests/shared_events.py (python3 -m tests.shared_events из engine/)."
+    "render — шкала, на которой монтаж строит слой (render.timeline ↔ renderTimeline): края keep и тизера на целых "
+    "кадрах, не дальше последнего кадра исходника (limit). Пишет engine/tests/shared_events.py (python3 -m "
+    "tests.shared_events из engine/)."
 )
 
 
@@ -143,6 +146,29 @@ OVERLAY_REFUSED = [
 ]
 
 
+RENDER = [
+    {"name": "edges on whole frames", "keep": [[0.012, 1.005], [2.016, 3.333]], "speed": 1.1, "teaser": None, "limit": None},
+    {"name": "a half frame rounds to even", "keep": [[0.05, 0.35], [0.85, 2.15]], "speed": 1.0, "teaser": None, "limit": None},
+    {"name": "nothing past the last frame of the source", "keep": [[0.0, 2.0], [3.0, 5.0]], "speed": 1.25, "teaser": None, "limit": 4.99},
+    {"name": "a piece shorter than a frame disappears", "keep": [[0.0, 1.0], [1.5, 1.51], [2.0, 3.0]], "speed": 1.0, "teaser": None,
+     "limit": None},
+    {"name": "pieces reordered by hand", "keep": [[4.613, 7.0], [0.3, 2.512], [7.0, 9.5]], "speed": 1.1, "teaser": None, "limit": 9.48},
+    {"name": "teaser on whole frames", "keep": [[0.3, 9.5]], "speed": 1.1, "teaser": {"t0": 3.31, "t1": 4.795}, "limit": 10.0},
+]
+RENDER_REFUSED = [
+    {"name": "teaser end before its start", "keep": [[0.0, 9.0]], "speed": 1.0, "teaser": {"t0": 3.0, "t1": 2.0}, "limit": None},
+    {"name": "teaser too short", "keep": [[0.0, 9.0]], "speed": 1.0, "teaser": {"t0": 3.0, "t1": 3.6}, "limit": None},
+    {"name": "teaser too long", "keep": [[0.0, 9.0]], "speed": 1.0, "teaser": {"t0": 1.0, "t1": 6.5}, "limit": None},
+    {"name": "teaser past the end of the source", "keep": [[0.0, 3.0]], "speed": 1.0, "teaser": {"t0": 4.0, "t1": 6.0}, "limit": 3.0},
+]
+
+
+def render_case(case: dict) -> dict:
+    """Шкала монтажа по keep, скорости и тизеру edit.json и длине исходника."""
+    tl = render_timeline({"keep": case["keep"], "speed": case["speed"], "teaser": case["teaser"]}, case["limit"])
+    return {"segments": [list(s) for s in tl.segments], "teaserSpan": list(tl.teaser) if tl.teaser else None, "duration": tl.duration}
+
+
 def _timeline(case: dict) -> Timeline:
     return Timeline(case["keep"], case["speed"], case["teaser"])
 
@@ -168,6 +194,8 @@ def build() -> dict:
         "subsRefused": SUBS_REFUSED,
         "overlay": [{**case, "events": overlay_events(case), "insertSpans": spans(case)} for case in OVERLAY],
         "overlayRefused": OVERLAY_REFUSED,
+        "render": [{**case, **render_case(case)} for case in RENDER],
+        "renderRefused": RENDER_REFUSED,
     }
 
 
@@ -199,7 +227,9 @@ def dump(data: dict) -> str:
             cases.append("    {\n      " + ",\n      ".join(fields) + "\n    }")
         out.append(f'  {json.dumps(key)}: [\n' + ",\n".join(cases) + "\n  ],")
         refused = f"{key}Refused"
-        out.append(f'  {json.dumps(refused)}: {_rows(data[refused], "  ")}' + ("," if key == "subs" else ""))
+        out.append(f'  {json.dumps(refused)}: {_rows(data[refused], "  ")},')
+    out.append(f'  "render": {_rows(data["render"], "  ")},')
+    out.append(f'  "renderRefused": {_rows(data["renderRefused"], "  ")}')
     out.append("}")
     return "\n".join(out) + "\n"
 

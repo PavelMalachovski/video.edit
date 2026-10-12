@@ -5,7 +5,7 @@
 import { sameJson } from './equal.ts';
 import { roundHalfEven } from './pyround.ts';
 import { buildSubEvents, type Word } from './subs.ts';
-import type { Timeline } from './timeline.ts';
+import { Timeline } from './timeline.ts';
 
 export const FPS = 30;
 const APPEAR = 3; // кадров появления вставки
@@ -54,6 +54,35 @@ type Piece = {
 /** Кадр момента финала: round() Python — ровно половина кадра к чётному. */
 export const frameOf = (t: number): number => roundHalfEven(t * FPS);
 export { pyRound } from './pyround.ts';
+
+const TEASER = [1.0, 5.0] as const; // с — длина фразы тизера (TEASER движка, render.py)
+
+/** Шкала, на которой монтаж режет ролик и строит слой (render.timeline): края кусков и тизера — на целых кадрах исходника
+ *  (30 к/с), не дальше его последнего кадра (`limit` — длина исходника); кусок короче кадра пропадает. Тизер не той
+ *  длины или за концом исходника — Error, как RenderError движка. */
+export function renderTimeline(edit: { keep: readonly (readonly number[])[]; speed: number; teaser?: { t0: number; t1: number } | null },
+  limit?: number | null): Timeline {
+  const last = limit === undefined || limit === null ? null : Math.floor(limit * FPS + 0.01);
+  const frames = (a: number, b: number): [number, number] | null => {
+    const fa = roundHalfEven(a * FPS);
+    const fb = last === null ? roundHalfEven(b * FPS) : Math.min(roundHalfEven(b * FPS), last);
+    return fb > fa ? [fa / FPS, fb / FPS] : null;
+  };
+  const keep = edit.keep.flatMap(([a, b]) => {
+    const span = frames(a, b);
+    return span ? [span] : [];
+  });
+  let teaser: [number, number] | null = null;
+  if (edit.teaser) { // тизер не пропадает молча: ошибка называет, что с ним не так
+    const t0 = Number(edit.teaser.t0);
+    const t1 = Number(edit.teaser.t1);
+    if (t1 <= t0) throw new Error(`edit.json: teaser — t1 (${t1}) должен быть больше t0 (${t0})`);
+    if (!(TEASER[0] <= t1 - t0 && t1 - t0 <= TEASER[1])) throw new Error(`edit.json: teaser — ${(t1 - t0).toFixed(1)} с, нужна фраза на ${TEASER[0]}–${TEASER[1]} с`);
+    teaser = frames(t0, t1);
+    if (!teaser) throw new Error(`edit.json: teaser ${t0}–${t1} с — за концом исходника`);
+  }
+  return new Timeline(keep, edit.speed, teaser);
+}
 
 /** Промежутки финала `{t0, t1, state}` по возрастанию, встык, от 0 до конца ролика со стоп-кадром и карточкой. Вставке,
  *  которую рисует шаблон, без места на кадре — Error (как ValueError движка). */

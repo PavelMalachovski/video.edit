@@ -13,6 +13,7 @@ import shared_events
 
 from vm.asr import Word
 from vm.overlay import FPS, build_overlay_events, insert_spans
+from vm.render import RenderError
 from vm.subs import build_sub_events
 from vm.timeline import Timeline
 
@@ -526,3 +527,15 @@ def test_layer_events_match_the_shared_fixture(case):
 def test_layer_refuses_what_the_shared_fixture_refuses(bad):
     with pytest.raises(ValueError):
         shared_events.overlay_events(bad)
+
+
+@pytest.mark.parametrize("case", SHARED["render"], ids=lambda c: c["name"])
+def test_the_render_timeline_matches_the_shared_fixture(case):
+    got = shared_events.render_case(case)
+    assert got == {k: case[k] for k in ("segments", "teaserSpan", "duration")}
+
+
+@pytest.mark.parametrize("bad", SHARED["renderRefused"], ids=lambda b: b["name"])
+def test_the_render_timeline_refuses_what_the_shared_fixture_refuses(bad):
+    with pytest.raises(RenderError):
+        shared_events.render_case(bad)

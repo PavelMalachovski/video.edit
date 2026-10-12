@@ -1,5 +1,5 @@
 {
-  "_": "События субтитров (subs: build_sub_events) и слоя (overlay: build_overlay_events и insertSpans — кадры показа вставок) для одних и тех же входов: engine/vm/subs.py и engine/vm/overlay.py ↔ web/lib/subs.ts и web/lib/overlay.ts. Времена слов и edit — по исходнику, событий — секунды финала; keep — в порядке финала. Пишет engine/tests/shared_events.py (python3 -m tests.shared_events из engine/).",
+  "_": "События субтитров (subs: build_sub_events) и слоя (overlay: build_overlay_events и insertSpans — кадры показа вставок) для одних и тех же входов: engine/vm/subs.py и engine/vm/overlay.py ↔ web/lib/subs.ts и web/lib/overlay.ts. Времена слов и edit — по исходнику, событий — секунды финала; keep — в порядке финала. render — шкала, на которой монтаж строит слой (render.timeline ↔ renderTimeline): края keep и тизера на целых кадрах, не дальше последнего кадра исходника (limit). Пишет engine/tests/shared_events.py (python3 -m tests.shared_events из engine/).",
   "subs": [
     {
       "name": "karaoke, three words, a cut and speed",
@@ -1177,5 +1177,19 @@
   ],
   "overlayRefused": [
     {"name": "an insert drawn by the layer needs a place on the frame", "keep": [[0.0, 3.0]], "speed": 1.0, "teaser": null, "edit": {"words": [], "style": {"subtitles": {"mode": "karaoke", "words": 3}, "hook": {"mode": "accent"}}, "inserts": [{"kind": "image", "src": "a.png", "t0": 0.5, "t1": 1.5, "x": 10, "y": 10}]}}
+  ],
+  "render": [
+    {"name": "edges on whole frames", "keep": [[0.012, 1.005], [2.016, 3.333]], "speed": 1.1, "teaser": null, "limit": null, "segments": [[0.0, 1.0, 0.0], [2.0, 3.3333333333333335, 0.9090909090909091]], "teaserSpan": null, "duration": 2.121212121212121},
+    {"name": "a half frame rounds to even", "keep": [[0.05, 0.35], [0.85, 2.15]], "speed": 1.0, "teaser": null, "limit": null, "segments": [[0.06666666666666667, 0.3333333333333333, 0.0], [0.8666666666666667, 2.1333333333333333, 0.26666666666666666]], "teaserSpan": null, "duration": 1.5333333333333332},
+    {"name": "nothing past the last frame of the source", "keep": [[0.0, 2.0], [3.0, 5.0]], "speed": 1.25, "teaser": null, "limit": 4.99, "segments": [[0.0, 2.0, 0.0], [3.0, 4.966666666666667, 1.6]], "teaserSpan": null, "duration": 3.1733333333333333},
+    {"name": "a piece shorter than a frame disappears", "keep": [[0.0, 1.0], [1.5, 1.51], [2.0, 3.0]], "speed": 1.0, "teaser": null, "limit": null, "segments": [[0.0, 1.0, 0.0], [2.0, 3.0, 1.0]], "teaserSpan": null, "duration": 2.0},
+    {"name": "pieces reordered by hand", "keep": [[4.613, 7.0], [0.3, 2.512], [7.0, 9.5]], "speed": 1.1, "teaser": null, "limit": 9.48, "segments": [[4.6, 7.0, 0.0], [0.3, 2.5, 2.181818181818182], [7.0, 9.466666666666667, 4.181818181818182]], "teaserSpan": null, "duration": 6.424242424242425},
+    {"name": "teaser on whole frames", "keep": [[0.3, 9.5]], "speed": 1.1, "teaser": {"t0": 3.31, "t1": 4.795}, "limit": 10.0, "segments": [[3.3, 4.8, 0.0], [0.3, 9.5, 1.3636363636363635]], "teaserSpan": [3.3, 4.8], "duration": 9.727272727272727}
+  ],
+  "renderRefused": [
+    {"name": "teaser end before its start", "keep": [[0.0, 9.0]], "speed": 1.0, "teaser": {"t0": 3.0, "t1": 2.0}, "limit": null},
+    {"name": "teaser too short", "keep": [[0.0, 9.0]], "speed": 1.0, "teaser": {"t0": 3.0, "t1": 3.6}, "limit": null},
+    {"name": "teaser too long", "keep": [[0.0, 9.0]], "speed": 1.0, "teaser": {"t0": 1.0, "t1": 6.5}, "limit": null},
+    {"name": "teaser past the end of the source", "keep": [[0.0, 3.0]], "speed": 1.0, "teaser": {"t0": 4.0, "t1": 6.0}, "limit": 3.0}
   ]
 }

@@ -45,3 +45,11 @@ test('Timeline refuses what the engine refuses', () => {
     assert.throws(() => new Timeline(b.keep as [number, number][], b.speed as number, (b.teaser ?? null) as [number, number] | null), JSON.stringify(b));
   }
 });
+
+test('the same pieces in source order: the hook lasts and zoom counts as before the hand moves', () => {
+  const tl = new Timeline([[6, 8], [0, 2], [3, 5]], 1.25, [3.5, 4.5]);
+  const plain = tl.inSourceOrder();
+  assert.deepEqual(plain.segments.map(([a, b]) => [a, b]), [[3.5, 4.5], [0, 2], [3, 5], [6, 8]]);
+  assert.ok(Math.abs(plain.duration - tl.duration) < 1e-9);
+  assert.ok(Math.abs((plain.toFinal(6.5) as number) - (1 + 4 + 0.5) / 1.25) < 1e-9);
+});

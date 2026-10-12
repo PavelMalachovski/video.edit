@@ -48,7 +48,8 @@ function videoDuration(file: File, timeoutMs = 5000): Promise<number | null> {
 }
 
 
-const sameFile = (a: File, b: File) => a.name === b.name && a.size === b.size && a.lastModified === b.lastModified;
+// тот же файл — имя и размер: iPhone при повторном выборе отдаёт свежую копию с новым временем изменения
+const sameFile = (a: File, b: File) => a.name === b.name && a.size === b.size;
 
 function Thumb({ file }: { file: File }) {
   const [url, setUrl] = useState<string | null>(null);

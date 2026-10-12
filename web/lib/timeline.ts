@@ -140,6 +140,13 @@ export class Timeline {
     return this.toFinalSnap(t);
   }
 
+  /** Те же отрезки (и тизер, и скорость), но по порядку исходника — каким ролик был до перестановок руками: так длится
+   *  хук (in_source_order движка). */
+  inSourceOrder(): Timeline {
+    const keep = this.#starts.map((s, i) => [s, this.#ends[i]]).sort((a, b) => a[0] - b[0]);
+    return new Timeline(keep, this.#speed, this.#teaser);
+  }
+
   /** Серия отрезка, где момент `t` (вырезанный — отрезка, что идёт за ним в исходнике); после всего — null. */
   runOf(t: number): number | null {
     const k = this.#at(t) ?? this.#next(t);

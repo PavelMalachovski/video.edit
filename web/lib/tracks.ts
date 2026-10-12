@@ -190,13 +190,18 @@ export function draftTracks(d: Draft, { perGroup = 3, sourceDuration, splits = [
   if (sourceDuration !== undefined && sourceDuration > prev + 1e-6) cuts.push({ at: before ? before.t1 : tl.duration, src0: prev, src1: sourceDuration, side: 'end' });
 
   // субтитры: слова, что остались (середина слова — в куске), без слов акцентов; группы — не через склейку
-  const inAccent = (t: number) => (d.accents ?? []).some((a) => t >= a.t0 && t <= a.t1);
+  // слова акцента прячутся только в серии кусков, где стоит акцент: переставленные в другое место — субтитрами там
+  const inAccent = (t: number) => (d.accents ?? []).some((a) => t >= a.t0 && t <= a.t1 && tl.runOf(t) === tl.runOf(a.t0));
   const pieceOf = (t: number) => pieces.find((c) => t >= (c.src0 as number) && t <= (c.src1 as number))?.piece ?? -1;
   const subtitles: Clip[] = [];
   let group: { words: DraftWord[]; piece: number } | null = null;
   const close = () => {
     if (!group) return;
-    const words = group.words.map((w) => ({ text: w.text, t0: tl.toFinal(w.t0) ?? at(w.t0), t1: tl.toFinal(w.t1) ?? at(w.t1) }));
+    // конец слова в вырезанном — конец своего куска (span), а не чужого куска далеко в ролике (_spoken движка)
+    const words = group.words.map((w) => {
+      const [t0, t1] = tl.span(w.t0, Math.max(w.t0, w.t1));
+      return { text: w.text, t0, t1: Math.max(t0, t1) };
+    });
     subtitles.push({ kind: 'sub', label: group.words.map((w) => w.text).join(' '), t0: words[0].t0, t1: (words.at(-1) as DraftWord).t1, words });
     group = null;
   };
@@ -215,8 +220,9 @@ export function draftTracks(d: Draft, { perGroup = 3, sourceDuration, splits = [
   }
   close();
 
-  // хук — до hook.until на его месте в ролике, а с тизером — на весь тизер (_hook_end движка)
-  const hookEnd = d.hook ? (d.teaser ? tl.teaserDuration : at(d.hook.until)) : 0;
+  // хук — до hook.until на его месте в ролике по порядку исходника (переставленный в начало кусок его не удлиняет), а
+  // с тизером — на весь тизер (_hook_end движка)
+  const hookEnd = d.hook ? (d.teaser ? tl.teaserDuration : tl.inSourceOrder().toFinalSnap(d.hook.until)) : 0;
   const text: Clip[] = [];
   if (d.hook) text.push({ kind: 'hook', label: d.hook.text, t0: 0, t1: hookEnd });
   for (const a of d.accents ?? []) text.push({ kind: 'accent', label: a.lines.map((l) => l.text).join(' '), ...span(a) });

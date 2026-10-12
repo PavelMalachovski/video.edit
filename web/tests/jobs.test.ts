@@ -170,6 +170,7 @@ test('the videos the page reports: the first is the top-level one, then source-2
     [[two[0], { ...two[1], name: 7 }], 'имя — не текст'],
     [[two[0], { ...two[1], duration: -1 }], 'длительность'],
     [Array.from({ length: MAX_VIDEOS + 1 }, (_, k) => ({ ...two[0], asset: videoAsset(k) })), 'больше десяти'],
+    [[two[0], { ...two[1], size: MAX_SOURCE_BYTES, parts: Math.ceil(MAX_SOURCE_BYTES / CHUNK_SIZE) }], 'вместе больше 3 ГБ'],
   ];
   for (const [videos, why] of bad) assert.ok('error' in checkVideos(videos, top), why);
 });

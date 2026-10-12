@@ -1,7 +1,7 @@
 // Очередь загрузки кусков: несколько параллельных запросов, пауза между стартами
 // (вторичные лимиты GitHub на создание ассетов), повторы с нарастающей паузой,
 // минута ожидания после ответа «лимит», продолжение с уже загруженных кусков.
-import { CHUNK_SIZE, chunkName, isJobId, isSourceFile, isUploadFile, isVoiceFile } from './jobs.ts';
+import { CHUNK_SIZE, chunkName, isJobId, isSourceFile, isUploadFile, isVoiceFile, videoAsset } from './jobs.ts';
 
 export type PutResult = { ok: true } | { ok: false; status: number };
 
@@ -114,13 +114,14 @@ export function matchPending<F extends Picked>(p: Pending, sources: F | F[], ins
   return { ok: all, videos, inserts: found, voice: again, dropped };
 }
 
-/** Тот же ли выбор, с которым загрузка остановилась: вставки и озвучка (и видео, если дан их список) — те же файлы.
- *  Нет — Pending собирается заново (как после перезагрузки страницы), иначе ушли бы убранная запись или прежние вставки. */
+/** Тот же ли выбор, с которым загрузка остановилась: вставки и озвучка (и видео, если дан их список, — в том же порядке:
+ *  склеятся по нему) — те же файлы. Нет — Pending собирается заново (как после перезагрузки страницы), иначе ушли бы
+ *  убранная запись, прежние вставки или прежний порядок видео. */
 export function sameSelection(files: Map<string, File>, inserts: File[], voice: File | null, sources?: File[]): boolean {
   const picked = new Set<File>([...inserts, ...(voice ? [voice] : [])]);
   const sent = [...files].filter(([key]) => !isSourceFile(key)).map(([, f]) => f);
   const videos = [...files].filter(([key]) => isSourceFile(key)).map(([, f]) => f);
-  const sameVideos = !sources || (videos.length === sources.length && sources.every((f) => videos.includes(f)));
+  const sameVideos = !sources || (videos.length === sources.length && sources.every((f, k) => files.get(videoAsset(k)) === f));
   return sameVideos && sent.length === picked.size && sent.every((f) => picked.has(f));
 }
 
@@ -131,7 +132,8 @@ const isPending = (x: unknown): x is Pending => {
     && typeof p.brief === 'string' && Array.isArray(p.inserts) && p.inserts.every((i) => typeof i?.asset === 'string' && isUploadFile(i.asset))
     && (p.voice === undefined || (typeof p.voice?.asset === 'string' && isVoiceFile(p.voice.asset)))
     && (p.more === undefined || (Array.isArray(p.more) && p.more.every((v) => typeof v?.asset === 'string' && v.asset !== 'source'
-      && isSourceFile(v.asset) && typeof v.name === 'string' && Number.isFinite(v.size))));
+      && isSourceFile(v.asset) && typeof v.name === 'string' && typeof v.type === 'string' && Number.isFinite(v.size) && v.size > 0
+      && Number.isFinite(v.lastModified))));
 };
 
 /** Незаконченная загрузка этого браузера; нет, битая или хранилище недоступно — null. */

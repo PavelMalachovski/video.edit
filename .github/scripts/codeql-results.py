@@ -53,11 +53,13 @@ def message(result):
 found = 0
 for path in sorted(pathlib.Path(sys.argv[1]).glob("*.sarif")):
     for run in json.loads(path.read_text(encoding="utf-8")).get("runs", []):
-        rules = {r.get("id"): r for r in run.get("tool", {}).get("driver", {}).get("rules", [])}
+        tool = run.get("tool", {})
+        # правила — у самого CodeQL и у его пакетов запросов (tool.extensions[].rules): там уровень по умолчанию
+        rules = {r.get("id"): r for part in [tool.get("driver", {}), *tool.get("extensions", [])] for r in part.get("rules", [])}
         for result in run.get("results", []):
             rule = result.get("ruleId", "?")
             level = result.get("level") or rules.get(rule, {}).get("defaultConfiguration", {}).get("level", "warning")
-            file, line = place(result.get("locations", [{}])[0])
+            file, line = place((result.get("locations") or [{}])[0])
             ok = accepted(rule, file, line)
             print(f"{'принято' if ok else level}: {rule} {file}:{line} — {message(result)}")
             if ok:

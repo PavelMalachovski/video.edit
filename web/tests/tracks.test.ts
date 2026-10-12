@@ -266,3 +266,26 @@ test('several videos: editor.json says where each is; pieces split at the joins 
   assert.deepEqual(t.video.map((c) => [c.edgeStart, c.edgeEnd]), [[true, true], [true, false], [false, true]], 'стык файлов — не край куска');
   assert.ok(draftTracks(DRAFT, { sourceDuration: 6 }).video.every((c) => c.videoNo === undefined), 'без списка видео — как раньше');
 });
+
+test('a piece moved to the front does not stretch the hook, and its insert comes right after the hook', () => {
+  const d: Draft = { ...DRAFT, speed: 1, keep: [[5, 10], [0, 4]], hook: { text: 'Хук', until: 2.5 }, accents: [], looks: [], transitions: [],
+    inserts: [{ kind: 'image', question: 'i', t0: 6, t1: 8, x: 70, y: 500, w: 250 }] };
+  const t = draftTracks(d, { sourceDuration: 10 });
+  const hook = t.text.find((c) => c.kind === 'hook');
+  assert.ok(hook && near(hook.t1, 2.5), `хук — столько же, сколько по порядку исходника: ${JSON.stringify(hook)}`);
+  assert.ok(near(t.inserts[0].t0, 2.5) && near(t.inserts[0].t1, 4), JSON.stringify(t.inserts[0]));
+});
+
+test('a word whose end is cut ends with its piece, and accent words said in a moved piece are subtitles there', () => {
+  const cut: Draft = { ...DRAFT, speed: 1, keep: [[0, 2], [5, 8], [2.5, 4]], accents: [], looks: [], transitions: [], inserts: [],
+    words: [{ t0: 0.2, t1: 0.6, text: 'ну' }, { t0: 1.8, t1: 2.2, text: 'привет' }, { t0: 5.2, t1: 5.6, text: 'пять' }] };
+  const words = draftTracks(cut).subtitles.flatMap((c) => c.words ?? []);
+  const hello = words.find((w) => w.text === 'привет');
+  assert.ok(hello && near(hello.t1, 2), `конец — с куском, а не у далёкого 2,5–4: ${JSON.stringify(hello)}`);
+
+  const accent: Draft = { ...DRAFT, speed: 1, keep: [[0, 2], [5.5, 7], [2, 5]], looks: [], transitions: [], inserts: [],
+    accents: [{ t0: 1, t1: 3.2, lines: [{ text: 'это очень важное' }] }],
+    words: [{ t0: 1.2, t1: 1.6, text: 'это' }, { t0: 2.2, t1: 2.6, text: 'очень' }, { t0: 2.7, t1: 3.1, text: 'важное.' }, { t0: 6, t1: 6.4, text: 'дальше' }] };
+  const shown = draftTracks(accent).subtitles.flatMap((c) => c.words?.map((w) => w.text) ?? []);
+  assert.ok(shown.includes('очень') && shown.includes('важное.') && !shown.includes('это'), JSON.stringify(shown));
+});

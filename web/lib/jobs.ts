@@ -118,7 +118,8 @@ export function checkVideos(videos: unknown, top: { name: string; size: number; 
     out.push({ asset: v.asset, name: v.name, size: v.size, type: v.type, lastModified: v.lastModified as number, parts: v.parts, duration });
   }
   if (out[0].name !== top.name || out[0].size !== top.size || out[0].parts !== top.parts) return { error: 'Первое видео — не то, что в запросе' };
-  return { videos: out };
+  const all = checkSources(out.map((v) => v.size)); // и вместе — до 3 ГБ (страница проверяет это и сама)
+  return all ? { error: all } : { videos: out };
 }
 
 // ---------- пределы ----------

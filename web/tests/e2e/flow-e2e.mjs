@@ -234,9 +234,9 @@ const segments = [
     await page.getByText('Загружаю в GitHub…').waitFor();
     await shot(page, 'upload-progress');
 
-    // ≥ 2 кусков в черновике — перезагрузить посреди загрузки. В WebKit на Linux после такой перезагрузки страница
-    // зависает на следующем переходе (опыт «перезагрузка посреди загрузки» в конце прогона) — там загрузка идёт до
-    // конца; продолжение после перезагрузки — тот же JS, его проверяет Chromium
+    // ≥ 2 кусков в черновике — перезагрузить посреди загрузки и продолжить. В Safari (WebKit на Linux) с двумя видео,
+    // вставкой и озвучкой после этого зависал следующий переход (причина не найдена: по отдельности всё проходит) —
+    // там загрузка здесь идёт до конца, а продолжение после перезагрузки проверяет отдельный шаг resume в конце
     if (!WEBKIT) {
       await until(async () => ((await state()).drafts[0]?.assets.length ?? 0) >= 2, 60_000, 'два куска в черновике');
       await page.reload();
@@ -1041,6 +1041,28 @@ const segments = [
     await page.reload();
     check(await page.inputValue('#brief') === '', 'ТЗ сценария подставилось второй раз');
   }],
+  // Safari (только WebKit): загрузка прервана перезагрузкой страницы, тот же файл выбран снова — «Продолжить загрузку»
+  // доводит её до страницы задачи, и следующий переход не зависает (в Chromium продолжение — в шаге upload)
+  ...(WEBKIT ? [['resume', async (ctx) => {
+    const p = await ctx.page.context().newPage();
+    try {
+      await p.goto(`${APP}/`);
+      const big = path.join(ctx.tmp, 'reload.mov');
+      sampleVideo(big, 2, 24 * 1024 * 1024);
+      await p.setInputFiles('#source', big);
+      await p.getByRole('button', { name: 'Загрузить', exact: true }).click();
+      await p.getByText('Загружаю в GitHub…').waitFor();
+      await until(async () => ((await state()).drafts.at(-1)?.assets.length ?? 0) >= 2, 60_000, 'два куска в черновике');
+      await p.reload();
+      await p.getByText('Загрузка reload.mov не закончена').waitFor({ timeout: 15_000 });
+      await p.setInputFiles('#source', big);
+      await p.getByRole('button', { name: 'Продолжить загрузку' }).click({ timeout: 15_000 });
+      await p.waitForURL(/\/jobs\/\d{6}-\d{6}-[0-9a-z]{4}$/, { timeout: 120_000 });
+      await p.goto(`${APP}/script`, { timeout: 20_000 });
+    } finally {
+      await p.close();
+    }
+  }]] : []),
 ];
 
 // ---------- прогон ----------
@@ -1169,31 +1191,6 @@ for (const [name, run] of segments) {
     await diagnose(name).catch((d) => console.log(`диагностика упала: ${d instanceof Error ? d.message : d}`));
     code = 1;
     break;
-  }
-}
-// опыт (только WebKit, на результат прогона не влияет): перезагрузка посреди загрузки файла — вешает ли она следующий
-// переход, как в шаге upload раньше
-if (WEBKIT && code === 0) {
-  const p = await context.newPage();
-  try {
-    await p.goto(`${APP}/`);
-    const big = path.join(ctx.tmp, 'reload.mov');
-    sampleVideo(big, 2, 24 * 1024 * 1024);
-    await p.setInputFiles('#source', big);
-    await p.getByRole('button', { name: 'Загрузить', exact: true }).click();
-    await p.getByText('Загружаю в GitHub…').waitFor();
-    await new Promise((ok) => setTimeout(ok, 3000));
-    await p.reload();
-    await p.getByText('не закончена').first().waitFor({ timeout: 15_000 });
-    // та же загрузка дальше: тот же файл → «Продолжить загрузку» → страница задачи → переход
-    await p.setInputFiles('#source', big);
-    await p.getByRole('button', { name: 'Продолжить загрузку' }).click({ timeout: 15_000 });
-    await p.waitForURL(/\/jobs\/\d{6}-\d{6}-[0-9a-z]{4}$/, { timeout: 120_000 });
-    const t = Date.now();
-    const r = await p.goto(`${APP}/script`, { timeout: 20_000 }).then(() => 'открылась', (e) => e.message.split('\n')[0]);
-    console.log(`опыт «перезагрузка посреди загрузки и продолжение»: переход на /script — ${r} за ${Date.now() - t} мс`);
-  } catch (e) {
-    console.log(`опыт «перезагрузка посреди загрузки»: не вышло — ${e instanceof Error ? e.message.split('\n')[0] : e}`);
   }
 }
 await browser.close();

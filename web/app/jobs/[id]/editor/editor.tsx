@@ -394,10 +394,10 @@ export default function Editor({ id }: { id: string }) {
   const doMove = useCallback((index: number, slot: number) => {
     if (!tracks) return;
     const m = moveTarget(tracks, index, slot);
-    if (!m) return;
+    if (!m || !editable) return; // правка не пройдёт — выбор не должен потом прыгнуть
     follow.current = (m.t0 + m.t1) / 2;
     edit(moveSpan(hand, m.t0, m.t1, m.before));
-  }, [tracks, edit, hand]);
+  }, [tracks, edit, hand, editable]);
   useEffect(() => {
     const src = follow.current;
     if (src === null || !tracks) return;

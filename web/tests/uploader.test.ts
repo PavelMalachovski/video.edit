@@ -190,3 +190,19 @@ test('planChunks: the videos first in their order, then the inserts and the voic
   const c = planChunks([{ asset: 'source', size: 5 }, { asset: 'source-2', size: 3 }, { asset: 'upload-i1.png', size: 2 }], 4);
   assert.deepEqual(c.map((x) => [x.file, x.index, x.start, x.end, x.src]), [['source', 0, 0, 4, 0], ['source', 1, 4, 5, 0], ['source-2', 0, 0, 3, 1], ['upload-i1.png', 0, 0, 2, 2]]);
 });
+
+test('a stopped upload of several videos goes on only in the same order: moving a video up starts it anew', () => {
+  const [a, b] = [file('clip.mov', 10, 1), file('b.mov', 20, 2)];
+  const files = new Map<string, File>([['source', a], ['source-2', b]]);
+  assert.equal(sameSelection(files, [], null, [a, b]), true);
+  assert.equal(sameSelection(files, [], null, [b, a]), false, 'порядок другой — склеится иначе');
+});
+
+test('a pending upload with a broken list of more videos is not resumed', () => {
+  const store = memoryStorage();
+  const more = { asset: 'source-2', name: 'b.mov', size: 20, type: 'video/quicktime', lastModified: 2 };
+  for (const bad of [{ ...more, type: undefined }, { ...more, lastModified: 'x' }, { ...more, size: -1 }]) {
+    store.setItem('vm:pending', JSON.stringify({ ...pending, more: [bad] }));
+    assert.equal(loadPending(store), null, JSON.stringify(bad));
+  }
+});

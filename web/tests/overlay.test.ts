@@ -5,7 +5,8 @@ import { buildOverlayEvents, eventIndexAt, frameOf, insertSpans, layerBlocks, py
 import { buildSubEvents, subBlocks, type Word } from '../lib/subs.ts';
 import { Timeline } from '../lib/timeline.ts';
 import { beatTimes, musicBeats, played, snapEdit } from '../lib/beats.ts';
-import { lookWindows, transitionMarks, zoomAt, zoomLevels, type TransitionSpec, type Zoom } from '../lib/zoom.ts';
+import { BW_FILTER } from '../lib/picture.ts';
+import { blurSigma, flashAlpha, lookWindows, transitionMarks, zoomAt, zoomLevels, type TransitionSpec, type Zoom } from '../lib/zoom.ts';
 
 // Общая с движком фикстура (engine/tests/shared_events.py): события субтитров и слоя — ровно как у движка, число в число.
 type Base = { name: string; keep: [number, number][]; speed: number; teaser: [number, number] | null };
@@ -19,7 +20,9 @@ const FIXTURE = JSON.parse(fs.readFileSync(new URL('../../engine/tests/fixtures/
   look: (Base & {
     edit: { zooms: Zoom[]; transitions: TransitionSpec[]; looks: { t0: number; t1: number }[] };
     zoom: [number, number][]; marks: { t: number; kind: string; source: number }[]; looks: [number, number][];
+    flash: ByFrame[]; blur: ByFrame[];
   })[];
+  bwFilter: { brightness: number; contrast: number };
   beats: (Base & {
     grid: { length: number; times: number[] }; music: { at?: number; from?: number };
     edit: { zooms: Zoom[]; inserts: { kind: string; t0: number; t1: number }[] };
@@ -30,6 +33,7 @@ type RenderCase = {
   name: string; keep: [number, number][]; speed: number; teaser: { t0: number; t1: number } | null; limit: number | null;
   segments?: [number, number, number][]; teaserSpan?: [number, number] | null; duration?: number;
 };
+type ByFrame = { t: number; frames: [number, number][] }; // переход со стыком t: [кадр финала, значение]
 const tlOf = (c: Base) => new Timeline(c.keep, c.speed, c.teaser);
 const plain = (x: unknown) => JSON.parse(JSON.stringify(x)) as unknown; // как его запишет JSON: без undefined
 
@@ -121,6 +125,23 @@ test('zoom, transitions at the joins and black-and-white pieces match the engine
     assert.deepStrictEqual(lookWindows(c.edit.looks, tl), c.looks, c.name);
   }
   assert.ok(FIXTURE.look.some((c) => c.zoom.some(([, z]) => z > 1.2)), 'в фикстуре есть смена крупности');
+});
+
+test('flash and blur on every frame at the joins match the engine number for number', () => {
+  for (const c of FIXTURE.look) {
+    const marks = transitionMarks(c.edit.transitions, tlOf(c));
+    const joins = (kind: string) => marks.filter((m) => m.kind === kind).map((m) => m.t);
+    assert.deepStrictEqual(c.flash.map((f) => f.t), joins('flash'), `${c.name}: каждая вспышка`);
+    assert.deepStrictEqual(c.blur.map((b) => b.t), joins('blur'), `${c.name}: каждый смаз`);
+    for (const f of c.flash) for (const [n, want] of f.frames) assert.equal(flashAlpha(f.t, n), want, `${c.name}: вспышка ${f.t}, кадр ${n}`);
+    for (const b of c.blur) for (const [n, want] of b.frames) assert.equal(blurSigma(b.t, n), want, `${c.name}: смаз ${b.t}, кадр ${n}`);
+  }
+  assert.ok(FIXTURE.look.filter((c) => c.flash.length).length >= 2 && FIXTURE.look.filter((c) => c.blur.length).length >= 2);
+});
+
+test('a black-and-white frame in the preview is the engine’s CSS filter', () => {
+  const { brightness, contrast } = FIXTURE.bwFilter;
+  assert.equal(BW_FILTER, `grayscale(1) brightness(${brightness}) contrast(${contrast})`);
 });
 
 test('beats of the music in the video and what lands on them match the engine', () => {

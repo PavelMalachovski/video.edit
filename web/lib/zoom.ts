@@ -1,7 +1,9 @@
 // Картинка ролика в превью редактора — перенос формул движка: зум по смыслу и смены крупности (engine/vm/zoom.py:
-// zoom_at), переходы на стыках (transitions.marks: толчок зума, вспышка, смаз) и ч/б-куски (render.look_windows). Кадр
-// финала рисует ffmpeg; страница повторяет то же CSS-преобразованием <video> (слой с текстом — поверх, его не трогают).
+// zoom_at), переходы на стыках (transitions.marks: толчок зума, вспышка, смаз; вспышка и смаз по кадрам — flash_alpha,
+// blur_sigma) и ч/б-куски (render.look_windows). Кадр финала рисует ffmpeg; страница повторяет то же CSS-преобразованием
+// <video> (слой с текстом — поверх, его не трогают).
 // Общая фикстура engine/tests/fixtures/overlay-events.json (look); меняются только вместе.
+import { pyRound } from './pyround.ts';
 import type { Timeline } from './timeline.ts';
 
 const FPS = 30;
@@ -98,6 +100,45 @@ export function transitionMarks(transitions: readonly TransitionSpec[], tl: Time
     .map((x) => ({ t: tl.toFinalSnap(Number(x.t)), kind: x.kind, source: Number(x.t) }))
     .sort((a, b) => a.t - b.t || a.source - b.source)
     .filter((m) => HALF <= m.t && m.t <= tl.duration - HALF);
+}
+
+// Вспышку и смаз ffmpeg включает по времени кадра n · (1/30) в double, а края окон читает из шести знаков движка
+const sixDigits = (x: number): number => pyRound(x, 6);
+
+/** Альфа (0–255) кадра k белого кадра вспышки после fade in и fade out: ffmpeg переводит 0,12 с в целые кадры (3,6 → 4)
+ *  и считает целыми числами — 0, 64, 127, 191, 255, 191, 128, 64, 0 (transitions._white). */
+function whiteAlpha(k: number, fps: number): number {
+  const frames = Math.round(HALF * fps);
+  let alpha = 255;
+  for (const [start, rising] of [[0, true], [frames, false]] as const) {
+    let factor = k < start ? 0 : k >= start + frames ? 65535 : Math.floor(((k - start) * 65535) / frames);
+    if (!rising) factor = 65535 - factor;
+    if (factor < 65535) alpha = (alpha * factor + 32768) >> 16;
+  }
+  return alpha;
+}
+
+/** Белизна вспышки со стыком `join` (время финала) на кадре n финала, 0..1 (transitions.flash_alpha): overlay включён,
+ *  пока время кадра в окне стык ± HALF (края включительно), и кладёт последний кадр белого с меткой не позже n; метка
+ *  кадра k белого — trunc(k + a / TB) (setpts отбрасывает дробь; a — начало окна). */
+export function flashAlpha(join: number, n: number, fps = FPS): number {
+  const a = sixDigits(join - HALF);
+  const b = sixDigits(join + HALF);
+  const t = n * (1 / fps);
+  if (!(a <= t && t <= b)) return 0;
+  const shift = a / (1 / fps);
+  let k = -1;
+  while (Math.trunc(k + 1 + shift) <= n) k += 1;
+  return k >= 0 ? whiteAlpha(k, fps) / 255 : 0;
+}
+
+/** Сила смаза со стыком `join` на кадре n финала — sigma по x, px кадра шириной 1080 (transitions.blur_sigma): ступени
+ *  gblur, чьё окно захватывает время кадра (края включительно); размытия подряд — корень из суммы квадратов. */
+export function blurSigma(join: number, n: number, fps = FPS): number {
+  const t = n * (1 / fps);
+  let sum = 0;
+  for (const [sigma, share] of BLUR) if (sixDigits(join - HALF * share) <= t && t <= sixDigits(join + HALF * share)) sum += sigma * sigma;
+  return Math.sqrt(sum);
 }
 
 const nearEdge = (x: number, lo: number, hi: number) => (x - lo <= TO_CUT ? lo : hi - x <= TO_CUT ? hi : x);

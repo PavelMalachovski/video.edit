@@ -1,10 +1,17 @@
 // Картинка ролика в плеере редактора — как её соберёт ffmpeg (render._picture), по формулам движка: зум и толчки
-// переходов (zoom_at, якорь — лицо), ч/б-куски (look_windows: кадр k — в окне [a, b)), вспышка (белый кадр: прозрачность
-// 0 → 1 к стыку и обратно за 0,12 с — fade альфы), смаз (gblur по x ступенями — здесь размытие во все стороны: CSS
-// иначе не умеет), перебивка на весь кадр (fullscreen). Слой с текстом — поверх, его это не трогает.
+// переходов (zoom_at, якорь — лицо), ч/б-куски (look_windows: кадр k — в окне [a, b); цвет — BW_FILTER), вспышка и смаз —
+// по кадру на экране, как ffmpeg рисует каждый кадр (transitions.flash_alpha: белизна кадра от fade альфы;
+// blur_sigma: sigma ступеней gblur по x — здесь размытие во все стороны: CSS иначе не умеет), перебивка на весь кадр
+// (fullscreen). Слой с текстом — поверх, его это не трогает.
 import type { Layer } from './tracks.ts';
 import { FPS, insertSpans } from './overlay.ts';
-import { BLUR, HALF, lookWindows, transitionMarks, zoomLevels } from './zoom.ts';
+import { blurSigma, flashAlpha, lookWindows, transitionMarks, zoomLevels } from './zoom.ts';
+
+// ч/б-кадр: прокси не проходит цветокор финала, и фильтр <video> на ч/б-кадрах повторяет COLOR и BW движка сразу
+// (render.BW_CSS_BRIGHTNESS, BW_CSS_CONTRAST: по рампе серого и цвета — до 1/255; общая фикстура, bwFilter)
+const BW_BRIGHTNESS = 0.808;
+const BW_CONTRAST = 1.274;
+export const BW_FILTER = `grayscale(1) brightness(${BW_BRIGHTNESS}) contrast(${BW_CONTRAST})`;
 
 export type Cover = { t0: number; t1: number; src: string; video: boolean };
 /** Что нужно плееру, чтобы в любой момент знать картинку: считается один раз на черновик. */
@@ -41,19 +48,15 @@ export function pictureModel(layer: Layer, { face, transitions = [], looks = [] 
 }
 
 export function pictureAt(m: PictureModel, t: number): Picture {
-  const frame = Math.floor(t * FPS + 1e-6);
-  let flash = 0;
-  for (const s of m.flashes) {
-    if (t >= s - HALF && t <= s) flash = Math.max(flash, (t - (s - HALF)) / HALF);
-    else if (t > s && t <= s + HALF) flash = Math.max(flash, 1 - (t - s) / HALF);
-  }
-  let sigma2 = 0;
-  for (const s of m.blurs) for (const [sigma, share] of BLUR) if (Math.abs(t - s) <= HALF * share) sigma2 += sigma * sigma;
+  const frame = Math.floor(t * FPS + 1e-6); // кадр на экране в момент t
+  // вспышки рядом — белое поверх белого (overlay подряд): 1 − (1 − a)(1 − b); смазы — gblur подряд: корень из суммы квадратов
+  const flash = m.flashes.reduce((sum, join) => {
+    const a = flashAlpha(join, frame);
+    return sum + a - sum * a;
+  }, 0);
   return {
-    zoom: m.level(t), face: m.face, bw: m.looks.some(([a, b]) => frame >= a && frame < b), flash: Math.min(1, flash), blur: Math.sqrt(sigma2),
+    zoom: m.level(t), face: m.face, bw: m.looks.some(([a, b]) => frame >= a && frame < b), flash,
+    blur: Math.hypot(...m.blurs.map((join) => blurSigma(join, frame))),
     cover: m.covers.find((c) => t >= c.t0 && t < c.t1) ?? null,
   };
 }
-
-/** Ч/б-кадр ролика на прокси (прокси без цветокора): CSS-фильтр <video>, дающий то же, что COLOR и BW движка вместе. */
-export const BW_FILTER = 'grayscale(1) brightness(0.806) contrast(1.271)';

@@ -370,6 +370,22 @@ def test_render_memory_stays_small_for_many_cuts(tmp_path):
     assert peak_kb < 1_500_000, f"peak child memory {peak_kb / 1024:.0f} MB"
 
 
+def test_a_late_teaser_does_not_pile_up_frames_in_memory(tmp_path):
+    """Тизер звучит первым, а лежит в конце исходника: кадры до него не копятся в памяти, пока склейка ждёт тизер
+    (задача 261012-091256-w7eu: тизер на 2:39 — ffmpeg занял 14 ГБ и упал)."""
+    source = make_source(tmp_path / "long.mp4", 40)
+    keep = [[i * 3.3, i * 3.3 + 2.5] for i in range(12)]
+    job = make_job(tmp_path, source, keep=keep, teaser={"t0": 36.4, "t1": 38.2, "sfx": None})
+    code = (
+        f"import resource, sys; sys.path.insert(0, {str(Path(__file__).parents[1])!r});"
+        "from vm.job import Job; from vm.render import render;"
+        f"job = Job({str(job.root)!r}); render(job, job.path('out'), preset='ultrafast');"
+        "print(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss)"
+    )
+    peak_kb = int(subprocess.run([sys.executable, "-c", code], check=True, capture_output=True, text=True).stdout.split()[-1])
+    assert peak_kb < 1_500_000, f"peak child memory {peak_kb / 1024:.0f} MB"
+
+
 def test_render_gif_fullscreen_insert(tmp_path, sources):
     job = make_job(tmp_path, sources["short"], keep=[[0.0, 6.0]])
     ffmpeg("-f", "lavfi", "-i", "color=c=red:s=320x240:r=10:d=1", job.path("in/uploads/meme.gif"))
@@ -649,10 +665,16 @@ def frames_in(path) -> int:
     ).stdout)
 
 
-@pytest.mark.parametrize(("speed", "hold"), [(1.0, 0.0), (1.1, 0.5)])
-def test_dim_keeps_every_frame_of_the_video(tmp_path, sources, fake_matte, speed, hold):
-    """С затемнением столько же кадров, сколько без него: последний кадр склейки не теряется."""
-    keep = [[0.0, 2.0], [3.0, 4.0]]
+# границы не на целых секундах (как у настоящей резки): время кадров после склейки «дрожит» на тысячные кадра
+ODD = [[19 / 30, 176 / 30], [237 / 30, 401 / 30], [430 / 30, 470 / 30]]
+
+
+@pytest.mark.parametrize(("keep", "speed", "hold"), [
+    ([[0.0, 2.0], [3.0, 4.0]], 1.0, 0.0), ([[0.0, 2.0], [3.0, 4.0]], 1.1, 0.5), (ODD, 1.2, 0.0),
+])
+def test_dim_keeps_every_frame_of_the_video(tmp_path, sources, fake_matte, keep, speed, hold):
+    """С затемнением столько же кадров, сколько без него: последний кадр склейки не теряется, и картинка не
+    обрывается раньше звука (задача 261012-091256-w7eu: с затемнением видео кончалось на 1:22 из 2:00)."""
     plain = make_job(tmp_path / "a", sources["vertical"], keep=keep, speed=speed, hold=hold)
     dimmed = make_job(tmp_path / "b", sources["vertical"], keep=keep, speed=speed, hold=hold, dim=0.3)
     render(plain, plain.path("out"), preset="ultrafast")

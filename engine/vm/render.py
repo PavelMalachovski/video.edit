@@ -41,6 +41,7 @@ from .audio import MIN_MUSIC, QUIET_LUFS, audio_graph
 from .job import Job, validate
 from .media import (
     FILL,
+    FRAME_TIME,
     HDR_TO_SDR,
     MediaError,
     Probe,
@@ -213,15 +214,21 @@ def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium",
         missing.append("нет речи — ролик без субтитров")
 
     inputs = ["-i", str(source), "-f", "concat", "-safe", "0", "-i", str(layer)]
-    chains = _cut(tl, info.has_audio)
+    teaser_input = None
+    if tl.teaser:  # тизер — своим декодером того же файла (см. `_cut`)
+        teaser_input = _count(inputs)
+        inputs += ["-i", str(source)]
+    chains = _cut(tl, info.has_audio, teaser_input)
     video = "[vc]"
     if float(edit.get("dim") or 0) > 0:  # фон темнее по маске человека — сразу после склейки, кадр в кадр с ней
         mask, note = _matte(job, tl)
         if mask:
-            # время кадров маски — ровно по номеру (контейнер хранит его в мс); склейка добита копией последнего кадра,
-            # иначе maskedmerge отдал бы конец потока со временем последнего кадра и fps=30 его выкинул; лишнее — обрезка
+            # время кадров маски и склейки — ровно по номеру кадра: контейнер маски хранит его в мс, а после concat оно
+            # «дрожит» на тысячные кадра — maskedmerge принял бы пары за разные моменты, выдал лишние кадры, и обрезка
+            # ниже отрезала бы конец видео. Склейка добита копией последнего кадра, иначе maskedmerge отдал бы конец
+            # потока со временем последнего кадра и fps=30 его выкинул; лишнее — обрезка
             frames = sum(b - a for a, b in segment_frames(tl))
-            chains.append("[vc]tpad=stop=1:stop_mode=clone[vcp]")
+            chains.append(f"[vc]{FRAME_TIME},tpad=stop=1:stop_mode=clone[vcp]")
             chains.append(dim_filter("[vcp]", f"[{_count(inputs)}:v]", float(edit["dim"]), info.width, info.height, "[vcm]"))
             chains.append(f"[vcm]trim=end_frame={frames}[vcd]")
             inputs += ["-r", str(FPS), "-i", str(mask)]
@@ -381,24 +388,29 @@ def segment_frames(tl: Timeline) -> list[tuple[int, int]]:
     return [(round(start * FPS), round(end * FPS)) for start, end, _ in tl.segments]
 
 
-def _cut(tl: Timeline, has_audio: bool) -> list[str]:
+def _cut(tl: Timeline, has_audio: bool, teaser_input: int | None = None) -> list[str]:
     """Отрезки keep встык: картинка — по целым кадрам, звук — те же границы в отсчётах, с фейдами 10 мс.
 
     Исходник читается один раз и раздаётся отрезкам через split/asplit: каждый trim отбрасывает чужие кадры сразу.
     Если бы каждый trim брал `[0:v]` сам, ffmpeg держал бы в памяти кадры для отрезков, до которых concat ещё
-    не дошёл (≈3 МБ на кадр 1080×1920 — гигабайты на минутном ролике)."""
-    segments = tl.segments
-    chains = [f"[0:v]split={len(segments)}" + "".join(f"[sv{i}]" for i in range(len(segments)))]
+    не дошёл (≈3 МБ на кадр 1080×1920 — гигабайты на минутном ролике). Тизер по той же причине читается своим входом
+    `teaser_input` (тот же файл ещё раз): он звучит первым, а лежит дальше в исходнике — из общего декодера concat
+    ждал бы его, держа в памяти все кадры до него (тизер на 2:39 — 14 ГБ)."""
+    plan = segment_frames(tl)
+    own = teaser_input is not None and tl.teaser is not None  # первый отрезок — тизер со своим входом
+    shared = [i for i in range(len(plan)) if not (own and i == 0)]
+    chains = [f"[0:v]split={len(shared)}" + "".join(f"[sv{i}]" for i in shared)]
     if has_audio:
-        chains.append(f"[0:a]asplit={len(segments)}" + "".join(f"[sa{i}]" for i in range(len(segments))))
+        chains.append(f"[0:a]asplit={len(shared)}" + "".join(f"[sa{i}]" for i in shared))
     pads = []
-    for i, (f0, f1) in enumerate(segment_frames(tl)):
+    for i, (f0, f1) in enumerate(plan):
+        video, audio = (f"[{teaser_input}:v]", f"[{teaser_input}:a]") if i not in shared else (f"[sv{i}]", f"[sa{i}]")
         length = (f1 - f0) / FPS
-        chains.append(f"[sv{i}]trim=start_frame={f0}:end_frame={f1},setpts=PTS-STARTPTS[v{i}]")
+        chains.append(f"{video}trim=start_frame={f0}:end_frame={f1},setpts=PTS-STARTPTS[v{i}]")
         if has_audio:
             a0, a1 = f0 * RATE // FPS, f1 * RATE // FPS
             chains.append(
-                f"[sa{i}]atrim=start_sample={a0}:end_sample={a1},asetpts=PTS-STARTPTS,"
+                f"{audio}atrim=start_sample={a0}:end_sample={a1},asetpts=PTS-STARTPTS,"
                 f"afade=t=in:d={FADE}:curve=tri,afade=t=out:st={max(0.0, length - FADE):.6f}:d={FADE}:curve=tri[a{i}]"
             )
         else:

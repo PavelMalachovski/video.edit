@@ -57,6 +57,17 @@ def test_matte_frames_are_the_frames_the_cut_takes():
     ]
 
 
+def test_the_teaser_is_read_by_its_own_decoder():
+    """Тизер идёт первым, а лежит в исходнике дальше: из общего декодера его кадры пришлось бы ждать, держа в памяти
+    все кадры до него. У тизера свой вход — тот же файл ещё раз."""
+    tl = Timeline([(0.0, 1.0), (1.5, 2.2)], 1.1, teaser=(1.6, 2.0))
+    chains = _cut(tl, True, teaser_input=2)
+    assert chains[0].startswith("[0:v]split=2[") and chains[1].startswith("[0:a]asplit=2[")
+    assert any(c.startswith("[2:v]trim=start_frame=48:end_frame=60,") for c in chains)
+    assert any(c.startswith("[2:a]atrim=start_sample=76800:end_sample=96000,") for c in chains)
+    assert not any(c.startswith("[2:") for c in _cut(Timeline([(0.0, 1.0)], 1.0), True, teaser_input=2))
+
+
 def count_video(path, seconds: float = 3.0):
     """Кадр n исходника — серый 2n в RGB без потерь (до 127 кадров): по маске видно, какой кадр в неё попал. Со звуком
     AAC, как source.mp4 после `vm prepare`: с ним ffmpeg при перемотке повторял первый кадр."""

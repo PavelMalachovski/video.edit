@@ -1161,9 +1161,18 @@ const segments = [
     await until(async () => { const i = await stickerNow(); return i?.x === moved.x && i.y === moved.y && i.w === 400; }, 3000,
       async () => `стикер перетащен в ${JSON.stringify(moved)}: ${JSON.stringify(await stickerNow())}`);
     await shot(page, 'editor-place');
+    // события указателя на странице — в сообщение о сбое: жест браузера виден целиком (Safari ведёт себя иначе)
+    await page.evaluate(() => {
+      window.__pe = [];
+      for (const t of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'gotpointercapture', 'lostpointercapture']) {
+        document.addEventListener(t, (e) => window.__pe.push(`${t}:${String(e.target?.className ?? '')}:${Math.round(e.clientX)}`), true);
+      }
+    });
+    const pointerEvents = async () => page.evaluate(() => (window.__pe ?? []).join(' | '));
     await dragBy(onFrame('Вставка').locator('[data-grip]'), 27, 0);
     const grown = Math.min(830, Math.round((400 * (1 + 27 / (540 * k))) / 10) * 10);
-    await until(async () => (await stickerNow())?.w === grown, 3000, async () => `стикер шире — ${grown}: ${JSON.stringify(await stickerNow())}`);
+    await until(async () => (await stickerNow())?.w === grown, 3000,
+      async () => `стикер шире — ${grown}: ${JSON.stringify(await stickerNow())}\n  события указателя: ${await pointerEvents()}`);
     const wide = await stickerNow();
     check(wide.x === Math.max(60, Math.round(moved.x + (400 - grown) / 2)) && wide.x + wide.w <= 890, `шире — от центра, в зоне: ${JSON.stringify(wide)}`);
     const insertPanel = page.locator('.ed-insp[data-block=insert]');

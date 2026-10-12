@@ -363,9 +363,10 @@ export async function startFake({ port = 0 } = {}) {
           joined: Buffer.concat(parts.map((k) => data[k])).toString('base64').length };
       }));
     }
-    if (req.method === 'GET' && p === '/__joined') {
+    if (req.method === 'GET' && p === '/__joined') { // ?file=source-2 — другое видео задачи
       const r = releases[releases.length - 1];
-      const parts = r.assets.filter((a) => a.name.startsWith('source.part-')).sort((a, b) => a.name.localeCompare(b.name));
+      const file = u.searchParams.get('file') ?? 'source';
+      const parts = r.assets.filter((a) => a.name.startsWith(`${file}.part-`)).sort((a, b) => a.name.localeCompare(b.name));
       res.writeHead(200);
       return res.end(Buffer.concat(parts.map((a) => blobs.get(a.id))));
     }

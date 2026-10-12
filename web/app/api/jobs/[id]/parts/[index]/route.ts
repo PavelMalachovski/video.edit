@@ -1,19 +1,19 @@
 import { NextResponse } from 'next/server';
 import { uploadAsset } from '@/lib/github.ts';
 import { errorResponse } from '@/lib/http.ts';
-import { CHUNK_SIZE, chunkName, isJobId, isUploadFile, MAX_ANSWER_IMAGE_BYTES, partsOf } from '@/lib/jobs.ts';
+import { CHUNK_SIZE, chunkName, isJobId, isSourceFile, isUploadFile, MAX_ANSWER_IMAGE_BYTES, partsOf } from '@/lib/jobs.ts';
 import { gh } from '@/lib/env.ts';
 
 export const maxDuration = 60;
 
-// Один кусок (≤ 4 МБ) исходника или вставки → ассет <file>.part-NNNNN черновика job-<id> (file — source или upload-*).
+// Один кусок (≤ 4 МБ) видео или вставки → ассет <file>.part-NNNNN черновика job-<id> (file — source, source-2… или upload-*).
 export async function PUT(request: Request, { params }: { params: Promise<{ id: string; index: string }> }) {
   const { id, index } = await params;
   const query = new URL(request.url).searchParams;
   const releaseId = Number(query.get('release'));
   const file = query.get('file') ?? 'source';
   const n = Number(index);
-  if (!isJobId(id) || !Number.isInteger(n) || n < 0 || !Number.isInteger(releaseId) || releaseId <= 0 || (file !== 'source' && !isUploadFile(file))) {
+  if (!isJobId(id) || !Number.isInteger(n) || n < 0 || !Number.isInteger(releaseId) || releaseId <= 0 || (!isSourceFile(file) && !isUploadFile(file))) {
     return NextResponse.json({ error: 'bad request' }, { status: 400 });
   }
   if (file.startsWith('upload-q-') && n >= partsOf(MAX_ANSWER_IMAGE_BYTES)) {

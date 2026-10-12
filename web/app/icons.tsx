@@ -15,6 +15,7 @@ export const UploadIcon = ({ size = 26 }: P) => <Stroke size={size} width={2.4}>
 export const PlusIcon = ({ size = 18 }: P) => <Stroke size={size} width={2.4}><path d="M12 5v14" /><path d="M5 12h14" /></Stroke>;
 export const CloseIcon = ({ size = 16 }: P) => <Stroke size={size} width={2.2}><path d="M6 6l12 12" /><path d="M18 6L6 18" /></Stroke>;
 export const BackIcon = ({ size = 20 }: P) => <Stroke size={size} width={2.2}><path d="M15 6l-6 6 6 6" /></Stroke>;
+export const UpIcon = ({ size = 16 }: P) => <Stroke size={size} width={2.2}><path d="M6 15l6-6 6 6" /></Stroke>;
 export const MicIcon = ({ size = 18 }: P) => <Stroke size={size}><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0" /><path d="M12 18v3" /></Stroke>;
 export const TrashIcon = ({ size = 18 }: P) => <Stroke size={size}><path d="M4 7h16" /><path d="M9 7V4h6v3" /><path d="M6 7l1 13h10l1-13" /></Stroke>;
 export const ImageIcon = ({ size = 20 }: P) => <Stroke size={size}><rect x="3" y="4" width="18" height="16" rx="3" /><circle cx="9" cy="10" r="2" /><path d="M21 16l-5-5-9 9" /></Stroke>;

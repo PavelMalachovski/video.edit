@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import {
   newJobId, partName, chunkCount, CHUNK_SIZE, jobTag, jobBranch, jobDir, chunkName, uploadAssetName, isUploadFile, resolveJobPath,
   imageType, audioType, audioPaths, checkSource, checkInsert, checkTotal, partsOf, verifyParts, MAX_SOURCE_BYTES, MAX_INSERT_BYTES,
-  checkVoice, isVoiceFile, MAX_VOICE_BYTES, voiceAssetName,
+  checkVoice, isVoiceFile, MAX_VOICE_BYTES, voiceAssetName, checkVideos, isSourceFile, MAX_VIDEOS, videoAsset, videoFile, checkSources,
 } from '../lib/jobs.ts';
 
 test('job id is UTC date-time plus 4 base36 chars', () => {
@@ -136,4 +136,48 @@ test('a voiceover is one audio file up to 200 MB under its own asset name', () =
   assert.match(checkVoice({ name: 'clip.mov', size: 5, type: 'video/quicktime' }) ?? '', /clip\.mov: нужна запись голоса — M4A, MP3, WAV или AAC/);
   assert.match(checkVoice({ name: 'big.wav', size: MAX_VOICE_BYTES + 1, type: 'audio/wav' }) ?? '', /big\.wav: больше 200 МБ/);
   assert.match(checkVoice({ name: 'e.m4a', size: 0, type: 'audio/mp4' }) ?? '', /e\.m4a: пустой файл/);
+});
+
+test('the videos of a job: source, source-2 … source-10, in that order; vm fetch puts each into in/ by its extension', () => {
+  assert.equal(MAX_VIDEOS, 10);
+  assert.deepEqual(Array.from({ length: MAX_VIDEOS }, (_, k) => videoAsset(k)), ['source', ...Array.from({ length: 9 }, (_, k) => `source-${k + 2}`)]);
+  for (const ok of ['source', 'source-2', 'source-10']) assert.ok(isSourceFile(ok), ok);
+  for (const bad of ['source-1', 'source-11', 'source-0', 'source-02', 'source2', 'upload-i1.png', '../source', 'source.mov']) assert.ok(!isSourceFile(bad), bad);
+  // как Path(name).suffix.lower() движка (fetch.py), без расширения — .mp4
+  assert.equal(videoFile('source', 'IMG_1.MOV'), 'in/source.mov');
+  assert.equal(videoFile('source-2', 'clip.v2.Mp4'), 'in/source-2.mp4');
+  assert.equal(videoFile('source-3', 'без расширения'), 'in/source-3.mp4');
+  assert.equal(videoFile('source-4', '.mov'), 'in/source-4.mp4', 'скрытый файл — без расширения');
+  assert.equal(videoFile('source-5', 'a.'), 'in/source-5.mp4');
+});
+
+test('the videos the page reports: the first is the top-level one, then source-2…; sizes and parts add up', () => {
+  const top = { name: 'a.mov', size: 10, type: 'video/quicktime', lastModified: 1, parts: 1 };
+  const two = [
+    { asset: 'source', name: 'a.mov', size: 10, type: 'video/quicktime', lastModified: 1, parts: 1, duration: 3.5 },
+    { asset: 'source-2', name: 'b.mp4', size: CHUNK_SIZE + 1, type: 'video/mp4', lastModified: 2, parts: 2, duration: null },
+  ];
+  assert.deepEqual(checkVideos(undefined, top), { videos: null }, 'одно видео — без списка, как раньше');
+  assert.deepEqual(checkVideos(two, top), { videos: two });
+  const bad: [unknown, string][] = [
+    ['source', 'не список'],
+    [[two[0]], 'одно видео — без списка'],
+    [[two[1], two[0]], 'первое — не source'],
+    [[two[0], { ...two[1], asset: 'source-3' }], 'пропуск номера'],
+    [[{ ...two[0], name: 'другое.mov' }, two[1]], 'первое — не то, что сверху'],
+    [[two[0], { ...two[1], size: 0 }], 'пустое видео'],
+    [[two[0], { ...two[1], parts: 1 }], 'кусков меньше, чем по размеру'],
+    [[two[0], { ...two[1], name: 7 }], 'имя — не текст'],
+    [[two[0], { ...two[1], duration: -1 }], 'длительность'],
+    [Array.from({ length: MAX_VIDEOS + 1 }, (_, k) => ({ ...two[0], asset: videoAsset(k) })), 'больше десяти'],
+  ];
+  for (const [videos, why] of bad) assert.ok('error' in checkVideos(videos, top), why);
+});
+
+test('several videos: each one as a single video, together under 3 GB, no more than ten', () => {
+  assert.equal(checkSources([10, 20]), null);
+  assert.equal(checkSources([MAX_SOURCE_BYTES]), null, 'одно видео — как раньше');
+  assert.match(checkSources([10, 0]) ?? '', /пустой/);
+  assert.match(checkSources([MAX_SOURCE_BYTES / 2, MAX_SOURCE_BYTES / 2 + 1]) ?? '', /вместе больше 3 ГБ/);
+  assert.match(checkSources(Array.from({ length: MAX_VIDEOS + 1 }, () => 10)) ?? '', /Не больше 10 видео/);
 });

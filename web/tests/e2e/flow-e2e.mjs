@@ -210,12 +210,20 @@ const segments = [
     const { page, tmp } = ctx;
     const source = path.join(tmp, 'clip.mov');
     sampleVideo(source, 2, 30 * 1024 * 1024);
+    const second = path.join(tmp, 'clip2.mov'); // второе видео задачи (фаза 4б): склеится за первым
+    sampleVideo(second, 1, 3 * 1024 * 1024);
     const insert = path.join(tmp, 'logo.png');
     fs.writeFileSync(insert, PNG);
     // озвучка: своя запись голоса, два куска; буфером — путь с кириллицей Playwright молча не ставит в поле
     const voice = { name: 'Запись.m4a', mimeType: 'audio/x-m4a', buffer: crypto.randomBytes(5 * 1024 * 1024) };
 
-    await page.setInputFiles('#source', source);
+    await page.setInputFiles('#source', [source, second]);
+    await page.getByText('2. clip2.mov').waitFor();
+    // порядок меняется: второе — выше, и обратно
+    await page.getByRole('button', { name: 'clip2.mov — раньше' }).click();
+    await page.getByText('1. clip2.mov').waitFor();
+    await page.getByRole('button', { name: 'clip.mov — раньше' }).click();
+    await page.getByText('1. clip.mov').waitFor();
     await page.fill('#brief', 'ХУК: Как я учу чешский');
     await page.setInputFiles('#inserts', insert);
     await page.getByText('logo.png').waitFor();
@@ -229,9 +237,9 @@ const segments = [
     // ≥ 2 кусков в черновике — перезагрузить посреди загрузки
     await until(async () => ((await state()).drafts[0]?.assets.length ?? 0) >= 2, 60_000, 'два куска в черновике');
     await page.reload();
-    await page.getByText('Загрузка clip.mov не закончена').waitFor();
+    await page.getByText('Загрузка clip.mov + 1 не закончена: выберите те же видео').waitFor();
     check(await page.inputValue('#brief') === 'ХУК: Как я учу чешский', 'ТЗ не восстановилось после перезагрузки');
-    await page.setInputFiles('#source', source);
+    await page.setInputFiles('#source', [second, source]); // те же видео в другом порядке — загрузка та же
     await page.setInputFiles('#inserts', insert);
     await page.setInputFiles('#voice', voice);
     await page.getByRole('button', { name: 'Продолжить загрузку' }).waitFor();
@@ -242,9 +250,13 @@ const segments = [
     ctx.jobId = page.url().split('/').pop();
     const joined = Buffer.from(await (await fetch(`${FAKE}/__joined`)).arrayBuffer());
     check(sha256(joined) === sha256(fs.readFileSync(source)), 'склеенный исходник не совпал байт в байт');
+    const joined2 = Buffer.from(await (await fetch(`${FAKE}/__joined?file=source-2`)).arrayBuffer());
+    check(sha256(joined2) === sha256(fs.readFileSync(second)), 'второе видео не совпало байт в байт');
     const [draft] = await fakeJson('/__dump');
     const manifest = draft.sha;
     check(manifest?.brief === 'ХУК: Как я учу чешский', `ТЗ в manifest.json: ${manifest?.brief}`);
+    check(isDeepStrictEqual(manifest?.videos?.map((v) => [v.asset, v.name, v.size]), [['source', 'clip.mov', 30 * 1024 * 1024], ['source-2', 'clip2.mov', 3 * 1024 * 1024]])
+      && manifest.name === 'clip.mov' && manifest.size === 30 * 1024 * 1024, `видео в manifest.json: ${JSON.stringify(manifest?.videos)}`);
     check(manifest?.uploads?.[0]?.asset === 'upload-i1.png', `вставка в manifest.json: ${JSON.stringify(manifest?.uploads)}`);
     check(manifest?.uploads?.[1]?.asset === 'upload-voice.m4a' && manifest.uploads[1].size === 5 * 1024 * 1024,
       `озвучка в manifest.json: ${JSON.stringify(manifest?.uploads)}`);
@@ -256,6 +268,7 @@ const segments = [
     const job = JSON.parse((await branchFile(ctx, 'job.json')) ?? '{}');
     check(job.brand?.handle === '@pavel.malakhouski' && job.brand?.logo === 'in/brand/logo.png', `job.json.brand: ${JSON.stringify(job.brand)}`);
     check(job.uploads?.some((u) => u.file === 'in/uploads/upload-voice.m4a' && u.kind === 'audio'), `озвучка в job.json: ${JSON.stringify(job.uploads)}`);
+    check(isDeepStrictEqual(job.videos?.map((v) => v.file), ['in/source.mov', 'in/source-2.mov']), `видео в job.json: ${JSON.stringify(job.videos)}`);
     check((await branchFile(ctx, 'in/brand/logo.png')) !== null, 'логотип бренда не скопирован в задачу');
   }],
 
@@ -270,6 +283,7 @@ const segments = [
     await page.goto(`${APP}/`);
     const row = page.locator(`[data-job="${ctx.jobId}"]`);
     await row.getByText('Запускаю сессию…').waitFor();
+    check((await row.textContent()).includes('clip.mov + 1'), `в списке — первое видео и сколько ещё: ${await row.textContent()}`);
 
     const created = await page.request.post(`${APP}/api/jobs`, { data: { name: 'brosheno.mov', size: 1000, type: 'video/quicktime' } });
     check(created.ok(), `брошенная задача: ${created.status()}`);
@@ -817,6 +831,7 @@ const segments = [
     const media = {
       duration: 3, proxy: { file: 'out/proxy.mp4', width: 540, height: 960, key: 0.5 }, film: { file: 'film.jpg', step: 0.5, w: 54, h: 96, n: 6 },
       peaks: { perS: 50, data: Buffer.from(Array.from({ length: 150 }, (_, i) => Math.round(127 + 120 * Math.sin(i / 4)))).toString('base64') },
+      videos: [{ name: 'clip.mov', t0: 0, t1: 1.4 }, { name: 'clip2.mov', t0: 1.4, t1: 3 }], // стык видео — в вырезанном между кусками
     };
     engineValidate('editor.json', media);
     const released = JSON.parse((await branchFile(ctx, 'out/released.json')) ?? '{}');
@@ -831,6 +846,8 @@ const segments = [
     await page.waitForURL(/\/editor$/);
     await page.locator('.ed-piece').first().waitFor({ timeout: 10_000 });
     check(await page.locator('.ed-piece').count() === 2, 'два куска на дорожке «Видео»');
+    check(isDeepStrictEqual(await page.locator('.ed-piece .ed-vno').allTextContents(), ['1', '2']), 'на кусках — номер видео задачи');
+    check(isDeepStrictEqual(await page.locator('.ed-videos li .grow').allTextContents(), ['clip.mov', 'clip2.mov']), 'список видео задачи');
     check(await page.locator('.ed-cut').count() === 3, 'вырезанное: до, между и после кусков');
     const subs = await page.locator('.ed-clip.sub').allTextContents();
     check(isDeepStrictEqual(subs, ['Привет, это мой', 'новый ролик']), `субтитры по кускам: ${JSON.stringify(subs)}`);
@@ -885,7 +902,7 @@ const segments = [
     const bar = page.locator('.ed-bar');
     // удалить второй кусок и отменить
     await pieces.nth(1).click();
-    await page.locator('.ed-insp').getByText('Исходник 0:01.6–0:02.9').waitFor({ timeout: 3000 });
+    await page.locator('.ed-insp').getByText('Видео 2 «clip2.mov» · 0:00.2–0:01.5').waitFor({ timeout: 3000 }); // время — в своём файле
     await bar.getByRole('button', { name: 'Удалить' }).click();
     await until(async () => (await pieces.count()) === 1, 3000, 'кусок удалён');
     await bar.getByRole('button', { name: 'Отменить' }).click();
@@ -898,9 +915,10 @@ const segments = [
     // «＋» на стыке — вернуть вырезанное между кусками: куски сливаются, разрез Павла остаётся
     await page.getByRole('button', { name: 'Вырезано 0,4 с — вернуть' }).click();
     await until(async () => (await page.locator('.ed-cut').count()) === 2, 3000, 'вырезанное между кусками вернулось');
-    check(await pieces.count() === 2, 'кусок с разрезом — две части');
+    check(await pieces.count() === 3, 'кусок с разрезом и стыком видео — три части');
+    check(isDeepStrictEqual(await page.locator('.ed-piece .ed-vno').allTextContents(), ['1', '1', '2']), 'части — каждая из своего видео');
     // конец последнего куска — левее, почти до конца слова «ролик» (2,6 с исходника): липнет к нему (ближе 8 px)
-    const last = pieces.nth(1);
+    const last = pieces.last();
     const span = /(\d+):(\d+\.\d)–(\d+):(\d+\.\d)/.exec((await last.getAttribute('title')) ?? '');
     const [s0, s1] = [Number(span[1]) * 60 + Number(span[2]), Number(span[3]) * 60 + Number(span[4])];
     const lb = await last.boundingBox();
@@ -926,11 +944,12 @@ const segments = [
     const plus = await page.locator('.ed-restore').evaluateAll((els) => els.map((el) => [el.getBoundingClientRect().left, el.getBoundingClientRect().right]));
     check(plus.length === 2 && (plus[0][1] <= plus[1][0] + 0.5 || plus[1][1] <= plus[0][0] + 0.5), `«＋» на одном стыке закрывают друг друга: ${JSON.stringify(plus)}`);
     const insp = page.locator('.ed-insp');
-    await insp.getByRole('heading', { name: 'Кусок 1 из 2' }).waitFor({ timeout: 3000 });
+    await insp.getByRole('heading', { name: 'Кусок 1 из 3' }).waitFor({ timeout: 3000 });
+    check((await insp.textContent()).includes('Видео 1 «clip.mov»'), 'в панели куска — из какого он видео');
     check(await insp.getByRole('button', { name: '← Раньше' }).isDisabled(), 'первый кусок раньше не поставить');
     await insp.getByRole('button', { name: 'Позже →' }).click();
     await until(async () => isDeepStrictEqual(await titles(), order), 3000, '«Позже» вернул кусок на место');
-    await insp.getByRole('heading', { name: 'Кусок 2 из 2' }).waitFor({ timeout: 3000 });
+    await insp.getByRole('heading', { name: 'Кусок 2 из 3' }).waitFor({ timeout: 3000 });
     await bar.getByRole('button', { name: 'Отменить' }).click();
     await until(async () => isDeepStrictEqual(await titles(), [order[1], order[0]]), 3000, 'отмена: кусок снова первый');
     // звук: музыка без звука, голос тише, свой стиль
@@ -949,7 +968,7 @@ const segments = [
       input: JSON.stringify({ keep: edit.keep, edits: tl.edits, duration: media.duration }), env: { ...process.env, PYTHONPATH: path.resolve('../engine') },
     }).toString());
     const at = tl.edits[0].t;
-    check(isDeepStrictEqual(keep, [[at, 2.6], [0.2, at]]), `куски у движка: ${JSON.stringify(keep)}`);
+    check(isDeepStrictEqual(keep, [[at, 1.4], [0.2, at], [1.4, 2.6]]), `куски у движка: ${JSON.stringify(keep)}`);
     await shot(page, 'editor');
 
     // «Монтировать» — новая версия: правка с ревизией правок и новым стилем

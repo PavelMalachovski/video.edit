@@ -167,7 +167,7 @@ export function deriveView(release: Release, files: JobFiles | null, now: number
   const view: JobView = {
     id,
     kind: job?.kind === 'script' ? 'script' : 'video',
-    title: job?.name ?? release.name ?? id,
+    title: job ? (job.videos && job.videos.length > 1 ? `${job.name} + ${job.videos.length - 1}` : job.name) : release.name ?? id,
     createdAt: job?.createdAt ?? release.created_at ?? '',
     duration: job?.duration ?? null,
     screen: 'working',

@@ -252,3 +252,17 @@ test('reorder by dragging: the slot is the join nearest to the pointer, never be
   const teased = draftTracks({ ...DRAFT, teaser: { t0: 3.5, t1: 4.5 } }, { sourceDuration: 6 });
   assert.equal(slotAt(teased, 0), 1, 'на тизере — первым после него');
 });
+
+test('several videos: editor.json says where each is; pieces split at the joins of the files and know their video', () => {
+  const media = { duration: 6, proxy: null, film: { file: 'film.jpg', step: 0.5, w: 54, h: 96, n: 12 }, peaks: { perS: 50, data: '' },
+    videos: [{ name: 'IMG_1.MOV', t0: 0, t1: 4 }, { name: 'IMG_2.mp4', t0: 4, t1: 6 }] };
+  assert.deepEqual(parseMedia(media)?.videos, media.videos);
+  for (const videos of [[], [{ name: '', t0: 0, t1: 1 }], [{ name: 'a', t0: 1, t1: 1 }], [{ name: 'a', t0: -1, t1: 1 }], 'x', [{ name: 'a', t0: 0, t1: 1, x: 1 }]]) {
+    assert.equal(parseMedia({ ...media, videos }), null, JSON.stringify(videos));
+  }
+  // куски 0,5–2 и 3–5; стык файлов на 4 — внутри второго куска: на экране две части, у каждой — своё видео
+  const t = draftTracks(DRAFT, { sourceDuration: 6, videos: media.videos });
+  assert.deepEqual(t.video.map((c) => [c.src0, c.src1, c.videoNo]), [[0.5, 2, 0], [3, 4, 0], [4, 5, 1]]);
+  assert.deepEqual(t.video.map((c) => [c.edgeStart, c.edgeEnd]), [[true, true], [true, false], [false, true]], 'стык файлов — не край куска');
+  assert.ok(draftTracks(DRAFT, { sourceDuration: 6 }).video.every((c) => c.videoNo === undefined), 'без списка видео — как раньше');
+});

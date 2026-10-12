@@ -159,3 +159,34 @@ test('pending upload survives in storage; corrupt or blocked storage gives null'
   clearPending(blockedStorage);
   assert.equal(loadPending(null), null);
 });
+
+test('several videos: the upload goes on only when each of them is picked again, in any order', () => {
+  const p: Pending = { ...pending, more: [{ asset: 'source-2', name: 'b.mov', size: 20, type: 'video/quicktime', lastModified: 2 }] };
+  const [a, b] = [file('clip.mov', 10, 1), file('b.mov', 20, 2)];
+  const m = matchPending(p, [b, a], []);
+  assert.equal(m.ok, true);
+  assert.deepEqual([...m.videos].map(([asset, f]) => [asset, f.name]), [['source', 'clip.mov'], ['source-2', 'b.mov']]);
+  assert.equal(matchPending(p, [a], []).ok, false, 'второго видео нет');
+  assert.equal(matchPending(p, [a, b, file('c.mov', 5, 3)], []).ok, false, 'лишнее видео — это уже другая загрузка');
+  assert.equal(matchPending(pending, [a, b], []).ok, false, 'в прошлой загрузке видео было одно');
+  assert.deepEqual([...matchPending(pending, a, []).videos.keys()], ['source'], 'одно видео — как раньше');
+  const store = memoryStorage();
+  savePending(store, p);
+  assert.deepEqual(loadPending(store), p);
+  store.setItem('vm:pending', JSON.stringify({ ...p, more: [{ ...p.more![0], asset: 'source' }] }));
+  assert.equal(loadPending(store), null, 'ещё видео — source-2 и дальше');
+});
+
+test('a stopped upload of several videos goes on as it was only with the same videos', () => {
+  const [a, b, i] = [file('clip.mov', 10, 1), file('b.mov', 20, 2), file('a.png', 3, 3)];
+  const files = new Map<string, File>([['source', a], ['source-2', b], ['upload-i1.png', i]]);
+  assert.equal(sameSelection(files, [i], null, [a, b]), true);
+  assert.equal(sameSelection(files, [i], null, [a]), false, 'видео убрали');
+  assert.equal(sameSelection(files, [i], null, [a, b, file('c.mov', 5, 4)]), false, 'видео добавили');
+  assert.equal(sameSelection(files, [i], null), true, 'без списка видео — как раньше: только вставки и озвучка');
+});
+
+test('planChunks: the videos first in their order, then the inserts and the voiceover', () => {
+  const c = planChunks([{ asset: 'source', size: 5 }, { asset: 'source-2', size: 3 }, { asset: 'upload-i1.png', size: 2 }], 4);
+  assert.deepEqual(c.map((x) => [x.file, x.index, x.start, x.end, x.src]), [['source', 0, 0, 4, 0], ['source', 1, 4, 5, 0], ['source-2', 0, 0, 3, 1], ['upload-i1.png', 0, 0, 2, 2]]);
+});

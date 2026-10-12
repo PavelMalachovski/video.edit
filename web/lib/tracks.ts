@@ -34,6 +34,7 @@ export type EditorMedia = {
   proxy: { file: string; width: number; height: number; key: number } | null; // null — исходник длинный, прокси нет
   film: { file: string; step: number; w: number; h: number; n: number };
   peaks: { perS: number; data: string };
+  videos?: { name: string; t0: number; t1: number }[]; // из каких видео задачи склеен исходник, по порядку (vm prepare)
 };
 
 /** Клип дорожки во времени финала. У кусков видео: `src0`–`src1` исходника, `piece` — номер куска монтажа (`keep`),
@@ -42,6 +43,7 @@ export type EditorMedia = {
 export type Clip = Span & {
   kind: string; label: string; src0?: number; src1?: number; words?: DraftWord[]; piece?: number; edgeStart?: boolean; edgeEnd?: boolean; key?: string;
   file?: string; // у звуков — файл (как в edit.json)
+  videoNo?: number; // у кусков — из какого видео задачи (номер в EditorMedia.videos), если их список есть
 };
 export type Tracks = {
   duration: number; // длина финала без хвоста (кусков), с
@@ -108,6 +110,10 @@ export function parseMedia(raw: unknown): EditorMedia | null {
   const int = (x: unknown, max: number) => Number.isInteger(x) && (x as number) >= 1 && (x as number) <= max;
   if (!isObj(film) || !isStr(film.file) || !isNum(film.step) || film.step <= 0 || !int(film.w, 1080) || !int(film.h, 1920) || !int(film.n, FILM_MAX)) return null;
   if (!isObj(peaks) || !int(peaks.perS, 1000) || !isStr(peaks.data)) return null;
+  const { videos } = raw;
+  const mark = (v: unknown) => isObj(v) && Object.keys(v).length === 3 && isStr(v.name) && v.name !== '' && isNum(v.t0) && v.t0 >= 0
+    && isNum(v.t1) && v.t1 > v.t0;
+  if (videos !== undefined && !(Array.isArray(videos) && videos.length >= 1 && videos.length <= 10 && videos.every(mark))) return null;
   return raw as EditorMedia;
 }
 
@@ -140,7 +146,9 @@ const stem = (path: string): string => path.split('/').at(-1)?.replace(/\.[^.]+$
 /** Дорожки черновика во времени финала. `perGroup` — слов в группе субтитров (как `subtitles.words` стиля);
  *  `sourceDuration` — длина исходника: вырезанный хвост после последнего куска; `splits` — разрезы Павла (с исходника):
  *  делят куски видео на экране (на монтаж не влияют). */
-export function draftTracks(d: Draft, { perGroup = 3, sourceDuration, splits = [] }: { perGroup?: number; sourceDuration?: number; splits?: number[] } = {}): Tracks {
+export function draftTracks(d: Draft, { perGroup = 3, sourceDuration, splits = [], videos }: {
+  perGroup?: number; sourceDuration?: number; splits?: number[]; videos?: EditorMedia['videos'];
+} = {}): Tracks {
   const tl = timelineOf(d);
   const at = (t: number) => tl.toFinalSnap(t);
   // событие — с места начала и до конца его серии кусков (Timeline.span): переставленный кусок его не тянет
@@ -149,15 +157,21 @@ export function draftTracks(d: Draft, { perGroup = 3, sourceDuration, splits = [
     return { t0, t1 };
   };
 
-  const cutsAt = [...splits].sort((x, y) => x - y);
+  // на экране куски делятся разрезами Павла и стыками видео задачи (несколько видео склеены в один исходник)
+  const cutsAt = [...splits, ...(videos ?? []).slice(1).map((v) => v.t0)].sort((x, y) => x - y);
+  const videoOf = (src0: number, src1: number): number | undefined => {
+    if (!videos) return undefined;
+    const k = videos.findIndex((v) => (src0 + src1) / 2 < v.t1);
+    return k < 0 ? videos.length - 1 : k;
+  };
   let pieceNo = 0;
   const video: Clip[] = tl.segments.flatMap(([src0, src1, t0], i): Clip[] => {
-    if (d.teaser && i === 0) return [{ kind: 'teaser', label: '', src0, src1, t0, t1: t0 + (src1 - src0) / d.speed }];
+    if (d.teaser && i === 0) return [{ kind: 'teaser', label: '', src0, src1, t0, t1: t0 + (src1 - src0) / d.speed, videoNo: videoOf(src0, src1) }];
     const piece = pieceNo++;
     const edges = [src0, ...cutsAt.filter((t) => t > src0 + SLIVER && t < src1 - SLIVER), src1];
     return edges.slice(1).map((b, k) => ({
       kind: 'piece', label: '', src0: edges[k], src1: b, t0: t0 + (edges[k] - src0) / d.speed, t1: t0 + (b - src0) / d.speed,
-      piece, edgeStart: k === 0, edgeEnd: k === edges.length - 2,
+      piece, edgeStart: k === 0, edgeEnd: k === edges.length - 2, videoNo: videoOf(edges[k], b),
     }));
   });
   const pieces = video.filter((c) => c.kind === 'piece');

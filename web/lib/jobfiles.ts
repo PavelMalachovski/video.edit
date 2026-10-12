@@ -1,7 +1,7 @@
 // Файлы задачи jobs/<id>/ в ветке claude/job-<id> — контракт страницы и сессии монтажа. Типы повторяют схемы движка
 // (engine/vm/schemas/*.json; тесты сверяют перечни с ними). Страница пишет job.json, answers.json, restyle.json,
 // fix.json; сессия — status.json, questions.json, styles.json, result.json; Action — out/released.json.
-import { isUploadFile, isVoiceFile, MAX_NOTE } from './jobs.ts';
+import { isUploadFile, isVoiceFile, MAX_NOTE, videoFile, type VideoClaim } from './jobs.ts';
 import type { Step } from './routine.ts';
 import type { Brand } from './brand.ts';
 import type { ScriptRequest } from './script.ts';
@@ -192,13 +192,17 @@ export type Manifest = {
   job: string; name: string; size: number; type: string; lastModified: number; parts: number; chunkSize: number;
   userAgent?: string; startedAt?: number; finishedAt?: number; retries?: number; completedAt?: string;
   brief?: string; duration?: number | null; uploads?: ManifestUpload[];
+  videos?: VideoClaim[]; // несколько видео — все по порядку (первое — то же, что сверху); одно — поля нет
 };
+/** Видео задачи в job.json: `file` — куда его кладёт `vm fetch` (от папки задачи), длительность — если браузер узнал. */
+export type VideoRef = { file: string; asset: string; name: string; size: number; type: string; duration: number | null };
 /** Вставка Павла к ролику или его озвучка (`audio`): `file` — куда её кладёт `vm fetch` (от папки задачи). */
 export type UploadRef = { file: string; asset: string; name: string; size: number; type: string; kind: 'image' | 'video' | 'audio' };
 export type Run = { step: Step; attempt: number; at: string; sessionUrl?: string };
 export type JobFile = {
   id: string; name: string; size: number; type: string; duration: number | null; createdAt: string;
   brief: string; uploads: UploadRef[]; runs: Run[];
+  videos?: VideoRef[]; // несколько видео (склеиваются по порядку); одно — поля нет, оно — name, size, type
   brand?: Brand; // копия «Моего бренда» на момент старта; логотип — путь от папки задачи (in/brand/logo.png)
   kind?: 'script'; // задача-сценарий: видео нет, сессия пишет script.json (нет поля — видео)
   script?: ScriptRequest; // запрос сценария с экрана «Новый сценарий»
@@ -212,6 +216,9 @@ export function buildJobFile(m: Manifest, now: Date): JobFile {
       file: `in/uploads/${u.asset}`, asset: u.asset, name: u.name, size: u.size, type: u.type,
       kind: isVoiceFile(u.asset) ? 'audio' : u.type.startsWith('video/') ? 'video' : 'image',
     })),
+    ...(m.videos ? {
+      videos: m.videos.map((v) => ({ file: videoFile(v.asset, v.name), asset: v.asset, name: v.name, size: v.size, type: v.type, duration: v.duration ?? null })),
+    } : {}),
     runs: [],
   };
 }

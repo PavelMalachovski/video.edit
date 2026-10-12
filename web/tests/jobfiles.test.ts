@@ -70,6 +70,23 @@ test('buildJobFile takes brief, duration and uploads from the manifest', () => {
   assert.equal(buildJobFile({ ...m, brief: undefined, duration: undefined, uploads: undefined }, NOW).duration, null);
 });
 
+test('several videos go into job.json in their order, each where vm fetch puts it', () => {
+  const m: Manifest = {
+    job: '261010-070509-abcd', name: 'IMG_1.MOV', size: 150, type: 'video/quicktime', lastModified: 1, parts: 1, chunkSize: 4, duration: 95,
+    videos: [
+      { asset: 'source', name: 'IMG_1.MOV', size: 100, type: 'video/quicktime', lastModified: 1, parts: 1, duration: 60 },
+      { asset: 'source-2', name: 'IMG_2.mp4', size: 50, type: 'video/mp4', lastModified: 2, parts: 1, duration: null },
+    ],
+  };
+  const job = buildJobFile(m, NOW);
+  assert.deepEqual(job.videos, [
+    { file: 'in/source.mov', asset: 'source', name: 'IMG_1.MOV', size: 100, type: 'video/quicktime', duration: 60 },
+    { file: 'in/source-2.mp4', asset: 'source-2', name: 'IMG_2.mp4', size: 50, type: 'video/mp4', duration: null },
+  ]);
+  assert.equal(job.duration, 95, 'длительность — всех видео вместе');
+  assert.equal('videos' in buildJobFile({ ...m, videos: undefined }, NOW), false, 'одно видео — как раньше');
+});
+
 test('a voiceover goes into job.json uploads as audio', () => {
   const job = buildJobFile({
     job: '261010-070509-abcd', name: 'IMG_1.MOV', size: 100, type: 'video/quicktime', lastModified: 1, parts: 1, chunkSize: 4,

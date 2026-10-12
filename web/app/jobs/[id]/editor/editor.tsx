@@ -220,8 +220,9 @@ export default function Editor({ id }: { id: string }) {
   const edited = useMemo(() => (data?.draft ? withHandEdits(data.draft, { edits: hand.edits, music: hand.music }, sourceDuration) : null),
     [data, hand.edits, hand.music, sourceDuration]);
   const tracks: Tracks | null = useMemo(() => (edited
-    ? draftTracks(edited.draft, { perGroup: spec ? subGroupSize(spec) : 3, sourceDuration, splits: edited.splits })
-    : null), [edited, spec, sourceDuration]);
+    ? draftTracks(edited.draft, { perGroup: spec ? subGroupSize(spec) : 3, sourceDuration, splits: edited.splits, videos: data?.media?.videos })
+    : null), [edited, spec, sourceDuration, data?.media?.videos]);
+  const videos = (data?.media?.videos?.length ?? 0) > 1 ? data?.media?.videos ?? null : null; // несколько видео задачи — где какое
   const mix = useMemo(() => musicMix(data?.draft?.music ?? null, hand.music), [data, hand.music]);
   const edges = useMemo(() => (data?.draft ? wordEdges(data.draft) : []), [data]);
   const peaks = useMemo(() => (data?.media ? decodePeaks(data.media.peaks.data) : null), [data]);
@@ -712,12 +713,32 @@ export default function Editor({ id }: { id: string }) {
           {data?.screen === 'working' ? <p className="ed-note ed-flag">{mount.state === 'started' ? T('mountStarted') : T('working')}</p> : null}
           {mount.state === 'error' ? <p className="ed-note ed-flag bad" role="alert">{T('mountFailed', { e: mount.error ?? '' })}</p> : null}
           {tracks ? (
-            <Inspector T={T} sel={sel} tracks={tracks} hand={hand} mix={mix} editable={editable} splitHere={splitHere}
+            <Inspector T={T} sel={sel} tracks={tracks} hand={hand} mix={mix} editable={editable} splitHere={splitHere} videos={videos}
               onSplit={doSplit} onDelete={doDelete} onMove={doMove} onEdit={edit} sec={sec} />
           ) : null}
           {hint ? <p className="ed-note ed-flag bad" role="status">{hint}</p> : null}
           {styles && choice ? (
             <StylePanel T={T} styles={styles} choice={choice} spec={spec} offered={offered} locked={styleLocked} note={styleNote} onPick={pick} />
+          ) : null}
+          {videos && tracks ? (
+            <section className="ed-media" aria-label={T('videos')}>
+              <h2>{T('videos')}</h2>
+              <ol className="ed-videos">
+                {videos.map((v, k) => {
+                  const first = tracks.video.find((c) => c.kind === 'piece' && c.videoNo === k);
+                  return (
+                    <li key={k}>
+                      <button type="button" disabled={!first} title={first ? T('toVideo') : T('videoCut')}
+                        onClick={() => { if (first) { seek(first.t0); setSel({ kind: 'piece', index: tracks.video.indexOf(first) }); } }}>
+                        <span className="ed-vno">{k + 1}</span>
+                        <span className="grow">{v.name}</span>
+                        <span className="mono">{first ? tenths(v.t1 - v.t0) : T('videoCut')}</span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ol>
+            </section>
           ) : null}
           <h2>{T('draft')}</h2>
           {tracks && editable ? <p className="ed-note">{T('editHint')}</p> : null}
@@ -784,6 +805,7 @@ export default function Editor({ id }: { id: string }) {
                       title={`${c.kind === 'teaser' ? T('teaser') : T('piece')} · ${tenths(c.src0 as number)}–${tenths(c.src1 as number)}`}>
                       <div className="ed-thumbs">{thumbs(c)}</div>
                       {c.kind === 'teaser' ? <span className="ed-tag">{T('teaser')}</span> : null}
+                      {videos && c.videoNo !== undefined && c.kind === 'piece' ? <span className="ed-vno on-piece">{c.videoNo + 1}</span> : null}
                       {editable && c.kind === 'piece' && c.edgeStart ? (
                         <span className="ed-handle start" aria-hidden="true" onPointerDown={(e) => grab(e, { kind: 'trim', index: i, side: 'start', x0: e.clientX, to: c.src0 as number })} {...dragProps} />
                       ) : null}

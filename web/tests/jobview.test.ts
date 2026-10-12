@@ -277,3 +277,10 @@ test('the ads version is shown once it is delivered', () => {
   const v = deriveView(release(), files({ status: status('rendered'), released: delivered('final.mp4', 'final-ad.mp4', 'final-ad.srt') }), T0);
   assert.deepEqual(v.final, { mp4: 'final.mp4', srt: null, ad: { mp4: 'final-ad.mp4', srt: 'final-ad.srt' } });
 });
+
+test('a job of several videos is named by the first one and how many more', () => {
+  const videos = [{ file: 'in/source.mov', asset: 'source', name: 'IMG_1.MOV', size: 1, type: 'video/quicktime', duration: 40 },
+                  { file: 'in/source-2.mp4', asset: 'source-2', name: 'IMG_2.mp4', size: 1, type: 'video/mp4', duration: 35 }];
+  assert.equal(deriveView(release(), files({ job: { ...job(), videos } }), T0).title, 'IMG_1.MOV + 1');
+  assert.equal(deriveView(release(), files(), T0).title, 'IMG_1.MOV', 'одно видео — как раньше');
+});

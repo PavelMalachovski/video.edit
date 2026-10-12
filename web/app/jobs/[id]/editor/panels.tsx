@@ -1,6 +1,7 @@
 'use client';
 // Панели редактора справа от кадра: выбранное на дорожках (кусок, голос, музыка, звук) и стиль ролика.
 import type { EditorData } from '@/lib/editordata.ts';
+import type { EditorMedia } from '@/lib/tracks.ts';
 import { LIMITS, setMusic, setSound, setVoice, type HandEdits, type Level } from '@/lib/edits.ts';
 import { tenths } from '@/lib/format.ts';
 import type { Key } from '@/lib/i18n.ts';
@@ -37,8 +38,9 @@ function LevelControls({ T, label, level, base, range, disabled, onLevel }: {
   );
 }
 
-export function Inspector({ T, sel, tracks, hand, mix, editable, splitHere, onSplit, onDelete, onMove, onEdit, sec }: {
+export function Inspector({ T, sel, tracks, hand, mix, editable, splitHere, videos, onSplit, onDelete, onMove, onEdit, sec }: {
   T: TFn; sel: Selection | null; tracks: Tracks; hand: HandEdits; mix: MusicMix | null; editable: boolean;
+  videos: EditorMedia['videos'] | null; // несколько видео задачи — кусок показывает, из какого он и где в файле
   splitHere: boolean; // плейхед внутри выбранного куска
   onSplit: () => void; onDelete: () => void; onMove: (index: number, slot: number) => void;
   onEdit: (next: HandEdits, key?: string) => void; sec: (s: number) => string;
@@ -53,7 +55,11 @@ export function Inspector({ T, sel, tracks, hand, mix, editable, splitHere, onSp
     return (
       <section className="ed-insp" aria-label={T('piece')}>
         <h2>{c.kind === 'teaser' ? T('teaser') : T('pieceOf', { n: all.indexOf(c) + 1, m: all.length })}</h2>
-        <p className="ed-note mono">{T('sourceSpan', { a: tenths(c.src0), b: tenths(c.src1), s: sec((c.src1 - c.src0)) })}</p>
+        {videos && c.videoNo !== undefined && videos[c.videoNo] ? (
+          <p className="ed-note mono">{T('fromVideo', {
+            n: c.videoNo + 1, name: videos[c.videoNo].name, a: tenths(c.src0 - videos[c.videoNo].t0), b: tenths(c.src1 - videos[c.videoNo].t0), s: sec(c.src1 - c.src0),
+          })}</p>
+        ) : <p className="ed-note mono">{T('sourceSpan', { a: tenths(c.src0), b: tenths(c.src1), s: sec((c.src1 - c.src0)) })}</p>}
         {c.kind === 'piece' ? (
           <div className="ed-btns">
             <button type="button" className="ed-btn" disabled={!editable || !splitHere} onClick={onSplit} title={T('splitT')}>{T('split')}</button>

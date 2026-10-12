@@ -62,6 +62,13 @@
   `engine/tests/fixtures/timeline-map.json`.
 - Файлы редактора (бета): `engine/vm/editor.py` и схема `engine/vm/schemas/editor.json` ↔ `web/lib/tracks.ts`
   (`parseMedia`, `parseDraft`) и `web/lib/editordata.ts` (`MEDIA_NAMES` — что плеер берёт из релиза).
+- Правки руками из редактора (`timeline.json`): `engine/vm/edits.py` (`apply_keep`, `apply`) и `web/lib/edits.ts`
+  (`applyKeep`, `parseTimeline`, `LIMITS` — пределы схемы `engine/vm/schemas/timeline.json`), общая фикстура
+  `engine/tests/fixtures/edits.json`; ключи громкости звуков — `_sounds` в `engine/vm/render.py` и `draftTracks` в
+  `web/lib/tracks.ts`; запись в `fix.json` из редактора (`timeline`, `style`) — `web/lib/jobfiles.ts` и SKILL.md, шаг fix.
+- Звук на прослушивании в редакторе: `engine/vm/audio.py` (`VOICE_LUFS`, `MUSIC_BOOST`, `SFX_GAIN_DB`, `FADE_IN`,
+  `FADE_OUT`, повтор музыки) и `web/lib/sound.ts`; голос прокси — на `VOICE_LUFS` (`engine/vm/editor.py`); какие звуки
+  страница отдаёт — `SOUNDS` и `_resolve` в `engine/vm/render.py` ↔ `audioType` и `audioPaths` в `web/lib/jobs.ts`.
 - Анимации стиля эталона: `template/overlay.js` (`SOFT`, `ACC` — сколько длится появление) и `engine/vm/overlay.py`
   (`SUB_APPEAR`, `HOOK_APPEAR`, `ACCENT_ANIM`, `TYPE_CPS` — сколько кадров давать им время, с запасом).
 - Файлы задачи: схемы `engine/vm/schemas/*.json` и типы `web/lib/jobfiles.ts`; кто какой файл пишет — SKILL.md,

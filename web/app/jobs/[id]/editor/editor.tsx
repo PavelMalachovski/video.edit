@@ -1,22 +1,32 @@
 'use client';
 // Редактор (бета): светлый экран как у veed — кадр с прокси-видео и слоем шаблона (тот же, что рисует финал), под ним
-// таймлайн с дорожками черновика монтажа. Пока только показ и прослушивание: куски играются подряд, как в ролике
-// (вырезанное пропускается, скорость — как у монтажа). Монтаж запускается со старого экрана (вопросы и «Превью»).
+// таймлайн с дорожками черновика монтажа. Куски играются подряд, как в ролике (вырезанное пропускается, скорость — как у
+// монтажа). Правки руками: разрезать, удалить и вернуть куски, тянуть их края (липнут к словам), громкость и «без
+// звука» голоса, музыки и звуков, где звучит музыка; отмена и повтор. Правки сохраняются сами в timeline.json — движок
+// кладёт их поверх черновика при монтаже; прослушивание сводит звук как ролик (mixer.ts). «Монтировать» у готового
+// ролика — новая версия (правка с правками и стилем); до монтажа — старый экран с вопросами.
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { storage } from '@/lib/client.ts';
 import type { EditorData } from '@/lib/editordata.ts';
+import { sameJson } from '@/lib/equal.ts';
+import {
+  commit, cutSpan, EMPTY, initHistory, redo, restoreSpan, setMusic, setSound, setVoice, snapTo, splitAt, trimEnd, trimStart, undo,
+  type HandEdits, type History,
+} from '@/lib/edits.ts';
 import { tenths } from '@/lib/format.ts';
 import { loadLang, saveLang, tr, type Key, type Lang } from '@/lib/i18n.ts';
-import { ADJUSTABLE, type StyleChoice } from '@/lib/jobfiles.ts';
-import {
-  allowedFonts, choiceFor, clampTo, finalStyle, loadChoice, overlayAt, sampleState, saveChoice, SUB_SHADE, subGroupSize, SWATCHES,
-} from '@/lib/style.ts';
+import type { StyleChoice } from '@/lib/jobfiles.ts';
+import { allowedFonts, finalStyle, loadChoice, overlayAt, sampleState, saveChoice, subGroupSize } from '@/lib/style.ts';
 import { advance, locate } from '@/lib/player.ts';
-import { decodePeaks, draftTracks, peakAt, type Clip, type Tracks } from '@/lib/tracks.ts';
-import { BackIcon, PauseIcon, PlayIcon } from '../../../icons';
+import { audioUrl, levelsOf, musicMix } from '@/lib/sound.ts';
+import { decodePeaks, draftTracks, peakAt, splitTarget, withHandEdits, wordEdges, type Clip, type Tracks } from '@/lib/tracks.ts';
+import { BackIcon, PauseIcon, PlayIcon, PlusIcon, RedoIcon, ScissorsIcon, SpeakerIcon, TrashIcon, UndoIcon } from '../../../icons';
 import PreviewFrame from '../../../preview-frame';
 import { useTemplateFonts } from '../../../use-fonts';
+import { Mixer, type MixPlan } from './mixer';
+import { Inspector, StylePanel, type Selection } from './panels';
 
 const HEAD = 112; // px — колонка с именами дорожек
 const MAX_WIDTH = 30_000; // px — ширина дорожек
@@ -24,10 +34,27 @@ const MAX_CANVAS = 32_767; // px холста — больше браузеры 
 const ZOOM = 1.5;
 const THUMB_H = 56;
 const TICKS = [0.5, 1, 2, 5, 10, 15, 30, 60, 120];
-const RELOAD_MS = 20_000; // пока нет черновика или прокси — спрашиваем снова
+const RELOAD_MS = 20_000; // пока нет черновика или прокси или Claude монтирует — спрашиваем снова
 const FRAME_HZ = 15; // столько раз в секунду обновляем слой кадра во время пуска
+const SAVE_MS = 1200; // правки сохраняются, когда Павел остановился на столько
+const SNAP_PX = 8; // край куска липнет к границе слова ближе стольких px
+const CLICK_PX = 3; // сдвиг мыши меньше — это щелчок, а не перетаскивание
+const EDITABLE = ['questions', 'result', 'error']; // сессия не работает — правки можно сохранять
+
+type SaveState = { state: 'idle' | 'saving' | 'saved' | 'error' | 'conflict'; error?: string };
+type Drag =
+  | { kind: 'trim'; index: number; side: 'start' | 'end'; x0: number; to: number }
+  | { kind: 'music'; mode: 'move' | 'trim'; x0: number; at0: number; from0: number; at: number; from: number; moved: boolean };
+
+/** Правки из timeline.json — без ревизии и времени. */
+const handOf = (data: EditorData | null): HandEdits => {
+  if (!data?.timeline) return EMPTY;
+  const { rev: _rev, at: _at, ...hand } = data.timeline;
+  return hand;
+};
 
 export default function Editor({ id }: { id: string }) {
+  const router = useRouter();
   const [lang, setLang] = useState<Lang>('ru');
   const T = useCallback((k: Key, v?: Record<string, string | number>) => tr(lang, k, v), [lang]);
   const [data, setData] = useState<EditorData | null>(null);
@@ -49,49 +76,154 @@ export default function Editor({ id }: { id: string }) {
     saveLang(storage(), l);
   };
 
-  // данные: сразу и снова, пока черновика или прокси ещё нет (сессия пишет, Action переносит прокси в релиз)
-  const load = useCallback(async () => {
+  // данные: сразу и снова, пока черновика или прокси ещё нет (сессия пишет, Action переносит прокси в релиз) или Claude монтирует
+  const load = useCallback(async (): Promise<EditorData | null> => {
     try {
       const r = await fetch(`/api/jobs/${id}/editor`, { cache: 'no-store' });
       const body = await r.json().catch(() => null);
       if (!r.ok) throw new Error(typeof body?.error === 'string' ? body.error : `HTTP ${r.status}`);
       setData(body as EditorData);
       setError('');
+      return body as EditorData;
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      return null;
     }
   }, [id]);
   useEffect(() => {
     void load();
   }, [load]);
-  const waiting = !data || !data.draft || (data.media?.proxy != null && data.proxyUrl === null);
+  const waiting = !data || !data.draft || (data.media?.proxy != null && data.proxyUrl === null) || data.screen === 'working';
   useEffect(() => {
     if (!waiting) return;
     const timer = setInterval(() => document.visibilityState === 'visible' && void load(), RELOAD_MS);
     return () => clearInterval(timer);
   }, [waiting, load]);
 
-  // стиль: смонтирован — стиль ролика (панель только показывает); иначе выбор, общий с экраном «Превью»
+  // ---------- правки руками: история, сохранение ----------
+  const [hist, setHist] = useState<History>(() => initHistory(EMPTY));
+  const [saved, setSaved] = useState<HandEdits>(EMPTY); // что лежит в ветке
+  const rev = useRef(0); // ревизия timeline.json в ветке
+  const adopted = useRef(false);
+  const [save, setSave] = useState<SaveState>({ state: 'idle' });
+  const hand = hist.present;
+  const dirty = hand !== saved;
+  const editable = Boolean(data?.draft) && EDITABLE.includes(data?.screen ?? '');
+
+  // правки из ветки: при первой загрузке, после «Загрузить их» и когда пришла чужая ревизия (вторая вкладка), а своих
+  // несохранённых нет. Своя сохранённая ревизия — уже в rev: данные с ней ничего не сбрасывают.
+  const seen = useRef<number | null>(null); // ревизия в последних данных
+  const dirtyRef = useRef(false);
+  dirtyRef.current = dirty;
+  const adopt = useCallback((d: EditorData) => {
+    const h = handOf(d);
+    rev.current = d.rev;
+    seen.current = d.rev;
+    adopted.current = true;
+    setHist(initHistory(h));
+    setSaved(h);
+  }, []);
+  useEffect(() => {
+    if (!data) return;
+    if (!adopted.current) adopt(data);
+    else if (data.rev !== seen.current) {
+      seen.current = data.rev;
+      if (data.rev !== rev.current && !dirtyRef.current) adopt(data);
+    }
+  }, [data, adopt]);
+
+  const histRef = useRef(hist);
+  histRef.current = hist;
+  const flush = useCallback(async (): Promise<boolean> => {
+    const sending = histRef.current.present;
+    setSave({ state: 'saving' });
+    try {
+      const r = await fetch(`/api/jobs/${id}/timeline`, {
+        method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ base: rev.current, ...sending }),
+      });
+      const body = await r.json().catch(() => null);
+      if (r.status === 409 && typeof body?.rev === 'number') {
+        setSave({ state: 'conflict' });
+        return false;
+      }
+      if (!r.ok) throw new Error(typeof body?.error === 'string' ? body.error : `HTTP ${r.status}`);
+      rev.current = body.timeline.rev;
+      setSaved(sending);
+      setSave({ state: 'saved' });
+      return true;
+    } catch (e) {
+      setSave({ state: 'error', error: e instanceof Error ? e.message : String(e) });
+      return false;
+    }
+  }, [id]);
+  useEffect(() => { // остановился — сохраняем; ошибка и конфликт ждут Павла
+    if (!dirty || !editable || save.state === 'saving' || save.state === 'conflict' || save.state === 'error') return;
+    const timer = setTimeout(() => void flush(), SAVE_MS);
+    return () => clearTimeout(timer);
+  }, [dirty, editable, hand, save.state, flush]);
+  useEffect(() => { // не сохранилось, а Павел правит дальше — пробуем снова с новой правкой
+    setSave((x) => (x.state === 'error' ? { state: 'idle' } : x));
+  }, [hand]);
+  useEffect(() => { // несохранённое — спросить перед уходом
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = ''; // Safari и старые браузеры спрашивают только так
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
+  const reloadEdits = async () => {
+    const d = await load();
+    if (d) adopt(d);
+    setSave({ state: 'idle' });
+  };
+
+  const [hint, setHint] = useState('');
+  const [sel, setSel] = useState<Selection | null>(null);
+
+  // ---------- черновик с правками ----------
   const styles = data?.styles ?? null;
   const mounted = Boolean(data?.answers);
   const [choice, setChoiceState] = useState<StyleChoice | null>(null);
   useEffect(() => {
+    // смонтирован — от стиля ролика (новый, ещё не смонтированный, живёт до перезагрузки); иначе — выбор с «Превью»
     if (styles) setChoiceState(data?.answers?.style ?? loadChoice(storage(), id, styles));
   }, [styles, data?.answers, id]);
+  const styleLocked = data?.screen === 'working';
   const pick = (c: StyleChoice) => {
-    if (!styles || mounted) return;
+    if (!styles || styleLocked) return;
     setChoiceState(c);
-    saveChoice(storage(), id, styles, c);
+    if (!mounted) saveChoice(storage(), id, styles, c); // до монтажа — общий с «Превью»
   };
+  const styleChanged = mounted && choice !== null && !sameJson(choice, data?.answers?.style);
   const spec = useMemo(() => (styles && choice ? finalStyle(styles, choice) : null), [styles, choice]);
   const fonts = useTemplateFonts();
   const offered = useMemo(() => (styles ? allowedFonts(fonts, styles) : []), [fonts, styles]); // со всеми буквами ролика
-  const tracks: Tracks | null = useMemo(() => (data?.draft
-    ? draftTracks(data.draft, { perGroup: spec ? subGroupSize(spec) : 3, sourceDuration: data.media?.duration })
-    : null), [data, spec]);
+
+  const sourceDuration = data?.media?.duration;
+  const edited = useMemo(() => (data?.draft ? withHandEdits(data.draft, hand, sourceDuration) : null), [data, hand, sourceDuration]);
+  const tracks: Tracks | null = useMemo(() => (edited
+    ? draftTracks(edited.draft, { perGroup: spec ? subGroupSize(spec) : 3, sourceDuration, splits: edited.splits })
+    : null), [edited, spec, sourceDuration]);
+  const mix = useMemo(() => musicMix(data?.draft?.music ?? null, hand.music), [data, hand.music]);
+  const edges = useMemo(() => (data?.draft ? wordEdges(data.draft) : []), [data]);
   const peaks = useMemo(() => (data?.media ? decodePeaks(data.media.peaks.data) : null), [data]);
   const duration = tracks?.duration ?? 0;
   const speed = data?.draft?.speed ?? 1;
+
+  /** Правка в историю: куски не должны пропасть совсем (движку нечего монтировать). */
+  const edit = useCallback((next: HandEdits, key?: string) => {
+    if (!data?.draft || !editable) return;
+    if (next.edits !== hand.edits && !withHandEdits(data.draft, next, sourceDuration).draft.keep.length) {
+      setHint(T('lastPiece'));
+      return;
+    }
+    setHint('');
+    setHist((h) => commit(h, next, key));
+  }, [data, editable, hand.edits, sourceDuration, T]);
+  const doUndo = useCallback(() => setHist(undo), []);
+  const doRedo = useCallback(() => setHist(redo), []);
 
   // ---------- плеер: куски подряд ----------
   const video = useRef<HTMLVideoElement>(null);
@@ -100,6 +232,29 @@ export default function Editor({ id }: { id: string }) {
   const clock = useRef<HTMLSpanElement>(null);
   const now = useRef(0);
   const scale = useRef(40);
+  const mixer = useRef<Mixer | null>(null);
+  useEffect(() => {
+    const m = new Mixer();
+    mixer.current = m;
+    return () => m.close();
+  }, []);
+  const head = data?.head ?? null;
+  const plan: MixPlan | null = useMemo(() => (tracks && head ? {
+    duration: tracks.duration,
+    voice: hand.voice ?? {},
+    music: mix ? { ...mix, url: audioUrl(id, head, mix.file) } : null,
+    sounds: tracks.sounds.flatMap((c) => (c.key && c.file ? [{ key: c.key, t0: c.t0, file: c.file, url: audioUrl(id, head, c.file) }] : [])),
+    soundLevels: hand.sounds ?? {},
+  } : null), [tracks, head, hand.voice, hand.sounds, mix, id]);
+  useEffect(() => {
+    if (!plan) return;
+    mixer.current?.preload(plan);
+    mixer.current?.update(plan);
+  }, [plan]);
+  useEffect(() => { // голос — громкость элемента (громче 0 дБ — тише музыка и звуки, levelsOf)
+    const v = video.current;
+    if (v) v.volume = levelsOf({ voice: hand.voice, musicDb: null }).voice;
+  }, [hand.voice, data?.proxyUrl]);
 
   const show = useCallback((tf: number) => { // плейхед и часы — без React, каждый кадр
     now.current = tf;
@@ -117,9 +272,11 @@ export default function Editor({ id }: { id: string }) {
     show(x);
     setT(x);
   }, [tracks, duration, speed, show]);
+  useEffect(() => seek(now.current), [seek]); // куски поменялись — тот же момент ролика на новых кусках
 
   const pause = useCallback(() => {
     video.current?.pause();
+    mixer.current?.stop();
     setPlaying(false);
   }, []);
   const play = useCallback(async () => {
@@ -130,10 +287,11 @@ export default function Editor({ id }: { id: string }) {
     try {
       await v.play();
       setPlaying(true);
+      if (plan) void mixer.current?.start(() => now.current, plan);
     } catch {
       setPlaying(false);
     }
-  }, [tracks, duration, speed, seek]);
+  }, [tracks, duration, speed, seek, plan]);
 
   useEffect(() => {
     if (!playing || !tracks) return;
@@ -153,6 +311,7 @@ export default function Editor({ id }: { id: string }) {
       if (step.seek !== undefined) v.currentTime = step.seek;
       const tf = step.t;
       show(tf);
+      mixer.current?.sync(tf);
       if (ms - last > 1000 / FRAME_HZ) {
         last = ms;
         setT(tf);
@@ -171,7 +330,7 @@ export default function Editor({ id }: { id: string }) {
     retried.current = Date.now();
     const at = now.current;
     const was = playing;
-    setPlaying(false); // пока грузится заново, время не идёт
+    pause(); // пока грузится заново, время не идёт
     v.src = `${data.proxyUrl}&r=${retried.current}`;
     v.load();
     v.addEventListener('loadedmetadata', () => {
@@ -192,18 +351,56 @@ export default function Editor({ id }: { id: string }) {
     return () => document.removeEventListener('visibilitychange', hide);
   }, [pause]);
 
-  useEffect(() => { // пробел — пуск и пауза (не в полях и не на кнопках)
+  // ---------- правки на дорожках ----------
+  const keep = edited?.draft.keep ?? [];
+  const selPiece = sel?.kind === 'piece' ? tracks?.video[sel.index] ?? null : null;
+  const splitSrc = tracks ? splitTarget(tracks, t) : null;
+  const splitHere = Boolean(selPiece && splitSrc !== null && splitSrc > (selPiece.src0 as number) && splitSrc < (selPiece.src1 as number));
+  const doSplit = useCallback(() => {
+    if (splitSrc === null) return;
+    edit(splitAt(hand, splitSrc));
+    setSel(null);
+  }, [splitSrc, edit, hand]);
+  const doDelete = useCallback(() => {
+    if (!selPiece || selPiece.kind !== 'piece' || selPiece.src0 === undefined || selPiece.src1 === undefined) return;
+    edit(cutSpan(hand, selPiece.src0, selPiece.src1));
+    setSel(null);
+  }, [selPiece, edit, hand]);
+  const doRestore = (c: { src0: number; src1: number }) => edit(restoreSpan(hand, c.src0, c.src1));
+
+  useEffect(() => { // клавиши: пробел — пуск, S — разрезать, Delete — удалить кусок, Ctrl+Z / Ctrl+Shift+Z — отмена и повтор
     const onKey = (e: KeyboardEvent) => {
-      if (e.code !== 'Space' || e.repeat) return;
       const el = e.target as HTMLElement | null;
-      if (el && (el.closest('input, textarea, select, button, a') || el.isContentEditable)) return;
-      e.preventDefault();
-      if (playing) pause();
-      else void play();
+      if (el && (el.closest('input, textarea, select') || el.isContentEditable)) return;
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && (e.code === 'KeyZ' || e.code === 'KeyY') && !editable) return;
+      if (mod && e.code === 'KeyZ') {
+        e.preventDefault();
+        if (e.shiftKey) doRedo();
+        else doUndo();
+        return;
+      }
+      if (mod && e.code === 'KeyY') {
+        e.preventDefault();
+        doRedo();
+        return;
+      }
+      if (mod || e.altKey || e.repeat) return;
+      if (e.code === 'Space' && !el?.closest('button, a')) {
+        e.preventDefault();
+        if (playing) pause();
+        else void play();
+      } else if (e.code === 'KeyS' && editable) {
+        e.preventDefault();
+        doSplit();
+      } else if ((e.code === 'Delete' || e.code === 'Backspace') && editable && selPiece) {
+        e.preventDefault();
+        doDelete();
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [playing, play, pause]);
+  }, [playing, play, pause, editable, doSplit, doDelete, doUndo, doRedo, selPiece]);
 
   // ---------- кадр ----------
   const stage = useRef<HTMLDivElement>(null);
@@ -255,6 +452,50 @@ export default function Editor({ id }: { id: string }) {
     seek(x / px);
   };
 
+  // края кусков и музыка — мышью или пальцем: тянем, отпустили — правка
+  const [drag, setDrag] = useState<Drag | null>(null);
+  const grab = (e: React.PointerEvent, d: Drag) => {
+    e.stopPropagation();
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setDrag(d);
+  };
+  const onDragMove = (e: React.PointerEvent) => {
+    if (!drag || !tracks) return;
+    e.stopPropagation(); // ручка — внутри клипа музыки: тот же жест не обрабатываем дважды
+    const dx = e.clientX - drag.x0;
+    if (drag.kind === 'trim') {
+      const c = tracks.video[drag.index];
+      const edge = (drag.side === 'start' ? c.src0 : c.src1) as number;
+      setDrag({ ...drag, to: snapTo(edge + (dx / px) * speed, edges, (SNAP_PX / px) * speed) });
+    } else {
+      const d = dx / px;
+      const room = Math.max(0, duration - 0.5);
+      if (drag.mode === 'move') setDrag({ ...drag, at: Math.min(room, Math.max(0, drag.at0 + d)), moved: drag.moved || Math.abs(dx) >= CLICK_PX });
+      else {
+        const k = Math.min(room - drag.at0, Math.max(-Math.min(drag.at0, drag.from0), d));
+        setDrag({ ...drag, at: drag.at0 + k, from: drag.from0 + k, moved: drag.moved || Math.abs(dx) >= CLICK_PX });
+      }
+    }
+  };
+  const onDragEnd = (e: React.PointerEvent) => {
+    if (!drag || !tracks) return;
+    e.stopPropagation();
+    setDrag(null);
+    if (drag.kind === 'trim') {
+      const c = tracks.video[drag.index];
+      if (c.piece === undefined) return;
+      edit(drag.side === 'start' ? trimStart(hand, keep, c.piece, drag.to) : trimEnd(hand, keep, c.piece, drag.to, sourceDuration));
+    } else if (!drag.moved) { // щелчок по музыке — выбрать и встать туда
+      setSel({ kind: 'music' });
+      const box = lanes.current?.querySelector('.ed-row.music .ed-lane')?.getBoundingClientRect();
+      if (box) seek((e.clientX - box.left) / px);
+    } else {
+      edit(setMusic(hand, drag.mode === 'move' ? { at: drag.at } : { at: drag.at, from: drag.from }));
+    }
+  };
+  const dragProps = { onPointerMove: onDragMove, onPointerUp: onDragEnd, onPointerCancel: () => setDrag(null) };
+
   // волна голоса: громкость исходника в каждом px финала
   const wave = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -276,6 +517,7 @@ export default function Editor({ id }: { id: string }) {
       const tf = x / px;
       while (k + 1 < tracks.video.length && tf >= tracks.video[k].t1) k++;
       const clip = tracks.video[k];
+      if (!clip) break;
       const src = (clip.src0 as number) + (tf - clip.t0) * speed;
       const a = peakAt(peaks, perS, src);
       const bar = Math.max(1, a * (h - 6));
@@ -306,6 +548,44 @@ export default function Editor({ id }: { id: string }) {
     </div>
   );
   const kindName: Record<string, Key> = { hook: 'hook', accent: 'accent', cta: 'cta' };
+  // где стоит край куска, пока его тянут (время финала)
+  const ghost = drag?.kind === 'trim' && tracks ? (() => {
+    const c = tracks.video[drag.index];
+    return drag.side === 'start' ? c.t0 + (drag.to - (c.src0 as number)) / speed : c.t1 + (drag.to - (c.src1 as number)) / speed;
+  })() : null;
+  const musicAt = drag?.kind === 'music' ? drag.at : mix?.at ?? 0;
+  const voiceMuted = Boolean(hand.voice?.muted);
+
+  // ---------- «Монтировать» ----------
+  const [mount, setMount] = useState<{ state: 'idle' | 'busy' | 'started' | 'error'; error?: string }>({ state: 'idle' });
+  const canMount = data?.screen === 'result' && editable && (dirty || rev.current > 0 || styleChanged);
+  const doMount = async () => {
+    if (!canMount) return;
+    setMount({ state: 'busy' });
+    if (dirty && !(await flush())) {
+      setMount({ state: 'idle' });
+      return;
+    }
+    try {
+      const editor = { ...(rev.current > 0 ? { timeline: rev.current } : {}), ...(styleChanged && choice ? { style: choice } : {}) };
+      const r = await fetch(`/api/jobs/${id}/run`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'fix', editor }),
+      });
+      const body = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(typeof body?.error === 'string' ? body.error : `HTTP ${r.status}`);
+      setMount({ state: 'started' });
+      pause();
+      void load();
+    } catch (e) {
+      setMount({ state: 'error', error: e instanceof Error ? e.message : String(e) });
+    }
+  };
+  // на старый экран (вопросы, задача): несохранённое — сначала сохранить
+  const toFlow = async (e: React.MouseEvent) => {
+    if (!dirty) return;
+    e.preventDefault();
+    if (await flush()) router.push(`/jobs/${id}`);
+  };
 
   // ---------- экран ----------
   const notice = !data ? (error ? T('error', { e: error }) : T('loading'))
@@ -314,11 +594,14 @@ export default function Editor({ id }: { id: string }) {
         : !data.media.proxy ? T('longSource')
           : !data.proxyUrl ? T('noProxy') : null;
   const cutTotal = tracks?.cuts.reduce((s, c) => s + c.src1 - c.src0, 0) ?? 0;
+  const saveText = save.state === 'saving' ? T('saving') : save.state === 'error' ? T('saveFailed', { e: save.error ?? '' })
+    : save.state === 'conflict' ? T('conflict') : dirty ? '' : save.state === 'saved' ? T('saved') : '';
+  const styleNote = styleLocked ? T('styleLocked') : mounted ? T('styleMounted') : T('styleShared');
 
   return (
     <div className="ed">
       <header className="ed-top">
-        <Link href={`/jobs/${id}`} className="ed-back" aria-label={T('back')}><BackIcon /></Link>
+        <Link href={`/jobs/${id}`} className="ed-back" aria-label={T('back')} onClick={(e) => void toFlow(e)}><BackIcon /></Link>
         <div className="ed-title">
           <h1>{data?.title ?? T('editor')}</h1>
           <span className="ed-beta">{T('beta')}</span>
@@ -328,7 +611,14 @@ export default function Editor({ id }: { id: string }) {
             <button key={l} type="button" aria-pressed={lang === l} onClick={() => pickLang(l)}>{l.toUpperCase()}</button>
           ))}
         </div>
-        <Link href={`/jobs/${id}`} className="ed-primary" title={T('mountHint')}>{T('toFlow')}</Link>
+        {data?.screen === 'result' || data?.screen === 'working' ? (
+          <button type="button" className="ed-primary" onClick={() => void doMount()} disabled={!canMount || mount.state === 'busy'}
+            title={data.screen === 'working' ? T('working') : canMount ? T('mountResult') : T('nothingToMount')}>
+            {mount.state === 'busy' ? T('mounting') : T('mount')}
+          </button>
+        ) : (
+          <Link href={`/jobs/${id}`} className="ed-primary" title={T('mountHint')} onClick={(e) => void toFlow(e)}>{T('toFlow')}</Link>
+        )}
       </header>
 
       <div className="ed-main">
@@ -353,11 +643,18 @@ export default function Editor({ id }: { id: string }) {
         </section>
 
         <aside className="ed-side">
+          {data?.screen === 'working' ? <p className="ed-note ed-flag">{mount.state === 'started' ? T('mountStarted') : T('working')}</p> : null}
+          {mount.state === 'error' ? <p className="ed-note ed-flag bad" role="alert">{T('mountFailed', { e: mount.error ?? '' })}</p> : null}
+          {tracks ? (
+            <Inspector T={T} sel={sel} tracks={tracks} hand={hand} mix={mix} editable={editable} splitHere={splitHere}
+              onSplit={doSplit} onDelete={doDelete} onEdit={edit} sec={sec} />
+          ) : null}
+          {hint ? <p className="ed-note ed-flag bad" role="status">{hint}</p> : null}
           {styles && choice ? (
-            <StylePanel T={T} styles={styles} choice={choice} spec={spec} offered={offered} locked={mounted} onPick={pick} />
+            <StylePanel T={T} styles={styles} choice={choice} spec={spec} offered={offered} locked={styleLocked} note={styleNote} onPick={pick} />
           ) : null}
           <h2>{T('draft')}</h2>
-          <p className="ed-note">{T('readOnly')}</p>
+          {tracks && editable ? <p className="ed-note">{T('editHint')}</p> : null}
           {tracks ? (
             <dl className="ed-facts">
               <dt>{T('duration', { s: '' }).trim()}</dt><dd className="mono">{tenths(duration)}</dd>
@@ -367,7 +664,7 @@ export default function Editor({ id }: { id: string }) {
               <dt>{T('subtitles')}</dt><dd className="mono">{tracks.subtitles.length}</dd>
             </dl>
           ) : null}
-          <p className="ed-note">{T('mountHint')}</p>
+          {data?.screen !== 'result' && data?.screen !== 'working' ? <p className="ed-note">{T('mountHint')}</p> : null}
           {spec ? <p className="ed-note faint">{T('previewNote')}</p> : null}
         </aside>
       </div>
@@ -377,6 +674,21 @@ export default function Editor({ id }: { id: string }) {
           <button type="button" className="ed-play" onClick={() => (playing ? pause() : void play())} disabled={!data?.proxyUrl || !tracks}
             aria-label={playing ? T('pause') : T('play')}>{playing ? <PauseIcon /> : <PlayIcon />}</button>
           <span className="mono ed-clock"><span ref={clock}>{tenths(t)}</span> / {tenths(duration)}</span>
+          <span className="ed-sep" />
+          <button type="button" className="ed-icon" aria-label={T('undo')} title={T('undoT')} onClick={doUndo} disabled={!editable || !hist.past.length}><UndoIcon /></button>
+          <button type="button" className="ed-icon" aria-label={T('redo')} title={T('redoT')} onClick={doRedo} disabled={!editable || !hist.future.length}><RedoIcon /></button>
+          <button type="button" className="ed-tool" aria-label={T('split')} title={T('splitT')} onClick={doSplit} disabled={!editable || splitSrc === null}>
+            <ScissorsIcon /><span>{T('split')}</span>
+          </button>
+          <button type="button" className="ed-tool" aria-label={T('delete')} title={T('deleteT')} onClick={doDelete}
+            disabled={!editable || !selPiece || selPiece.kind !== 'piece'}>
+            <TrashIcon /><span>{T('delete')}</span>
+          </button>
+          <span className="ed-save" data-state={save.state} role="status">
+            {saveText}
+            {save.state === 'error' ? <button type="button" onClick={() => void flush()}>{T('retry')}</button> : null}
+            {save.state === 'conflict' ? <button type="button" onClick={() => void reloadEdits()}>{T('reloadEdits')}</button> : null}
+          </span>
           <span className="ed-grow" />
           <button type="button" className="ed-icon" aria-label={T('zoomOut')} onClick={() => setPps(px / ZOOM)} disabled={px <= Math.min(fitPps, 4) + 1e-6}>−</button>
           <button type="button" className="ed-icon" aria-label={T('zoomIn')} onClick={() => setPps(px * ZOOM)} disabled={px >= maxPps - 1e-6}>+</button>
@@ -390,25 +702,69 @@ export default function Editor({ id }: { id: string }) {
                 ))}
               </div>
               <Row name={T('video')} cls="video" width={width} onSeek={onLanes}>
-                {tracks.video.map((c, i) => (
-                  <div key={i} className={`ed-clip ed-piece${c.kind === 'teaser' ? ' teaser' : ''}`} style={{ left: X(c.t0), width: Math.max(2, X(c.t1 - c.t0)) }}
-                    title={`${c.kind === 'teaser' ? T('teaser') : T('piece')} · ${tenths(c.src0 as number)}–${tenths(c.src1 as number)}`}>
-                    <div className="ed-thumbs">{thumbs(c)}</div>
-                    {c.kind === 'teaser' ? <span className="ed-tag">{T('teaser')}</span> : null}
-                  </div>
-                ))}
+                {tracks.video.map((c, i) => {
+                  const picked = sel?.kind === 'piece' && sel.index === i;
+                  return (
+                    <div key={`${c.src0}-${c.src1}`} className={`ed-clip ed-piece${c.kind === 'teaser' ? ' teaser' : ''}${picked ? ' sel' : ''}`}
+                      style={{ left: X(c.t0), width: Math.max(2, X(c.t1 - c.t0)) }} onClick={() => setSel({ kind: 'piece', index: i })}
+                      title={`${c.kind === 'teaser' ? T('teaser') : T('piece')} · ${tenths(c.src0 as number)}–${tenths(c.src1 as number)}`}>
+                      <div className="ed-thumbs">{thumbs(c)}</div>
+                      {c.kind === 'teaser' ? <span className="ed-tag">{T('teaser')}</span> : null}
+                      {editable && c.kind === 'piece' && c.edgeStart ? (
+                        <span className="ed-handle start" aria-hidden="true" onPointerDown={(e) => grab(e, { kind: 'trim', index: i, side: 'start', x0: e.clientX, to: c.src0 as number })} {...dragProps} />
+                      ) : null}
+                      {editable && c.kind === 'piece' && c.edgeEnd ? (
+                        <span className="ed-handle end" aria-hidden="true" onPointerDown={(e) => grab(e, { kind: 'trim', index: i, side: 'end', x0: e.clientX, to: c.src1 as number })} {...dragProps} />
+                      ) : null}
+                    </div>
+                  );
+                })}
                 {tracks.looks.map((c, i) => <div key={`l${i}`} className="ed-look" style={{ left: X(c.t0), width: Math.max(2, X(c.t1 - c.t0)) }} title={T('bw')} />)}
                 {tracks.cuts.map((c, i) => (
-                  <span key={`c${i}`} className="ed-cut" style={{ left: X(c.at) }} title={T('cutPart', { s: sec(c.src1 - c.src0) })} />
+                  <span key={`c${i}`} className="ed-cut" style={{ left: X(c.at) }} title={T('cutPart', { s: sec(c.src1 - c.src0) })}>
+                    {editable ? (
+                      <button type="button" className="ed-restore" aria-label={T('restoreT', { s: sec(c.src1 - c.src0) })} title={T('restoreT', { s: sec(c.src1 - c.src0) })}
+                        onPointerDown={(e) => e.stopPropagation()} onClick={() => doRestore(c)}><PlusIcon size={12} /></button>
+                    ) : null}
+                  </span>
                 ))}
+                {ghost !== null ? <span className="ed-ghost" style={{ left: X(ghost) }} /> : null}
               </Row>
-              <Row name={T('voice')} cls="voice" width={width} onSeek={onLanes}>
+              <Row name={T('voice')} cls={`voice${voiceMuted ? ' muted' : ''}${sel?.kind === 'voice' ? ' sel' : ''}`} width={width}
+                onSeek={(e) => { setSel({ kind: 'voice' }); onLanes(e); }}
+                tool={<MuteButton T={T} what={T('voice')} on={voiceMuted} disabled={!editable} onToggle={() => edit(setVoice(hand, { muted: !voiceMuted }))} />}>
                 <canvas ref={wave} className="ed-wave" aria-hidden="true" />
               </Row>
-              <Row name={T('music')} cls="music" width={width} onSeek={onLanes}>
-                {tracks.music ? clip({ t0: 0, t1: duration, kind: 'music', label: '' }, 'music', `${tracks.music.label} · ${tracks.music.gainDb} dB`, 'm')
-                  : <span className="ed-empty">{T('noMusic')}</span>}
+              <Row name={T('music')} cls={`music${mix?.muted ? ' muted' : ''}`} width={width} onSeek={onLanes}
+                tool={mix ? <MuteButton T={T} what={T('music')} on={mix.muted} disabled={!editable} onToggle={() => edit(setMusic(hand, { muted: !mix.muted }))} /> : null}>
+                {tracks.music && mix ? (
+                  <div className={`ed-clip music${sel?.kind === 'music' ? ' sel' : ''}${drag?.kind === 'music' ? ' dragging' : ''}`}
+                    style={{ left: X(musicAt), width: Math.max(2, X(duration - musicAt)) }}
+                    title={`${tracks.music.label} · ${mix.gainDb} dB`}
+                    onPointerDown={(e) => (editable ? grab(e, { kind: 'music', mode: 'move', x0: e.clientX, at0: mix.at, from0: mix.from, at: mix.at, from: mix.from, moved: false })
+                      : setSel({ kind: 'music' }))} {...dragProps}>
+                    {editable ? (
+                      <span className="ed-handle start" aria-hidden="true" {...dragProps}
+                        onPointerDown={(e) => grab(e, { kind: 'music', mode: 'trim', x0: e.clientX, at0: mix.at, from0: mix.from, at: mix.at, from: mix.from, moved: false })} />
+                    ) : null}
+                    <span>{`${tracks.music.label} · ${mix.gainDb} dB`}</span>
+                  </div>
+                ) : <span className="ed-empty">{T('noMusic')}</span>}
               </Row>
+              {tracks.sounds.length ? (
+                <Row name={T('sounds')} cls="snd" width={width} onSeek={onLanes}>
+                  {tracks.sounds.map((c) => {
+                    const muted = Boolean(c.key && hand.sounds?.[c.key]?.muted);
+                    return (
+                      <div key={c.key} className={`ed-clip snd${muted ? ' muted' : ''}${sel?.kind === 'sound' && sel.key === c.key ? ' sel' : ''}`}
+                        style={{ left: X(c.t0), width: Math.max(14, X(c.t1 - c.t0)) }} title={`${c.label} · ${tenths(c.t0)}`}
+                        onClick={() => c.key && setSel({ kind: 'sound', key: c.key })}>
+                        <span>{c.label}</span>
+                      </div>
+                    );
+                  })}
+                </Row>
+              ) : null}
               <Row name={T('subtitles')} cls="sub" width={width} onSeek={onLanes}>
                 {tracks.subtitles.map((c, i) => clip(c, 'sub', c.label, i))}
               </Row>
@@ -427,75 +783,23 @@ export default function Editor({ id }: { id: string }) {
   );
 }
 
-function Row({ name, cls, width, onSeek, children }: { name: string; cls: string; width: number; onSeek: (e: React.PointerEvent<HTMLDivElement>) => void; children: React.ReactNode }) {
+function Row({ name, cls, width, onSeek, tool, children }: {
+  name: string; cls: string; width: number; onSeek: (e: React.PointerEvent<HTMLDivElement>) => void; tool?: React.ReactNode; children: React.ReactNode;
+}) {
   return (
     <div className={`ed-row ${cls}`}>
-      <div className="ed-head">{name}</div>
+      <div className="ed-head"><span>{name}</span>{tool}</div>
       <div className="ed-lane" style={{ width }} onPointerDown={onSeek}>{children}</div>
     </div>
   );
 }
 
-type Styles = NonNullable<EditorData['styles']>;
-type Spec = ReturnType<typeof finalStyle>;
-type ColorKey = keyof StyleChoice['colors'];
-const COLOR_ROWS: [ColorKey, Key][] = [['accent', 'accentColor'], ['text', 'textColor'], ['bar', 'barColor']];
-
-/** Стиль ролика: вариант, шрифты, три цвета и затемнение под субтитрами — как на экране «Превью», в светлой теме. */
-function StylePanel({ T, styles, choice, spec, offered, locked, onPick }: {
-  T: (k: Key, v?: Record<string, string | number>) => string; styles: Styles; choice: StyleChoice; spec: Spec | null;
-  offered: { id: string; family: string; kind: 'main' | 'hand' }[]; locked: boolean; onPick: (c: StyleChoice) => void;
+function MuteButton({ T, what, on, disabled, onToggle }: {
+  T: (k: Key, v?: Record<string, string | number>) => string; what: string; on: boolean; disabled: boolean; onToggle: () => void;
 }) {
-  // другой вариант — его шрифты и цвета; места, размеры и затемнение, что Павел выбрал сам, остаются (как на «Превью»)
-  const pickVariant = (variant: StyleChoice['variant']) => onPick({
-    ...choiceFor(styles, variant),
-    ...Object.fromEntries(ADJUSTABLE.filter((k) => choice[k] !== undefined).map((k) => [k, choice[k]])),
-  });
-  const pickColor = (key: ColorKey, color: string) => onPick({ ...choice, colors: { ...choice.colors, [key]: color.toUpperCase() } });
-  const shade = Math.round((spec?.subtitles.shade ?? 0) * 100);
-  const fontButtons = (kind: 'main' | 'hand') => offered.filter((f) => f.kind === kind).map((f) => (
-    <button key={f.id} type="button" className={`ed-font${kind === 'hand' ? ' hand' : ''}`} aria-pressed={(kind === 'hand' ? choice.hand : choice.font) === f.id}
-      disabled={locked} style={{ fontFamily: `"pv-${f.id}", var(--font-ui)` }} onClick={() => onPick({ ...choice, [kind === 'hand' ? 'hand' : 'font']: f.id })}>
-      {f.family}
-    </button>
-  ));
   return (
-    <section className="ed-style" aria-label={T('style')}>
-      <h2>{T('style')}</h2>
-      <p className="ed-note faint">{locked ? T('styleLocked') : T('styleShared')}</p>
-      <div className="ed-variants" role="group" aria-label={T('style')}>
-        {styles.variants.map((v) => (
-          <button key={v.id} type="button" aria-pressed={choice.variant === v.id} disabled={locked} onClick={() => pickVariant(v.id)}>
-            <b>{v.id}</b> {v.label}
-          </button>
-        ))}
-      </div>
-      <h3>{T('font')}</h3>
-      <div className="ed-fonts">{fontButtons('main')}</div>
-      <h3>{T('hand')}</h3>
-      <div className="ed-fonts">{fontButtons('hand')}</div>
-      <h3>{T('colors')}</h3>
-      {COLOR_ROWS.map(([key, label]) => (
-        <div key={key} className="ed-colors" role="group" aria-label={T(label)}>
-          <span className="ed-colors-name">{T(label)}</span>
-          {SWATCHES[key].map((sw) => (
-            <button key={sw.color} type="button" className="ed-swatch" aria-label={sw.name} aria-pressed={choice.colors[key] === sw.color} disabled={locked}
-              onClick={() => pickColor(key, sw.color)}>
-              <span style={{ background: sw.color }} />
-            </button>
-          ))}
-          <label className="ed-own">
-            <input type="color" aria-label={`${T(label)}: ${T('own')}`} value={choice.colors[key].toLowerCase()} disabled={locked}
-              onChange={(e) => pickColor(key, e.target.value)} />
-          </label>
-        </div>
-      ))}
-      <h3>{T('shade')}</h3>
-      <div className="ed-shade">
-        <input type="range" aria-label={T('shade')} min={0} max={Math.round(SUB_SHADE.max * 100)} step={5} value={shade} disabled={locked}
-          onChange={(e) => onPick({ ...choice, subShade: clampTo('subShade', Number(e.target.value) / 100) })} />
-        <span className="mono">{shade ? `${shade} %` : T('shadeOff')}</span>
-      </div>
-    </section>
+    <button type="button" className="ed-mute" aria-pressed={on} aria-label={T('muteT', { what })} title={T('muteT', { what })} disabled={disabled} onClick={onToggle}>
+      <SpeakerIcon off={on} />
+    </button>
   );
 }

@@ -48,6 +48,14 @@ def test_muted_music_is_no_music_and_without_music_there_is_nothing_to_adjust():
     assert edits.apply({**EDIT, "music": None}, {"rev": 1, "edits": [], "music": {"gainDb": -8}}, 5)["music"] is None
 
 
+def test_edits_that_cut_the_whole_video_are_named_not_rendered_empty():
+    """Страница не даёт вырезать последний кусок, но timeline.json мог прийти и не от неё: пустой ролик — понятная
+    ошибка про правки, а не сбой рендера."""
+    edit = {"speed": 1.0, "keep": [[0.0, 2.0], [3.0, 4.0]], "music": None}
+    with pytest.raises(ValueError, match="вырезают весь ролик"):
+        edits.apply(edit, {"rev": 1, "edits": [{"op": "cut", "t0": 0, "t1": 5}]}, 5.0)
+
+
 def test_no_timeline_is_the_session_edit_as_is():
     assert edits.apply(EDIT, None, 5) is EDIT
 

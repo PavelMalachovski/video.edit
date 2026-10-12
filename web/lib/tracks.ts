@@ -1,7 +1,8 @@
 // Дорожки редактора (бета) по черновику монтажа: edit.json сессии (времена — по исходнику) → куски видео, вырезанное,
-// субтитры, тексты, вставки, ч/б, музыка и переходы во времени финала (Timeline — как у движка). Только показ: правки
-// на дорожках — следующая фаза. И файлы редактора от vm prepare (editor.json): прокси, лента кадров, волна.
-import { SLIVER } from './edits.ts';
+// субтитры, тексты, вставки, ч/б, музыка и переходы во времени финала (Timeline — как у движка); правки Павла руками
+// (timeline.json) — поверх черновика, как их положит движок. И файлы редактора от vm prepare (editor.json): прокси,
+// лента кадров, волна.
+import { applyKeep, SLIVER, type HandEdits } from './edits.ts';
 import { Timeline } from './timeline.ts';
 
 type Span = { t0: number; t1: number };
@@ -226,3 +227,28 @@ export function draftTracks(d: Draft, { perGroup = 3, sourceDuration, splits = [
     music: d.music ? { label: stem(d.music.file), gainDb: d.music.gainDb, ...Object.fromEntries(MUSIC_PLACE.filter((k) => d.music?.[k] !== undefined).map((k) => [k, d.music?.[k]])) } : null,
   };
 }
+
+// ---------- правки руками ----------
+
+/** Черновик с правками Павла (timeline.json): куски — как их вырежет движок (applyKeep — apply_keep), музыка — с его
+ *  местом и громкостью («без звука» дорожка показывает отдельно); `splits` — его разрезы для draftTracks. Правок нет —
+ *  тот же черновик. */
+export function withHandEdits(d: Draft, h: HandEdits, sourceDuration?: number): { draft: Draft; splits: number[] } {
+  const splits = h.edits.flatMap((e) => (e.op === 'split' ? [e.t] : []));
+  const keep = h.edits.length ? applyKeep(d.keep, h.edits, sourceDuration) : d.keep;
+  const { muted: _muted, ...place } = h.music ?? {};
+  const music = d.music && h.music ? { ...d.music, ...place } : d.music;
+  return { draft: keep === d.keep && music === d.music ? d : { ...d, keep, music }, splits };
+}
+
+/** Где разрезать по плейхеду `at` (время финала): момент исходника внутри куска (не у самого края); в тизере, у края
+ *  или мимо кусков — null. */
+export function splitTarget(t: Tracks, at: number): number | null {
+  const c = t.video.find((x) => x.kind === 'piece' && at > x.t0 && at < x.t1);
+  if (!c || c.src0 === undefined || c.src1 === undefined) return null;
+  const src = c.src0 + ((at - c.t0) * (c.src1 - c.src0)) / (c.t1 - c.t0);
+  return src > c.src0 + SLIVER && src < c.src1 - SLIVER ? src : null;
+}
+
+/** Границы слов (с исходника) по порядку — к ним липнут края кусков. */
+export const wordEdges = (d: Draft): number[] => [...new Set(d.words.flatMap((w) => [w.t0, w.t1]))].sort((a, b) => a - b);

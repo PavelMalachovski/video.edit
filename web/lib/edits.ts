@@ -141,11 +141,15 @@ export function snapTo(t: number, edges: readonly number[], within: number): num
 
 // ---------- отмена и повтор ----------
 
-export type History = { past: HandEdits[]; present: HandEdits; future: HandEdits[] };
+/** `key` — чем сделана последняя правка: шаги одного ползунка подряд — одна правка для отмены. */
+export type History = { past: HandEdits[]; present: HandEdits; future: HandEdits[]; key?: string };
 const DEPTH = 200;
 export const initHistory = (present: HandEdits): History => ({ past: [], present, future: [] });
-export const commit = (h: History, next: HandEdits): History =>
-  (next === h.present ? h : { past: [...h.past, h.present].slice(-DEPTH), present: next, future: [] });
+export function commit(h: History, next: HandEdits, key?: string): History {
+  if (next === h.present) return h;
+  if (key !== undefined && key === h.key) return { ...h, present: next, future: [] };
+  return { past: [...h.past, h.present].slice(-DEPTH), present: next, future: [], key };
+}
 export const undo = (h: History): History => {
   const prev = h.past.at(-1);
   return prev ? { past: h.past.slice(0, -1), present: prev, future: [h.present, ...h.future] } : h;

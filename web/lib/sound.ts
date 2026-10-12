@@ -107,8 +107,8 @@ export type SoundAt = { key: string; t0: number; file: string };
 
 /** Что запустить с момента ролика `t`: звуки впереди — через `when` с, тот, что ещё звучит, — с середины (`offset`),
  *  «без звука» — никогда. `lengthOf(file)` — длина файла, с. */
-export function soundPlan(sounds: readonly SoundAt[], levels: Record<string, Level>, t: number, lengthOf: (file: string) => number):
-  (SoundAt & { when: number; offset: number })[] {
+export function soundPlan<S extends SoundAt>(sounds: readonly S[], levels: Record<string, Level>, t: number, lengthOf: (file: string) => number):
+  (S & { when: number; offset: number })[] {
   return sounds.flatMap((s) => {
     if (levels[s.key]?.muted) return [];
     if (s.t0 >= t) return [{ ...s, when: s.t0 - t, offset: 0 }];

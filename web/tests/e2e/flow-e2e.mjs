@@ -65,6 +65,17 @@ async function until(fn, ms, what) {
 
 const sha256 = (b) => crypto.createHash('sha256').update(b).digest('hex');
 
+/** WAV: синус `hz` Гц, `seconds` с, моно 16 бит — музыка для прослушивания в редакторе (без ffmpeg). */
+function wav(seconds, hz, rate = 8000) {
+  const n = Math.round(seconds * rate);
+  const b = Buffer.alloc(44 + n * 2);
+  b.write('RIFF', 0); b.writeUInt32LE(36 + n * 2, 4); b.write('WAVE', 8); b.write('fmt ', 12); b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20);
+  b.writeUInt16LE(1, 22); b.writeUInt32LE(rate, 24); b.writeUInt32LE(rate * 2, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34);
+  b.write('data', 36); b.writeUInt32LE(n * 2, 40);
+  for (let i = 0; i < n; i++) b.writeInt16LE(Math.round(6000 * Math.sin((2 * Math.PI * hz * i) / rate)), 44 + i * 2);
+  return b;
+}
+
 /** Файл задачи проходит схему движка (vm.job.validate) — страница и сессия говорят на одном языке. */
 function engineValidate(name, data) {
   execFileSync('python3', ['-c', 'import json, sys\nfrom vm.job import validate\nvalidate(sys.argv[1], json.load(sys.stdin))', name], {
@@ -766,7 +777,7 @@ const segments = [
       words: [{ t0: 0.3, t1: 0.6, text: 'Привет,' }, { t0: 0.7, t1: 0.9, text: 'это' }, { t0: 1.0, t1: 1.15, text: 'мой' },
         { t0: 1.7, t1: 2.0, text: 'новый' }, { t0: 2.1, t1: 2.6, text: 'ролик' }],
       hook: { text: 'Как я снимаю', until: 1.0 }, cta: null, inserts: [], zooms: [], face: { x: 0.5, y: 0.4 },
-      music: { file: 'assets/music/lofi.mp3', gainDb: -14 }, hold: 0, style: FIXTURE.expected,
+      music: { file: 'assets/music/lofi.wav', gainDb: -14 }, hold: 0, style: FIXTURE.expected,
     };
     engineValidate('edit.json', edit);
     const media = {
@@ -775,6 +786,9 @@ const segments = [
     };
     engineValidate('editor.json', media);
     const released = JSON.parse((await branchFile(ctx, 'out/released.json')) ?? '{}');
+    const WAV = wav(4, 220);
+    await fakeJson('/__commit', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ branch: `claude/job-${ctx.jobId}`, files: { 'assets/music/lofi.wav': { base64: WAV.toString('base64') } }, message: 'music' }) });
     await session(ctx, { 'edit.json': edit, 'editor.json': media, 'film.jpg': PNG,
       'out/released.json': { ...released, assets: [...released.assets, { name: 'proxy.mp4', id: proxy.id, size: proxy.size }] } });
 
@@ -790,11 +804,13 @@ const segments = [
     check((await page.locator('.ed-clip.music').textContent()).includes('lofi'), 'музыка на своей дорожке');
     const bg = await page.locator('.ed').evaluate((el) => getComputedStyle(el).backgroundColor);
     check(bg === 'rgb(243, 244, 241)', `светлая тема редактора: ${bg}`);
-    // ролик смонтирован: панель стиля показывает его стиль и не меняет (новый — при монтаже из редактора)
+    // ролик смонтирован: панель стиля — от его стиля; поменять можно, новый войдёт в ролик при «Монтировать»
     const panel = page.locator('.ed-style');
-    check((await panel.textContent()).includes('уже смонтирован'), 'подсказка: стиль — ролика');
+    check((await panel.textContent()).includes('Ролик смонтирован в этом стиле'), 'подсказка: стиль — ролика');
     check(await panel.getByRole('button', { name: /^B / }).getAttribute('aria-pressed') === 'true', 'выбран вариант ролика (B)');
-    check(await panel.getByRole('button', { name: /^A / }).isDisabled(), 'после монтажа стиль не меняется');
+    check(!(await panel.getByRole('button', { name: /^A / }).isDisabled()), 'после монтажа стиль можно поменять');
+    const mountBtn = page.getByRole('button', { name: 'Монтировать', exact: true });
+    check(await mountBtn.isDisabled(), 'правок нет — монтировать нечего');
     // язык
     await page.getByRole('button', { name: 'EN', exact: true }).click();
     await page.locator('.ed-head', { hasText: 'Subtitles' }).waitFor();
@@ -820,12 +836,78 @@ const segments = [
       await page.getByRole('button', { name: 'Пауза' }).click();
     }
     await shot(page, 'editor-phone');
+
+    // ---------- правки руками (фаза 3) — на компьютере ----------
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.locator('.ed-side').waitFor();
+    // музыка для прослушивания — через страницу, из assets/ ветки; выше папки задачи — нет
+    const music = await page.request.get(`${APP}/api/jobs/${ctx.jobId}/audio?path=${encodeURIComponent('assets/music/lofi.wav')}`);
+    check(music.status() === 200 && music.headers()['content-type'] === 'audio/wav', `звук для редактора: ${music.status()} ${music.headers()['content-type']}`);
+    check(Buffer.from(await music.body()).equals(WAV), 'звук для редактора не тот');
+    const outside = await page.request.get(`${APP}/api/jobs/${ctx.jobId}/audio?path=${encodeURIComponent('../../engine/vm/audio.py')}`);
+    check(outside.status() === 400, `чужой файл как звук: ${outside.status()}`);
+
+    const pieces = page.locator('.ed-piece');
+    const bar = page.locator('.ed-bar');
+    // удалить второй кусок и отменить
+    await pieces.nth(1).click();
+    await page.locator('.ed-insp').getByText('Исходник 0:01.6–0:02.9').waitFor({ timeout: 3000 });
+    await bar.getByRole('button', { name: 'Удалить' }).click();
+    await until(async () => (await pieces.count()) === 1, 3000, 'кусок удалён');
+    await bar.getByRole('button', { name: 'Отменить' }).click();
+    await until(async () => (await pieces.count()) === 2, 3000, 'отмена вернула кусок');
+    // S — разрезать первый кусок по плейхеду
+    const first = await pieces.nth(0).boundingBox();
+    await page.mouse.click(first.x + first.width / 2, first.y + first.height / 2);
+    await page.keyboard.press('s');
+    await until(async () => (await pieces.count()) === 3, 3000, 'S разрезал кусок по плейхеду');
+    // «＋» на стыке — вернуть вырезанное между кусками: куски сливаются, разрез Павла остаётся
+    await page.getByRole('button', { name: 'Вырезано 0,4 с — вернуть' }).click();
+    await until(async () => (await page.locator('.ed-cut').count()) === 2, 3000, 'вырезанное между кусками вернулось');
+    check(await pieces.count() === 2, 'кусок с разрезом — две части');
+    // конец последнего куска — левее, почти до конца слова «ролик» (2,6 с исходника): липнет к нему (ближе 8 px)
+    const last = pieces.nth(1);
+    const span = /(\d+):(\d+\.\d)–(\d+):(\d+\.\d)/.exec((await last.getAttribute('title')) ?? '');
+    const [s0, s1] = [Number(span[1]) * 60 + Number(span[2]), Number(span[3]) * 60 + Number(span[4])];
+    const lb = await last.boundingBox();
+    const perSrc = lb.width / (s1 - s0);
+    const fromX = lb.x + lb.width - 4;
+    const grabY = lb.y + lb.height / 4; // ручка края — в верхней части куска (внизу — «＋» на стыке)
+    await page.mouse.move(fromX, grabY);
+    await page.mouse.down();
+    await page.mouse.move(fromX - 0.295 * perSrc, grabY, { steps: 6 });
+    await page.mouse.up();
+    await until(async () => ((await page.locator('.ed-cut').last().getAttribute('title')) ?? '').includes('0,4 с'), 3000, 'конец куска прилип к слову');
+    // звук: музыка без звука, голос тише, свой стиль
+    await page.getByRole('button', { name: 'Музыка: без звука' }).click();
+    check(await page.getByRole('button', { name: 'Музыка: без звука' }).getAttribute('aria-pressed') === 'true', 'музыка без звука');
+    await page.locator('.ed-row.voice .ed-lane').click({ position: { x: 5, y: 10 } });
+    await page.getByLabel('Голос: Громкость').fill('-6');
+    await panel.getByRole('button', { name: /^A / }).click();
+    await page.locator('.ed-save').getByText('Сохранено').waitFor({ timeout: 8000 });
+    const tl = JSON.parse((await branchFile(ctx, 'timeline.json')) ?? '{}');
+    engineValidate('timeline.json', tl);
+    check(tl.rev >= 1 && tl.music?.muted === true && tl.voice?.gainDb === -6, `timeline.json: ${JSON.stringify(tl)}`);
+    check(isDeepStrictEqual(tl.edits.map((e) => e.op), ['split', 'restore', 'cut']), `правки по порядку: ${JSON.stringify(tl.edits)}`);
+    // движок вырежет так же, как показал редактор
+    const keep = JSON.parse(execFileSync('python3', ['-c', 'import json, sys\nfrom vm.edits import apply_keep\nd = json.load(sys.stdin)\nprint(json.dumps(apply_keep(d["keep"], d["edits"], d["duration"])))'], {
+      input: JSON.stringify({ keep: edit.keep, edits: tl.edits, duration: media.duration }), env: { ...process.env, PYTHONPATH: path.resolve('../engine') },
+    }).toString());
+    check(isDeepStrictEqual(keep, [[0.2, 2.6]]), `куски у движка: ${JSON.stringify(keep)}`);
     await shot(page, 'editor');
+
+    // «Монтировать» — новая версия: правка с ревизией правок и новым стилем
+    check(!(await mountBtn.isDisabled()), 'есть правки — «Монтировать» включена');
+    await mountBtn.click();
+    await until(async () => (await fires()).filter((f) => f.step === 'fix').length === 3, 10_000, 'монтаж из редактора запущен');
+    const editorFix = JSON.parse((await branchFile(ctx, 'fix.json')) ?? '{}').fixes.at(-1);
+    check(editorFix.text === 'Правки в редакторе' && editorFix.version === 3 && editorFix.timeline === tl.rev && editorFix.style === true,
+      `правка из редактора: ${JSON.stringify(editorFix)}`);
+    check(JSON.parse((await branchFile(ctx, 'answers.json')) ?? '{}').style?.variant === 'A', 'новый стиль — в answers.json');
+    await page.getByText('Claude монтирует новую версию').waitFor({ timeout: 7000 });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByRole('link', { name: 'К задаче' }).click();
-    await page.getByText('Что я сделал').waitFor({ timeout: 7000 });
+    await page.getByText('Предыдущая версия').waitFor({ timeout: 7000 });
   }],
 
   ['script', async (ctx) => {

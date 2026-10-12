@@ -49,3 +49,12 @@ export const MoveIcon = ({ size = 20 }: P) => <Stroke size={size}><path d="M12 3
 export const GaugeIcon = ({ size = 20 }: P) => <Stroke size={size}><path d="M4 17a8 8 0 1 1 16 0" /><path d="M12 17l4-5" /></Stroke>;
 export const FrameIcon = ({ size = 20 }: P) => <Stroke size={size}><rect x="5" y="3" width="14" height="18" rx="2" /><path d="M9 11h6" /><path d="M9 15h6" /></Stroke>;
 export const SplitIcon = ({ size = 20 }: P) => <Stroke size={size}><rect x="3" y="5" width="7" height="14" rx="1.5" /><rect x="14" y="5" width="7" height="14" rx="1.5" /></Stroke>;
+export const UndoIcon = ({ size = 18 }: P) => <Stroke size={size}><path d="M9 14L4 9l5-5" /><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" /></Stroke>;
+export const RedoIcon = ({ size = 18 }: P) => <Stroke size={size}><path d="M15 14l5-5-5-5" /><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13" /></Stroke>;
+/** Динамик: со звуком — волны, без звука — крестик. */
+export const SpeakerIcon = ({ size = 15, off = false }: P & { off?: boolean }) => (
+  <Stroke size={size}>
+    <path d="M11 5L6 9H3v6h3l5 4z" />
+    {off ? <><path d="M16 9l5 6" /><path d="M21 9l-5 6" /></> : <><path d="M15.5 8.5a5 5 0 0 1 0 7" /><path d="M18.5 5.5a9 9 0 0 1 0 13" /></>}
+  </Stroke>
+);

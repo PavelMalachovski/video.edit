@@ -88,3 +88,19 @@ test('history: undo and redo step through the edits; a new edit drops the redo',
   h = commit(h, splitAt(h.present, 3));
   assert.equal(redo(h), h, 'новая правка — повторять нечего');
 });
+
+test('history: a slider\'s steps under one key are one edit to undo; another control or an undo starts a new one', () => {
+  let h = initHistory(EMPTY);
+  h = commit(h, setVoice(h.present, { gainDb: -1 }), 'voice');
+  h = commit(h, setVoice(h.present, { gainDb: -2 }), 'voice');
+  h = commit(h, setVoice(h.present, { gainDb: -3 }), 'voice');
+  assert.equal(h.past.length, 1);
+  h = commit(h, setMusic(h.present, { gainDb: -20 }), 'music');
+  assert.equal(h.past.length, 2);
+  h = undo(h);
+  assert.deepEqual(h.present.voice, { gainDb: -3 });
+  h = commit(h, setVoice(h.present, { gainDb: -4 }), 'voice');
+  assert.equal(h.past.length, 2, 'после отмены — новая правка, а не продолжение старой');
+  h = undo(undo(h));
+  assert.equal(h.present, EMPTY);
+});

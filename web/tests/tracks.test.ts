@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { decodePeaks, draftTracks, parseDraft, parseMedia, peakAt, type Draft } from '../lib/tracks.ts';
+import { decodePeaks, draftTracks, parseDraft, parseMedia, peakAt, splitTarget, withHandEdits, wordEdges, type Draft } from '../lib/tracks.ts';
+import { cutSpan, EMPTY, setMusic, splitAt } from '../lib/edits.ts';
 import { overlayAt, subGroupSize } from '../lib/style.ts';
 import type { StyleSpec } from '../lib/jobfiles.ts';
 
@@ -149,4 +150,33 @@ test('the sounds track: each sound where the engine plays it, with its key', () 
 test('music on its track: from where it starts, with its place in the track', () => {
   const t = draftTracks({ ...DRAFT, music: { file: 'assets/music/Calm.mp3', gainDb: -14, at: 1.0, from: 12 } });
   assert.deepEqual(t.music, { label: 'Calm', gainDb: -14, at: 1.0, from: 12 });
+});
+
+// ---------- правки руками (фаза 3) ----------
+
+test('the draft with Pavel\'s hand edits: the pieces as the engine will cut them, his splits, the music where he put it', () => {
+  const h = setMusic(splitAt(cutSpan(EMPTY, 3.5, 4.2), 1.2), { at: 0.5, gainDb: -20, muted: true });
+  const { draft, splits } = withHandEdits(DRAFT, h, 6);
+  assert.deepEqual(draft.keep, [[0.5, 2], [3, 3.5], [4.2, 5]]);
+  assert.deepEqual(splits, [1.2]);
+  assert.deepEqual(draft.music, { file: 'assets/music/Calm Morning.mp3', gainDb: -20, at: 0.5 }, 'без звука — не место: дорожка его показывает отдельно');
+  const t = draftTracks(draft, { splits, sourceDuration: 6 });
+  assert.deepEqual(t.video.map((c) => [c.src0, c.src1]), [[0.5, 1.2], [1.2, 2], [3, 3.5], [4.2, 5]]);
+  assert.equal(withHandEdits(DRAFT, EMPTY).draft.keep, DRAFT.keep, 'правок нет — черновик как был');
+  assert.equal(withHandEdits({ ...DRAFT, music: null }, setMusic(EMPTY, { at: 2 })).draft.music, null);
+});
+
+test('split at the playhead: inside a piece (not at its very edge, not in the teaser) — the source moment, else null', () => {
+  const t = draftTracks({ ...DRAFT, teaser: { t0: 3.5, t1: 4.5 } });
+  const tl = 1 / 1.25;
+  assert.equal(splitTarget(t, 0.1), null, 'в тизере не режем');
+  const inPiece = splitTarget(t, tl + 0.4); // 0,4 с финала в первом куске → 0,5 с исходника от его начала
+  assert.ok(inPiece !== null && near(inPiece, 0.5 + 0.4 * 1.25), String(inPiece));
+  assert.equal(splitTarget(t, tl + 0.01), null, 'у самого края куска — нечего резать');
+  assert.equal(splitTarget(t, t.duration + 1), null);
+});
+
+test('word edges for snapping: every start and end, in order, once', () => {
+  assert.deepEqual(wordEdges({ ...DRAFT, words: [{ t0: 1, t1: 1.5, text: 'a' }, { t0: 0.2, t1: 0.6, text: 'b' }, { t0: 1.5, t1: 2, text: 'c' }] }),
+    [0.2, 0.6, 1, 1.5, 2]);
 });

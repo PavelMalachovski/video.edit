@@ -1,9 +1,9 @@
 // Данные редактора (бета): черновик монтажа (edit.json), файлы редактора от vm prepare (editor.json), ссылки на прокси
 // (ассет черновика релиза — через /media) и ленту кадров (картинка ветки — через /file), стили и выбор Павла. Правки
 // руками — timeline.json: сохранение с ревизией (без force, гонка вкладок — конфликт) и «Монтировать» из редактора.
-import { isDeepStrictEqual } from 'node:util';
 import { commitFiles } from './branch.ts';
 import { parseTimeline, type HandEdits, type TimelineFile } from './edits.ts';
+import { sameJson } from './equal.ts';
 import type { GH } from './github.ts';
 import { appendFix, parseStyle, type AnswersFile, type FixFile, type Released, type Styles } from './jobfiles.ts';
 import { jobBranch, jobDir } from './jobs.ts';
@@ -152,7 +152,7 @@ export function editorFix(body: unknown, ctx: { rev: number; answers: AnswersFil
     const parsed = parseStyle(style);
     if (typeof parsed === 'string') return { error: parsed, status: 400 };
     if (!ctx.answers) return { error: 'Стиль меняется у смонтированного ролика — сначала «Монтировать» на старом экране', status: 409 };
-    if (!isDeepStrictEqual(parsed, ctx.answers.style)) next = parsed;
+    if (!sameJson(parsed, ctx.answers.style)) next = parsed;
   }
   if (timeline === undefined && !next) return { error: 'Монтировать нечего: правок в редакторе нет', status: 400 };
   const pretty = (data: unknown) => `${JSON.stringify(data, null, 2)}\n`;

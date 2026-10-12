@@ -66,7 +66,10 @@ def apply(edit: dict, timeline: dict | None, duration: float | None = None) -> d
     """edit.json и правки timeline.json → edit для монтажа (edit.json сессии не меняется). Правок нет — тот же edit."""
     if not timeline or not isinstance(edit.get("keep"), list):  # кривой edit.json назовёт его схема, а не KeyError тут
         return edit
-    out = {**edit, "keep": apply_keep(edit["keep"], timeline.get("edits") or [], duration)}
+    keep = apply_keep(edit["keep"], timeline.get("edits") or [], duration)
+    if not keep:
+        raise ValueError("timeline.json: правки вырезают весь ролик — верните в редакторе хоть один кусок")
+    out = {**edit, "keep": keep}
     if timeline.get("voice"):
         out["voice"] = dict(timeline["voice"])
     music = timeline.get("music")

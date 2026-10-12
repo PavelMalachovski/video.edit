@@ -1,0 +1,135 @@
+# Проверки всего, что есть в репозитории: страница (тесты, типы, сквозной путь в браузере), шаблон слоя, движок
+# (быстрые тесты и ruff; медленные — с моделями распознавания, поставленными тем же setup/cloud-setup.sh, что и облако).
+# На каждый пуш, кроме веток задач claude/job-* (их пушат сессии монтажа), и вручную. Проверки пуша видны и в PR.
+name: ci
+on:
+  push:
+    branches-ignore: ['claude/job-*']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  PLAYWRIGHT_BROWSERS_PATH: /opt/pw-browsers
+  PW_VERSION: 1.56.1
+  PY_PACKAGES: sherpa-onnx soundfile numpy jsonschema fonttools pytest onnxruntime pillow ruff
+
+jobs:
+  web:
+    name: page — tests and types
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npx tsc --noEmit
+
+  template:
+    name: template — layer in Chromium
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: bash .github/scripts/ci-playwright.sh
+      - run: npm test
+        working-directory: template
+
+  engine:
+    name: engine — fast tests and ruff
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: ffmpeg, espeak-ng, Python packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg espeak-ng >/dev/null
+          python -m pip install -q $PY_PACKAGES
+          ffmpeg -hide_banner -version | head -1
+      - run: bash .github/scripts/ci-playwright.sh
+      - run: python -m pytest -q -m "not slow"
+        working-directory: engine
+      - run: ruff check .
+        working-directory: engine
+
+  engine-slow:
+    name: engine — slow tests with the speech models
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: ffmpeg, espeak-ng, Python packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg espeak-ng >/dev/null
+          python -m pip install -q $PY_PACKAGES
+      - run: bash .github/scripts/ci-playwright.sh
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/vm
+          key: vm-models-${{ hashFiles('setup/cloud-setup.sh') }}
+      - name: Models — setup/cloud-setup.sh, as in the cloud environment
+        run: |
+          bash setup/cloud-setup.sh | tee setup.log
+          grep -E '^[A-Z_]+=' setup.log >> "$GITHUB_ENV"
+      - run: python -m pytest -q -m slow
+        working-directory: engine
+
+  e2e:
+    name: page — end to end in Chromium
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: ffmpeg and the schema checker
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg >/dev/null
+          python -m pip install -q jsonschema
+      - run: bash .github/scripts/ci-playwright.sh
+      - run: npm ci
+        working-directory: web
+      - run: npm run e2e
+        working-directory: web
+        env:
+          E2E_SHOTS: ${{ runner.temp }}/e2e-shots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-screens
+          path: ${{ runner.temp }}/e2e-shots
+          if-no-files-found: ignore

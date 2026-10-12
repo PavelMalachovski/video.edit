@@ -179,7 +179,8 @@ def frame_matte(source: Path, t: float, out: Path, predict: Predict | None = Non
         mask, state = predict(rgb, state)
     if mask is None:
         raise RuntimeError(f"нет кадра {t:g} с в {source}")
-    from PIL import Image  # noqa: I001 — только для картинки маски: остальным командам vm Pillow не нужен
+    # Pillow — только для картинки маски: остальным командам vm он не нужен
+    from PIL import Image
 
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)

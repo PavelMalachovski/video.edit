@@ -35,10 +35,10 @@ button { cursor: pointer; }
 .top { grid-area: top; display: flex; align-items: center; gap: 10px; padding-inline: 16px 12px; background: var(--surface); border-bottom: 1px solid var(--line); min-width: 0; }
 .brand { display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: 15px; letter-spacing: -.01em; flex: none; }
 .brand-mark { width: 30px; height: 30px; border-radius: 9px; background: var(--ink); display: grid; place-items: center; }
-.crumb { display: flex; align-items: center; gap: 4px; min-width: 0; flex: 1; }
+.crumb { display: flex; align-items: center; gap: 4px; min-width: 0; flex: 1; overflow: hidden; padding: 2px; }
 .back { height: 36px; padding: 0 10px 0 6px; border: none; border-radius: 8px; background: transparent; display: flex; align-items: center; gap: 2px; color: var(--muted); font-weight: 500; flex: none; }
 .back:hover { background: var(--sunk); color: var(--ink); }
-.title-input { border: 1px solid transparent; background: transparent; border-radius: 8px; padding: 6px 8px; font-weight: 600; font-size: 15px; min-width: 0; width: 100%; max-width: 340px; text-overflow: ellipsis; }
+.title-input { border: 1px solid transparent; background: transparent; border-radius: 8px; padding: 6px 8px; font-weight: 600; font-size: 15px; min-width: 56px; width: 100%; max-width: 340px; text-overflow: ellipsis; }
 .title-input:hover { border-color: var(--line); }
 .title-input:focus { border-color: var(--select); outline: none; background: var(--surface); }
 .save { font-size: 12px; color: var(--muted); white-space: nowrap; display: flex; align-items: center; gap: 6px; flex: none; }
@@ -161,11 +161,10 @@ input[type="color"]::-moz-color-swatch { border: none; border-radius: 50%; }
 .bar { position: absolute; left: 0; bottom: 0; height: 1.1cqw; min-height: 3px; }
 
 /* ── таймлайн ── */
-.tl { grid-area: tl; background: var(--surface); border-top: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; height: 366px; }
-.tl-bar { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-bottom: 1px solid var(--line); min-width: 0; }
-.tl-bar .left, .tl-bar .right { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; }
+.tl { grid-area: tl; background: var(--surface); border-top: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; height: 366px; container-type: inline-size; }
+.tl-bar { display: grid; grid-template-columns: minmax(max-content, 1fr) auto minmax(max-content, 1fr); align-items: center; gap: 6px; padding: 6px 12px; border-bottom: 1px solid var(--line); }
+.tl-bar .left, .tl-bar .right, .tl-bar .mid { display: flex; align-items: center; gap: 4px; }
 .tl-bar .right { justify-content: flex-end; }
-.tl-bar .mid { display: flex; align-items: center; gap: 4px; flex: none; }
 .tbtn { height: 32px; border: none; background: transparent; border-radius: 8px; padding: 0 9px; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; white-space: nowrap; }
 .tbtn:hover { background: var(--sunk); }
 .tbtn:disabled { opacity: .35; cursor: default; background: transparent; }
@@ -174,12 +173,14 @@ input[type="color"]::-moz-color-swatch { border: none; border-radius: 50%; }
 .playbtn:hover { background: #2b2e2a; }
 .time { font-size: 12px; color: var(--muted); padding: 0 6px; white-space: nowrap; }
 .time b { color: var(--ink); font-weight: 600; }
-.zoom { width: 110px; }
+.tl-bar .zoom { width: 110px; flex: none; }
+@container (max-width: 1000px) { .tl-lbl, .tbtn kbd.k-hint { display: none; } .tl-bar .zoom { width: 72px; } }
+@container (max-width: 640px) { .edge-btn, .zoom, .keys-btn { display: none !important; } }
 .tl-scroll { flex: 1; overflow: auto; position: relative; min-height: 0; overscroll-behavior: contain; }
 .tl-inner { position: relative; min-width: 100%; }
 .ruler { position: sticky; top: 0; z-index: 6; height: 26px; display: flex; background: var(--surface); border-bottom: 1px solid var(--line); }
 .corner { position: sticky; left: 0; z-index: 7; width: var(--hw); flex: none; background: var(--surface); border-right: 1px solid var(--line); }
-.ticks { position: relative; flex: 1; cursor: pointer; }
+.ticks { position: relative; flex: 1; cursor: pointer; touch-action: none; }
 .tick { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--line-strong); }
 .tick span { position: absolute; top: 5px; left: 4px; font-family: var(--mono); font-size: 10px; color: var(--muted); white-space: nowrap; }
 .tick.minor { top: 18px; border-color: var(--line); }
@@ -196,9 +197,10 @@ input[type="color"]::-moz-color-swatch { border: none; border-radius: 50%; }
 .track.video .lane { height: 64px; }
 .track.voice .lane { height: 50px; }
 .track.music .lane { height: 38px; }
-.track.sfx .lane, .track.subs .lane, .track.text .lane, .track.ins .lane { height: 30px; }
+.track.sfx .lane, .track.subs .lane, .track.text .lane, .track.insr .lane { height: 30px; }
 .clip { position: absolute; top: 5px; bottom: 5px; border-radius: 7px; overflow: hidden; cursor: grab; touch-action: none; user-select: none; }
 .clip.sel { box-shadow: 0 0 0 2px var(--select); z-index: 3; }
+.clip:focus-visible { outline: 2px solid var(--select); outline-offset: 1px; z-index: 3; }
 .clip .lbl2 { position: absolute; left: 6px; top: 3px; font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: calc(100% - 12px); pointer-events: none; }
 .clip.v { background: var(--t-video); border: 1px solid var(--t-video-edge); }
 .clip.v canvas { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .92; pointer-events: none; }
@@ -226,7 +228,7 @@ input[type="color"]::-moz-color-swatch { border: none; border-radius: 50%; }
 .fade { position: absolute; top: 0; bottom: 0; pointer-events: none; }
 .playhead { position: absolute; top: 0; bottom: 0; width: 0; z-index: 8; pointer-events: none; }
 .playhead::before { content: ""; position: absolute; top: 0; bottom: 0; left: -1px; width: 2px; background: var(--select); }
-.playhead .knob { position: absolute; top: 0; left: -7px; width: 14px; height: 18px; background: var(--select); border-radius: 3px 3px 7px 7px; pointer-events: auto; cursor: ew-resize; }
+.playhead .knob { position: absolute; top: 0; left: -7px; width: 14px; height: 18px; background: var(--select); border-radius: 3px 3px 7px 7px; pointer-events: auto; cursor: ew-resize; touch-action: none; }
 .guide { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dashed var(--select); z-index: 7; pointer-events: none; }
 .caret { position: absolute; top: 2px; bottom: 2px; width: 3px; margin-left: -1px; background: var(--select); border-radius: 2px; z-index: 6; pointer-events: none; }
 .ghost { opacity: .45; }
@@ -259,23 +261,25 @@ input[type="color"]::-moz-color-swatch { border: none; border-radius: 50%; }
 
 .mtabs { display: none; }
 .only-phone { display: none; }
+@media (max-width: 1240px) { .about { display: none; } }
+@media (max-width: 1100px) { .save span, .brand span, .chip-ver, #dlBtn span { display: none; } #dlBtn { padding: 0 10px; } }
 
 /* ── телефон: кадр сверху, простой таймлайн (видео и голос), инструменты вкладками снизу ── */
 @media (max-width: 860px) {
   html, body { height: auto; }
   .app { height: auto; display: flex; flex-direction: column; padding-inline: 0; }
   .top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; padding-inline: 16px; gap: 6px; }
-  .brand span, .save, .about, .top-tools .ibtn.redo, .lang-seg { display: none; }
+  .brand span, .save, .about, .top-tools .ibtn.redo, .lang-seg, .chip-ver { display: none; }
   .crumb .back span { display: none; }
   .rail { display: none; }
   .stage { order: 1; padding: 12px 16px; height: 58vh; min-height: 360px; }
   .tl { order: 2; height: auto; }
   .tl-scroll { height: 150px; flex: none; }
-  .track.music, .track.sfx, .track.subs, .track.text, .track.ins, .desk-only { display: none !important; }
+  .track.music, .track.sfx, .track.subs, .track.text, .track.insr, .desk-only, .th .hint { display: none !important; }
   .only-phone { display: flex; }
-  .tl-bar { padding-inline: 16px; flex-wrap: wrap; }
-  .tl-bar .right { display: none; }
-  .tl-bar .left { flex: 1 1 auto; }
+  .tl-bar { display: flex; flex-wrap: wrap; justify-content: space-between; row-gap: 4px; padding-inline: 16px; }
+  .tl-bar .mid { order: -1; width: 100%; justify-content: center; }
+  .playhead .knob { width: 22px; left: -11px; height: 24px; }
   .mtabs { order: 3; display: flex; gap: 4px; padding: 8px 16px; overflow-x: auto; background: var(--surface); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
   .mtabs button { border: none; background: var(--sunk); border-radius: 999px; padding: 8px 13px; font-size: 13px; font-weight: 500; white-space: nowrap; flex: none; }
   .mtabs button[aria-current="true"] { background: var(--ink); color: #fff; }
@@ -293,55 +297,50 @@ input[type="color"]::-moz-color-swatch { border: none; border-radius: 50%; }
   <header class="top">
     <div class="brand"><div class="brand-mark" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 16 16"><path d="M4 3l8 5-8 5z" fill="#C6F04B"/><path d="M2 8h12" stroke="#fff" stroke-width="1.6" stroke-dasharray="2 2"/></svg></div><span>video.edit</span></div>
     <div class="crumb">
-      <button class="back" data-act="home" title="Мои видео"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg><span data-i18n="myVideos">Мои видео</span></button>
-      <input class="title-input" id="title" value="Три ошибки в чешском" aria-label="Название ролика">
+      <button class="back" data-act="home" title="Мои видео" data-i18n-title="myVideos"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span data-i18n="myVideos">Мои видео</span></button>
+      <input class="title-input" id="title" value="Три ошибки в чешском" aria-label="Название ролика" data-i18n-aria="titleAria">
     </div>
     <div class="save" id="save" aria-live="polite"><i></i><span class="mono" id="saveText">Сохранено · ревизия 14</span></div>
     <button class="about" data-act="about" data-i18n="about">Что это за макет</button>
     <div class="top-tools">
-      <button class="ibtn" id="undoBtn" data-act="undo" title="Отменить (⌘Z)" aria-label="Отменить"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 010 11H11"/></svg></button>
-      <button class="ibtn redo" id="redoBtn" data-act="redo" title="Повторить (⇧⌘Z)" aria-label="Повторить"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 000 11H13"/></svg></button>
-      <div class="seg lang-seg" role="group" aria-label="Язык интерфейса"><button data-act="lang" data-v="ru" aria-pressed="true">RU</button><button data-act="lang" data-v="en" aria-pressed="false">EN</button></div>
+      <button class="ibtn" id="undoBtn" data-act="undo" title="Отменить (⌘Z)" aria-label="Отменить" data-i18n-title="undoT" data-i18n-aria="undoA"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 010 11H11"/></svg></button>
+      <button class="ibtn redo" id="redoBtn" data-act="redo" title="Повторить (⇧⌘Z)" aria-label="Повторить" data-i18n-title="redoT" data-i18n-aria="redoA"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 000 11H13"/></svg></button>
+      <div class="seg lang-seg" role="group" aria-label="Язык интерфейса" data-i18n-aria="langAria"><button data-act="lang" data-v="ru" aria-pressed="true">RU</button><button data-act="lang" data-v="en" aria-pressed="false">EN</button></div>
       <span class="chip-ver" id="verChip" hidden>v2</span>
-      <button class="btn line" id="dlBtn" data-act="download" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span data-i18n="download">Скачать</span></button>
+      <button class="btn line" id="dlBtn" data-act="download" aria-label="Скачать" data-i18n-aria="download" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span data-i18n="download">Скачать</span></button>
       <button class="btn primary" data-act="render"><span data-i18n="render">Монтировать</span></button>
     </div>
   </header>
 
-  <nav class="rail" id="rail" aria-label="Инструменты"></nav>
-  <aside class="panel" id="panel" aria-label="Панель"></aside>
-
-  <section class="stage" id="stage" aria-label="Кадр">
+  <section class="stage" id="stage" aria-label="Кадр" data-i18n-aria="stageAria">
     <div class="frame-wrap" id="frameWrap">
       <div class="frame" id="frame">
-        <canvas id="scene" aria-label="Кадр ролика (пример)"></canvas>
+        <canvas id="scene" role="img" aria-label="Кадр ролика (пример)" data-i18n-aria="sceneAria"></canvas>
         <div class="ov" id="ov"></div>
       </div>
     </div>
     <div class="stage-meta"><span class="pill mono" id="srcPill">IMG_4512.MOV · 0:00.0</span><span class="pill">9:16 · 1080×1920</span><span class="pill" data-i18n="silent">В макете без звука</span></div>
   </section>
 
-  <nav class="mtabs" id="mtabs" aria-label="Инструменты"></nav>
-
-  <section class="tl" id="tl" aria-label="Таймлайн">
+  <section class="tl" id="tl" aria-label="Таймлайн" data-i18n-aria="tlAria">
     <div class="tl-bar">
       <div class="left">
-        <button class="tbtn" data-act="split" title="Разрезать по плейхеду (S)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4L8.1 15.9M14.5 14.5L20 20M8.1 8.1L12 12"/></svg><span data-i18n="split">Разрезать</span><kbd class="desk-only">S</kbd></button>
-        <button class="tbtn" id="delBtn" data-act="delete" title="Удалить выбранное (Delete)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg><span data-i18n="delete">Удалить</span></button>
-        <button class="tbtn only-phone" data-act="muteVoice" id="mMute"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H3v6h3l5 4z"/><path d="M16 9l5 6M21 9l-5 6"/></svg><span data-i18n="mute">Без звука</span></button>
+        <button class="tbtn" data-act="split" title="Разрезать по плейхеду (S)" aria-label="Разрезать" data-i18n-title="splitT" data-i18n-aria="split"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4L8.1 15.9M14.5 14.5L20 20M8.1 8.1L12 12"/></svg><span class="tl-lbl" data-i18n="split">Разрезать</span><kbd class="k-hint desk-only">S</kbd></button>
+        <button class="tbtn" id="delBtn" data-act="delete" title="Удалить выбранное (Delete)" aria-label="Удалить" data-i18n-title="deleteT" data-i18n-aria="delete"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg><span class="tl-lbl" data-i18n="delete">Удалить</span></button>
+        <button class="tbtn only-phone" data-act="muteVoice" id="mMute" aria-label="Голос без звука" data-i18n-aria="muteA"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5L6 9H3v6h3l5 4z"/><path d="M16 9l5 6M21 9l-5 6"/></svg><span class="tl-lbl" data-i18n="mute">Без звука</span></button>
       </div>
       <div class="mid">
-        <button class="ibtn desk-only" data-act="toStart" title="В начало" aria-label="В начало"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button>
-        <button class="playbtn" id="playBtn" data-act="play" title="Пуск / пауза (пробел)" aria-label="Пуск"><svg id="playIco" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4l14 8-14 8z"/></svg></button>
-        <button class="ibtn desk-only" data-act="toEnd" title="В конец" aria-label="В конец"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg></button>
+        <button class="ibtn edge-btn" data-act="toStart" title="В начало" aria-label="В начало" data-i18n-title="toStart" data-i18n-aria="toStart"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button>
+        <button class="playbtn" id="playBtn" data-act="play" title="Пуск / пауза (пробел)" aria-label="Пуск" data-i18n-title="playT"><svg id="playIco" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4l14 8-14 8z"/></svg></button>
+        <button class="ibtn edge-btn" data-act="toEnd" title="В конец" aria-label="В конец" data-i18n-title="toEnd" data-i18n-aria="toEnd"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg></button>
         <span class="time mono" id="time"><b>0:00.0</b> / 0:00.0</span>
       </div>
       <div class="right">
-        <button class="tbtn" data-act="keys" title="Клавиши"><kbd>?</kbd><span data-i18n="keys">Клавиши</span></button>
-        <button class="ibtn" data-act="zoomOut" title="Мельче" aria-label="Мельче"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4M8 11h6"/></svg></button>
-        <input class="zoom" id="zoom" type="range" min="0" max="100" value="20" aria-label="Масштаб">
-        <button class="ibtn" data-act="zoomIn" title="Крупнее" aria-label="Крупнее"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4M8 11h6M11 8v6"/></svg></button>
-        <button class="tbtn" data-act="fit" data-i18n="fit">Вписать</button>
+        <button class="tbtn keys-btn" data-act="keys" title="Клавиши" aria-label="Клавиши" data-i18n-title="keys" data-i18n-aria="keys"><kbd>?</kbd><span class="tl-lbl" data-i18n="keys">Клавиши</span></button>
+        <button class="ibtn" data-act="zoomOut" title="Мельче" aria-label="Мельче" data-i18n-title="zoomOut" data-i18n-aria="zoomOut"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4M8 11h6"/></svg></button>
+        <input class="zoom" id="zoom" type="range" min="0" max="100" value="20" aria-label="Масштаб" data-i18n-aria="zoomA">
+        <button class="ibtn" data-act="zoomIn" title="Крупнее" aria-label="Крупнее" data-i18n-title="zoomIn" data-i18n-aria="zoomIn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4M8 11h6M11 8v6"/></svg></button>
+        <button class="tbtn" data-act="fit" title="Вписать" aria-label="Вписать" data-i18n-title="fit" data-i18n-aria="fit"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V5h4M20 9V5h-4M4 15v4h4M20 15v4h-4"/></svg><span class="tl-lbl" data-i18n="fit">Вписать</span></button>
       </div>
     </div>
     <p class="phone-note only-phone" data-i18n="phoneNote">На телефоне — видео и голос. Музыку, текст и вставки двигать — на компьютере.</p>
@@ -349,6 +348,10 @@ input[type="color"]::-moz-color-swatch { border: none; border-radius: 50%; }
       <div class="tl-inner" id="tlInner"></div>
     </div>
   </section>
+
+  <nav class="mtabs" id="mtabs" aria-label="Инструменты" data-i18n-aria="toolsAria"></nav>
+  <nav class="rail" id="rail" aria-label="Инструменты" data-i18n-aria="toolsAria"></nav>
+  <aside class="panel" id="panel" aria-label="Панель" data-i18n-aria="panelAria"></aside>
 </div>
 <div id="layer"></div>
 
@@ -386,8 +389,8 @@ const MUSIC = [
   { id: 'm3', name: 'Тёплый синт', dur: 96, bpm: 92 },
   { id: 'm4', name: 'Лёгкая гитара', dur: 133, bpm: 100 },
 ];
-const SFX = [{ id: 'whoosh', name: 'Вжух' }, { id: 'click', name: 'Щелчок' }, { id: 'pop', name: 'Пузырь' }, { id: 'hit', name: 'Удар' }];
-const INSERTS = [{ kind: 'flag', name: 'Флаг Чехии' }, { kind: 'mic', name: 'Подкаст' }, { kind: 'arrow', name: 'Стрелка' }, { kind: 'check', name: 'Галочка' }];
+const SFX = [{ id: 'whoosh', ru: 'Вжух', en: 'Whoosh' }, { id: 'click', ru: 'Щелчок', en: 'Click' }, { id: 'pop', ru: 'Пузырь', en: 'Pop' }, { id: 'hit', ru: 'Удар', en: 'Hit' }];
+const INSERTS = [{ kind: 'flag', ru: 'Флаг Чехии', en: 'Czech flag', hf: 2 / 3 }, { kind: 'mic', ru: 'Подкаст', en: 'Podcast', hf: 1 }, { kind: 'arrow', ru: 'Стрелка', en: 'Arrow', hf: 1 }, { kind: 'check', ru: 'Галочка', en: 'Check mark', hf: 1 }];
 const FONTS = ['Montserrat', 'Unbounded', 'Rubik', 'Oswald'];
 const HL = ['#FFD60A', '#C6F04B', '#4FD1FF', '#FF6B9A', '#FFFFFF'];
 const FPS = 30;
@@ -406,53 +409,63 @@ function autoCut(src, minPause, dropFillers) {
   return out;
 }
 
-// документ (то, что в сервисе станет jobs/<id>/timeline.json) и состояние экрана
+// документ (в сервисе — jobs/<id>/timeline.json) и состояние экрана
 let doc = {
-  rev: 14, speed: 1.1,
+  speed: 1.1,
   clips: [...autoCut('s1', 0.35, true), ...autoCut('s2', 2, false)],
   voice: { gainDb: 0, muted: false, clean: { on: false, strength: 18 } },
   music: { asset: 'm1', at: 0, in: 12, len: 0, gainDb: -14, muted: false, fadeIn: 0.1, fadeOut: 1, duck: true },
   sfxMuted: false, sfx: [],
   texts: [], inserts: [], subEdits: {},
   style: { variant: 'A', font: 'Montserrat', hl: '#FFD60A', text: '#FFFFFF', bar: '#FFD60A', words: 3 },
-  cutPause: 0.35, dropFillers: true,
+  cutPause: 0.35, dropFillers: true, versions: { ad: false, ab: false },
 };
-const ui = { t: 0, playing: false, pps: 20, sel: null, inspect: false, panel: 'media', lang: 'ru', ab: 'after', noisyDismissed: false, rendered: false, ver: 1, guide: null, caret: null, drag: null };
+const ui = { t: 0, playing: false, pps: 20, sel: null, inspect: false, panel: 'media', lang: 'ru', ab: 'after', noisyDismissed: false,
+  rendered: false, rendering: false, ver: 1, rev: 14, guide: null, caret: null, drag: null, lastTotal: null, fixDraft: '', opener: null };
 const undo = [], redo = [];
+const isPhone = () => window.matchMedia('(max-width: 860px)').matches;
 
 // ───────── время: исходник ↔ финал (в сервисе — TS-перенос engine/vm/timeline.py) ─────────
 function layout() { let x = 0; return doc.clips.map((c) => { const d = (c.out - c.in) / doc.speed; const r = { c, start: x, end: x + d }; x += d; return r; }); }
 function total() { const L = layout(); return L.length ? L[L.length - 1].end : 0; }
 function locate(t) { const L = layout(); for (const r of L) if (t >= r.start && t < r.end) return { r, st: r.c.in + (t - r.start) * doc.speed }; const r = L[L.length - 1]; return r ? { r, st: r.c.out } : null; }
+// слово попадает в тот кусок, где его середина: разрез посреди слова не удваивает его в субтитрах
 function finalWords() {
   const out = [];
   for (const r of layout()) {
-    const S = SOURCES[r.c.src];
-    S.words.forEach((w, i) => {
-      if (w.t1 <= r.c.in + 0.02 || w.t0 >= r.c.out - 0.02) return;
+    SOURCES[r.c.src].words.forEach((w, i) => {
+      const mid = (w.t0 + w.t1) / 2; if (mid < r.c.in || mid >= r.c.out) return;
       const a = Math.max(w.t0, r.c.in), b = Math.min(w.t1, r.c.out);
-      out.push({ w: w.w, key: r.c.src + ':' + i, src: r.c.src, idx: i, t0: r.start + (a - r.c.in) / doc.speed, t1: r.start + (b - r.c.in) / doc.speed, clip: r.c.id });
+      out.push({ w: w.w, key: r.c.src + ':' + i, t0: r.start + (a - r.c.in) / doc.speed, t1: r.start + (b - r.c.in) / doc.speed, clip: r.c.id });
     });
   }
   return out;
 }
+// группы субтитров; исправленная группа держит свои слова вместе, как бы ни менялась разбивка
 function subGroups() {
-  const ws = finalWords(); const gs = []; let g = null;
-  ws.forEach((w, i) => {
+  const ws = finalWords(); const gs = []; let g = null; let i = 0;
+  while (i < ws.length) {
+    const w = ws[i]; const ed = doc.subEdits[w.key];
+    if (ed) {
+      const run = ws.slice(i, i + ed.keys.length);
+      if (run.length === ed.keys.length && run.every((x, j) => x.key === ed.keys[j])) { gs.push({ key: w.key, words: run, t0: run[0].t0, t1: run[run.length - 1].t1, text: ed.text, edited: true }); g = null; i += run.length; continue; }
+    }
     const prev = ws[i - 1];
     const brk = !g || g.words.length >= doc.style.words || w.t0 - prev.t1 > 0.3 || /[.,!?…]$/.test(prev.w) || prev.clip !== w.clip;
     if (brk) { g = { key: w.key, words: [], t0: w.t0, t1: w.t1 }; gs.push(g); }
-    g.words.push(w); g.t1 = w.t1;
-  });
-  gs.forEach((g) => { g.text = doc.subEdits[g.key] ?? g.words.map((w) => w.w).join(' '); });
+    g.words.push(w); g.t1 = w.t1; i++;
+  }
+  for (const x of gs) if (!x.edited) x.text = x.words.map((w) => w.w).join(' ');
   return gs;
 }
-function wordAt(src, st) { const ws = SOURCES[src].words; for (const w of ws) if (st >= w.t0 && st <= w.t1) return w; return null; }
+function groupAt(t) { const gs = subGroups(); return gs.find((g) => t >= g.t0 && t <= g.t1) || gs.find((g) => t >= g.t0 - 0.02 && t <= g.t1 + 0.25) || null; }
+function wordAt(src, st) { for (const w of SOURCES[src].words) if (st >= w.t0 && st <= w.t1) return w; return null; }
 function env(src, st) {
   const w = wordAt(src, st); if (!w) return 0;
   const syl = Math.max(1, (w.w.match(/[аеёиоуыэюяaeiou]/gi) || []).length);
   return 0.35 + 0.65 * Math.abs(Math.sin((st - w.t0) / (w.t1 - w.t0) * Math.PI * syl));
 }
+const musicAsset = () => MUSIC.find((x) => x.id === doc.music.asset);
 
 // стартовые блоки: хук, призыв, вставки, звуки, музыка — по словам черновика
 function seed() {
@@ -464,34 +477,43 @@ function seed() {
   ];
   const f = find('по-чешски'), p = find('подкасты');
   doc.inserts = [
-    { id: nid('i'), kind: 'flag', name: 'Флаг Чехии', t0: f ? f.t0 : 1.5, t1: (f ? f.t0 : 1.5) + 1.6, x: 0.6, y: 0.3, w: 0.3 },
-    { id: nid('i'), kind: 'mic', name: 'Подкаст', t0: p ? p.t0 : 20, t1: (p ? p.t0 : 20) + 1.8, x: 0.62, y: 0.28, w: 0.26 },
+    { id: nid('i'), kind: 'flag', t0: f ? f.t0 : 1.5, t1: (f ? f.t0 : 1.5) + 1.6, x: 0.6, y: 0.3, w: 0.3 },
+    { id: nid('i'), kind: 'mic', t0: p ? p.t0 : 20, t1: (p ? p.t0 : 20) + 1.8, x: 0.62, y: 0.28, w: 0.26 },
   ];
-  doc.sfx = [
-    { id: nid('f'), kind: 'whoosh', name: 'Вжух', at: doc.inserts[0].t0 },
-    { id: nid('f'), kind: 'pop', name: 'Пузырь', at: doc.inserts[1].t0 },
-  ];
+  doc.sfx = [{ id: nid('f'), kind: 'whoosh', at: doc.inserts[0].t0 }, { id: nid('f'), kind: 'pop', at: doc.inserts[1].t0 }];
   doc.music.len = T;
+  ui.lastTotal = T;
 }
 seed();
 
 // ───────── тексты интерфейса: ru / en ─────────
 const I18N = {
-  ru: { myVideos: 'Мои видео', about: 'Что это за макет', download: 'Скачать', render: 'Монтировать', silent: 'В макете без звука', split: 'Разрезать', delete: 'Удалить', mute: 'Без звука', keys: 'Клавиши', fit: 'Вписать',
+  ru: { docTitle: 'Редактор video.edit', myVideos: 'Мои видео', about: 'Что это за макет', download: 'Скачать', render: 'Монтировать', silent: 'В макете без звука', split: 'Разрезать', delete: 'Удалить', mute: 'Без звука', muteA: 'Голос без звука', keys: 'Клавиши', fit: 'Вписать',
     phoneNote: 'На телефоне — видео и голос. Музыку, текст и вставки двигать — на компьютере.',
     media: 'Медиа', audio: 'Аудио', subs: 'Субтитры', text: 'Текст', inserts: 'Вставки', style: 'Стиль', ai: 'AI', settings: 'Настройки',
     tVideo: 'Видео', tVoice: 'Голос', tMusic: 'Музыка', tSfx: 'Звуки', tSubs: 'Субтитры', tText: 'Текст', tIns: 'Вставки',
     saved: 'Сохранено · ревизия', saving: 'Сохраняю…', noisy: 'Похоже, шумно', clean: 'Очистить', no: 'Не надо',
-    cutRestore: 'Вырезано {s} — вернуть', hook: 'Хук', cta: 'Призыв', textBlock: 'Текст' },
-  en: { myVideos: 'My videos', about: 'About this mockup', download: 'Download', render: 'Render', silent: 'Mockup has no sound', split: 'Split', delete: 'Delete', mute: 'Mute', keys: 'Shortcuts', fit: 'Fit',
+    cutRestore: 'Вырезано {s} — вернуть', hook: 'Хук', cta: 'Призыв', textBlock: 'Текст',
+    titleAria: 'Название ролика', undoT: 'Отменить (⌘Z)', undoA: 'Отменить', redoT: 'Повторить (⇧⌘Z)', redoA: 'Повторить', langAria: 'Язык интерфейса',
+    stageAria: 'Кадр', sceneAria: 'Кадр ролика (пример)', tlAria: 'Таймлайн', toolsAria: 'Инструменты', panelAria: 'Панель',
+    splitT: 'Разрезать по плейхеду (S)', deleteT: 'Удалить выбранное (Delete)', toStart: 'В начало', toEnd: 'В конец', playT: 'Пуск / пауза (пробел)',
+    zoomOut: 'Мельче', zoomIn: 'Крупнее', zoomA: 'Масштаб' },
+  en: { docTitle: 'video.edit Editor', myVideos: 'My videos', about: 'About this mockup', download: 'Download', render: 'Render', silent: 'Mockup has no sound', split: 'Split', delete: 'Delete', mute: 'Mute', muteA: 'Mute voice', keys: 'Shortcuts', fit: 'Fit',
     phoneNote: 'On a phone: video and voice. Move music, text and inserts on a computer.',
     media: 'Media', audio: 'Audio', subs: 'Subtitles', text: 'Text', inserts: 'Inserts', style: 'Style', ai: 'AI', settings: 'Settings',
     tVideo: 'Video', tVoice: 'Voice', tMusic: 'Music', tSfx: 'Sounds', tSubs: 'Subtitles', tText: 'Text', tIns: 'Inserts',
     saved: 'Saved · revision', saving: 'Saving…', noisy: 'Sounds noisy', clean: 'Clean up', no: 'No thanks',
-    cutRestore: 'Cut {s} — restore', hook: 'Hook', cta: 'Call to action', textBlock: 'Text' },
+    cutRestore: 'Cut {s} — restore', hook: 'Hook', cta: 'Call to action', textBlock: 'Text',
+    titleAria: 'Video title', undoT: 'Undo (⌘Z)', undoA: 'Undo', redoT: 'Redo (⇧⌘Z)', redoA: 'Redo', langAria: 'Interface language',
+    stageAria: 'Frame', sceneAria: 'Video frame (example)', tlAria: 'Timeline', toolsAria: 'Tools', panelAria: 'Panel',
+    splitT: 'Split at the playhead (S)', deleteT: 'Delete selection (Delete)', toStart: 'To start', toEnd: 'To end', playT: 'Play / pause (Space)',
+    zoomOut: 'Zoom out', zoomIn: 'Zoom in', zoomA: 'Zoom' },
 };
 const T = (k, v) => { let s = (I18N[ui.lang][k] ?? I18N.ru[k] ?? k); if (v) for (const [a, b] of Object.entries(v)) s = s.replace('{' + a + '}', b); return s; };
 const L2 = (ru, en) => ui.lang === 'en' ? en : ru;
+const sfxName = (k) => { const s = SFX.find((x) => x.id === k); return s ? s[ui.lang] : k; };
+const insName = (k) => { const s = INSERTS.find((x) => x.kind === k); return s ? s[ui.lang] : k; };
+const textName = (x) => x.kind === 'hook' ? T('hook') : x.kind === 'cta' ? T('cta') : T('textBlock');
 
 // ───────── мелочи ─────────
 const $ = (s, el = document) => el.querySelector(s);
@@ -499,8 +521,9 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 function tc(t, frac = true) { t = Math.max(0, t); const m = Math.floor(t / 60), s = t - m * 60; return frac ? `${m}:${s.toFixed(1).padStart(4, '0')}` : `${m}:${String(Math.floor(s)).padStart(2, '0')}`; }
 const sec = (s) => (ui.lang === 'en' ? s.toFixed(1) + ' s' : s.toFixed(1).replace('.', ',') + ' с');
-const HW = 168;
-document.documentElement.style.setProperty('--hw', HW + 'px');
+let HW = 168;
+function setHW() { HW = isPhone() ? 100 : 168; document.documentElement.style.setProperty('--hw', HW + 'px'); }
+setHW();
 let toastTimer = 0;
 function toast(msg, undoable) {
   const layer = $('#layer'); layer.querySelector('.toast')?.remove();
@@ -508,31 +531,55 @@ function toast(msg, undoable) {
   el.innerHTML = `<span>${esc(msg)}</span>` + (undoable ? `<button data-act="undo">${L2('Отменить', 'Undo')}</button>` : '');
   layer.appendChild(el); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.remove(), 3200);
 }
-function snap() { undo.push(JSON.stringify(doc)); if (undo.length > 100) undo.shift(); redo.length = 0; }
+
+// отмена: правки полями копятся 0,6 с и становятся одним шагом; любой другой шаг сначала забирает их
+let inputSnap = null, inputTimer = 0;
+function flushInput() { clearTimeout(inputTimer); if (inputSnap && inputSnap !== JSON.stringify(doc)) { undo.push(inputSnap); redo.length = 0; } inputSnap = null; }
+function snap() { flushInput(); undo.push(JSON.stringify(doc)); if (undo.length > 100) undo.shift(); redo.length = 0; }
 let saveTimer = 0;
+function saved() {
+  ui.rev++; const el = $('#save'); el.classList.add('busy'); $('#saveText').textContent = T('saving');
+  clearTimeout(saveTimer); saveTimer = setTimeout(() => { el.classList.remove('busy'); $('#saveText').textContent = `${T('saved')} ${ui.rev}`; }, 700);
+}
+// всё держим в длине ролика: призыв и музыка, что доходили до конца, идут за концом; остальное не вылезает за него
+function settle() {
+  const Tn = total(); const old = ui.lastTotal ?? Tn;
+  for (const x of [...doc.texts, ...doc.inserts]) {
+    const len = Math.max(0.3, x.t1 - x.t0);
+    if (x.kind === 'cta' && Math.abs(x.t1 - old) < 0.05) { x.t1 = Tn; x.t0 = Math.max(0, Tn - len); }
+    else if (x.t1 > Tn) { x.t1 = Tn; x.t0 = Math.max(0, Tn - len); }
+    if (x.t1 - x.t0 < 0.3) x.t0 = Math.max(0, x.t1 - 0.3);
+  }
+  const m = doc.music;
+  if (m.len > 0) {
+    const room = musicAsset().dur - m.in;
+    if (Math.abs(m.at + m.len - old) < 0.05 && Tn > old) m.len = Math.min(Tn - m.at, room);
+    if (m.at > Tn - 0.5) m.at = Math.max(0, Tn - 0.5);
+    if (m.at + m.len > Tn) m.len = Math.max(0.5, Tn - m.at);
+  }
+  for (const x of doc.sfx) x.at = Math.min(x.at, Math.max(0, Tn - 0.3));
+  ui.lastTotal = Tn;
+}
 function changed() {
-  doc.rev++; const el = $('#save'); el.classList.add('busy'); $('#saveText').textContent = T('saving');
-  clearTimeout(saveTimer); saveTimer = setTimeout(() => { el.classList.remove('busy'); $('#saveText').textContent = `${T('saved')} ${doc.rev}`; }, 700);
+  settle(); saved();
   ui.t = clamp(ui.t, 0, Math.max(0, total() - 0.001));
-  for (const x of [...doc.texts, ...doc.inserts]) { x.t1 = Math.min(x.t1, total()); if (x.t1 - x.t0 < 0.3) x.t0 = Math.max(0, x.t1 - 0.3); }
-  if (ui.rendered) { ui.rendered = false; }
   renderAll();
 }
-function doUndo() { if (!undo.length) return; redo.push(JSON.stringify(doc)); doc = JSON.parse(undo.pop()); ui.sel = null; changed(); toast(L2('Отменено', 'Undone')); }
-function doRedo() { if (!redo.length) return; undo.push(JSON.stringify(doc)); doc = JSON.parse(redo.pop()); ui.sel = null; changed(); }
+function doUndo() { flushInput(); if (!undo.length) return; redo.push(JSON.stringify(doc)); doc = JSON.parse(undo.pop()); ui.sel = null; ui.inspect = false; changed(); toast(L2('Отменено', 'Undone')); }
+function doRedo() { flushInput(); if (!redo.length) return; undo.push(JSON.stringify(doc)); doc = JSON.parse(redo.pop()); ui.sel = null; ui.inspect = false; changed(); }
 
 // ───────── рисунок кадра (пример вместо настоящего видео) ─────────
 const cars = [{ off: 0, c: '#C9433B', v: 140 }, { off: 520, c: '#E8E8E4', v: 95 }, { off: 260, c: '#2F5D9A', v: 170 }];
 function drawScene(ctx, w, h, src, st, small) {
   const S = SOURCES[src];
   if (S.scene === 'street') {
-    let g = ctx.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#9DB4C8'); g.addColorStop(.55, '#C9D5DE'); g.addColorStop(.56, '#6C7178'); g.addColorStop(1, '#4F5359');
+    const g = ctx.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#9DB4C8'); g.addColorStop(.55, '#C9D5DE'); g.addColorStop(.56, '#6C7178'); g.addColorStop(1, '#4F5359');
     ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
     const bx = [[0, .14, .26], [.24, .08, .22], [.44, .18, .2], [.62, .05, .2], [.8, .12, .24]];
     for (const [x, y, ww] of bx) { ctx.fillStyle = '#7B8794'; ctx.fillRect(x * w, y * h, ww * w, (.56 - y) * h); if (!small) { ctx.fillStyle = 'rgba(230,236,240,.55)'; for (let yy = y + .03; yy < .52; yy += .045) for (let xx = x + .02; xx < x + ww - .03; xx += .05) ctx.fillRect(xx * w, yy * h, .025 * w, .022 * h); } }
-    for (const c of cars) { const span = w * 2.2; const x = ((st * c.v / 400 * w + c.off / 400 * w) % span) - w * .6; ctx.fillStyle = c.c; ctx.beginPath(); ctx.roundRect?.(x, h * .6, w * .42, h * .055, w * .03) ?? ctx.rect(x, h * .6, w * .42, h * .055); ctx.fill(); ctx.fillStyle = '#1D1F22'; ctx.beginPath(); ctx.arc(x + w * .09, h * .657, w * .035, 0, 7); ctx.arc(x + w * .33, h * .657, w * .035, 0, 7); ctx.fill(); }
+    for (const c of cars) { const span = w * 2.2; const x = ((st * c.v / 400 * w + c.off / 400 * w) % span) - w * .6; ctx.fillStyle = c.c; ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x, h * .6, w * .42, h * .055, w * .03); else ctx.rect(x, h * .6, w * .42, h * .055); ctx.fill(); ctx.fillStyle = '#1D1F22'; ctx.beginPath(); ctx.arc(x + w * .09, h * .657, w * .035, 0, 7); ctx.arc(x + w * .33, h * .657, w * .035, 0, 7); ctx.fill(); }
   } else {
-    let g = ctx.createLinearGradient(0, 0, w, h); g.addColorStop(0, '#E8DCC8'); g.addColorStop(1, '#C9B79C'); ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+    const g = ctx.createLinearGradient(0, 0, w, h); g.addColorStop(0, '#E8DCC8'); g.addColorStop(1, '#C9B79C'); ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
     ctx.fillStyle = '#8A6A4A'; ctx.fillRect(w * .06, h * .22, w * .36, h * .018); ctx.fillStyle = '#3E7A4E'; ctx.beginPath(); ctx.arc(w * .82, h * .5, w * .13, 0, 7); ctx.fill(); ctx.fillStyle = '#9C5B3B'; ctx.fillRect(w * .76, h * .56, w * .12, h * .1);
     ctx.fillStyle = 'rgba(255,240,200,.5)'; ctx.beginPath(); ctx.arc(w * .2, h * .12, w * .2, 0, 7); ctx.fill();
   }
@@ -550,7 +597,7 @@ function drawScene(ctx, w, h, src, st, small) {
   }
 }
 
-// ───────── кадр и слой текста ─────────
+// ───────── кадр и слой текста (в сервисе его рисует template/) ─────────
 const scene = $('#scene'); const sctx = scene.getContext('2d');
 let fw = 270, fh = 480;
 function sizeStage() {
@@ -578,11 +625,15 @@ function drawFrame() {
     if (t < x.t0 || t > x.t1) continue; const sel = ui.sel?.id === x.id ? ' sel' : '';
     html += `<div class="ins${sel}" style="left:${x.x * 100}%;top:${x.y * 100}%;width:${x.w * 100}%">${insertArt(x.kind)}</div>`;
   }
-  const g = subGroups().find((g) => t >= g.t0 - 0.02 && t <= g.t1 + 0.25);
+  const g = groupAt(t);
   if (g) {
     const ck = curWordKey(t); const V = st.variant;
-    if (doc.subEdits[g.key] != null) html += `<div class="sub ${V}" style="${font}color:${st.text}">${V === 'B' ? `<span class="box">${esc(g.text)}</span>` : esc(g.text)}</div>`;
-    else if (V === 'C') { const w = g.words.find((w) => w.key === ck) || g.words[0]; html += `<div class="sub C" style="${font}color:${st.hl}">${esc(w.w.replace(/[.,!?]$/, ''))}</div>`; }
+    if (V === 'C') {
+      let word;
+      if (g.edited) { const parts = g.text.split(/\s+/).filter(Boolean); let idx = g.words.findIndex((w) => w.key === ck); if (idx < 0) idx = 0; word = parts[Math.min(idx, parts.length - 1)] || ''; }
+      else word = (g.words.find((w) => w.key === ck) || g.words[0]).w;
+      html += `<div class="sub C" style="${font}color:${st.hl}">${esc(word.replace(/[.,!?]$/, ''))}</div>`;
+    } else if (g.edited) html += `<div class="sub ${V}" style="${font}color:${st.text}">${V === 'B' ? `<span class="box">${esc(g.text)}</span>` : esc(g.text)}</div>`;
     else {
       const inner = g.words.map((w) => `<span class="w" style="${w.key === ck ? `color:${st.hl}` : ''}">${esc(w.w)}</span>`).join('');
       html += `<div class="sub ${V}" style="${font}color:${st.text}">${V === 'B' ? `<span class="box">${inner}</span>` : inner}</div>`;
@@ -593,83 +644,92 @@ function drawFrame() {
   $('#time').innerHTML = `<b>${tc(t)}</b> / ${tc(total())}`;
 }
 function insertArt(kind) {
-  if (kind === 'flag') return '<div class="flag" aria-label="Флаг"></div>';
+  if (kind === 'flag') return `<div class="flag" role="img" aria-label="${esc(insName('flag'))}"></div>`;
   const ico = { mic: '<rect x="9" y="3" width="6" height="11" rx="3" fill="#7A3FF2"/><path d="M6 11a6 6 0 0012 0M12 17v4" stroke="#111" stroke-width="2" fill="none" stroke-linecap="round"/>',
     arrow: '<path d="M4 12h13M12 6l6 6-6 6" stroke="#E5484D" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
     check: '<path d="M5 13l4 4 10-10" stroke="#2E8F45" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' }[kind] || '';
-  return `<div class="icon-ins"><svg viewBox="0 0 24 24">${ico}</svg></div>`;
+  return `<div class="icon-ins"><svg viewBox="0 0 24 24" role="img" aria-label="${esc(insName(kind))}">${ico}</svg></div>`;
 }
 
 // ───────── таймлайн ─────────
 const inner = $('#tlInner'); const scroller = $('#tlScroll');
 const X = (t) => t * ui.pps;
-function trackHead(key, name, color, extra = '') { return `<div class="th"><div class="row"><span class="name"><i class="dot" style="background:${color}"></i>${esc(name)}</span>${extra}</div></div>`; }
-function muteBtn(act, on) { return `<button class="mute" data-act="${act}" aria-pressed="${on}" title="${on ? L2('Включить звук', 'Unmute') : L2('Выключить звук', 'Mute')}" aria-label="${L2('Без звука', 'Mute')}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H3v6h3l5 4z"/>${on ? '<path d="M16 9l5 6M21 9l-5 6"/>' : '<path d="M15.5 8.5a5 5 0 010 7M18.5 5.5a9 9 0 010 13"/>'}</svg></button>`; }
+function trackHead(name, color, extra = '') { return `<div class="th"><div class="row"><span class="name"><i class="dot" style="background:${color}"></i>${esc(name)}</span>${extra}</div></div>`; }
+function muteBtn(act, on, what) { return `<button class="mute" data-act="${act}" aria-pressed="${on}" title="${on ? L2('Включить звук', 'Unmute') : L2('Выключить звук', 'Mute')}" aria-label="${esc(what)}: ${L2('без звука', 'mute')}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5L6 9H3v6h3l5 4z"/>${on ? '<path d="M16 9l5 6M21 9l-5 6"/>' : '<path d="M15.5 8.5a5 5 0 010 7M18.5 5.5a9 9 0 010 13"/>'}</svg></button>`; }
+// «вернуть вырезанное» — только если вырезанный кусок исходника не стоит где-то ещё на таймлайне
+function canRestore(a, b) {
+  if (!a || !b || a.src !== b.src || b.in - a.out <= 0.03) return false;
+  return !doc.clips.some((c) => c !== a && c !== b && c.src === a.src && c.in < b.in - 0.01 && c.out > a.out + 0.01);
+}
+function clipAttrs(kind, id, label, focusable = true) { const sel = isSel(kind, id); return `data-kind="${kind}" data-id="${id}" role="button" aria-label="${esc(label)}" aria-pressed="${sel}"${focusable ? ' tabindex="0"' : ''}`; }
+function isSel(kind, id) { const s = ui.sel; if (!s) return false; const k = kind === 'insert' ? 'insert' : kind; return s.type === k && (s.id === id || k === 'voice' || k === 'music'); }
 function renderTimeline() {
   const T0 = total(); const W = Math.max(scroller.clientWidth - HW, X(T0) + 160);
   inner.style.width = (HW + W) + 'px';
   const L = layout(); let h = '';
-  // линейка
   const steps = [0.5, 1, 2, 5, 10, 15, 30, 60]; const step = steps.find((s) => X(s) >= 64) || 60; const minor = step / (step >= 5 ? 5 : 2);
   let ticks = '';
   for (let t = 0; X(t) <= W; t += minor) { const major = Math.abs(t / step - Math.round(t / step)) < 1e-6; ticks += `<div class="tick${major ? '' : ' minor'}" style="left:${X(t)}px">${major ? `<span>${tc(t, step < 1)}</span>` : ''}</div>`; }
   h += `<div class="ruler"><div class="corner"></div><div class="ticks" id="ticks">${ticks}</div></div>`;
   // видео
-  let v = '';
+  let v = ''; let lastMark = -1e9;
   L.forEach((r, i) => {
-    const sel = ui.sel?.type === 'clip' && ui.sel.id === r.c.id ? ' sel' : '';
+    const sel = isSel('clip', r.c.id) ? ' sel' : '';
     const ghost = ui.drag?.kind === 'reorder' && ui.drag.id === r.c.id && ui.drag.moved ? ' ghost' : '';
-    v += `<div class="clip v ${r.c.src}${sel}${ghost}" data-kind="clip" data-id="${r.c.id}" style="left:${X(r.start)}px;width:${Math.max(2, X(r.end - r.start) - 1)}px" title="${SOURCES[r.c.src].name} ${tc(r.c.in)}–${tc(r.c.out)}"><canvas data-film="${r.c.id}"></canvas><span class="lbl2 mono">${tc(r.end - r.start)}</span><div class="handle l" data-edge="l"></div><div class="handle r" data-edge="r"></div></div>`;
-    const n = L[i + 1]; const prev = L[i - 1];
-    if (n && n.c.src === r.c.src && n.c.in - r.c.out > 0.03) v += `<div class="cutmark" style="left:${X(r.end)}px"><button data-act="restore" data-i="${i}" title="${T('cutRestore', { s: sec(n.c.in - r.c.out) })}" aria-label="${T('cutRestore', { s: sec(n.c.in - r.c.out) })}"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button></div>`;
-    void prev;
+    const label = `${L2('Кусок', 'Piece')} ${i + 1}: ${SOURCES[r.c.src].name} ${tc(r.c.in)}–${tc(r.c.out)}`;
+    v += `<div class="clip v ${r.c.src}${sel}${ghost}" ${clipAttrs('clip', r.c.id, label)} style="left:${X(r.start)}px;width:${Math.max(2, X(r.end - r.start) - 1)}px" title="${esc(label)}"><canvas data-film="${r.c.id}"></canvas><span class="lbl2 mono">${tc(r.end - r.start)}</span><div class="handle l" data-edge="l"></div><div class="handle r" data-edge="r"></div></div>`;
+    const n = L[i + 1];
+    if (n && canRestore(r.c, n.c) && X(r.end) - lastMark >= 22) {
+      lastMark = X(r.end); const lab = T('cutRestore', { s: sec(n.c.in - r.c.out) });
+      v += `<div class="cutmark" style="left:${X(r.end)}px"><button data-act="restore" data-i="${i}" title="${lab}" aria-label="${lab}"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></div>`;
+    }
   });
   if (ui.caret != null) v += `<div class="caret" style="left:${X(ui.caret)}px"></div>`;
-  h += `<div class="track video">${trackHead('video', T('tVideo'), 'var(--t-video-edge)', `<span class="hint mono" style="margin-left:auto">${L.length}</span>`)}<div class="lane" data-lane="video">${v}</div></div>`;
+  h += `<div class="track video">${trackHead(T('tVideo'), 'var(--t-video-edge)', `<span class="hint mono" style="margin-left:auto">${L.length}</span>`)}<div class="lane" data-lane="video">${v}</div></div>`;
   // голос
   let vo = '';
-  L.forEach((r) => { const sel = ui.sel?.type === 'voice' ? ' sel' : ''; vo += `<div class="clip wave${doc.voice.muted ? ' muted' : ''}${sel}" data-kind="voice" data-id="${r.c.id}" style="left:${X(r.start)}px;width:${Math.max(2, X(r.end - r.start) - 1)}px"><canvas data-wave="${r.c.id}"></canvas></div>`; });
+  L.forEach((r, i) => { const sel = isSel('voice') ? ' sel' : ''; vo += `<div class="clip wave${doc.voice.muted ? ' muted' : ''}${sel}" ${clipAttrs('voice', r.c.id, `${T('tVoice')} ${i + 1}`, i === 0)} style="left:${X(r.start)}px;width:${Math.max(2, X(r.end - r.start) - 1)}px"><canvas data-wave="${r.c.id}"></canvas></div>`; });
   const noisySrc = L.some((r) => SOURCES[r.c.src].noise > 0.15);
   const showNoisy = noisySrc && !doc.voice.clean.on && !ui.noisyDismissed;
   const cleanBadge = doc.voice.clean.on ? `<span class="hint" title="${L2('Голос очищен', 'Voice cleaned')}" style="color:var(--ok)">✦ ${doc.voice.clean.strength >= 100 ? 'max' : doc.voice.clean.strength + ' dB'}</span>` : '';
-  h += `<div class="track voice">${trackHead('voice', T('tVoice'), 'var(--t-voice)', cleanBadge + muteBtn('muteVoice', doc.voice.muted))}<div class="lane" data-lane="voice">${vo}${showNoisy ? `<div class="voice-over"><div class="noisy" style="left:${8}px;top:12px"><span>⚠ ${T('noisy')}</span><button data-act="cleanOn">${T('clean')}</button><button class="x" data-act="noisyNo">${T('no')}</button></div></div>` : ''}</div></div>`;
+  h += `<div class="track voice">${trackHead(T('tVoice'), 'var(--t-voice)', cleanBadge + muteBtn('muteVoice', doc.voice.muted, T('tVoice')))}<div class="lane" data-lane="voice">${vo}${showNoisy ? `<div class="voice-over"><div class="noisy" style="left:8px;top:12px"><span>⚠ ${T('noisy')}</span><button data-act="cleanOn">${T('clean')}</button><button class="x" data-act="noisyNo">${T('no')}</button></div></div>` : ''}</div></div>`;
   // музыка
-  const m = doc.music; const ma = MUSIC.find((x) => x.id === m.asset);
+  const m = doc.music; const ma = musicAsset();
   let mu = '';
   if (m.len > 0) {
-    const sel = ui.sel?.type === 'music' ? ' sel' : '';
-    mu = `<div class="clip music${sel}${m.muted ? ' muted' : ''}" data-kind="music" data-id="music" style="left:${X(m.at)}px;width:${Math.max(4, X(m.len) - 1)}px;${m.muted ? 'opacity:.5' : ''}"><canvas data-music="1"></canvas><span class="lbl2">♪ ${esc(ma.name)} · ${m.gainDb} dB</span><div class="handle l" data-edge="l"></div><div class="handle r" data-edge="r"></div></div>`;
+    const sel = isSel('music') ? ' sel' : '';
+    mu = `<div class="clip music${sel}" ${clipAttrs('music', 'music', `${T('tMusic')}: ${ma.name}`)} style="left:${X(m.at)}px;width:${Math.max(4, X(m.len) - 1)}px;${m.muted ? 'opacity:.5' : ''}"><canvas data-music="1"></canvas><span class="lbl2">♪ ${esc(ma.name)} · ${m.gainDb} dB</span><div class="handle l" data-edge="l"></div><div class="handle r" data-edge="r"></div></div>`;
   }
-  h += `<div class="track music">${trackHead('music', T('tMusic'), 'var(--t-music)', muteBtn('muteMusic', m.muted))}<div class="lane" data-lane="music">${mu}</div></div>`;
+  h += `<div class="track music">${trackHead(T('tMusic'), 'var(--t-music)', muteBtn('muteMusic', m.muted, T('tMusic')))}<div class="lane" data-lane="music">${mu}</div></div>`;
   // звуки
   let sf = '';
-  for (const s of doc.sfx) { const sel = ui.sel?.id === s.id ? ' sel' : ''; sf += `<div class="clip sfx${sel}" data-kind="sfx" data-id="${s.id}" style="left:${X(s.at)}px;width:${Math.max(30, X(0.9))}px;${doc.sfxMuted ? 'opacity:.45' : ''}" title="${esc(s.name)} · ${tc(s.at)}"><span class="lbl2">${esc(s.name)}</span></div>`; }
-  h += `<div class="track sfx">${trackHead('sfx', T('tSfx'), 'var(--t-sfx)', muteBtn('muteSfx', doc.sfxMuted))}<div class="lane" data-lane="sfx">${sf}</div></div>`;
+  for (const s of doc.sfx) { const sel = isSel('sfx', s.id) ? ' sel' : ''; const nm = sfxName(s.kind); sf += `<div class="clip sfx${sel}" ${clipAttrs('sfx', s.id, `${nm} · ${tc(s.at)}`)} style="left:${X(s.at)}px;width:${Math.max(30, X(0.9))}px;${doc.sfxMuted ? 'opacity:.45' : ''}" title="${esc(nm)} · ${tc(s.at)}"><span class="lbl2">${esc(nm)}</span></div>`; }
+  h += `<div class="track sfx">${trackHead(T('tSfx'), 'var(--t-sfx)', muteBtn('muteSfx', doc.sfxMuted, T('tSfx')))}<div class="lane" data-lane="sfx">${sf}</div></div>`;
   // субтитры
   let su = '';
-  for (const g of subGroups()) { const sel = ui.sel?.type === 'sub' && ui.sel.id === g.key ? ' sel' : ''; su += `<div class="clip subc${sel}" data-kind="sub" data-id="${g.key}" style="left:${X(g.t0)}px;width:${Math.max(4, X(g.t1 - g.t0) - 1)}px" title="${esc(g.text)}"><span class="lbl2">${esc(g.text)}</span></div>`; }
-  h += `<div class="track subs">${trackHead('subs', T('tSubs'), 'var(--t-sub)')}<div class="lane" data-lane="subs">${su}</div></div>`;
+  for (const g of subGroups()) { const sel = isSel('sub', g.key) ? ' sel' : ''; su += `<div class="clip subc${sel}" ${clipAttrs('sub', g.key, g.text, false)} style="left:${X(g.t0)}px;width:${Math.max(4, X(g.t1 - g.t0) - 1)}px" title="${esc(g.text)}"><span class="lbl2">${esc(g.text)}</span></div>`; }
+  h += `<div class="track subs">${trackHead(T('tSubs'), 'var(--t-sub)')}<div class="lane" data-lane="subs">${su}</div></div>`;
   // текст
   let tx = '';
-  for (const x of doc.texts) { const sel = ui.sel?.id === x.id ? ' sel' : ''; const nm = x.kind === 'hook' ? T('hook') : x.kind === 'cta' ? T('cta') : T('textBlock'); tx += `<div class="clip text${sel}" data-kind="text" data-id="${x.id}" style="left:${X(x.t0)}px;width:${Math.max(6, X(x.t1 - x.t0) - 1)}px" title="${esc(nm)}: ${esc(x.text)}"><span class="lbl2">${esc(nm)}: ${esc(x.text)} ${esc(x.accent || '')}</span><div class="handle l" data-edge="l"></div><div class="handle r" data-edge="r"></div></div>`; }
-  h += `<div class="track text">${trackHead('text', T('tText'), 'var(--t-text)')}<div class="lane" data-lane="text">${tx}</div></div>`;
+  for (const x of doc.texts) { const sel = isSel('text', x.id) ? ' sel' : ''; const nm = textName(x); tx += `<div class="clip text${sel}" ${clipAttrs('text', x.id, `${nm}: ${x.text}`)} style="left:${X(x.t0)}px;width:${Math.max(6, X(x.t1 - x.t0) - 1)}px" title="${esc(nm)}: ${esc(x.text)}"><span class="lbl2">${esc(nm)}: ${esc(x.text)} ${esc(x.accent || '')}</span><div class="handle l" data-edge="l"></div><div class="handle r" data-edge="r"></div></div>`; }
+  h += `<div class="track text">${trackHead(T('tText'), 'var(--t-text)')}<div class="lane" data-lane="text">${tx}</div></div>`;
   // вставки
   let ins = '';
-  for (const x of doc.inserts) { const sel = ui.sel?.id === x.id ? ' sel' : ''; ins += `<div class="clip insc${sel}" data-kind="insert" data-id="${x.id}" style="left:${X(x.t0)}px;width:${Math.max(6, X(x.t1 - x.t0) - 1)}px" title="${esc(x.name)}"><span class="lbl2">${esc(x.name)}</span><div class="handle l" data-edge="l"></div><div class="handle r" data-edge="r"></div></div>`; }
-  h += `<div class="track ins">${trackHead('ins', T('tIns'), 'var(--t-ins)')}<div class="lane" data-lane="ins">${ins}</div></div>`;
+  for (const x of doc.inserts) { const sel = isSel('insert', x.id) ? ' sel' : ''; const nm = insName(x.kind); ins += `<div class="clip insc${sel}" ${clipAttrs('insert', x.id, nm)} style="left:${X(x.t0)}px;width:${Math.max(6, X(x.t1 - x.t0) - 1)}px" title="${esc(nm)}"><span class="lbl2">${esc(nm)}</span><div class="handle l" data-edge="l"></div><div class="handle r" data-edge="r"></div></div>`; }
+  h += `<div class="track insr">${trackHead(T('tIns'), 'var(--t-ins)')}<div class="lane" data-lane="ins">${ins}</div></div>`;
   h += `<div class="playhead" id="ph" style="left:${HW + X(ui.t)}px"><div class="knob" id="knob"></div></div>`;
   if (ui.guide != null) h += `<div class="guide" style="left:${HW + X(ui.guide)}px"></div>`;
   inner.innerHTML = h;
   // лента кадров и волны
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   inner.querySelectorAll('canvas[data-film]').forEach((cv) => {
-    const r = L.find((r) => r.c.id === cv.dataset.film); const w = cv.clientWidth, hh = cv.clientHeight; if (!w) return;
+    const r = L.find((r) => r.c.id === cv.dataset.film); const w = cv.clientWidth, hh = cv.clientHeight; if (!w || !r) return;
     cv.width = Math.round(w * dpr); cv.height = Math.round(hh * dpr); const c = cv.getContext('2d'); c.scale(dpr, dpr);
     const tw = hh * 9 / 16;
     for (let x = 0; x < w; x += tw) { const st = r.c.in + (x / ui.pps) * doc.speed; c.save(); c.beginPath(); c.rect(x, 0, tw, hh); c.clip(); c.translate(x, 0); drawScene(c, tw, hh, r.c.src, st, true); c.restore(); }
   });
   inner.querySelectorAll('canvas[data-wave]').forEach((cv) => {
-    const r = L.find((r) => r.c.id === cv.dataset.wave); const w = cv.clientWidth, hh = cv.clientHeight; if (!w) return;
+    const r = L.find((r) => r.c.id === cv.dataset.wave); const w = cv.clientWidth, hh = cv.clientHeight; if (!w || !r) return;
     cv.width = Math.round(w * dpr); cv.height = Math.round(hh * dpr); const c = cv.getContext('2d'); c.scale(dpr, dpr);
     const S = SOURCES[r.c.src]; const cl = doc.voice.clean; const lim = Math.pow(10, -cl.strength / 20);
     const noiseK = cl.on && ui.ab === 'after' ? (lim + (1 - lim) * 0.06) : 1; const g = Math.pow(10, doc.voice.gainDb / 20);
@@ -696,13 +756,14 @@ function renderTimeline() {
 function updatePlayhead() {
   const ph = $('#ph'); if (ph) ph.style.left = (HW + X(ui.t)) + 'px';
   if (ui.playing) { const x = HW + X(ui.t); if (x > scroller.scrollLeft + scroller.clientWidth - 40) scroller.scrollLeft = x - HW - 40; }
+  const a = $('#phA'), c = $('#phC'); if (a) a.textContent = tc(ui.t); if (c) c.textContent = tc(ui.t);
 }
 function updateButtons() {
-  $('#undoBtn').disabled = !undo.length; $('#redoBtn').disabled = !redo.length;
+  $('#undoBtn').disabled = !undo.length && !inputSnap; $('#redoBtn').disabled = !redo.length;
   $('#delBtn').disabled = !ui.sel || ui.sel.type === 'sub' || ui.sel.type === 'voice';
   $('#playIco').innerHTML = ui.playing ? '<path d="M6 4h4v16H6zM14 4h4v16h-4z"/>' : '<path d="M7 4l14 8-14 8z"/>';
   $('#playBtn').setAttribute('aria-label', ui.playing ? L2('Пауза', 'Pause') : L2('Пуск', 'Play'));
-  const mm = $('#mMute'); if (mm) mm.setAttribute('aria-pressed', String(doc.voice.muted));
+  $('#mMute').setAttribute('aria-pressed', String(doc.voice.muted));
   $('#verChip').hidden = !ui.rendered; $('#dlBtn').hidden = !ui.rendered; $('#verChip').textContent = 'v' + ui.ver;
 }
 
@@ -718,16 +779,17 @@ const ICONS = {
   settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.6 1.6 0 00-1.8-.3 1.6 1.6 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.6 1.6 0 00-1-1.5 1.6 1.6 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.6 1.6 0 00.3-1.8 1.6 1.6 0 00-1.5-1H3a2 2 0 110-4h.1a1.6 1.6 0 001.5-1 1.6 1.6 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.6 1.6 0 001.8.3H9a1.6 1.6 0 001-1.5V3a2 2 0 114 0v.1a1.6 1.6 0 001 1.5 1.6 1.6 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.6 1.6 0 00-.3 1.8V9a1.6 1.6 0 001.5 1H21a2 2 0 110 4h-.1a1.6 1.6 0 00-1.5 1z"/>',
 };
 const PANELS = ['media', 'audio', 'subs', 'text', 'inserts', 'style', 'ai', 'settings'];
-function svg(k) { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[k]}</svg>`; }
+function svg(k) { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[k]}</svg>`; }
 function renderRail() {
   $('#rail').innerHTML = PANELS.map((p) => `<button data-act="panel" data-v="${p}" aria-current="${ui.panel === p && !ui.inspect}"><span class="ricon">${svg(p)}</span>${T(p)}</button>`).join('');
   $('#mtabs').innerHTML = PANELS.map((p) => `<button data-act="panel" data-v="${p}" aria-current="${ui.panel === p && !ui.inspect}">${T(p)}</button>`).join('');
 }
 function thumbCanvas(src, st) { const c = document.createElement('canvas'); c.width = 80; c.height = 112; const x = c.getContext('2d'); x.scale(2, 2); drawScene(x, 40, 56, src, st, false); return c.toDataURL(); }
 const THUMBS = { s1: thumbCanvas('s1', 3), s2: thumbCanvas('s2', 2) };
+function toggle(act, on, label, v = '') { return `<button class="toggle" data-act="${act}"${v ? ` data-v="${v}"` : ''} aria-pressed="${on}" aria-label="${esc(label)}"></button>`; }
 function renderPanel() {
   const P = $('#panel'); let h = '';
-  if (ui.inspect && ui.sel) { P.innerHTML = `<div class="pin">${inspector()}</div>`; return; }
+  if (ui.inspect && ui.sel) { const body = inspector(); if (body) { P.innerHTML = `<div class="pin">${body}</div>`; return; } ui.sel = null; ui.inspect = false; }
   const p = ui.panel;
   if (p === 'media') {
     h += `<h2>${T('media')}</h2><p>${L2('Файлы этого ролика. Кусок можно поставить на таймлайн в место плейхеда.', 'Files of this video. Add a piece at the playhead.')}</p><div class="list">`;
@@ -735,118 +797,128 @@ function renderPanel() {
     h += `</div><button class="btn line wide" data-act="mock">+ ${L2('Добавить видео', 'Add video')}</button><div class="group"><h3>${L2('ВСТАВКИ ЭТОГО РОЛИКА', 'THIS VIDEO’S INSERTS')}</h3><p>${L2('Картинки и видео, которые ты загрузил к ролику, — во вкладке «Вставки».', 'Pictures and clips you uploaded are under Inserts.')}</p></div>`;
   } else if (p === 'audio') {
     h += `<h2>${T('audio')}</h2><div class="group"><h3>${L2('МУЗЫКА', 'MUSIC')}</h3><div class="list">`;
-    for (const m of MUSIC) h += `<div class="item"><button class="play-mini" data-act="mock" aria-label="${L2('Послушать', 'Listen')}"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4l14 8-14 8z"/></svg></button><div class="grow"><b>${esc(m.name)}</b><span class="mono">${tc(m.dur, false)} · ${m.bpm} bpm</span></div>${doc.music.asset === m.id && doc.music.len > 0 ? `<span class="hint">${L2('стоит', 'in use')}</span>` : `<button class="btn small soft" data-act="setMusic" data-v="${m.id}">${L2('Поставить', 'Use')}</button>`}</div>`;
+    for (const m of MUSIC) h += `<div class="item"><button class="play-mini" data-act="mock" aria-label="${L2('Послушать', 'Listen to')} ${esc(m.name)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4l14 8-14 8z"/></svg></button><div class="grow"><b>${esc(m.name)}</b><span class="mono">${tc(m.dur, false)} · ${m.bpm} bpm</span></div>${doc.music.asset === m.id && doc.music.len > 0 ? `<span class="hint">${L2('стоит', 'in use')}</span>` : `<button class="btn small soft" data-act="setMusic" data-v="${m.id}">${L2('Поставить', 'Use')}</button>`}</div>`;
     h += `</div></div><div class="group"><h3>${L2('ЗВУКИ', 'SOUNDS')}</h3><div class="chips">`;
-    for (const s of SFX) h += `<button data-act="addSfx" data-v="${s.id}">+ ${esc(s.name)}</button>`;
-    h += `</div><p>${L2('Встанет в место плейхеда', 'Goes to the playhead')} (${tc(ui.t)}).</p></div><div class="group"><h3>${L2('ОЗВУЧКА', 'VOICE-OVER')}</h3><button class="btn line wide" data-act="mock">${L2('Загрузить запись голоса', 'Upload a voice recording')}</button><p>${L2('Заменит звук видео на дорожке «Голос».', 'Replaces the video sound on the Voice track.')}</p></div>`;
+    for (const s of SFX) h += `<button data-act="addSfx" data-v="${s.id}">+ ${esc(s[ui.lang])}</button>`;
+    h += `</div><p>${L2('Встанет в место плейхеда', 'Goes to the playhead')} (<span class="mono" id="phA">${tc(ui.t)}</span>).</p></div><div class="group"><h3>${L2('ОЗВУЧКА', 'VOICE-OVER')}</h3><button class="btn line wide" data-act="mock">${L2('Загрузить запись голоса', 'Upload a voice recording')}</button><p>${L2('Заменит звук видео на дорожке «Голос».', 'Replaces the video sound on the Voice track.')}</p></div>`;
   } else if (p === 'subs') {
-    const gs = subGroups(); const cur = gs.find((g) => ui.t >= g.t0 && ui.t <= g.t1);
-    h += `<h2>${T('subs')}</h2><div class="row between"><span class="lbl">${L2('Слов на экране', 'Words on screen')}</span><div class="seg">${[1, 2, 3].map((n) => `<button data-act="subWords" data-v="${n}" aria-pressed="${doc.style.words === n}">${n}</button>`).join('')}</div></div><p>${L2('Время субтитров — по речи; текст можно поправить. Нажми на время — плейхед перейдёт туда.', 'Timing follows speech; fix the text here. Click a time to jump.')}</p><div class="list">`;
-    for (const g of gs) h += `<div class="subrow"><button class="t mono" data-act="seek" data-v="${g.t0}">${tc(g.t0)}</button><input class="field${cur === g ? ' cur' : ''}" data-input="sub" data-k="${g.key}" value="${esc(g.text)}" aria-label="${L2('Субтитр', 'Subtitle')} ${tc(g.t0)}"></div>`;
+    const gs = subGroups(); const cur = groupAt(ui.t);
+    h += `<h2>${T('subs')}</h2><div class="row between"><span class="lbl">${L2('Слов на экране', 'Words on screen')}</span><div class="seg" role="group" aria-label="${L2('Слов на экране', 'Words on screen')}">${[1, 2, 3].map((n) => `<button data-act="subWords" data-v="${n}" aria-pressed="${doc.style.words === n}">${n}</button>`).join('')}</div></div><p>${L2('Время субтитров — по речи; текст можно поправить. Исправленная фраза держится вместе. Нажми на время — плейхед перейдёт туда.', 'Timing follows speech; fix the text here. An edited phrase stays together. Click a time to jump.')}</p><div class="list">`;
+    for (const g of gs) h += `<div class="subrow"><button class="t mono" data-act="seek" data-v="${g.t0}">${tc(g.t0)}</button><input class="field${cur && cur.key === g.key ? ' cur' : ''}" data-input="sub" data-k="${g.key}" value="${esc(g.text)}" aria-label="${L2('Субтитр', 'Subtitle')} ${tc(g.t0)}"></div>`;
     h += '</div>';
   } else if (p === 'text') {
     h += `<h2>${T('text')}</h2>`;
     for (const x of doc.texts) {
-      const nm = x.kind === 'hook' ? T('hook') : x.kind === 'cta' ? T('cta') : T('textBlock');
+      const nm = textName(x);
       h += `<div class="card${ui.sel?.id === x.id ? ' hl' : ''}"><div class="row between"><span class="lbl">${nm}</span><span class="hint mono">${tc(x.t0)}–${tc(x.t1)}</span></div><input class="field" data-input="text" data-id="${x.id}" data-f="text" value="${esc(x.text)}" aria-label="${nm}">${x.kind === 'hook' ? `<div class="row"><span class="hint" style="flex:none">${L2('Рукописное слово', 'Handwritten word')}</span><input class="field" data-input="text" data-id="${x.id}" data-f="accent" value="${esc(x.accent || '')}" aria-label="${L2('Рукописное слово', 'Handwritten word')}"></div>` : ''}<div class="row"><button class="btn small soft" data-act="select" data-kind="text" data-v="${x.id}">${L2('Выбрать на таймлайне', 'Select on timeline')}</button></div></div>`;
     }
     h += `<button class="btn line wide" data-act="addText">+ ${L2('Текст в месте плейхеда', 'Text at playhead')}</button>`;
   } else if (p === 'inserts') {
     h += `<h2>${T('inserts')}</h2><div class="list">`;
-    for (const x of doc.inserts) h += `<div class="item"><span class="thumb" style="width:40px;height:40px;background:#fff;border:1px solid var(--line);display:grid;place-items:center;padding:6px">${insertArt(x.kind)}</span><div class="grow"><b>${esc(x.name)}</b><span class="mono">${tc(x.t0)}–${tc(x.t1)}</span></div><button class="btn small soft" data-act="select" data-kind="insert" data-v="${x.id}">${L2('Выбрать', 'Select')}</button></div>`;
+    for (const x of doc.inserts) h += `<div class="item"><span class="thumb" style="width:40px;height:40px;background:#fff;border:1px solid var(--line);display:grid;place-items:center;padding:6px">${insertArt(x.kind)}</span><div class="grow"><b>${esc(insName(x.kind))}</b><span class="mono">${tc(x.t0)}–${tc(x.t1)}</span></div><button class="btn small soft" data-act="select" data-kind="insert" data-v="${x.id}">${L2('Выбрать', 'Select')}</button></div>`;
     h += `</div><div class="group"><h3>${L2('БИБЛИОТЕКА', 'LIBRARY')}</h3><div class="chips">`;
-    for (const x of INSERTS) h += `<button data-act="addInsert" data-v="${x.kind}">+ ${esc(x.name)}</button>`;
+    for (const x of INSERTS) h += `<button data-act="addInsert" data-v="${x.kind}">+ ${esc(x[ui.lang])}</button>`;
     h += `</div></div><button class="btn line wide" data-act="mock">${L2('Загрузить картинку или видео', 'Upload a picture or clip')}</button>`;
   } else if (p === 'style') {
     const st = doc.style;
     const vs = { A: L2('Обводка, слово цветом', 'Outline, word in colour'), B: L2('Плашка', 'Box'), C: L2('По слову крупно', 'One big word') };
-    h += `<h2>${T('style')}</h2><div class="variants">${['A', 'B', 'C'].map((v) => `<button class="variant" data-act="variant" data-v="${v}" aria-pressed="${st.variant === v}" title="${vs[v]}"><span class="vlabel">${v}</span><span class="vs" style="font-family:'${st.font}';font-weight:900;${v === 'B' ? 'background:rgba(0,0,0,.75);border-radius:5px;padding:2px 5px;text-transform:none' : 'text-transform:uppercase'};${v === 'C' ? `font-size:17px;color:${st.hl}` : ''}">${v === 'C' ? L2('ЧЕХИ', 'CZECH') : `${L2('учи', 'learn')} <span style="color:${st.hl}">${L2('фразы', 'phrases')}</span>`}</span></button>`).join('')}</div><p>${vs[st.variant]}</p>`;
+    h += `<h2>${T('style')}</h2><div class="variants">${['A', 'B', 'C'].map((v) => `<button class="variant" data-act="variant" data-v="${v}" aria-pressed="${st.variant === v}" aria-label="${v}: ${vs[v]}" title="${vs[v]}"><span class="vlabel">${v}</span><span class="vs" style="font-family:'${st.font}';font-weight:900;${v === 'B' ? 'background:rgba(0,0,0,.75);border-radius:5px;padding:2px 5px;text-transform:none' : 'text-transform:uppercase'};${v === 'C' ? `font-size:17px;color:${st.hl}` : ''}">${v === 'C' ? L2('ЧЕХИ', 'CZECH') : `${L2('учи', 'learn')} <span style="color:${st.hl}">${L2('фразы', 'phrases')}</span>`}</span></button>`).join('')}</div><p>${vs[st.variant]}</p>`;
     h += `<div class="group"><h3>${L2('ШРИФТ', 'FONT')}</h3><div class="chips">${FONTS.map((f) => `<button data-act="font" data-v="${f}" aria-pressed="${st.font === f}" style="font-family:'${f}';font-weight:800">${f}</button>`).join('')}</div></div>`;
     const sw = (key, list) => `<div class="swatches">${list.map((c) => `<button class="sw" data-act="color" data-k="${key}" data-v="${c}" style="background:${c}" aria-pressed="${st[key] === c}" aria-label="${c}"></button>`).join('')}<input type="color" data-input="color" data-k="${key}" value="${st[key]}" aria-label="${L2('Свой цвет', 'Custom colour')}"></div>`;
     h += `<div class="group"><h3>${L2('ПОДСВЕТКА СЛОВА', 'WORD HIGHLIGHT')}</h3>${sw('hl', HL)}</div><div class="group"><h3>${L2('ТЕКСТ', 'TEXT')}</h3>${sw('text', ['#FFFFFF', '#FFF6D8', '#111111'])}</div><div class="group"><h3>${L2('ШКАЛА ВРЕМЕНИ', 'PROGRESS BAR')}</h3>${sw('bar', HL)}</div>`;
     h += `<button class="btn line wide" data-act="mock">${L2('Ещё три варианта', 'Three more variants')}</button>`;
   } else if (p === 'ai') {
-    const cl = doc.voice.clean;
-    h += `<h2>${L2('AI-инструменты', 'AI tools')}</h2>${voiceCard(cl)}`;
-    h += `<div class="card"><div class="row between"><span class="lbl">${L2('Паузы и слова-паразиты', 'Pauses and filler words')}</span></div><div class="row between"><span class="hint">${L2('Резать паузы длиннее', 'Cut pauses longer than')}</span><span class="mono hint" id="pauseVal">${sec(doc.cutPause)}</span></div><input type="range" min="0.15" max="0.8" step="0.05" value="${doc.cutPause}" data-input="cutPause" aria-label="${L2('Длина паузы', 'Pause length')}"><div class="row between"><span class="hint">${L2('Убирать «ну», «вот», «э»', 'Drop “um”, “like”')}</span><button class="toggle" data-act="fillers" aria-pressed="${doc.dropFillers}" aria-label="${L2('Убирать слова-паразиты', 'Drop filler words')}"></button></div><button class="btn small dark" data-act="recut">${L2('Пересобрать нарезку', 'Rebuild cuts')}</button><p>${L2('Ручные правки кусков заменятся новой нарезкой (⌘Z вернёт).', 'Manual piece edits are replaced (⌘Z brings them back).')}</p></div>`;
-    h += `<div class="card"><span class="lbl">${L2('Поправить словами', 'Fix in words')}</span><textarea class="field" id="fixText" placeholder="${L2('Например: убери кусок про трамвай и сделай хук короче', 'E.g. drop the tram part and shorten the hook')}"></textarea><button class="btn small dark" data-act="fix">${L2('Отправить Claude', 'Send to Claude')}</button><p>${L2('Claude меняет только то, что попросили; твои правки на таймлайне остаются.', 'Claude changes only what you asked; your timeline edits stay.')}</p></div>`;
+    h += `<h2>${L2('AI-инструменты', 'AI tools')}</h2>${voiceCard(doc.voice.clean)}`;
+    h += `<div class="card"><div class="row between"><span class="lbl">${L2('Паузы и слова-паразиты', 'Pauses and filler words')}</span></div><div class="row between"><span class="hint">${L2('Резать паузы длиннее', 'Cut pauses longer than')}</span><span class="mono hint" id="pauseVal">${sec(doc.cutPause)}</span></div><input type="range" min="0.15" max="0.8" step="0.05" value="${doc.cutPause}" data-input="cutPause" aria-label="${L2('Длина паузы', 'Pause length')}"><div class="row between"><span class="hint">${L2('Убирать «ну», «вот», «э»', 'Drop “um”, “like”')}</span>${toggle('fillers', doc.dropFillers, L2('Убирать слова-паразиты', 'Drop filler words'))}</div><button class="btn small dark" data-act="recut">${L2('Пересобрать нарезку', 'Rebuild cuts')}</button><p>${L2('Ручные правки кусков заменятся новой нарезкой (⌘Z вернёт).', 'Manual piece edits are replaced (⌘Z brings them back).')}</p></div>`;
+    h += `<div class="card"><label class="lbl" for="fixText">${L2('Поправить словами', 'Fix in words')}</label><textarea class="field" id="fixText" data-input="fix" placeholder="${L2('Например: убери кусок про трамвай и сделай хук короче', 'E.g. drop the tram part and shorten the hook')}">${esc(ui.fixDraft)}</textarea><button class="btn small dark" data-act="fix">${L2('Отправить Claude', 'Send to Claude')}</button><p>${L2('Claude меняет только то, что попросили; твои правки на таймлайне остаются.', 'Claude changes only what you asked; your timeline edits stay.')}</p></div>`;
   } else if (p === 'settings') {
     h += `<h2>${T('settings')}</h2><div class="group"><h3>${L2('СКОРОСТЬ', 'SPEED')}</h3><div class="chips">${[1, 1.1, 1.2, 1.3, 1.5].map((s) => `<button data-act="speed" data-v="${s}" aria-pressed="${doc.speed === s}" class="mono">×${String(s).replace('.', ui.lang === 'en' ? '.' : ',')}</button>`).join('')}</div></div>`;
     h += `<div class="group"><h3>${L2('ФОРМАТ', 'FORMAT')}</h3><div class="chips"><button aria-pressed="true">9:16</button><button disabled>1:1</button><button disabled>4:5</button><button disabled>16:9</button></div><p>${L2('Другие форматы — позже.', 'Other formats later.')}</p></div>`;
-    h += `<div class="group"><h3>${L2('ОБЛОЖКА', 'COVER')}</h3><button class="btn line wide" data-act="cover">${L2('Кадр', 'Frame at')} ${tc(ui.t)} — ${L2('обложкой', 'as cover')}</button></div>`;
-    h += `<div class="group"><h3>${L2('ВЕРСИИ', 'VERSIONS')}</h3><div class="row between"><span>${L2('Версия для рекламы', 'Ad version')}</span><button class="toggle" data-act="tog" aria-pressed="false" aria-label="${L2('Версия для рекламы', 'Ad version')}"></button></div><div class="row between"><span>${L2('Вторая версия для A/B-теста', 'Second version for A/B')}</span><button class="toggle" data-act="tog" aria-pressed="false" aria-label="A/B"></button></div></div>`;
+    h += `<div class="group"><h3>${L2('ОБЛОЖКА', 'COVER')}</h3><button class="btn line wide" data-act="cover">${L2('Кадр', 'Frame at')} <span class="mono" id="phC">${tc(ui.t)}</span> — ${L2('обложкой', 'as cover')}</button></div>`;
+    h += `<div class="group"><h3>${L2('ВЕРСИИ', 'VERSIONS')}</h3><div class="row between"><span>${L2('Версия для рекламы', 'Ad version')}</span>${toggle('ver', doc.versions.ad, L2('Версия для рекламы', 'Ad version'), 'ad')}</div><div class="row between"><span>${L2('Вторая версия для A/B-теста', 'Second version for A/B')}</span>${toggle('ver', doc.versions.ab, L2('Вторая версия для A/B-теста', 'Second version for A/B'), 'ab')}</div></div>`;
   }
   P.innerHTML = `<div class="pin">${h}</div>`;
 }
 function voiceCard(cl) {
   const levels = [[12, L2('Мягко', 'Light')], [18, L2('Норма', 'Normal')], [100, L2('Максимум', 'Max')]];
-  return `<div class="card${cl.on ? ' hl' : ''}"><div class="row between"><span class="lbl">${L2('Очистить голос', 'Clean voice')}</span><button class="toggle" data-act="cleanToggle" aria-pressed="${cl.on}" aria-label="${L2('Очистить голос', 'Clean voice')}"></button></div>`
+  return `<div class="card${cl.on ? ' hl' : ''}"><div class="row between"><span class="lbl">${L2('Очистить голос', 'Clean voice')}</span>${toggle('cleanToggle', cl.on, L2('Очистить голос', 'Clean voice'))}</div>`
     + (!cl.on && Object.values(SOURCES).some((s) => s.noise > 0.15) ? `<div class="tip">⚠ <span>${L2('Похоже, шумно: IMG_4512 снят на улице — машины.', 'Sounds noisy: IMG_4512 was shot on a street with cars.')}</span></div>` : '')
     + `<div class="seg" role="group" aria-label="${L2('Сила', 'Strength')}">${levels.map(([v, n]) => `<button data-act="cleanLevel" data-v="${v}" aria-pressed="${cl.strength === v}" ${cl.on ? '' : 'disabled'}>${n}</button>`).join('')}</div>`
-    + `<div class="row between"><span class="hint">${L2('Сравнить', 'Compare')}</span><div class="seg"><button data-act="ab" data-v="before" aria-pressed="${ui.ab === 'before'}" ${cl.on ? '' : 'disabled'}>${L2('До', 'Before')}</button><button data-act="ab" data-v="after" aria-pressed="${ui.ab === 'after'}" ${cl.on ? '' : 'disabled'}>${L2('После', 'After')}</button></div></div>`
+    + `<div class="row between"><span class="hint">${L2('Сравнить', 'Compare')}</span><div class="seg" role="group" aria-label="${L2('Сравнить', 'Compare')}"><button data-act="ab" data-v="before" aria-pressed="${ui.ab === 'before'}" ${cl.on ? '' : 'disabled'}>${L2('До', 'Before')}</button><button data-act="ab" data-v="after" aria-pressed="${ui.ab === 'after'}" ${cl.on ? '' : 'disabled'}>${L2('После', 'After')}</button></div></div>`
     + `<p>${L2('Модель на нашем сервере. Сила — сколько улицы оставить: «Норма» глушит шум на 18 дБ.', 'Runs on our server. Strength is how much street to keep: Normal cuts noise by 18 dB.')}</p></div>`;
 }
+// панель выбранного; пустая строка — выбранного больше нет
 function inspector() {
-  const s = ui.sel; let h = `<button class="back-link" data-act="uninspect"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg>${T(ui.panel)}</button>`;
+  const s = ui.sel; let h = `<button class="back-link" data-act="uninspect"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>${T(ui.panel)}</button>`;
   if (s.type === 'clip') {
-    const L = layout(); const r = L.find((r) => r.c.id === s.id); if (!r) return h;
+    const L = layout(); const r = L.find((r) => r.c.id === s.id); if (!r) return '';
     const i = L.indexOf(r); const S = SOURCES[r.c.src];
     h += `<h2>${L2('Кусок', 'Piece')} ${i + 1} ${L2('из', 'of')} ${L.length}</h2><dl class="kv"><dt>${L2('Файл', 'File')}</dt><dd class="mono">${S.name}</dd><dt>${L2('Из исходника', 'From source')}</dt><dd class="mono">${tc(r.c.in)}–${tc(r.c.out)}</dd><dt>${L2('В ролике', 'In video')}</dt><dd class="mono">${tc(r.start)}–${tc(r.end)}</dd><dt>${L2('Длина', 'Length')}</dt><dd class="mono">${sec(r.end - r.start)}</dd></dl>`;
     h += `<div class="row"><button class="btn small soft" data-act="split">${T('split')}</button><button class="btn small soft" data-act="delete">${T('delete')}</button></div>`;
     h += `<p>${L2('Тяни край — обрезка липнет к границам слов. Тяни за середину — кусок переедет на другое место.', 'Drag an edge to trim (snaps to word edges). Drag the middle to move the piece.')}</p>`;
-    h += `<div class="group"><h3>${L2('СЛОВА В КУСКЕ', 'WORDS IN PIECE')}</h3><p style="color:var(--ink)">${esc(S.words.filter((w) => w.t1 > r.c.in && w.t0 < r.c.out).map((w) => w.w).join(' '))}</p></div>`;
+    h += `<div class="group"><h3>${L2('СЛОВА В КУСКЕ', 'WORDS IN PIECE')}</h3><p style="color:var(--ink)">${esc(S.words.filter((w) => { const mid = (w.t0 + w.t1) / 2; return mid >= r.c.in && mid < r.c.out; }).map((w) => w.w).join(' '))}</p></div>`;
   } else if (s.type === 'voice') {
-    h += `<h2>${T('tVoice')}</h2><div class="group"><div class="row between"><span class="lbl">${L2('Громкость', 'Volume')}</span><span class="mono hint" id="vgVal">${doc.voice.gainDb > 0 ? '+' : ''}${doc.voice.gainDb} dB</span></div><input type="range" min="-20" max="10" step="1" value="${doc.voice.gainDb}" data-input="voiceGain" aria-label="${L2('Громкость голоса', 'Voice volume')}"><div class="row between"><span>${L2('Без звука', 'Mute')}</span><button class="toggle" data-act="muteVoice" aria-pressed="${doc.voice.muted}" aria-label="${L2('Без звука', 'Mute')}"></button></div></div>${voiceCard(doc.voice.clean)}`;
+    h += `<h2>${T('tVoice')}</h2><div class="group"><div class="row between"><span class="lbl">${L2('Громкость', 'Volume')}</span><span class="mono hint" id="vgVal">${doc.voice.gainDb > 0 ? '+' : ''}${doc.voice.gainDb} dB</span></div><input type="range" min="-20" max="10" step="1" value="${doc.voice.gainDb}" data-input="voiceGain" aria-label="${L2('Громкость голоса', 'Voice volume')}"><div class="row between"><span>${L2('Без звука', 'Mute')}</span>${toggle('muteVoice', doc.voice.muted, L2('Голос без звука', 'Mute voice'))}</div></div>${voiceCard(doc.voice.clean)}`;
   } else if (s.type === 'music') {
-    const m = doc.music; const ma = MUSIC.find((x) => x.id === m.asset);
+    const m = doc.music; if (m.len <= 0) return ''; const ma = musicAsset();
     h += `<h2>♪ ${esc(ma.name)}</h2><dl class="kv"><dt>${L2('С места трека', 'From track time')}</dt><dd class="mono">${tc(m.in)}</dd><dt>${L2('В ролике', 'In video')}</dt><dd class="mono">${tc(m.at)}–${tc(m.at + m.len)}</dd></dl><div class="group"><div class="row between"><span class="lbl">${L2('Громкость', 'Volume')}</span><span class="mono hint" id="mgVal">${m.gainDb} dB</span></div><input type="range" min="-30" max="0" step="1" value="${m.gainDb}" data-input="musicGain" aria-label="${L2('Громкость музыки', 'Music volume')}"><p>${L2('−14 dB — на 14 дБ тише голоса (как сейчас в движке).', '−14 dB means 14 dB under the voice (engine default).')}</p></div>`;
-    h += `<div class="row between"><span>${L2('Тише под голосом', 'Duck under voice')}</span><button class="toggle" data-act="duck" aria-pressed="${m.duck}" aria-label="${L2('Тише под голосом', 'Duck under voice')}"></button></div>`;
+    h += `<div class="row between"><span>${L2('Тише под голосом', 'Duck under voice')}</span>${toggle('duck', m.duck, L2('Тише под голосом', 'Duck under voice'))}</div>`;
     h += `<div class="group"><div class="row between"><span class="lbl">${L2('Затухание в конце', 'Fade out')}</span><span class="mono hint" id="foVal">${sec(m.fadeOut)}</span></div><input type="range" min="0" max="4" step="0.5" value="${m.fadeOut}" data-input="fadeOut" aria-label="${L2('Затухание в конце', 'Fade out')}"></div>`;
     h += `<div class="row"><button class="btn small soft" data-act="panel" data-v="audio">${L2('Заменить трек', 'Replace track')}</button><button class="btn small soft" data-act="delete">${T('delete')}</button></div><p>${L2('Тяни трек по времени, края — обрезка.', 'Drag to move; edges trim.')}</p>`;
   } else if (s.type === 'sfx') {
-    const x = doc.sfx.find((x) => x.id === s.id); if (!x) return h;
-    h += `<h2>${esc(x.name)}</h2><dl class="kv"><dt>${L2('Время', 'Time')}</dt><dd class="mono">${tc(x.at)}</dd><dt>${L2('Громкость', 'Volume')}</dt><dd class="mono">−13 dB</dd></dl><button class="btn small soft" data-act="delete">${T('delete')}</button><p>${L2('Тяни по дорожке — звук липнет к вставкам и словам.', 'Drag along the track; it snaps to inserts and words.')}</p>`;
+    const x = doc.sfx.find((x) => x.id === s.id); if (!x) return '';
+    h += `<h2>${esc(sfxName(x.kind))}</h2><dl class="kv"><dt>${L2('Время', 'Time')}</dt><dd class="mono">${tc(x.at)}</dd><dt>${L2('Громкость', 'Volume')}</dt><dd class="mono">−13 dB</dd></dl><button class="btn small soft" data-act="delete">${T('delete')}</button><p>${L2('Тяни по дорожке — звук липнет к вставкам и словам.', 'Drag along the track; it snaps to inserts and words.')}</p>`;
   } else if (s.type === 'sub') {
-    const g = subGroups().find((g) => g.key === s.id); if (!g) return h;
+    const g = subGroups().find((g) => g.key === s.id); if (!g) return '';
     h += `<h2>${T('tSubs')}</h2><dl class="kv"><dt>${L2('Время', 'Time')}</dt><dd class="mono">${tc(g.t0)}–${tc(g.t1)}</dd></dl><input class="field" data-input="sub" data-k="${g.key}" value="${esc(g.text)}" aria-label="${L2('Текст субтитра', 'Subtitle text')}"><p>${L2('Время субтитра — по речи: чтобы сдвинуть, обрежь кусок видео.', 'Subtitle timing follows speech: trim the video piece to move it.')}</p>`;
   } else if (s.type === 'text' || s.type === 'insert') {
-    const arr = s.type === 'text' ? doc.texts : doc.inserts; const x = arr.find((x) => x.id === s.id); if (!x) return h;
-    const nm = s.type === 'insert' ? x.name : x.kind === 'hook' ? T('hook') : x.kind === 'cta' ? T('cta') : T('textBlock');
+    const arr = s.type === 'text' ? doc.texts : doc.inserts; const x = arr.find((x) => x.id === s.id); if (!x) return '';
+    const nm = s.type === 'insert' ? insName(x.kind) : textName(x);
     h += `<h2>${esc(nm)}</h2><dl class="kv"><dt>${L2('Время', 'Time')}</dt><dd class="mono">${tc(x.t0)}–${tc(x.t1)}</dd><dt>${L2('Длина', 'Length')}</dt><dd class="mono">${sec(x.t1 - x.t0)}</dd></dl>`;
     if (s.type === 'text') h += `<input class="field" data-input="text" data-id="${x.id}" data-f="text" value="${esc(x.text)}" aria-label="${L2('Текст', 'Text')}">` + (x.kind === 'hook' ? `<input class="field" data-input="text" data-id="${x.id}" data-f="accent" value="${esc(x.accent || '')}" aria-label="${L2('Рукописное слово', 'Handwritten word')}">` : '');
-    else h += `<div class="group"><div class="row between"><span class="lbl">${L2('Размер', 'Size')}</span></div><input type="range" min="0.15" max="0.6" step="0.01" value="${x.w}" data-input="insW" data-id="${x.id}" aria-label="${L2('Размер', 'Size')}"><div class="row between"><span class="lbl">${L2('Слева', 'From left')}</span></div><input type="range" min="0" max="0.8" step="0.01" value="${x.x}" data-input="insX" data-id="${x.id}" aria-label="${L2('Слева', 'From left')}"><div class="row between"><span class="lbl">${L2('Сверху', 'From top')}</span></div><input type="range" min="0.05" max="0.7" step="0.01" value="${x.y}" data-input="insY" data-id="${x.id}" aria-label="${L2('Сверху', 'From top')}"><p>${L2('Вставки не ставим на лицо и в зону кнопок соцсетей.', 'Inserts stay off the face and the app buttons zone.')}</p></div>`;
+    else h += `<div class="group"><span class="lbl">${L2('Размер', 'Size')}</span><input type="range" min="0.15" max="0.6" step="0.01" value="${x.w}" data-input="insW" data-id="${x.id}" aria-label="${L2('Размер', 'Size')}"><span class="lbl">${L2('Слева', 'From left')}</span><input type="range" min="0" max="${(1 - x.w).toFixed(2)}" step="0.01" value="${x.x}" data-input="insX" data-id="${x.id}" aria-label="${L2('Слева', 'From left')}"><span class="lbl">${L2('Сверху', 'From top')}</span><input type="range" min="0.05" max="${insYMax(x).toFixed(2)}" step="0.01" value="${x.y}" data-input="insY" data-id="${x.id}" aria-label="${L2('Сверху', 'From top')}"><p>${L2('Вставка остаётся в кадре; не ставим её на лицо и в зону кнопок соцсетей.', 'The insert stays in the frame; keep it off the face and the app buttons zone.')}</p></div>`;
     h += `<div class="row"><button class="btn small soft" data-act="seek" data-v="${x.t0}">${L2('К началу', 'Go to start')}</button><button class="btn small soft" data-act="delete">${T('delete')}</button></div><p>${L2('На таймлайне: тяни блок — сдвиг, края — длина; липнет к словам и плейхеду.', 'On the timeline: drag to move, edges to resize; snaps to words and the playhead.')}</p>`;
   }
   return h;
 }
+const insYMax = (x) => { const hf = x.w * (9 / 16) * (INSERTS.find((k) => k.kind === x.kind)?.hf ?? 1); return Math.max(0.05, 0.98 - hf); };
 function applyI18n() {
-  document.documentElement.lang = ui.lang;
+  document.documentElement.lang = ui.lang; document.title = T('docTitle');
   document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = T(el.dataset.i18n); });
+  document.querySelectorAll('[data-i18n-title]').forEach((el) => { el.title = T(el.dataset.i18nTitle); });
+  document.querySelectorAll('[data-i18n-aria]').forEach((el) => { el.setAttribute('aria-label', T(el.dataset.i18nAria)); });
   document.querySelectorAll('[data-act="lang"]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === ui.lang)));
-  $('#saveText').textContent = `${T('saved')} ${doc.rev}`;
+  $('#saveText').textContent = `${T('saved')} ${ui.rev}`;
 }
 function renderAll() { renderRail(); renderPanel(); renderTimeline(); drawFrame(); }
 
 // ───────── правки ─────────
 function select(type, id, inspect = true) { ui.sel = type ? { type, id } : null; ui.inspect = !!type && inspect; renderAll(); }
 function split() {
-  const loc = locate(ui.t); if (!loc) return; const c = loc.r.c; const st = loc.st;
+  const loc = locate(ui.t); if (!loc) return; const c = loc.r.c; let st = loc.st;
+  const w = SOURCES[c.src].words.find((w) => st > w.t0 && st < w.t1); if (w) st = (st - w.t0 < w.t1 - st) ? w.t0 : w.t1; // не режем посреди слова
   if (st - c.in < 2 / FPS || c.out - st < 2 / FPS) { toast(L2('Плейхед у края куска — сдвинь его внутрь', 'Playhead is at a piece edge — move it inside')); return; }
   snap(); const i = doc.clips.indexOf(c); const b = { id: nid('c'), src: c.src, in: st, out: c.out }; c.out = st; doc.clips.splice(i + 1, 0, b);
   ui.sel = { type: 'clip', id: b.id }; ui.inspect = true; changed(); toast(L2('Разрезано', 'Split'));
 }
 function del() {
   const s = ui.sel; if (!s) return;
-  if (s.type === 'clip') { if (doc.clips.length <= 1) { toast(L2('Последний кусок не удалить', 'Can’t delete the last piece')); return; } snap(); doc.clips = doc.clips.filter((c) => c.id !== s.id); toast(L2('Кусок удалён, остальное сдвинулось', 'Piece deleted, the rest moved up'), true); }
-  else if (s.type === 'music') { snap(); doc.music.len = 0; toast(L2('Музыка убрана', 'Music removed'), true); }
-  else if (s.type === 'sfx') { snap(); doc.sfx = doc.sfx.filter((x) => x.id !== s.id); toast(L2('Звук удалён', 'Sound removed'), true); }
-  else if (s.type === 'text') { snap(); doc.texts = doc.texts.filter((x) => x.id !== s.id); toast(L2('Текст удалён', 'Text removed'), true); }
-  else if (s.type === 'insert') { snap(); doc.inserts = doc.inserts.filter((x) => x.id !== s.id); toast(L2('Вставка удалена', 'Insert removed'), true); }
+  if (s.type === 'clip') {
+    if (!doc.clips.some((c) => c.id === s.id)) { select(null); return; }
+    if (doc.clips.length <= 1) { toast(L2('Последний кусок не удалить', 'Can’t delete the last piece')); return; }
+    snap(); doc.clips = doc.clips.filter((c) => c.id !== s.id); toast(L2('Кусок удалён, остальное сдвинулось', 'Piece deleted, the rest moved up'), true);
+  } else if (s.type === 'music') { if (doc.music.len <= 0) return; snap(); doc.music.len = 0; toast(L2('Музыка убрана', 'Music removed'), true); }
+  else if (s.type === 'sfx') { if (!doc.sfx.some((x) => x.id === s.id)) return; snap(); doc.sfx = doc.sfx.filter((x) => x.id !== s.id); toast(L2('Звук удалён', 'Sound removed'), true); }
+  else if (s.type === 'text') { if (!doc.texts.some((x) => x.id === s.id)) return; snap(); doc.texts = doc.texts.filter((x) => x.id !== s.id); toast(L2('Текст удалён', 'Text removed'), true); }
+  else if (s.type === 'insert') { if (!doc.inserts.some((x) => x.id === s.id)) return; snap(); doc.inserts = doc.inserts.filter((x) => x.id !== s.id); toast(L2('Вставка удалена', 'Insert removed'), true); }
+  else if (s.type === 'voice') { toast(L2('Голос идёт вместе с видео — удали или обрежь кусок видео', 'Voice goes with the video — delete or trim the video piece')); return; }
   else { toast(L2('Субтитры следуют за речью — обрежь кусок видео', 'Subtitles follow speech — trim the video piece')); return; }
   ui.sel = null; ui.inspect = false; changed();
 }
 function restore(i) {
-  snap(); const a = doc.clips[i], b = doc.clips[i + 1]; const gap = b.in - a.out; a.out = b.out; doc.clips.splice(i + 1, 1);
+  const a = doc.clips[i], b = doc.clips[i + 1]; if (!canRestore(a, b)) return;
+  snap(); const gap = b.in - a.out; a.out = b.out; doc.clips.splice(i + 1, 1);
+  if (ui.sel?.id === b.id) ui.sel = { type: 'clip', id: a.id };
   changed(); toast(L2('Вернул', 'Restored') + ' ' + sec(gap), true);
 }
 function boundaryAt(t) { const L = layout(); let best = 0, bd = Infinity; L.forEach((r, i) => { for (const [x, idx] of [[r.start, i], [r.end, i + 1]]) { const d = Math.abs(x - t); if (d < bd) { bd = d; best = idx; } } }); return best; }
@@ -861,51 +933,73 @@ function snapFinal(t, exclude) {
   let best = null, bd = 8 / ui.pps; for (const c of cands) { const d = Math.abs(c - t); if (d < bd) { bd = d; best = c; } }
   return best;
 }
+// на телефоне палец: касание без сдвига — выбрать или перейти; свайп листает таймлайн и ничего не меняет
+function tapOnly(e, fn) {
+  const sx = e.clientX, sy = e.clientY;
+  const off = () => { window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', off); };
+  const up = (ev) => { off(); if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 10) fn(); };
+  window.addEventListener('pointerup', up); window.addEventListener('pointercancel', off);
+}
+function pick(el, e) {
+  if (!el) { if (e.target.closest('.lane')) { seek(lanePos(e)); if (ui.sel) select(null); } return; }
+  const kind = el.dataset.kind, id = el.dataset.id;
+  if (kind === 'sub') { seek(subGroups().find((g) => g.key === id)?.t0 ?? ui.t); select('sub', id); return; }
+  select(kind === 'insert' ? 'insert' : kind, id);
+}
 inner.addEventListener('pointerdown', (e) => {
   if (e.button !== 0 || e.target.closest('button')) return;
-  if (e.target.closest('#knob') || e.target.closest('.ruler')) { startScrub(e); return; }
+  const ae = document.activeElement; if (ae && ae !== document.body) ae.blur(); // клавиши после клика — таймлайну, а не полю
+  if (e.target.closest('#knob') || e.target.closest('.ticks')) { startScrub(e); return; }
   const el = e.target.closest('.clip');
-  if (!el) { if (e.target.closest('.lane')) { seek(lanePos(e)); if (ui.sel) select(null); } return; }
-  const kind = el.dataset.kind, id = el.dataset.id, edge = e.target.closest('.handle')?.dataset.edge;
-  if (kind === 'sub') { seek(subGroups().find((g) => g.key === id)?.t0 ?? ui.t); select('sub', id); return; }
-  if (kind === 'voice') { select('voice', id); return; }
-  // на телефоне палец по куску — выделить и листать таймлайн; тянуть края и куски — на компьютере
-  if (e.pointerType === 'touch' && window.matchMedia('(max-width: 860px)').matches) { select(kind === 'insert' ? 'insert' : kind, id, false); return; }
+  if (e.pointerType === 'touch' && isPhone()) { tapOnly(e, () => pick(el, e)); return; }
+  if (!el || el.dataset.kind === 'sub' || el.dataset.kind === 'voice') { pick(el, e); return; }
   e.preventDefault();
-  const x0 = e.clientX; const pre = JSON.stringify(doc);
+  flushInput();
+  const kind = el.dataset.kind, id = el.dataset.id, edge = e.target.closest('.handle')?.dataset.edge;
   const typ = kind === 'insert' ? 'insert' : kind;
+  const pre = JSON.stringify(doc);
   select(typ, id);
-  const d = { kind: edge ? 'trim' : (kind === 'clip' ? 'reorder' : 'move'), type: typ, id, edge, x0, moved: false, pre };
-  if (kind === 'clip') { const c = doc.clips.find((c) => c.id === id); d.orig = { ...c }; }
+  const d = { kind: edge ? 'trim' : (kind === 'clip' ? 'reorder' : 'move'), type: typ, id, edge, x0: e.clientX, moved: false, pre };
+  if (kind === 'clip') { const L = layout(); const k = L.findIndex((r) => r.c.id === id); d.orig = { ...L[k].c }; d.idx = k; d.start = L[k].start; d.len = L[k].end - L[k].start; }
   else if (kind === 'music') d.orig = { ...doc.music };
   else if (kind === 'sfx') d.orig = { ...doc.sfx.find((x) => x.id === id) };
   else d.orig = { ...(kind === 'text' ? doc.texts : doc.inserts).find((x) => x.id === id) };
   ui.drag = d;
+  const end = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); ui.guide = null; ui.caret = null; ui.drag = null; };
   const move = (ev) => {
     const dx = ev.clientX - d.x0; if (!d.moved && Math.abs(dx) < 4) return; d.moved = true;
     const dt = dx / ui.pps; ui.guide = null;
     if (d.type === 'clip') {
-      const c = doc.clips.find((c) => c.id === id); const S = SOURCES[c.src];
+      const c = doc.clips.find((c) => c.id === id); if (!c) { end(); renderAll(); return; } const S = SOURCES[c.src];
       if (d.kind === 'trim') {
         const ds = dt * doc.speed; const sn = (v) => { let b = null, bd = 8 / ui.pps * doc.speed; for (const w of S.words) for (const q of [w.t0 - 0.06, w.t1 + 0.06]) { const dd = Math.abs(q - v); if (dd < bd) { bd = dd; b = q; } } return b; };
         if (d.edge === 'l') { let v = clamp(d.orig.in + ds, 0, d.orig.out - 0.2); const s = sn(v); if (s != null && s >= 0 && s < d.orig.out - 0.2) v = s; c.in = v; }
         else { let v = clamp(d.orig.out + ds, d.orig.in + 0.2, S.dur); const s = sn(v); if (s != null && s <= S.dur && s > d.orig.in + 0.2) v = s; c.out = v; }
         const r = layout().find((r) => r.c.id === id); ui.guide = d.edge === 'l' ? r.start : r.end;
       } else {
-        const t = lanePos(ev); const others = layout().filter((r) => r.c.id !== id);
-        let k = 0, acc = 0; const len = (d.orig.out - d.orig.in) / doc.speed; let caret = 0;
-        for (const r of others) { const L2len = r.end - r.start; if (t > acc + L2len / 2) { k++; acc += L2len; } else break; }
-        caret = acc; ui.caret = caret; d.target = k; void len;
+        // место по середине самого куска, а не по курсору: короткий сдвиг оставляет кусок на месте
+        const center = d.start + dt + d.len / 2; let acc = 0, k = 0;
+        for (const r of layout()) { if (r.c.id === id) continue; const ln = r.end - r.start; if (center > acc + ln / 2) { acc += ln; k++; } else break; }
+        ui.caret = k === d.idx ? null : acc; d.target = k;
       }
     } else if (d.type === 'music') {
-      const m = doc.music; const ma = MUSIC.find((x) => x.id === m.asset);
-      if (d.kind === 'trim' && d.edge === 'l') { const nd = clamp(dt, -d.orig.in, d.orig.len - 1); m.in = d.orig.in + nd; m.at = Math.max(0, d.orig.at + nd); m.len = d.orig.len - nd; }
-      else if (d.kind === 'trim') { m.len = clamp(d.orig.len + dt, 1, ma.dur - m.in); const s = snapFinal(m.at + m.len); if (s != null) { m.len = s - m.at; ui.guide = s; } }
-      else { let at = clamp(d.orig.at + dt, 0, Math.max(0, total() - 0.5)); const s = snapFinal(at); if (s != null) { at = s; ui.guide = s; } m.at = at; }
+      const m = doc.music; const ma = musicAsset(); const Tn = total();
+      if (d.kind === 'trim' && d.edge === 'l') {
+        let nd = clamp(dt, Math.max(-d.orig.in, -d.orig.at), d.orig.len - 1);
+        const s = snapFinal(d.orig.at + nd); if (s != null) { const sd = s - d.orig.at; if (sd >= Math.max(-d.orig.in, -d.orig.at) && sd <= d.orig.len - 1) { nd = sd; ui.guide = s; } }
+        m.in = d.orig.in + nd; m.at = d.orig.at + nd; m.len = d.orig.len - nd;
+      } else if (d.kind === 'trim') {
+        const max = Math.min(ma.dur - m.in, Tn - m.at); m.len = clamp(d.orig.len + dt, Math.min(1, max), max);
+        const s = snapFinal(m.at + m.len); if (s != null && s - m.at >= 1 && s - m.at <= max) { m.len = s - m.at; ui.guide = s; }
+      } else {
+        let at = clamp(d.orig.at + dt, 0, Math.max(0, Tn - 1)); const s = snapFinal(at); if (s != null && s <= Tn - 1) { at = s; ui.guide = s; }
+        m.at = at; m.len = Math.min(d.orig.len, Tn - at);
+      }
     } else if (d.type === 'sfx') {
-      const x = doc.sfx.find((x) => x.id === id); let at = clamp(d.orig.at + dt, 0, total()); const s = snapFinal(at); if (s != null) { at = s; ui.guide = s; } x.at = at;
+      const x = doc.sfx.find((x) => x.id === id); if (!x) { end(); renderAll(); return; }
+      const max = Math.max(0, total() - 0.3); let at = clamp(d.orig.at + dt, 0, max); const s = snapFinal(at); if (s != null && s <= max) { at = s; ui.guide = s; } x.at = at;
     } else {
-      const arr = d.type === 'text' ? doc.texts : doc.inserts; const x = arr.find((x) => x.id === id); const T0 = total();
+      const arr = d.type === 'text' ? doc.texts : doc.inserts; const x = arr.find((x) => x.id === id); if (!x) { end(); renderAll(); return; } const T0 = total();
       if (d.kind === 'trim' && d.edge === 'l') { let v = clamp(d.orig.t0 + dt, 0, d.orig.t1 - 0.3); const s = snapFinal(v, id); if (s != null && s < d.orig.t1 - 0.3) { v = s; ui.guide = s; } x.t0 = v; }
       else if (d.kind === 'trim') { let v = clamp(d.orig.t1 + dt, d.orig.t0 + 0.3, T0); const s = snapFinal(v, id); if (s != null && s > d.orig.t0 + 0.3) { v = s; ui.guide = s; } x.t1 = v; }
       else { const len = d.orig.t1 - d.orig.t0; let v = clamp(d.orig.t0 + dt, 0, T0 - len); const s = snapFinal(v, id); if (s != null && s + len <= T0) { v = s; ui.guide = s; } x.t0 = v; x.t1 = v + len; }
@@ -913,25 +1007,25 @@ inner.addEventListener('pointerdown', (e) => {
     renderTimeline(); drawFrame();
   };
   const up = () => {
-    window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up);
-    const moved = d.moved; ui.guide = null; ui.caret = null; ui.drag = null;
+    const moved = d.moved; end();
     if (moved && d.type === 'clip' && d.kind === 'reorder') {
-      const i = doc.clips.findIndex((c) => c.id === id); const [c] = doc.clips.splice(i, 1); const k = clamp(d.target ?? i, 0, doc.clips.length); doc.clips.splice(k, 0, c);
-      if (k === i) { doc = JSON.parse(d.pre); renderAll(); return; }
+      const i = doc.clips.findIndex((c) => c.id === id); const k = d.target ?? i;
+      if (i < 0 || k === i) { renderAll(); return; }
+      const [c] = doc.clips.splice(i, 1); doc.clips.splice(clamp(k, 0, doc.clips.length), 0, c);
       undo.push(d.pre); redo.length = 0; changed(); toast(L2('Кусок переставлен', 'Piece moved'), true); return;
     }
-    if (moved) { undo.push(d.pre); redo.length = 0; changed(); }
+    if (moved && JSON.stringify(doc) !== d.pre) { undo.push(d.pre); redo.length = 0; changed(); }
     else renderAll();
   };
   window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
 });
 function startScrub(e) {
   e.preventDefault(); const go = (ev) => { seek(lanePos(ev)); }; go(e);
-  const up = () => { window.removeEventListener('pointermove', go); window.removeEventListener('pointerup', up); };
-  window.addEventListener('pointermove', go); window.addEventListener('pointerup', up);
+  const up = () => { window.removeEventListener('pointermove', go); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); };
+  window.addEventListener('pointermove', go); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
 }
 function seek(t) { ui.t = clamp(t, 0, Math.max(0, total() - 0.001)); updatePlayhead(); drawFrame(); if (ui.panel === 'subs' && !ui.inspect) markSub(); }
-function markSub() { const gs = subGroups(); const cur = gs.find((g) => ui.t >= g.t0 && ui.t <= g.t1); document.querySelectorAll('input[data-input="sub"]').forEach((el) => el.classList.toggle('cur', !!cur && el.dataset.k === cur.key)); }
+function markSub() { const cur = groupAt(ui.t); document.querySelectorAll('input[data-input="sub"]').forEach((el) => el.classList.toggle('cur', !!cur && el.dataset.k === cur.key)); }
 scroller.addEventListener('wheel', (e) => {
   if (!(e.ctrlKey || e.metaKey)) return; e.preventDefault();
   const rect = scroller.getBoundingClientRect(); const px = e.clientX - rect.left - HW + scroller.scrollLeft; const t = px / ui.pps;
@@ -939,7 +1033,7 @@ scroller.addEventListener('wheel', (e) => {
 }, { passive: false });
 const PMIN = 6, PMAX = 260;
 function setPps(p) { ui.pps = clamp(p, PMIN, PMAX); $('#zoom').value = String(Math.round(Math.log(ui.pps / PMIN) / Math.log(PMAX / PMIN) * 100)); renderTimeline(); }
-function fit() { const w = scroller.clientWidth - HW - 24; setPps(w / Math.max(1, total())); scroller.scrollLeft = 0; }
+function fit() { const w = scroller.clientWidth - HW - 24; let p = w / Math.max(1, total()); if (isPhone()) p = Math.max(p, 22); setPps(p); scroller.scrollLeft = 0; }
 $('#zoom').addEventListener('input', (e) => { ui.pps = PMIN * Math.pow(PMAX / PMIN, Number(e.target.value) / 100); renderTimeline(); });
 
 // ───────── пуск ─────────
@@ -953,22 +1047,36 @@ function loop(now) {
 }
 function play() { if (ui.playing) { ui.playing = false; updateButtons(); return; } if (ui.t >= total() - 0.05) ui.t = 0; ui.playing = true; last = performance.now(); updateButtons(); requestAnimationFrame(loop); }
 
-// ───────── окна ─────────
-function modal(html, cls = '') { const l = $('#layer'); l.querySelector('.modal-bg')?.remove(); const bg = document.createElement('div'); bg.className = 'modal-bg'; bg.innerHTML = `<div class="modal ${cls}" role="dialog" aria-modal="true">${html}</div>`; bg.addEventListener('click', (e) => { if (e.target === bg) bg.remove(); }); l.appendChild(bg); bg.querySelector('button')?.focus(); return bg; }
-function closeModal() { $('#layer .modal-bg')?.remove(); }
+// ───────── окна: пока открыто, остальная страница неактивна; закрыли — фокус туда, откуда открыли ─────────
+function modal(html) {
+  const l = $('#layer'); const had = l.querySelector('.modal-bg'); if (had) had.remove(); else ui.opener = document.activeElement;
+  const bg = document.createElement('div'); bg.className = 'modal-bg'; bg.innerHTML = `<div class="modal" role="dialog" aria-modal="true">${html}</div>`;
+  bg.addEventListener('click', (e) => { if (e.target === bg) closeModal(); }); l.appendChild(bg); $('#app').inert = true; bg.querySelector('button')?.focus(); return bg;
+}
+function closeModal() { const bg = $('#layer .modal-bg'); if (!bg) return; bg.remove(); $('#app').inert = false; const o = ui.opener; ui.opener = null; if (o && o.isConnected && o !== document.body) o.focus(); }
 function aboutModal() {
   modal(`<h2>${L2('Макет редактора', 'Editor mockup')}</h2><p>${L2('Это кликабельный макет фазы 1 (дизайн от 12.10.2026). Ролик примерный: два файла, один снят на улице. Кадр нарисован, звука нет. В сервисе кадр — настоящее видео, текст рисует тот же шаблон, что и финал, а монтирует движок.', 'Clickable mockup for phase 1 (design of 12 Oct 2026). Sample video from two files, one shot on a street. The frame is drawn and there is no sound. In the service the frame is the real video, text is drawn by the same template as the final, and the engine renders.')}</p><ul class="ulist"><li>${L2('Таймлайн: разрезать (S), удалить (Delete), вернуть вырезанное (＋ на стыке), перетащить кусок, обрезать край — липнет к словам.', 'Timeline: split (S), delete (Delete), restore a cut (+ at a join), drag a piece, trim an edge — snaps to words.')}</li><li>${L2('Звук: громкость и mute дорожек, музыку тянуть и обрезать, звуки — из «Аудио».', 'Sound: track volume and mute, drag and trim music, sounds from Audio.')}</li><li>${L2('Текст и вставки: тянуть и растягивать блоки; текст — в панели.', 'Text and inserts: drag and resize blocks; edit text in the panel.')}</li><li>${L2('«Очистить голос» — в AI или по подсказке на дорожке «Голос».', 'Clean voice is under AI or in the hint on the Voice track.')}</li></ul><div class="row"><button class="btn dark" data-act="closeModal">${L2('Понятно', 'Got it')}</button></div>`);
 }
 function keysModal() {
-  const k = [['Space', L2('пуск / пауза', 'play / pause')], ['S', L2('разрезать по плейхеду', 'split at playhead')], ['Delete', L2('удалить выбранное', 'delete selection')], ['⌘Z / Ctrl+Z', L2('отменить', 'undo')], ['⇧⌘Z', L2('повторить', 'redo')], ['← →', L2('на кадр', 'one frame')], ['+ / −', L2('масштаб', 'zoom')], ['Esc', L2('снять выделение', 'deselect')]];
+  const k = [['Space', L2('пуск / пауза', 'play / pause')], ['S', L2('разрезать по плейхеду', 'split at playhead')], ['Delete', L2('удалить выбранное', 'delete selection')], ['⌘Z / Ctrl+Z', L2('отменить', 'undo')], ['⇧⌘Z', L2('повторить', 'redo')], ['← →', L2('на кадр', 'one frame')], ['+ / −', L2('масштаб', 'zoom')], ['Enter', L2('выбрать блок под фокусом', 'select the focused block')], ['Esc', L2('снять выделение', 'deselect')]];
   modal(`<h2>${L2('Клавиши', 'Shortcuts')}</h2><div class="keys">${k.map(([a, b]) => `<kbd>${a}</kbd><span>${b}</span>`).join('')}</div><div class="row"><button class="btn dark" data-act="closeModal">OK</button></div>`);
 }
+// монтаж идёт своим ходом: окно можно свернуть, статус и «Готово» придут сами
 function renderModal() {
+  if (ui.rendering) { toast(L2('Уже монтирую — дождись версии', 'Already rendering — wait for the version')); return; }
+  ui.rendering = true;
   const steps = [L2('Запускаю сессию', 'Starting the session'), L2('Готовлю исходники', 'Preparing sources'), L2('Чищу голос', 'Cleaning the voice'), L2('Рисую текст и вставки', 'Drawing text and inserts'), L2('Собираю ролик', 'Assembling the video')].filter((_, i) => i !== 2 || doc.voice.clean.on);
-  const bg = modal(`<h2>${L2('Монтирую', 'Rendering')}</h2><p>${L2('Таймлайн сохранён (ревизия', 'Timeline saved (revision')} ${doc.rev}). ${L2('Можно закрыть — статус будет в «Мои видео».', 'You can close this — status stays in My videos.')}</p><ol class="steps">${steps.map((s) => `<li><i></i>${s}</li>`).join('')}</ol><div class="prog"><i></i></div><div class="row"><button class="btn soft" data-act="closeModal">${L2('Свернуть', 'Hide')}</button></div>`);
+  const bg = modal(`<h2>${L2('Монтирую', 'Rendering')}</h2><p>${L2('Таймлайн сохранён (ревизия', 'Timeline saved (revision')} ${ui.rev}). ${L2('Можно свернуть — статус будет в «Мои видео».', 'You can hide this — status stays in My videos.')}</p><ol class="steps">${steps.map((s) => `<li><i></i>${s}</li>`).join('')}</ol><div class="prog"><i></i></div><div class="row"><button class="btn soft" data-act="closeModal">${L2('Свернуть', 'Hide')}</button></div>`);
   const lis = [...bg.querySelectorAll('.steps li')]; let i = 0;
-  const tick = () => { if (!bg.isConnected) { finish(); return; } lis.forEach((li, j) => { li.className = j < i ? 'done' : j === i ? 'now' : ''; }); bg.querySelector('.prog i').style.width = (i / lis.length * 100) + '%'; if (i++ < lis.length) setTimeout(tick, 800); else finish(); };
-  let done = false; const finish = () => { if (done) return; done = true; ui.rendered = true; ui.ver++; updateButtons(); if (bg.isConnected) { bg.querySelector('.modal').innerHTML = `<h2>${L2('Готово', 'Done')} · v${ui.ver}</h2><p>${L2('Ролик 1080×1920 и субтитры .srt готовы. Правь дальше на таймлайне — следующий «Монтировать» сделает версию', 'The 1080×1920 video and .srt are ready. Keep editing — the next Render makes version')} ${ui.ver + 1}.</p><div class="row"><button class="btn primary" data-act="download">${T('download')} MP4</button><button class="btn soft" data-act="download">.srt</button><button class="btn soft" data-act="closeModal">${L2('Закрыть', 'Close')}</button></div>`; } else toast(L2('Готово', 'Done') + ' · v' + ui.ver); };
+  const finish = () => {
+    ui.rendering = false; ui.rendered = true; ui.ver++; updateButtons();
+    if (bg.isConnected) bg.querySelector('.modal').innerHTML = `<h2>${L2('Готово', 'Done')} · v${ui.ver}</h2><p>${L2('Ролик 1080×1920 и субтитры .srt готовы. Правь дальше на таймлайне — следующий «Монтировать» сделает версию', 'The 1080×1920 video and .srt are ready. Keep editing — the next Render makes version')} ${ui.ver + 1}.</p><div class="row"><button class="btn primary" data-act="download">${T('download')} MP4</button><button class="btn soft" data-act="download">.srt</button><button class="btn soft" data-act="closeModal">${L2('Закрыть', 'Close')}</button></div>`;
+    else toast(L2('Готово', 'Done') + ' · v' + ui.ver);
+  };
+  const tick = () => {
+    if (bg.isConnected) { lis.forEach((li, j) => { li.className = j < i ? 'done' : j === i ? 'now' : ''; }); bg.querySelector('.prog i').style.width = (i / lis.length * 100) + '%'; }
+    if (i++ < lis.length) setTimeout(tick, 800); else finish();
+  };
   tick();
 }
 
@@ -976,13 +1084,13 @@ function renderModal() {
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-act]'); if (!b || b.disabled) return; const a = b.dataset.act, v = b.dataset.v;
   switch (a) {
-    case 'panel': ui.panel = v; ui.inspect = false; renderRail(); renderPanel(); if (window.matchMedia('(max-width: 860px)').matches) $('#panel').scrollIntoView({ block: 'start', behavior: 'smooth' }); break;
+    case 'panel': ui.panel = v; ui.inspect = false; renderRail(); renderPanel(); if (isPhone()) $('#panel').scrollIntoView({ block: 'start', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); break;
     case 'uninspect': ui.inspect = false; renderRail(); renderPanel(); break;
     case 'play': play(); break;
     case 'toStart': seek(0); break;
     case 'toEnd': seek(total()); break;
     case 'split': split(); break;
-    case 'delete': if (b.closest('.modal')) { toast(L2('В макете файлов нет — в сервисе тут скачивание', 'No files in the mockup — the service downloads here')); break; } del(); break;
+    case 'delete': del(); break;
     case 'restore': restore(Number(b.dataset.i)); break;
     case 'undo': doUndo(); break;
     case 'redo': doRedo(); break;
@@ -1005,65 +1113,86 @@ document.addEventListener('click', (e) => {
     case 'noisyNo': ui.noisyDismissed = true; renderTimeline(); break;
     case 'ab': ui.ab = v; renderPanel(); renderTimeline(); toast(v === 'before' ? L2('Слышно как было (в сервисе — звук)', 'Hear the original (sound in the service)') : L2('Слышно очищенный', 'Hear the cleaned voice')); break;
     case 'addSource': { snap(); const S = SOURCES[v]; const k = boundaryAt(ui.t); doc.clips.splice(k, 0, { id: nid('c'), src: v, in: 0, out: S.dur }); changed(); toast(L2('Добавлен', 'Added') + ' ' + S.name, true); break; }
-    case 'setMusic': { snap(); const m = doc.music; m.asset = v; m.in = 0; if (m.len <= 0) { m.at = 0; m.len = total(); } m.len = Math.min(m.len, MUSIC.find((x) => x.id === v).dur); changed(); break; }
-    case 'addSfx': { snap(); const s = SFX.find((x) => x.id === v); const x = { id: nid('f'), kind: s.id, name: s.name, at: ui.t }; doc.sfx.push(x); ui.sel = { type: 'sfx', id: x.id }; changed(); toast(s.name + ' — ' + tc(ui.t), true); break; }
-    case 'addInsert': { snap(); const s = INSERTS.find((x) => x.kind === v); const x = { id: nid('i'), kind: s.kind, name: s.name, t0: ui.t, t1: Math.min(total(), ui.t + 1.6), x: 0.6, y: 0.3, w: 0.28 }; doc.inserts.push(x); ui.sel = { type: 'insert', id: x.id }; ui.inspect = true; changed(); break; }
-    case 'addText': { snap(); const x = { id: nid('x'), kind: 'text', t0: ui.t, t1: Math.min(total(), ui.t + 2), text: L2('Новый текст', 'New text') }; doc.texts.push(x); ui.sel = { type: 'text', id: x.id }; ui.inspect = true; changed(); break; }
+    case 'setMusic': { snap(); const m = doc.music; m.asset = v; m.in = 0; if (m.len <= 0) { m.at = 0; m.len = total(); } m.len = Math.min(m.len, musicAsset().dur, total() - m.at); changed(); break; }
+    case 'addSfx': { const at = Math.min(ui.t, Math.max(0, total() - 0.3)); snap(); const x = { id: nid('f'), kind: v, at }; doc.sfx.push(x); ui.sel = { type: 'sfx', id: x.id }; changed(); toast(sfxName(v) + ' — ' + tc(at), true); break; }
+    case 'addInsert': { snap(); const t0 = Math.min(ui.t, Math.max(0, total() - 1.6)); const x = { id: nid('i'), kind: v, t0, t1: Math.min(total(), t0 + 1.6), x: 0.6, y: 0.3, w: 0.28 }; doc.inserts.push(x); ui.sel = { type: 'insert', id: x.id }; ui.inspect = true; changed(); break; }
+    case 'addText': { snap(); const t0 = Math.min(ui.t, Math.max(0, total() - 2)); const x = { id: nid('x'), kind: 'text', t0, t1: Math.min(total(), t0 + 2), text: L2('Новый текст', 'New text') }; doc.texts.push(x); ui.sel = { type: 'text', id: x.id }; ui.inspect = true; changed(); break; }
     case 'select': { const x = (b.dataset.kind === 'text' ? doc.texts : doc.inserts).find((x) => x.id === v); if (x) seek(x.t0 + 0.05); select(b.dataset.kind === 'insert' ? 'insert' : 'text', v); break; }
     case 'seek': seek(Number(v)); break;
     case 'variant': snap(); doc.style.variant = v; changed(); break;
     case 'font': snap(); doc.style.font = v; changed(); break;
     case 'color': snap(); doc.style[b.dataset.k] = v; changed(); break;
     case 'subWords': snap(); doc.style.words = Number(v); changed(); break;
-    case 'speed': snap(); { const r = total(); doc.speed = Number(v); const k = total() / r; for (const x of [...doc.texts, ...doc.inserts]) { x.t0 *= k; x.t1 *= k; } for (const x of doc.sfx) x.at *= k; doc.music.at *= k; doc.music.len = Math.min(doc.music.len * k, MUSIC.find((m) => m.id === doc.music.asset).dur - doc.music.in); ui.t *= k; } changed(); break;
+    case 'speed': { snap(); const r = total(); doc.speed = Number(v); const k = total() / r; for (const x of [...doc.texts, ...doc.inserts]) { x.t0 *= k; x.t1 *= k; } for (const x of doc.sfx) x.at *= k; doc.music.at *= k; doc.music.len = Math.min(doc.music.len * k, musicAsset().dur - doc.music.in); ui.t *= k; ui.lastTotal = total(); changed(); break; }
     case 'fillers': snap(); doc.dropFillers = !doc.dropFillers; changed(); break;
-    case 'recut': { snap(); const s2 = doc.clips.filter((c) => c.src === 's2'); doc.clips = [...autoCut('s1', doc.cutPause, doc.dropFillers), ...(s2.length ? s2 : [])]; ui.sel = null; ui.inspect = false; changed(); toast(L2('Нарезка пересобрана', 'Cuts rebuilt') + `: ${doc.clips.length} ${L2('кусков', 'pieces')}, ${tc(total())}`, true); break; }
+    case 'recut': { snap(); const s2 = doc.clips.filter((c) => c.src === 's2'); doc.clips = [...autoCut('s1', doc.cutPause, doc.dropFillers), ...s2]; ui.sel = null; ui.inspect = false; changed(); toast(L2('Нарезка пересобрана', 'Cuts rebuilt') + `: ${doc.clips.length} ${L2('кусков', 'pieces')}, ${tc(total())}`, true); break; }
     case 'duck': snap(); doc.music.duck = !doc.music.duck; changed(); break;
-    case 'fix': { const t = $('#fixText'); if (!t.value.trim()) { t.focus(); toast(L2('Напиши, что поправить', 'Write what to fix')); break; } t.value = ''; toast(L2('Отправлено. Claude пришлёт новую ревизию таймлайна (в макете ответа не будет)', 'Sent. Claude will send a new timeline revision (no reply in the mockup)')); break; }
+    case 'ver': snap(); doc.versions[v] = !doc.versions[v]; changed(); break;
+    case 'fix': { if (!ui.fixDraft.trim()) { $('#fixText')?.focus(); toast(L2('Напиши, что поправить', 'Write what to fix')); break; } ui.fixDraft = ''; const t = $('#fixText'); if (t) t.value = ''; toast(L2('Отправлено. Claude пришлёт новую ревизию таймлайна (в макете ответа не будет)', 'Sent. Claude will send a new timeline revision (no reply in the mockup)')); break; }
     case 'cover': toast(L2('Обложка — кадр', 'Cover — frame') + ' ' + tc(ui.t)); break;
-    case 'tog': b.setAttribute('aria-pressed', String(b.getAttribute('aria-pressed') !== 'true')); break;
     case 'mock': toast(L2('В макете не работает — в сервисе тут выбор файла или прослушивание', 'Not in the mockup — the service opens a file picker or plays it here')); break;
   }
 });
-let inputSnap = null, inputTimer = 0;
 document.addEventListener('input', (e) => {
   const el = e.target.closest('[data-input]'); if (!el) return; const k = el.dataset.input;
-  if (!inputSnap) { inputSnap = JSON.stringify(doc); }
-  clearTimeout(inputTimer); inputTimer = setTimeout(() => { if (inputSnap && inputSnap !== JSON.stringify(doc)) { undo.push(inputSnap); redo.length = 0; doc.rev++; $('#saveText').textContent = `${T('saved')} ${doc.rev}`; updateButtons(); } inputSnap = null; }, 600);
-  if (k === 'sub') { const g = subGroups().find((g) => g.key === el.dataset.k); const orig = g ? g.words.map((w) => w.w).join(' ') : ''; if (el.value === orig) delete doc.subEdits[el.dataset.k]; else doc.subEdits[el.dataset.k] = el.value; document.querySelectorAll(`input[data-input="sub"][data-k="${el.dataset.k}"]`).forEach((o) => { if (o !== el) o.value = el.value; }); }
-  else if (k === 'text') { const x = doc.texts.find((x) => x.id === el.dataset.id); if (x) x[el.dataset.f] = el.value; }
+  if (k === 'fix') { ui.fixDraft = el.value; return; }
+  if (k === 'cutPause') { doc.cutPause = Number(el.value); $('#pauseVal').textContent = sec(doc.cutPause); return; }
+  if (!inputSnap) inputSnap = JSON.stringify(doc);
+  clearTimeout(inputTimer); inputTimer = setTimeout(() => { const had = inputSnap && inputSnap !== JSON.stringify(doc); flushInput(); if (had) { saved(); updateButtons(); } }, 600);
+  if (k === 'sub') {
+    const g = subGroups().find((g) => g.key === el.dataset.k); if (!g) return;
+    const orig = g.words.map((w) => w.w).join(' ');
+    if (el.value === orig) delete doc.subEdits[g.key]; else doc.subEdits[g.key] = { keys: g.words.map((w) => w.key), text: el.value };
+    document.querySelectorAll(`input[data-input="sub"][data-k="${g.key}"]`).forEach((o) => { if (o !== el) o.value = el.value; });
+  } else if (k === 'text') { const x = doc.texts.find((x) => x.id === el.dataset.id); if (x) x[el.dataset.f] = el.value; }
   else if (k === 'color') { doc.style[el.dataset.k] = el.value; document.querySelectorAll(`.sw[data-k="${el.dataset.k}"]`).forEach((s) => s.setAttribute('aria-pressed', 'false')); }
   else if (k === 'voiceGain') { doc.voice.gainDb = Number(el.value); $('#vgVal').textContent = `${doc.voice.gainDb > 0 ? '+' : ''}${doc.voice.gainDb} dB`; }
   else if (k === 'musicGain') { doc.music.gainDb = Number(el.value); $('#mgVal').textContent = `${doc.music.gainDb} dB`; }
   else if (k === 'fadeOut') { doc.music.fadeOut = Number(el.value); $('#foVal').textContent = sec(doc.music.fadeOut); }
-  else if (k === 'cutPause') { doc.cutPause = Number(el.value); $('#pauseVal').textContent = sec(doc.cutPause); return; }
-  else if (k === 'insW' || k === 'insX' || k === 'insY') { const x = doc.inserts.find((x) => x.id === el.dataset.id); if (x) x[{ insW: 'w', insX: 'x', insY: 'y' }[k]] = Number(el.value); if (!(ui.t >= x.t0 && ui.t <= x.t1)) { ui.t = x.t0 + 0.05; updatePlayhead(); } }
-  renderTimeline(); drawFrame();
+  else if (k === 'insW' || k === 'insX' || k === 'insY') {
+    const x = doc.inserts.find((x) => x.id === el.dataset.id); if (!x) return;
+    x[{ insW: 'w', insX: 'x', insY: 'y' }[k]] = Number(el.value);
+    x.x = clamp(x.x, 0, 1 - x.w); x.y = clamp(x.y, 0.05, insYMax(x)); // вставка не выходит за кадр
+    const ix = $('input[data-input="insX"]'), iy = $('input[data-input="insY"]');
+    if (ix) { ix.max = (1 - x.w).toFixed(2); ix.value = String(x.x); } if (iy) { iy.max = insYMax(x).toFixed(2); iy.value = String(x.y); }
+    if (!(ui.t >= x.t0 && ui.t <= x.t1)) { ui.t = x.t0 + 0.05; updatePlayhead(); }
+  }
+  updateButtons(); renderTimeline(); drawFrame();
 });
+const TYPING = (el) => { const tag = (el.tagName || '').toLowerCase(); return (tag === 'input' && !['range', 'color', 'checkbox', 'radio', 'button'].includes(el.type)) || tag === 'textarea' || tag === 'select' || el.isContentEditable; };
 document.addEventListener('keydown', (e) => {
-  const tag = (e.target.tagName || '').toLowerCase();
-  if (e.key === 'Escape') { if ($('#layer .modal-bg')) { closeModal(); return; } if (ui.sel) select(null); return; }
-  if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable) return;
-  if ($('#layer .modal-bg')) return;
+  if ($('#layer .modal-bg')) { if (e.key === 'Escape') { e.preventDefault(); closeModal(); } return; }
+  if (TYPING(e.target)) { if (e.key === 'Escape') e.target.blur(); return; }
+  if (ui.drag) { e.preventDefault(); return; } // во время перетаскивания клавиши не трогаем
   const mod = e.metaKey || e.ctrlKey;
-  if (mod && (e.key === 'z' || e.key === 'Z' || e.key === 'я' || e.key === 'Я')) { e.preventDefault(); e.shiftKey ? doRedo() : doUndo(); return; }
-  if (mod) return;
-  if (e.key === ' ' && tag !== 'button') { e.preventDefault(); play(); }
+  if (mod && ['z', 'Z', 'я', 'Я'].includes(e.key)) { e.preventDefault(); e.shiftKey ? doRedo() : doUndo(); return; }
+  if (mod || e.altKey) return;
+  const clipEl = e.target.classList?.contains('clip') ? e.target : null;
+  if (e.key === 'Enter' && clipEl) {
+    e.preventDefault(); const kind = clipEl.dataset.kind, id = clipEl.dataset.id; pick(clipEl, e);
+    requestAnimationFrame(() => inner.querySelector(`.clip[data-kind="${kind}"][data-id="${CSS.escape(id)}"]`)?.focus()); return;
+  }
+  const range = e.target.type === 'range';
+  if (e.key === ' ') { e.preventDefault(); play(); }
+  else if (e.key === 'Escape') { if (ui.sel) select(null); }
   else if (e.key === 's' || e.key === 'S' || e.key === 'ы' || e.key === 'Ы') { e.preventDefault(); split(); }
   else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); del(); }
+  else if (range) return; // стрелки двигают ползунок под фокусом
   else if (e.key === 'ArrowRight') { e.preventDefault(); seek(ui.t + 1 / FPS * (e.shiftKey ? 10 : 1)); }
   else if (e.key === 'ArrowLeft') { e.preventDefault(); seek(ui.t - 1 / FPS * (e.shiftKey ? 10 : 1)); }
   else if (e.key === '+' || e.key === '=') setPps(ui.pps * 1.25);
   else if (e.key === '-') setPps(ui.pps / 1.25);
   else if (e.key === '?') keysModal();
 });
-$('#title').addEventListener('change', () => { doc.rev++; $('#saveText').textContent = `${T('saved')} ${doc.rev}`; });
+// пробел — всегда пуск: кнопка под фокусом не нажимается им ещё раз
+document.addEventListener('keyup', (e) => { if (e.key === ' ' && !TYPING(e.target) && !$('#layer .modal-bg')) e.preventDefault(); });
+$('#title').addEventListener('change', () => saved());
 
 // ───────── старт ─────────
 new ResizeObserver(() => sizeStage()).observe($('#frameWrap'));
-let lastW = 0; new ResizeObserver(() => { const w = scroller.clientWidth; if (Math.abs(w - lastW) > 40) { lastW = w; fit(); } else renderTimeline(); }).observe(scroller);
+let lastW = 0; new ResizeObserver(() => { const w = scroller.clientWidth; if (Math.abs(w - lastW) > 40) { lastW = w; setHW(); fit(); } else renderTimeline(); }).observe(scroller);
 ui.t = 1.2;
-renderAll(); sizeStage(); fit();
+applyI18n(); renderAll(); sizeStage(); fit();
 document.fonts?.ready.then(() => drawFrame());
 })();
 </script>

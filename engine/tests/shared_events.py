@@ -12,7 +12,7 @@ import math
 import sys
 from pathlib import Path
 
-from vm import beats, edits, transitions
+from vm import beats, edits, fonts, transitions
 from vm.asr import Word
 from vm.overlay import FPS, build_overlay_events, insert_spans
 from vm.render import BW_CSS_BRIGHTNESS, BW_CSS_CONTRAST, look_windows, music_beats
@@ -35,7 +35,8 @@ NOTE = (
     "pipeline — весь путь правок Павла до слоя, как у монтажа (edits.apply → render.timeline → render.music_beats и "
     "beats.snap_edit → build_overlay_events ↔ withHandEdits, musicBeats, draftTracks, buildOverlayEvents); picture — "
     "картинка руками (edits.apply_picture: сила зума, убранные ч/б-куски, вид и «убрать» переходов ↔ applyPicture) и что "
-    "выходит в ролике: зум, переходы, кадры ч/б. "
+    "выходит в ролике: зум, переходы, кадры ч/б; letters — каких букв текста (и его капса) нет в каждом шрифте каталога "
+    "(fonts.missing: таблица символов — getBestCmap fontTools, эмодзи — картинки ↔ web/lib/fontchars.ts). "
     "Времена слов и edit — по исходнику, событий — секунды финала; keep — в порядке финала. Пишет "
     "engine/tests/shared_events.py (python3 -m tests.shared_events из engine/)."
 )
@@ -410,6 +411,33 @@ def spans(case: dict) -> list[list[int]]:
     return [list(s) for s in insert_spans(case["edit"], _timeline(case))]
 
 
+# Буквы шрифтов (fonts.missing ↔ web/lib/fontchars.ts): страница читает те же файлы шрифтов и считает так же
+LETTERS = [
+    "Привет, как дела? Ёлка — «ёж» … ЭЮЯ",
+    "Беларуская мова: ў, і; українська: ї, є, ґ",
+    "Straße, naïve café, Ångström, Øre, Œuvre, ça, Ğ ş ı İ",
+    "500 ₽, 20 €, £5, ¥, $9.99, 15 %, 3‰, +20 °C, №1, ½ и ¼, 2×3 ÷ 4 ± 1, a ≤ b ≥ c ≈ d ≠ e",
+    "Стрелки → ← ↔ ↑ ↓; кавычки „ “ ” ‘ ’ ‹ ›; тире ‐ – —; точки · • ‥",
+    "e\u0301 (комбинируемый), мягкий\u00adперенос, ноль\u200bширины, ʼапостроф",
+    "Эмодзи 🔥 ❤️ ❤ 👍🏽 👨\u200d👩\u200d👧 🇺🇸 #️⃣ 1️⃣ #\u20e3 ‼️ ‼ ↔️ ℹ️ ℹ ™️ ™ ©️ ©",
+    "Ελληνικά αβγ, 中文, العربية, עברית",
+    "ПЛАН! КОД: ВИДЕО-2026, ok/okay; [скобки] {фигурные} (круглые) _ ~ ^ ` @ & * |",
+]
+
+
+HOOKS = ["Как я снимаю", "Как я снимаю 🔥 ❤️", "🔥", "", "Один  два\tтри 👍🏽 #️⃣", "Слово \u200d", "Ура 1️⃣"]
+
+
+def letters_case() -> dict:
+    found = fonts.catalog()
+    return {
+        "fonts": [{"id": f.id, "file": f.path.relative_to(fonts.REPO).as_posix()} for f in found],
+        "texts": LETTERS,
+        "missing": {f.id: [fonts.missing(f, text) for text in LETTERS] for f in found},
+        "hand": [[hook, fonts._hand_word(hook)] for hook in HOOKS],  # рукописная часть хука — последнее слово с эмодзи
+    }
+
+
 def build() -> dict:
     return {
         "_": NOTE,
@@ -426,6 +454,7 @@ def build() -> dict:
         "textRefused": TEXT_REFUSED,
         "pipeline": [{**case, **pipeline_case(case)} for case in PIPELINE],
         "picture": [{**case, **picture_case(case)} for case in PICTURE],
+        "letters": letters_case(),
     }
 
 
@@ -466,7 +495,11 @@ def dump(data: dict) -> str:
     out.append(f'  "text": {_rows(data["text"], "  ")},')
     out.append(f'  "textRefused": {_rows(data["textRefused"], "  ")},')
     out.append(f'  "pipeline": {_rows(data["pipeline"], "  ")},')
-    out.append(f'  "picture": {_rows(data["picture"], "  ")}')
+    out.append(f'  "picture": {_rows(data["picture"], "  ")},')
+    letters = data["letters"]
+    missing = ",\n    ".join(f"{json.dumps(k, ensure_ascii=False)}: {json.dumps(v, ensure_ascii=False)}" for k, v in letters["missing"].items())
+    out.append(f'  "letters": {{\n    "fonts": {_rows(letters["fonts"], "    ")},\n    "texts": {_rows(letters["texts"], "    ")},\n'
+               f'    "missing": {{\n    {missing}\n    }},\n    "hand": {_rows(letters["hand"], "    ")}\n  }}')
     out.append("}")
     return "\n".join(out) + "\n"
 

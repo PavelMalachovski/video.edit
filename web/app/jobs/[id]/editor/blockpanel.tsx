@@ -4,6 +4,7 @@
 // timeline.json (text, words), их кладёт движок поверх черновика (edits.apply_text); строка поля — одна правка для отмены.
 import { useEffect, useId, useState } from 'react';
 import { badSymbols, blockFix, hasEmoji, LIMITS, setBlock, setCta, setHook, setWord, type HandEdits } from '@/lib/edits.ts';
+import { handWord } from '@/lib/fontchars.ts';
 import { tenths } from '@/lib/format.ts';
 import type { Key } from '@/lib/i18n.ts';
 import { findBlock, type BlockRef, type Clip, type Draft, type Tracks } from '@/lib/tracks.ts';
@@ -18,6 +19,10 @@ export type SubSel = { kind: 'sub'; from: number; to: number };
 const TEXTUAL = ['text', 'sticker', 'badge']; // вставки, у которых на кадре есть текст
 const DRAWN = ['image', 'badge', 'sticker', 'text', 'anim'];
 const NAMES: Record<Kind, Key> = { hook: 'hook', cta: 'cta', accent: 'accent', insert: 'insert' };
+/** Каких букв набранного нет в шрифте стиля, что это нарисует (основной или рукописный), — текст ошибки; все есть (или
+ *  шрифт ещё не прочитан) — null. Таких букв монтаж не пропустит (fonts.check). */
+export type Letters = (role: 'main' | 'hand', text: string) => string | null;
+const NO_LETTERS: Letters = () => null;
 
 /** Поле текста: пока набранное нельзя сохранить (пусто, эмодзи), оно остаётся в поле с ошибкой, а правка — прежней. */
 function TextField({ label, value, disabled, check, onCommit, struck, max = LIMITS.line }: {
@@ -61,24 +66,28 @@ function setFix(h: HandEdits, ref: BlockRef, fix: Record<string, unknown> | null
 export const removeBlock = (h: HandEdits, ref: BlockRef): HandEdits => setFix(h, ref, { off: true });
 export const restoreBlock = (h: HandEdits, ref: BlockRef): HandEdits => setFix(h, ref, null);
 
-export function BlockPanel({ T, sel, tracks, draft, hand, editable, note, onEdit, sec }: {
+export function BlockPanel({ T, sel, tracks, draft, hand, editable, note, onEdit, sec, letters = NO_LETTERS }: {
   T: TFn; sel: BlockSel; tracks: Tracks; draft: Draft; hand: HandEdits; editable: boolean;
   note: string | null; // почему править нельзя (старый движок, ещё не смонтирован)
-  onEdit: (next: HandEdits, key?: string) => void; sec: (s: number) => string;
+  onEdit: (next: HandEdits, key?: string) => void; sec: (s: number) => string; letters?: Letters;
 }) {
   const c = findBlock(tracks, sel.block, sel.n);
   const ref = c?.ref;
   if (!c || !ref || ref.kind === 'sub') return <p className="ed-note faint">{T('selectHint')}</p>;
   const at = ref.kind === 'hook' ? undefined : ref.at;
   const fix = blockFix(hand, ref.kind, at, 'occurrence' in ref ? ref.occurrence : 0) as Record<string, unknown> | null;
-  // пусто нельзя; знаки, которых шрифт ролика не нарисует, — тоже (монтаж на них встал бы)
+  // пусто нельзя; знаки, которых шрифт ролика не нарисует, и буквы, которых нет в шрифте стиля, — тоже (монтаж на них
+  // встал бы): хук целиком рисует основной, его последнее слово — рукописный; кодовое слово — рукописный
   const nonEmpty = (v: string) => (!v.trim() ? T('emptyLine') : badSymbols(v) ? T('noSymbol', { s: badSymbols(v) }) : null);
+  const main = (v: string) => nonEmpty(v) ?? letters('main', v);
+  const hookText = (v: string) => main(v) ?? letters('hand', handWord(v));
+  const handText = (v: string) => nonEmpty(v) ?? letters('hand', v);
   const keyOf = (field: string) => `${ref.kind}${'n' in ref ? ref.n : ''}:${field}`;
   const commit = (patch: Record<string, unknown>, field: string) => onEdit(setFix(hand, ref, patch), keyOf(field));
   const fields: React.ReactNode[] = [];
   if (!c.ghost) {
     if (ref.kind === 'hook' && draft.hook) {
-      fields.push(<TextField key="hook" label={T('hookText')} value={String(fix?.text ?? draft.hook.text)} disabled={!editable} check={nonEmpty}
+      fields.push(<TextField key="hook" label={T('hookText')} value={String(fix?.text ?? draft.hook.text)} disabled={!editable} check={hookText}
         onCommit={(v) => commit({ text: v }, 'text')} />);
       if (tracks.layer.tl.teaser) fields.push(<p key="teaser" className="ed-note faint">{T('hookTeaser')}</p>);
     }
@@ -86,9 +95,9 @@ export function BlockPanel({ T, sel, tracks, draft, hand, editable, note, onEdit
       const lines = (fix?.lines as string[] | undefined) ?? draft.cta.lines;
       lines.forEach((line, i) => fields.push(
         <TextField key={`l${i}`} label={lines.length > 1 ? `${T('ctaLines')} · ${T('line', { n: i + 1 })}` : T('ctaLines')} value={line} disabled={!editable}
-          check={nonEmpty} onCommit={(v) => commit({ lines: lines.map((x, k) => (k === i ? v : x)) }, `line${i}`)} />,
+          check={main} onCommit={(v) => commit({ lines: lines.map((x, k) => (k === i ? v : x)) }, `line${i}`)} />,
       ));
-      fields.push(<TextField key="word" label={T('ctaWord')} value={String(fix?.word ?? draft.cta.word)} disabled={!editable} check={nonEmpty}
+      fields.push(<TextField key="word" label={T('ctaWord')} value={String(fix?.word ?? draft.cta.word)} disabled={!editable} check={handText}
         onCommit={(v) => commit({ word: v }, 'word')} />);
     }
     if (ref.kind === 'accent') {
@@ -96,13 +105,13 @@ export function BlockPanel({ T, sel, tracks, draft, hand, editable, note, onEdit
       const lines = (fix?.lines as string[] | undefined) ?? a?.lines.map((l) => l.text) ?? [];
       lines.forEach((line, i) => fields.push( // число строк — как у сессии (у строки свой размер и цвет)
         <TextField key={`l${i}`} label={lines.length > 1 ? `${T('accentLines')} · ${T('line', { n: i + 1 })}` : T('accentLines')} value={line}
-          disabled={!editable} check={nonEmpty} onCommit={(v) => commit({ lines: lines.map((x, k) => (k === i ? v : x)) }, `line${i}`)} />,
+          disabled={!editable} check={main} onCommit={(v) => commit({ lines: lines.map((x, k) => (k === i ? v : x)) }, `line${i}`)} />,
       ));
     }
     if (ref.kind === 'insert') {
       const ins = draft.inserts[ref.n];
       if (ins && TEXTUAL.includes(ins.kind) && ins.text !== undefined) {
-        fields.push(<TextField key="text" label={T('insertText')} value={String(fix?.text ?? ins.text)} disabled={!editable} check={nonEmpty}
+        fields.push(<TextField key="text" label={T('insertText')} value={String(fix?.text ?? ins.text)} disabled={!editable} check={main}
           onCommit={(v) => commit({ text: v }, 'text')} />);
       }
       if (ins?.kind === 'fullscreen') fields.push(<p key="fs" className="ed-note faint">{T('fullscreenInsert')}</p>);
@@ -132,9 +141,9 @@ export function BlockPanel({ T, sel, tracks, draft, hand, editable, note, onEdit
 }
 
 /** Слова группы субтитров: правка — текст слова (время и звук те же), пусто — слова нет в субтитрах, ↺ — как было. */
-export function WordsPanel({ T, sel, tracks, draft, hand, editable, note, onEdit, sec }: {
+export function WordsPanel({ T, sel, tracks, draft, hand, editable, note, onEdit, sec, letters = NO_LETTERS }: {
   T: TFn; sel: SubSel; tracks: Tracks; draft: Draft; hand: HandEdits; editable: boolean; note: string | null;
-  onEdit: (next: HandEdits, key?: string) => void; sec: (s: number) => string;
+  onEdit: (next: HandEdits, key?: string) => void; sec: (s: number) => string; letters?: Letters;
 }) {
   const inside = (w: { t0: number; t1: number }) => w.t0 >= sel.from - 1e-6 && w.t1 <= sel.to + 1e-6;
   const words = draft.words.filter(inside);
@@ -155,7 +164,7 @@ export function WordsPanel({ T, sel, tracks, draft, hand, editable, note, onEdit
           return (
             <div key={key} className="ed-word">
               <TextField label={value === '' ? `${w.text} · ${T('wordRemoved')}` : w.text} value={value} disabled={!editable} struck={value === ''}
-                max={LIMITS.word} check={(v) => (hasEmoji(v) ? T('noEmoji') : badSymbols(v) ? T('noSymbol', { s: badSymbols(v) }) : null)}
+                max={LIMITS.word} check={(v) => (hasEmoji(v) ? T('noEmoji') : badSymbols(v) ? T('noSymbol', { s: badSymbols(v) }) : letters('main', v))}
                 onCommit={(v) => onEdit(setWord(hand, w.t0, w.t1, v === w.text ? null : v), `word:${key}`)} />
               {now !== undefined ? (
                 <button type="button" className="ed-btn" disabled={!editable} title={T('asSessionT')} onClick={() => onEdit(setWord(hand, w.t0, w.t1, null))}>

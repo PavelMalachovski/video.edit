@@ -27,6 +27,7 @@ import type { StyleChoice, StyleSpec } from '@/lib/jobfiles.ts';
 import { buildOverlayEvents, hookEnd, type LayerEvent } from '@/lib/overlay.ts';
 import { pictureModel } from '@/lib/picture.ts';
 import { HALF } from '@/lib/zoom.ts';
+import { missingLetters, typedText } from '@/lib/fontchars.ts';
 import { advance, afterEnded, locate, stillSource, tailAt } from '@/lib/player.ts';
 import { allowedFonts, finalStyle, loadChoice, loadInsertBoxes, mergeStyle, placedInserts, sampleState, saveChoice } from '@/lib/style.ts';
 import { clickGuard, dragTo, type Drag, type DragView } from '@/lib/drag.ts';
@@ -37,8 +38,8 @@ import {
 } from '@/lib/tracks.ts';
 import { BackIcon, PauseIcon, PlayIcon, PlusIcon, RedoIcon, ScissorsIcon, SpeakerIcon, TrashIcon, UndoIcon } from '../../../icons';
 import PreviewFrame from '../../../preview-frame';
-import { useTemplateFonts } from '../../../use-fonts';
-import { BlockPanel, isPicked, removeBlock, sameRef, WordsPanel } from './blockpanel';
+import { useFontChars, useTemplateFonts } from '../../../use-fonts';
+import { BlockPanel, isPicked, removeBlock, sameRef, WordsPanel, type Letters } from './blockpanel';
 import { Bar, Layer, Picture } from './frame';
 import { Mixer, type MixPlan } from './mixer';
 import { Inspector, StylePanel, type Selection } from './panels';
@@ -242,7 +243,22 @@ export default function Editor({ id }: { id: string }) {
     return mergeStyle(finalStyle(styles, answered), videoStyle, picked);
   }, [styles, choice, videoStyle, answered]);
   const fonts = useTemplateFonts();
-  const offered = useMemo(() => (styles ? allowedFonts(fonts, styles) : []), [fonts, styles]); // со всеми буквами ролика
+  // буквы шрифтов (таблицы символов тех же файлов, что рисуют ролик): набранного Павлом, чего нет в шрифте стиля, монтаж не
+  // пропустит (fonts.check) — поле говорит сразу, а шрифты без его букв стиль не предлагает (выбранный — остаётся)
+  const allowed = useMemo(() => (styles ? allowedFonts(fonts, styles) : []), [fonts, styles]); // со всеми буквами ролика
+  const chars = useFontChars(allowed);
+  const typed = useMemo(() => typedText(hand, spec?.hook.mode === 'accent'), [hand, spec?.hook.mode]);
+  const offered = useMemo(() => allowed.filter((f) => { // и набранного Павлом
+    const have = chars.get(f.id);
+    return !have || f.id === (f.kind === 'main' ? spec?.font : spec?.hand) || !missingLetters(have, f.kind === 'main' ? typed.main : typed.hand);
+  }), [allowed, chars, typed, spec?.font, spec?.hand]);
+  const letters = useCallback<Letters>((role, text) => {
+    if (!spec) return null;
+    const id = role === 'hand' && spec.hook.mode !== 'accent' ? spec.hand : spec.font;
+    const have = chars.get(id);
+    const lack = have ? missingLetters(have, text) : '';
+    return lack ? T('noLetters', { font: fonts.find((f) => f.id === id)?.family ?? id, s: [...lack].join(' ') }) : null;
+  }, [spec, chars, fonts, T]);
 
   // ---------- черновик с правками ----------
   const sourceDuration = data?.media?.duration;
@@ -971,10 +987,12 @@ export default function Editor({ id }: { id: string }) {
           {data?.screen === 'working' ? <p className="ed-note ed-flag">{mount.state === 'started' ? T('mountStarted') : T('working')}</p> : null}
           {mount.state === 'error' ? <p className="ed-note ed-flag bad" role="alert">{T('mountFailed', { e: mount.error ?? '' })}</p> : null}
           {tracks && draft && sel?.kind === 'block' ? (
-            <BlockPanel T={T} sel={sel} tracks={tracks} draft={draft} hand={hand} editable={canText} note={editable ? textNote : null} onEdit={edit} sec={sec} />
+            <BlockPanel T={T} sel={sel} tracks={tracks} draft={draft} hand={hand} editable={canText} note={editable ? textNote : null} onEdit={edit} sec={sec}
+              letters={letters} />
           ) : null}
           {tracks && draft && sel?.kind === 'sub' ? (
-            <WordsPanel T={T} sel={sel} tracks={tracks} draft={draft} hand={hand} editable={canText} note={editable ? textNote : null} onEdit={edit} sec={sec} />
+            <WordsPanel T={T} sel={sel} tracks={tracks} draft={draft} hand={hand} editable={canText} note={editable ? textNote : null} onEdit={edit} sec={sec}
+              letters={letters} />
           ) : null}
           {tracks && (sel?.kind === 'look' || sel?.kind === 'transition') ? (
             <PicturePick T={T} sel={sel} tracks={tracks} hand={hand} editable={canMarks} note={editable ? pictureNote : null} onEdit={edit} sec={sec} />

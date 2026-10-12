@@ -1116,7 +1116,15 @@ const segments = [
       async () => `субтитры с правкой: ${await page.locator('.ed-row.sub .ed-clip').allTextContents()}`);
     await words.getByLabel('мой', { exact: true }).fill('мой🔥');
     await words.getByRole('alert').getByText('эмодзи нельзя').waitFor({ timeout: 3000 });
-    await words.getByLabel('мой', { exact: true }).fill('мой');
+    // буквы, которых нет в шрифте стиля (греческих в Rubik нет), — сразу в поле, как их не пропустит проверка шрифтов
+    // движка; таблицы символов шрифтов страница читает после загрузки — пока не прочитаны, поле молчит
+    const mine = words.getByLabel('мой', { exact: true });
+    await until(async () => {
+      await mine.fill('мой');
+      await mine.fill('мой αβ');
+      return (await words.getByRole('alert').allTextContents()).some((t) => t.includes('В шрифте Rubik нет букв') && t.includes('α'));
+    }, 10_000, async () => `нет букв в шрифте: ${await words.getByRole('alert').allTextContents()}`);
+    await mine.fill('мой');
     await seekTo(0.85);
     await until(async () => isDeepStrictEqual((await layerState()).sub?.words, ['вот', 'мой']), 3000, async () => `на кадре: ${JSON.stringify(await layerState())}`);
     await shot(page, 'editor-word');

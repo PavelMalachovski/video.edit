@@ -127,6 +127,10 @@
 - Свои шрифты Павла: правило `template/fonts.mjs` — общее для рендера и страницы; его же повторяет каталог
   `engine/vm/fonts.py` (`catalog`).
 - Шрифты со всеми буквами ролика: `styles.json.fonts` (вывод `vm fonts`) и `web/lib/style.ts` (`allowedFonts`).
+- Буквы шрифта для набранного в редакторе: `engine/vm/fonts.py` (`missing`, `_drawn`, `INVISIBLE`, `texts` — какой
+  шрифт что рисует, `_hand_word`; таблица символов — `getBestCmap` fontTools) ↔ `web/lib/fontchars.ts` (`fontChars` —
+  cmap того же файла, `missingLetters`, `typedText`, `handWord`), раздел `letters` общей фикстуры (по всем шрифтам
+  каталога).
 - Языки: `engine/vm/lang.py` (коды, названия, чем распознавать) и `setup/cloud-setup.sh` (какие модели ставятся).
 - Затемнение фона: `engine/vm/matte.py` (`MODEL`) и `setup/cloud-setup.sh` (откуда ставится модель, её sha256); маска
   идёт кадр в кадр со склейкой — `segment_frames` в `engine/vm/render.py`, общий с `_cut`.

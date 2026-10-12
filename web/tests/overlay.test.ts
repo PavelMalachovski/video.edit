@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { buildOverlayEvents, frameOf, insertSpans, layerBlocks, pyRound, renderTimeline, stateAt, type OverlayEdit } from '../lib/overlay.ts';
 import { buildSubEvents, subBlocks, type Word } from '../lib/subs.ts';
 import { Timeline } from '../lib/timeline.ts';
+import { lookWindows, transitionMarks, zoomAt, zoomLevels, type TransitionSpec, type Zoom } from '../lib/zoom.ts';
 
 // Общая с движком фикстура (engine/tests/shared_events.py): события субтитров и слоя — ровно как у движка, число в число.
 type Base = { name: string; keep: [number, number][]; speed: number; teaser: [number, number] | null };
@@ -14,6 +15,10 @@ const FIXTURE = JSON.parse(fs.readFileSync(new URL('../../engine/tests/fixtures/
   overlayRefused: (Base & { edit: OverlayEdit })[];
   render: RenderCase[];
   renderRefused: RenderCase[];
+  look: (Base & {
+    edit: { zooms: Zoom[]; transitions: TransitionSpec[]; looks: { t0: number; t1: number }[] };
+    zoom: [number, number][]; marks: { t: number; kind: string; source: number }[]; looks: [number, number][];
+  })[];
 };
 type RenderCase = {
   name: string; keep: [number, number][]; speed: number; teaser: { t0: number; t1: number } | null; limit: number | null;
@@ -94,6 +99,22 @@ test('the render timeline puts piece edges on whole frames, as the engine', () =
     assert.equal(tl.duration, c.duration, c.name);
   }
   for (const c of FIXTURE.renderRefused) assert.throws(() => renderTimeline(c, c.limit), /teaser/, c.name);
+});
+
+test('zoom, transitions at the joins and black-and-white pieces match the engine', () => {
+  for (const c of FIXTURE.look) {
+    const tl = tlOf(c);
+    const marks = transitionMarks(c.edit.transitions, tl);
+    assert.deepStrictEqual(marks, c.marks, c.name);
+    const punches = marks.filter((m) => m.kind === 'zoom').map((m) => m.t);
+    const level = zoomLevels(c.edit.zooms, tl, punches);
+    for (const [t, want] of c.zoom) {
+      assert.equal(zoomAt(c.edit.zooms, tl, t, undefined, punches), want, `${c.name}: zoom(${t})`);
+      assert.equal(level(t), want, `${c.name}: zoomLevels(${t})`);
+    }
+    assert.deepStrictEqual(lookWindows(c.edit.looks, tl), c.looks, c.name);
+  }
+  assert.ok(FIXTURE.look.some((c) => c.zoom.some(([, z]) => z > 1.2)), 'в фикстуре есть смена крупности');
 });
 
 test('rounding is Python’s: a frame on a half rounds to even, decimals by the exact value', () => {

@@ -539,3 +539,8 @@ def test_the_render_timeline_matches_the_shared_fixture(case):
 def test_the_render_timeline_refuses_what_the_shared_fixture_refuses(bad):
     with pytest.raises(RenderError):
         shared_events.render_case(bad)
+
+
+@pytest.mark.parametrize("case", SHARED["look"], ids=lambda c: c["name"])
+def test_zoom_transitions_and_looks_match_the_shared_fixture(case):
+    assert json.loads(json.dumps(shared_events.look_case(case))) == {k: case[k] for k in ("zoom", "marks", "looks")}

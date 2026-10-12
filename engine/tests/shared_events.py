@@ -9,11 +9,14 @@ import json
 import sys
 from pathlib import Path
 
+from vm import transitions
 from vm.asr import Word
 from vm.overlay import build_overlay_events, insert_spans
+from vm.render import look_windows
 from vm.render import timeline as render_timeline
 from vm.subs import build_sub_events
 from vm.timeline import Timeline
+from vm.zoom import TRANS, zoom_at
 
 PATH = Path(__file__).parent / "fixtures" / "overlay-events.json"
 NOTE = (
@@ -169,6 +172,39 @@ def render_case(case: dict) -> dict:
     return {"segments": [list(s) for s in tl.segments], "teaserSpan": list(tl.teaser) if tl.teaser else None, "duration": tl.duration}
 
 
+# Зум (zoom.zoom_at: ступени по смыслу, смены крупности, наезды, толчки переходов zoom), переходы на стыках
+# (transitions.marks) и ч/б-куски (render.look_windows) — для превью картинки в редакторе (web/lib/zoom.ts)
+LOOK = [
+    {"name": "steps by meaning, a sharp change of shot at a cut, a slow push-in; zoom and flash transitions",
+     "keep": [[0.0, 3.0], [3.4, 8.0]], "speed": 1.1, "teaser": None,
+     "edit": {"zooms": [{"t": 0.8, "level": 1.08}, {"t": 3.45, "level": 1.25, "over": 0}, {"t": 5.0, "level": 1.3, "over": 2.5},
+                        {"t": 6.9, "level": 1.0}],
+              "transitions": [{"t": 3.2, "kind": "zoom"}, {"t": 6.0, "kind": "flash"}, {"t": 0.05, "kind": "blur"}],
+              "looks": [{"t0": 1.0, "t1": 2.9, "look": "bw"}, {"t0": 6.5, "t1": 6.4, "look": "bw"}]}},
+    {"name": "pieces reordered by hand: each run starts at the level of its first moment in source order",
+     "keep": [[4.0, 6.0], [0.0, 4.0], [6.0, 8.0]], "speed": 1.0, "teaser": None,
+     "edit": {"zooms": [{"t": 1.0, "level": 1.16}, {"t": 4.5, "level": 1.2, "over": 0}],
+              "transitions": [{"t": 4.0, "kind": "zoom"}], "looks": [{"t0": 4.2, "t1": 5.0, "look": "bw"}]}},
+    {"name": "with a teaser: a look in the teaser phrase shows in the teaser too; levels clamp to their range",
+     "keep": [[0.0, 9.0]], "speed": 1.25, "teaser": [5.0, 7.0],
+     "edit": {"zooms": [{"t": 2.0, "level": 2.0}, {"t": 6.0, "level": 0.5, "over": 1.0}], "transitions": [{"t": 3.0, "kind": "blur"}],
+              "looks": [{"t0": 5.5, "t1": 6.5, "look": "bw"}]}},
+]
+
+
+def look_case(case: dict) -> dict:
+    tl = _timeline(case)
+    edit = case["edit"]
+    marks = transitions.marks(edit, tl)
+    punches = [m.t for m in marks if m.kind == "zoom"]
+    times = [round(k * 0.05, 2) for k in range(int(tl.duration / 0.05) + 2)]
+    return {
+        "zoom": [[t, zoom_at(edit["zooms"], tl, t, TRANS, punches)] for t in times],
+        "marks": [{"t": m.t, "kind": m.kind, "source": m.source} for m in marks],
+        "looks": [list(w) for w in look_windows(edit, tl)],
+    }
+
+
 def _timeline(case: dict) -> Timeline:
     return Timeline(case["keep"], case["speed"], case["teaser"])
 
@@ -196,6 +232,7 @@ def build() -> dict:
         "overlayRefused": OVERLAY_REFUSED,
         "render": [{**case, **render_case(case)} for case in RENDER],
         "renderRefused": RENDER_REFUSED,
+        "look": [{**case, **look_case(case)} for case in LOOK],
     }
 
 
@@ -229,7 +266,8 @@ def dump(data: dict) -> str:
         refused = f"{key}Refused"
         out.append(f'  {json.dumps(refused)}: {_rows(data[refused], "  ")},')
     out.append(f'  "render": {_rows(data["render"], "  ")},')
-    out.append(f'  "renderRefused": {_rows(data["renderRefused"], "  ")}')
+    out.append(f'  "renderRefused": {_rows(data["renderRefused"], "  ")},')
+    out.append(f'  "look": {_rows(data["look"], "  ")}')
     out.append("}")
     return "\n".join(out) + "\n"
 

@@ -826,3 +826,87 @@ def test_pavels_hand_edits_from_the_editor_reach_the_video(tmp_path, sources):
                          check=True, capture_output=True).stdout
     assert float(np.sqrt(np.mean(np.square(np.frombuffer(raw, np.float32))))) < 1e-3, "голос без звука"
     assert job.read("edit.json")["keep"] == [[0.0, 6.0]], "edit.json сессии остался как был"
+
+
+def test_text_and_inserts_edited_in_the_editor_reach_the_video(tmp_path, sources, render_shot):
+    """Фаза 5, timeline.json страницы: хук до 2,0 с и с новым текстом, акцент на секунду позже, стикер дольше и с новым
+    текстом, картинка выключена, опечатка исправлена, «эээ» убрано — так и в кадрах слоя (рамки шаблона, события
+    движка), и в final.srt. Тот же ролик до правок — как в edit.json сессии, а сам он не меняется."""
+    said = [(0.3, 0.7, "Сегодня"), (0.8, 1.2, "эээ"), (1.3, 1.7, "покажу"), (1.8, 2.2, "как"), (2.3, 2.7, "я"),
+            (2.8, 3.2, "монтирую"), (3.3, 3.7, "ролики"), (3.8, 4.2, "прямо"), (4.3, 4.7, "на"), (4.8, 5.2, "телефне.")]
+    job = make_job(
+        tmp_path, sources["short"], style=REFERENCE,
+        words=[{"t0": a, "t1": b, "text": t} for a, b, t in said],
+        hook={"text": "Как я монтирую", "until": 1.0},
+        accents=[{"t0": 2.3, "t1": 3.2, "x": 480, "y": 1000,
+                  "lines": [{"text": "я"}, {"text": "монтирую", "size": "big", "color": "accent"}]}],
+        inserts=[{"kind": "sticker", "text": "5 минут", "t0": 2.0, "t1": 2.5, "x": 120, "y": 560, "w": 560, "sfx": None, "params": {}},
+                 {"kind": "image", "src": "in/uploads/upload-i1.png", "t0": 4.5, "t1": 5.5, "x": 560, "y": 560, "w": 300,
+                  "sfx": None, "params": {}}],
+    )
+    session = job.read("edit.json")
+
+    def drawn() -> tuple[list[dict], list[dict], set[str]]:
+        """Что вышло: события слоя (движок), рамки на кадрах (шаблон) и слова final.srt."""
+        work = job.path("work/render")
+        cues = job.path("out/final.srt").read_text(encoding="utf-8").strip().split("\n\n")
+        return (json.loads((work / "events.json").read_text(encoding="utf-8")),
+                json.loads((work / "frames/boxes.json").read_text(encoding="utf-8")),
+                {w for cue in cues for line in cue.splitlines()[2:] for w in line.split()})
+
+    render(job, job.path("out"), preset="ultrafast")
+    render_shot("text-before", job.path("out/final.mp4"))
+    events_before, boxes_before, srt_before = drawn()
+    hook, sticker = "Монтаж на телефоне", "Весь монтаж — 5 минут на телефоне"
+    job.write("timeline.json", {"rev": 1, "edits": [], "text": {
+        "hook": {"until": 2.0, "text": hook},
+        "accents": [{"at": [2.3, 3.2], "t0": 3.3, "t1": 4.2}],
+        "inserts": [{"at": [2.0, 2.5], "t1": 4.2, "text": sticker}, {"at": [4.5, 5.5], "off": True}],
+    }, "words": [{"t0": 4.8, "t1": 5.2, "text": "телефоне."}, {"t0": 0.8, "t1": 1.2, "text": ""}]})
+    render(job, job.path("out"), preset="ultrafast")
+    render_shot("text-after", job.path("out/final.mp4"))
+    events_after, boxes_after, srt_after = drawn()
+
+    def shown(boxes, seen) -> list[tuple[float, float]]:
+        """Промежутки ролика, где на кадре есть рамка, которую отбирает `seen`."""
+        return [(e["t0"], e["t1"]) for e in boxes if seen(e.get("boxes") or {})]
+
+    def first_last(boxes, seen) -> tuple[float, float] | None:
+        times = shown(boxes, seen)
+        return (min(a for a, _ in times), max(b for _, b in times)) if times else None
+
+    def insert(n):
+        return lambda b: any(box.get("n") == n for box in b.get("inserts") or [])
+
+    def texts(events, key) -> set[str]:
+        return {e["state"][key]["text"] for e in events if key in e["state"]}
+
+    def inserted(events, n) -> list[dict]:
+        return [i for e in events for i in e["state"].get("inserts", []) if i["n"] == n]
+
+    def subtitled(events) -> set[str]:
+        return {w for e in events if "sub" in e["state"] for w in e["state"]["sub"]["words"]}
+
+    assert first_last(boxes_before, lambda b: b.get("hook")) == pytest.approx((0.0, 1.0))
+    assert first_last(boxes_after, lambda b: b.get("hook")) == pytest.approx((0.0, 2.0)), "хук — до 2,0 с и не дольше"
+    assert texts(events_before, "hook") == {"Как я монтирую"} and texts(events_after, "hook") == {hook}
+
+    assert first_last(boxes_before, lambda b: b.get("accent"))[0] == pytest.approx(2.3)
+    assert first_last(boxes_after, lambda b: b.get("accent"))[0] == pytest.approx(3.3), "акцент — на секунду позже"
+    assert not [s for s in shown(boxes_after, lambda b: b.get("accent")) if s[0] < 3.2 and s[1] > 2.3], "на старом месте его нет"
+
+    assert first_last(boxes_before, insert(0)) == pytest.approx((2.0, 3.5)), "стикер: показ не короче 1,5 с"
+    assert first_last(boxes_after, insert(0)) == pytest.approx((2.0, 4.2)), "стикер растянут до 4,2 с"
+    assert {i["text"] for i in inserted(events_before, 0)} == {"5 минут"}
+    assert {i["text"] for i in inserted(events_after, 0)} == {sticker}
+    tall = lambda boxes: max(box["h"] for e in boxes for box in (e.get("boxes") or {}).get("inserts") or [] if box.get("n") == 0)
+    assert tall(boxes_after) > tall(boxes_before), "шаблон нарисовал новый текст: длиннее — в две строки"
+
+    assert first_last(boxes_before, insert(1)) == pytest.approx((4.5, 6.0))
+    assert not shown(boxes_after, insert(1)) and not inserted(events_after, 1), "выключенной картинки нет"
+
+    for words in (subtitled(events_before), srt_before):
+        assert {"телефне.", "эээ"} <= words, "до правок — слова сессии"
+    for words in (subtitled(events_after), srt_after):
+        assert "телефоне." in words and not {"телефне.", "эээ"} & words, "опечатка исправлена, «эээ» в субтитрах нет"
+    assert job.read("edit.json") == session, "edit.json сессии не меняется"

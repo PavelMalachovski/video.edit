@@ -1,18 +1,21 @@
-"""Общая фикстура событий субтитров и слоя: engine/vm/subs.py (build_sub_events) и engine/vm/overlay.py
-(build_overlay_events, insert_spans) ↔ web/lib/subs.ts и web/lib/overlay.ts — превью в редакторе рисует то же, что финал.
+"""Общая фикстура движка и страницы — превью в редакторе рисует то же, что финал: события субтитров и слоя
+(engine/vm/subs.py, engine/vm/overlay.py ↔ web/lib/subs.ts, web/lib/overlay.ts), картинка — зум, переходы, ч/б, вспышка и
+смаз по кадрам (engine/vm/zoom.py, transitions.py, render.py ↔ web/lib/zoom.ts, web/lib/picture.ts), доли музыки
+(beats.py ↔ web/lib/beats.ts), текст руками (edits.py ↔ web/lib/edits.ts).
 
 Здесь — входы случаев; ожидаемое считает движок. Записать фикстуру заново (после правки движка — и переноса на TS):
     cd engine && python3 -m tests.shared_events
 Тесты обеих сторон сверяют с ней (test_overlay.py, web/tests/overlay.test.ts).
 """
 import json
+import math
 import sys
 from pathlib import Path
 
 from vm import beats, edits, transitions
 from vm.asr import Word
-from vm.overlay import build_overlay_events, insert_spans
-from vm.render import look_windows
+from vm.overlay import FPS, build_overlay_events, insert_spans
+from vm.render import BW_CSS_BRIGHTNESS, BW_CSS_CONTRAST, look_windows
 from vm.render import timeline as render_timeline
 from vm.subs import build_sub_events
 from vm.timeline import Timeline
@@ -20,12 +23,17 @@ from vm.zoom import TRANS, zoom_at
 
 PATH = Path(__file__).parent / "fixtures" / "overlay-events.json"
 NOTE = (
-    "События субтитров (subs: build_sub_events) и слоя (overlay: build_overlay_events и insertSpans — кадры показа "
-    "вставок) для одних и тех же входов: engine/vm/subs.py и engine/vm/overlay.py ↔ web/lib/subs.ts и "
-    "web/lib/overlay.ts. Времена слов и edit — по исходнику, событий — секунды финала; keep — в порядке финала. "
-    "render — шкала, на которой монтаж строит слой (render.timeline ↔ renderTimeline): края keep и тизера на целых "
-    "кадрах, не дальше последнего кадра исходника (limit). Пишет engine/tests/shared_events.py (python3 -m "
-    "tests.shared_events из engine/)."
+    "Для одних и тех же входов — что считает движок; страница повторяет число в число. subs — события субтитров "
+    "(build_sub_events ↔ web/lib/subs.ts); overlay — события слоя и кадры показа вставок (build_overlay_events, "
+    "insert_spans ↔ web/lib/overlay.ts); render — шкала, на которой монтаж строит слой (render.timeline ↔ "
+    "renderTimeline): края keep и тизера на целых кадрах, не дальше последнего кадра исходника (limit); look — картинка "
+    "(web/lib/zoom.ts): зум (zoom_at), переходы на стыках (transitions.marks), ч/б-куски — кадры (look_windows), "
+    "вспышка и смаз у каждого стыка по кадрам финала [n, значение] (transitions.flash_alpha — белизна 0..1, blur_sigma — "
+    "sigma смаза по x, px кадра 1080); bwFilter — CSS-фильтр ч/б-кадра в превью: grayscale(1) brightness contrast "
+    "(render.BW_CSS_BRIGHTNESS, BW_CSS_CONTRAST ↔ BW_FILTER в web/lib/picture.ts); beats — доли музыки в ролике и "
+    "что на них встаёт (web/lib/beats.ts); text — текст и вставки руками (edits.apply_text ↔ web/lib/edits.ts). "
+    "Времена слов и edit — по исходнику, событий — секунды финала; keep — в порядке финала. Пишет "
+    "engine/tests/shared_events.py (python3 -m tests.shared_events из engine/)."
 )
 
 
@@ -174,7 +182,8 @@ def render_case(case: dict) -> dict:
 
 
 # Зум (zoom.zoom_at: ступени по смыслу, смены крупности, наезды, толчки переходов zoom), переходы на стыках
-# (transitions.marks) и ч/б-куски (render.look_windows) — для превью картинки в редакторе (web/lib/zoom.ts)
+# (transitions.marks), ч/б-куски (render.look_windows), вспышка и смаз по кадрам (transitions.flash_alpha, blur_sigma) —
+# для превью картинки в редакторе (web/lib/zoom.ts)
 LOOK = [
     {"name": "steps by meaning, a sharp change of shot at a cut, a slow push-in; zoom and flash transitions",
      "keep": [[0.0, 3.0], [3.4, 8.0]], "speed": 1.1, "teaser": None,
@@ -190,6 +199,14 @@ LOOK = [
      "keep": [[0.0, 9.0]], "speed": 1.25, "teaser": [5.0, 7.0],
      "edit": {"zooms": [{"t": 2.0, "level": 2.0}, {"t": 6.0, "level": 0.5, "over": 1.0}], "transitions": [{"t": 3.0, "kind": "blur"}],
               "looks": [{"t0": 5.5, "t1": 6.5, "look": "bw"}]}},
+    # окно с 0,9 — ровно кадр 27; с 3,7 — а время кадра 111 в double чуть меньше, он вне окна; 4,1 / (1/30) =
+    # 122,99… — белый кадр с кадра 122, и метка его кадра 6 сбивается на 129; ступень смаза с 7,4 — кадр 222 без неё
+    {"name": "flash and blur by whole frames: window edges on a frame and next to one, white frame stamps cut to a frame",
+     "keep": [[0.0, 10.0]], "speed": 1.0, "teaser": None,
+     "edit": {"zooms": [{"t": 2.0, "level": 1.1}],
+              "transitions": [{"t": 1.02, "kind": "flash"}, {"t": 2.5, "kind": "zoom"}, {"t": 3.82, "kind": "blur"},
+                              {"t": 4.22, "kind": "flash"}, {"t": 7.48, "kind": "blur"}, {"t": 8.32, "kind": "flash"}],
+              "looks": []}},
 ]
 
 
@@ -270,6 +287,11 @@ def text_case(case: dict) -> dict:
     return {k: out.get(k) for k in TEXT_FIELDS}
 
 
+def _around(t: float) -> range:
+    """Кадры финала у стыка `t`: окно перехода (± 0,12 с) и пара кадров за каждым его краем."""
+    return range(math.floor((t - 0.2) * FPS), math.ceil((t + 0.2) * FPS) + 1)
+
+
 def look_case(case: dict) -> dict:
     tl = _timeline(case)
     edit = case["edit"]
@@ -280,6 +302,10 @@ def look_case(case: dict) -> dict:
         "zoom": [[t, zoom_at(edit["zooms"], tl, t, TRANS, punches)] for t in times],
         "marks": [{"t": m.t, "kind": m.kind, "source": m.source} for m in marks],
         "looks": [list(w) for w in look_windows(edit, tl)],
+        "flash": [{"t": m.t, "frames": [[n, transitions.flash_alpha(m.t, n)] for n in _around(m.t)]}
+                  for m in marks if m.kind == "flash"],
+        "blur": [{"t": m.t, "frames": [[n, transitions.blur_sigma(m.t, n)] for n in _around(m.t)]}
+                 for m in marks if m.kind == "blur"],
     }
 
 
@@ -311,6 +337,7 @@ def build() -> dict:
         "render": [{**case, **render_case(case)} for case in RENDER],
         "renderRefused": RENDER_REFUSED,
         "look": [{**case, **look_case(case)} for case in LOOK],
+        "bwFilter": {"brightness": BW_CSS_BRIGHTNESS, "contrast": BW_CSS_CONTRAST},
         "beats": [{**case, **beats_case(case)} for case in BEATS],
         "text": [{**case, "expected": text_case(case)} for case in TEXT],
         "textRefused": TEXT_REFUSED,
@@ -349,6 +376,7 @@ def dump(data: dict) -> str:
     out.append(f'  "render": {_rows(data["render"], "  ")},')
     out.append(f'  "renderRefused": {_rows(data["renderRefused"], "  ")},')
     out.append(f'  "look": {_rows(data["look"], "  ")},')
+    out.append(f'  "bwFilter": {json.dumps(data["bwFilter"])},')
     out.append(f'  "beats": {_rows(data["beats"], "  ")},')
     out.append(f'  "text": {_rows(data["text"], "  ")},')
     out.append(f'  "textRefused": {_rows(data["textRefused"], "  ")}')

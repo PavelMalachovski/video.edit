@@ -67,6 +67,11 @@
   события по сериям — `overlay.py`, `subs.py` (`_spoken`), `render.py` (`look_windows`) и `draftTracks` в `web/lib/tracks.ts`.
 - Файлы редактора (бета): `engine/vm/editor.py` и схема `engine/vm/schemas/editor.json` ↔ `web/lib/tracks.ts`
   (`parseMedia`, `parseDraft`) и `web/lib/editordata.ts` (`MEDIA_NAMES` — что плеер берёт из релиза).
+- Несколько видео задачи: ассеты `source`, `source-2` … `source-10` и куда их кладёт fetch — `web/lib/jobs.ts`
+  (`videoAsset`, `isSourceFile`, `videoFile`, `checkVideos`) ↔ `engine/vm/fetch.py` (`VIDEO_ASSET`); порядок склейки —
+  `source_parts` в `engine/vm/media.py`; где какое видео — `editor.json.videos` (`video_marks` в `engine/vm/editor.py`)
+  ↔ `parseMedia` и `draftTracks` (`videos`) в `web/lib/tracks.ts`; `manifest.json.videos` и `job.json.videos` —
+  `web/lib/jobfiles.ts` (`buildJobFile`) и SKILL.md, часть 2.
 - Правки руками из редактора (`timeline.json`): `engine/vm/edits.py` (`apply_keep` — cut, restore с `next`, move,
   split; `apply`) и `web/lib/edits.ts` (`applyKeep`, `parseTimeline`, `LIMITS` — пределы схемы
   `engine/vm/schemas/timeline.json`), общая фикстура

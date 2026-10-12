@@ -1127,6 +1127,25 @@ async function diagnose(name) {
     await p.getByText('probe.mov').waitFor({ timeout: 10_000 });
     await new Promise((ok) => setTimeout(ok, 6000)); // зонд длительности успевает кончиться (5 с)
   });
+  await probe('после блокировки экрана', async (p) => {
+    await p.goto(`${APP}/`, { timeout: 15_000 });
+    const t = Date.now();
+    const got = await within(p.evaluate(async () => {
+      const lock = await navigator.wakeLock?.request('screen').catch((e) => String(e));
+      await new Promise((ok) => setTimeout(ok, 1000));
+      if (lock && typeof lock !== 'string') await lock.release();
+      return typeof lock === 'string' ? lock : lock ? 'взята и снята' : 'нет wakeLock';
+    }), 40_000);
+    console.log(`  блокировка экрана: ${got} за ${Date.now() - t} мс`);
+  });
+  await probe('после загрузки куска', async (p) => {
+    await p.goto(`${APP}/`, { timeout: 15_000 });
+    const got = await within(p.evaluate(async () => {
+      const r = await fetch('/api/jobs/000000-000000-zzzz/parts/0?release=1', { method: 'PUT', body: new Blob([new Uint8Array(4 * 1024 * 1024)]) });
+      return r.status;
+    }), 20_000);
+    console.log(`  кусок 4 МБ: ${got}`);
+  });
   if (process.env.E2E_SHOTS) await within(page.screenshot({ path: path.join(process.env.E2E_SHOTS, `FAIL-${name}.png`), fullPage: true }).catch(() => {}), 10_000);
 }
 const ctx = { page, browser, tmp: fs.mkdtempSync(path.join(os.tmpdir(), 'vm-e2e-')), jobId: null, fires, state, branchFile, session, until, check };

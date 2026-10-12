@@ -1,6 +1,7 @@
 # Проверки всего, что есть в репозитории: страница (тесты, типы, сквозной путь в Chromium и в Safari на iPhone), шаблон
 # слоя (и что Safari рисует его так же, как рендер), движок (быстрые тесты и ruff; медленные — с моделями распознавания,
-# поставленными тем же setup/cloud-setup.sh, что и облако), скрипты и сами workflow (shellcheck, actionlint).
+# поставленными тем же setup/cloud-setup.sh, что и облако), скрипты и сами workflow (shellcheck, actionlint), секреты
+# во всей истории (gitleaks: токены — только на сервере) и известные уязвимости зависимостей страницы (npm audit).
 # На каждый пуш, кроме веток задач claude/job-* (их пушат сессии монтажа), на PR в master (слитый с master код), каждую
 # ночь на master (что сломалось снаружи: зеркала apt, модели, браузеры) и вручную.
 name: ci
@@ -175,3 +176,19 @@ jobs:
       - run: actionlint
         env:
           SHELLCHECK_OPTS: -S warning
+
+  secrets:
+    name: secrets and dependencies — gitleaks, npm audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # вся история: токен, попавший в коммит, остаётся в ней и после удаления
+      - name: gitleaks
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz | tar -xz gitleaks
+          ./gitleaks git --redact --no-banner -v .
+      - name: npm audit (page, high and critical)
+        working-directory: web
+        run: npm audit --omit=dev --audit-level=high

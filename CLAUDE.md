@@ -34,7 +34,9 @@
 - CI на GitHub (`.github/workflows/ci.yml`) гоняет всё это сам: на каждый пуш, на PR в `master` и каждую ночь на
   `master`. e2e — в Chromium и в Safari (WebKit, iPhone 13: `E2E_BROWSER=webkit`); шаблон — ещё «Safari рисует как
   рендер» (`template/tests/safari.test.mjs`, без WebKit локально пропускается); shellcheck и actionlint; поиск
-  уязвимостей — CodeQL (`.github/workflows/codeql.yml`). Скриншоты e2e — артефакты прогона.
+  уязвимостей — CodeQL (`.github/workflows/codeql.yml`; проверенные ложные срабатывания — `.github/codeql/accepted.json`
+  с причиной); секреты во всей истории — gitleaks; уязвимости зависимостей страницы — `npm audit`. Скриншоты e2e —
+  артефакты прогона.
 
 ## Как работаем
 - Без процессов superpowers (так попросил Павел): без отдельных планов, ревьюеров дизайна и журналов. Делаю сам,

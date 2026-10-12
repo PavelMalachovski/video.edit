@@ -192,6 +192,7 @@ export default function Uploader() {
       ? { asset: voiceAssetName(voice.name, voice.type, last + 1), name: voice.name, size: voice.size, type: voice.type, lastModified: voice.lastModified } : undefined;
     const p: Pending = { ...pending, brief: briefRef.current, duration: duration ?? pending.duration, inserts: [...kept, ...added], voice: said };
     const files = new Map<string, File>([...match.videos, ...match.inserts, ...added.map((a, k) => [a.asset, extras[k]] as [string, File])]);
+    setSources([...match.videos.values()]); // видео — в порядке задачи, даже если выбраны заново в другом
     if (said && voice) files.set(said.asset, voice);
     await upload({ p, files }, null);
   }

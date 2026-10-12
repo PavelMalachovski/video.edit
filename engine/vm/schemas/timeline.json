@@ -9,7 +9,7 @@
     "rev": { "description": "Ревизия: страница прибавляет 1 на каждое сохранение.", "type": "integer", "minimum": 1 },
     "at": { "description": "Когда сохранено (ISO 8601).", "type": "string" },
     "edits": {
-      "description": "Правки кусков по порядку, времена — по исходнику: cut — вырезать отрезок t0–t1, restore — вернуть его, split — граница куска в редакторе (на ролик не влияет).",
+      "description": "Правки кусков по порядку, времена — по исходнику: cut — вырезать отрезок t0–t1, restore — вернуть его, move — переставить, split — граница куска в редакторе (на ролик не влияет).",
       "type": "array",
       "maxItems": 2000,
       "items": {
@@ -19,9 +19,33 @@
             "required": ["op", "t0", "t1"],
             "additionalProperties": false,
             "properties": {
-              "op": { "enum": ["cut", "restore"] },
+              "op": { "const": "cut" },
               "t0": { "type": "number", "minimum": 0 },
               "t1": { "type": "number", "minimum": 0 }
+            }
+          },
+          {
+            "description": "Вернуть вырезанное: к куску, что перед ним в исходнике; next — к куску после него (край тянут влево).",
+            "type": "object",
+            "required": ["op", "t0", "t1"],
+            "additionalProperties": false,
+            "properties": {
+              "op": { "const": "restore" },
+              "t0": { "type": "number", "minimum": 0 },
+              "t1": { "type": "number", "minimum": 0 },
+              "next": { "type": "boolean" }
+            }
+          },
+          {
+            "description": "Переставить: оставленное в [t0, t1] — перед моментом исходника before (null — в конец ролика).",
+            "type": "object",
+            "required": ["op", "t0", "t1", "before"],
+            "additionalProperties": false,
+            "properties": {
+              "op": { "const": "move" },
+              "t0": { "type": "number", "minimum": 0 },
+              "t1": { "type": "number", "minimum": 0 },
+              "before": { "type": ["number", "null"], "minimum": 0 }
             }
           },
           {

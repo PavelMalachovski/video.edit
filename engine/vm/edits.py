@@ -2,8 +2,10 @@
 
 Страница пишет `timeline.json`, движок кладёт правки поверх `edit.json` при каждом чтении (`edit_of`: `vm render`,
 `vm check`): сессия пишет `edit.json` как обычно (по ответам и правкам текстом), правки руками остаются поверх него.
-- `edits` — по порядку: `cut` вырезает отрезок исходника, `restore` возвращает (не дальше конца исходника), `split` —
-  граница куска в редакторе, на ролик не влияет. Куски короче SLIVER (кадр) после вырезки пропадают.
+- `edits` — по порядку: `cut` вырезает отрезок исходника, `restore` возвращает (не дальше конца исходника) — к куску,
+  что перед ним в исходнике (`next` — к куску после него), `move` ставит то, что оставлено в `[t0, t1]`, перед моментом
+  `before` (null — в конец), `split` — граница куска в редакторе, на ролик не влияет. Куски — в порядке финала; куски
+  короче SLIVER (кадр) после правок пропадают, соседние в финале и вплотную в исходнике — сливаются.
 - `voice` — громкость голоса и «без звука» → `edit.voice`; `music` — громкость, «без звука» (музыки нет), где
   начинается в ролике и с какого места трека, нарастание и затухание → поля `edit.music`; `sounds` — громкость и «без
   звука» отдельных звуков → `edit.sounds`. Музыки в монтаже нет — её правки не действуют: добавлять музыку — не здесь.
@@ -15,17 +17,22 @@ SLIVER = 0.04  # с — кусок короче (около кадра) посл
 MUSIC_FIELDS = ("gainDb", "at", "from", "fadeIn", "fadeOut")
 
 
-def _merge(spans: list[tuple[float, float]]) -> list[tuple[float, float]]:
-    out: list[tuple[float, float]] = []
-    for a, b in sorted(spans):
-        if out and a <= out[-1][1] + 1e-9:
-            out[-1] = (out[-1][0], max(out[-1][1], b))
+EPS = 1e-9
+Span = tuple[float, float]
+
+
+def _join(spans: list[Span]) -> list[Span]:
+    """Соседние в финале куски, что в исходнике идут вплотную, — один кусок."""
+    out: list[Span] = []
+    for a, b in spans:
+        if out and abs(a - out[-1][1]) <= EPS:
+            out[-1] = (out[-1][0], b)
         else:
             out.append((a, b))
     return out
 
 
-def _cut(spans: list[tuple[float, float]], a: float, b: float) -> list[tuple[float, float]]:
+def _cut(spans: list[Span], a: float, b: float) -> list[Span]:
     out = []
     for s, e in spans:
         if e <= a or s >= b:
@@ -38,28 +45,94 @@ def _cut(spans: list[tuple[float, float]], a: float, b: float) -> list[tuple[flo
     return out
 
 
+def _restore(spans: list[Span], a: float, b: float, to_next: bool) -> list[Span]:
+    """Вернуть `[a, b]`: каждая непокрытая часть — к куску, что кончается там, где она начинается (с `to_next` — сначала
+    к куску, что начинается там, где она кончается); соседей нет — сразу за куском, что перед ней в исходнике (такого
+    нет — перед тем, что после неё)."""
+    spans = list(spans)
+    gaps, at = [], a
+    for s, e in sorted(spans):
+        if e <= at or s >= b:
+            continue
+        if s > at:
+            gaps.append((at, s))
+        at = max(at, e)
+    if at < b:
+        gaps.append((at, b))
+    for ga, gb in gaps:
+        left = next((i for i, (_, e) in enumerate(spans) if abs(e - ga) <= EPS), None)
+        right = next((i for i, (s, _) in enumerate(spans) if abs(s - gb) <= EPS), None)
+        if to_next and right is not None or left is None and right is not None:
+            spans[right] = (ga, spans[right][1])
+        elif left is not None:
+            spans[left] = (spans[left][0], gb)
+        else:
+            before = [i for i, (_, e) in enumerate(spans) if e <= ga]
+            after = [i for i, (s, _) in enumerate(spans) if s >= gb]
+            if before:
+                k = max(before, key=lambda i: spans[i][1]) + 1
+            elif after:
+                k = min(after, key=lambda i: spans[i][0])
+            else:
+                k = len(spans)
+            spans.insert(k, (ga, gb))
+    return spans
+
+
+def _move(spans: list[Span], a: float, b: float, before: float | None) -> list[Span]:
+    """Оставленное в `[a, b]` (по порядку финала) — перед моментом `before`: внутри куска — кусок делится, в
+    вырезанном — перед куском, что за ним в исходнике; `None` или дальше всего — в конец. Ничего не оставлено — как было."""
+    rest: list[Span] = []
+    parts: list[Span] = []
+    for s, e in spans:
+        if e <= a or s >= b:
+            rest.append((s, e))
+            continue
+        if s < a:
+            rest.append((s, a))
+        parts.append((max(s, a), min(e, b)))
+        if e > b:
+            rest.append((b, e))
+    if not parts:
+        return spans
+    if before is None:
+        return rest + parts
+    for i, (s, e) in enumerate(rest):
+        if s <= before < e:
+            return rest[:i] + ([(s, before)] if before > s else []) + parts + [(before, e)] + rest[i + 1:]
+    later = [i for i, (s, _) in enumerate(rest) if s >= before]
+    if later:
+        i = min(later, key=lambda k: rest[k][0])
+        return rest[:i] + parts + rest[i:]
+    return rest + parts
+
+
 def apply_keep(keep, edits: list[dict], duration: float | None = None) -> list[list[float]]:
-    """`keep` сессии и правки по порядку → новый `keep` (по возрастанию, без пересечений). Кривая правка — ValueError
-    с её номером."""
-    spans = [(float(a), float(b)) for a, b in keep]
+    """`keep` сессии и правки по порядку → новый `keep` в порядке финала, без пересечений. Кривая правка — ValueError с
+    её номером."""
+    spans: list[Span] = [(float(a), float(b)) for a, b in keep]
     for i, e in enumerate(edits):
         op = e.get("op") if isinstance(e, dict) else None
         if op == "split":
             continue
-        if op not in ("cut", "restore"):
-            raise ValueError(f"timeline.json: edits[{i}] — op {op!r}: cut, restore или split")
+        if op not in ("cut", "restore", "move"):
+            raise ValueError(f"timeline.json: edits[{i}] — op {op!r}: cut, restore, move или split")
         a, b = float(e["t0"]), float(e["t1"])
         if not b > a:
             raise ValueError(f"timeline.json: edits[{i}] — конец {b} не позже начала {a}")
         if op == "cut":
             spans = _cut(spans, a, b)
-            continue
-        a = max(0.0, a)
-        if duration is not None:
-            b = min(float(duration), b)
-        if b > a:
-            spans = _merge([*spans, (a, b)])
-    return [[round(a, 3), round(b, 3)] for a, b in _merge(spans) if b - a >= SLIVER]
+        elif op == "move":
+            if "before" not in e:
+                raise ValueError(f"timeline.json: edits[{i}] — move без before (куда: момент исходника или null — в конец)")
+            spans = _move(spans, a, b, None if e["before"] is None else float(e["before"]))
+        else:
+            a = max(0.0, a)
+            if duration is not None:
+                b = min(float(duration), b)
+            if b > a:
+                spans = _restore(spans, a, b, bool(e.get("next")))
+    return [[round(a, 3), round(b, 3)] for a, b in _join(spans) if b - a >= SLIVER]
 
 
 def apply(edit: dict, timeline: dict | None, duration: float | None = None) -> dict:

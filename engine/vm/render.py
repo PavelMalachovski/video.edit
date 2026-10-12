@@ -447,7 +447,7 @@ def look_windows(edit: dict, tl: Timeline) -> list[tuple[int, int]]:
         t0, t1 = float(look["t0"]), float(look["t1"])
         if t1 <= t0:
             continue
-        spans = [(tl.to_cut(t0), tl.to_cut(t1))]
+        spans = [tl.span(t0, t1, cut=True)]  # с места начала и до конца его серии (куски могут быть переставлены)
         if tl.teaser and max(t0, tl.teaser[0]) < min(t1, tl.teaser[1]):
             lo, hi = tl.teaser
             spans.append((tl.teaser_final(_near_edge(max(t0, lo), lo, hi)), tl.teaser_final(_near_edge(min(t1, hi), lo, hi))))

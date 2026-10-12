@@ -773,6 +773,26 @@ def test_sounds_take_pavels_gains_mutes_and_the_music_place(tmp_path):
     assert notes == []
 
 
+def test_a_piece_moved_in_the_editor_plays_where_pavel_put_it(tmp_path, sources):
+    """timeline.json: секунда 4–5 исходника поставлена в начало — ролик той же длины начинается с её кадров, а за ней —
+    0–4 и 5–6 по порядку."""
+    job = make_job(tmp_path, sources["short"])
+    job.write("timeline.json", {"rev": 1, "edits": [{"op": "move", "t0": 4.0, "t1": 5.0, "before": 0.0}]})
+    result = render(job, job.path("out"), preset="ultrafast")
+    final = job.path("out/final.mp4")
+    assert result["durations"]["final"] == pytest.approx(6.0, abs=0.04)
+
+    def source_at(t):
+        raw = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", str(t), "-i", str(sources["short"]), "-frames:v", "1",
+                              "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], check=True, capture_output=True).stdout
+        return np.frombuffer(raw, np.uint8).reshape(1920, 1080, 3).astype(int)
+
+    near = lambda a, b: np.abs(a[300:1200] - b[300:1200]).mean() < 12
+    assert near(frame(final, 0.1).astype(int), source_at(4.1)), "первый кадр — из куска 4–5"
+    assert near(frame(final, 1.1).astype(int), source_at(0.1)), "дальше — начало исходника"
+    assert near(frame(final, 5.1).astype(int), source_at(5.1)), "а последним — 5–6"
+
+
 def test_pavels_hand_edits_from_the_editor_reach_the_video(tmp_path, sources):
     """timeline.json страницы: вырезан кусок 2–3 с исходника, голос без звука — ролик короче на секунду и без голоса."""
     job = make_job(tmp_path, sources["short"])

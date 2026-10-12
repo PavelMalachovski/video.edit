@@ -167,14 +167,16 @@ def _appear_frames(line: dict, anim: str) -> int:
 def _accents(edit: dict, tl: Timeline, sub_starts: list[int]) -> list[_Piece]:
     """Акцентные фразы: показ — с начала фразы до начала следующих субтитров (не дольше 0,3 с после её конца и не
     дальше следующего акцента); строки — со своими словами; последние кадры — уход."""
-    accents = sorted(edit.get("accents") or [], key=lambda a: float(a["t0"]))
+    # по месту в ролике (куски могут стоять не по порядку исходника); фраза — с начала и до конца своей серии (Timeline.span)
+    accents = sorted(edit.get("accents") or [], key=lambda a: (tl.to_final_snap(float(a["t0"])), float(a["t0"])))
     words = edit.get("words") or []
     pieces = []
-    starts = [_frame(tl.to_final_snap(float(a["t0"]))) for a in accents]
+    spans = [tl.span(float(a["t0"]), float(a["t1"])) for a in accents]
+    starts = [_frame(a) for a, _ in spans]
     for k, accent in enumerate(accents):
         start = starts[k]
-        said = _frame(tl.to_final_snap(float(accent["t1"])))
-        stop = _frame(tl.to_final_snap(float(accent["t1"])) + ACCENT_LINGER)
+        said = _frame(spans[k][1])
+        stop = _frame(spans[k][1] + ACCENT_LINGER)
         stop = min([stop, *(s for s in sub_starts if s >= said), *(s for s in starts[k + 1 :] if s > start)])
         lines = [dict(line) for line in accent["lines"]]
         frames = [min(max(_frame(tl.to_final_snap(t)), start), max(start, stop - 1)) for t in _line_times(accent, words)]
@@ -215,8 +217,8 @@ def _titles(edit: dict, tl: Timeline) -> list[_Piece]:
         pieces.append(_Piece(0, _hook_end(edit, tl), "hook", {"text": hook["text"]}, appear=moving))
     cta = edit.get("cta")
     if cta:
-        span = (_frame(tl.to_final_snap(cta["t0"])), _frame(tl.to_final_snap(cta["t1"])))
-        pieces.append(_Piece(*span, "cta", {"lines": list(cta["lines"]), "word": cta["word"]}))
+        a, b = tl.span(float(cta["t0"]), float(cta["t1"]))
+        pieces.append(_Piece(_frame(a), _frame(b), "cta", {"lines": list(cta["lines"]), "word": cta["word"]}))
     return pieces
 
 
@@ -235,8 +237,9 @@ def insert_spans(edit: dict, tl: Timeline) -> list[tuple[int, int, int]]:
     min_show = math.ceil(MIN_SHOW * FPS - 1e-9)
     spans = []
     for i, ins in enumerate(edit.get("inserts") or []):
-        start = max(_frame(tl.to_final_snap(ins["t0"])), after_hook)
-        stop = max(_frame(tl.to_final_snap(ins["t1"])), start + min_show)
+        a, b = tl.span(float(ins["t0"]), float(ins["t1"]))  # не дальше своей серии: переставленный кусок не тянет за собой
+        start = max(_frame(a), after_hook)
+        stop = max(_frame(b), start + min_show)
         spans.append((i, start, stop))
     return spans
 

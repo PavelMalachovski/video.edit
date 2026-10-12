@@ -630,3 +630,18 @@ def test_random_input_gives_ordered_soft_events_inside_the_final():
             assert len(e["lines"]) <= 2 and all(0 < n <= n_words for n in e["lines"]), where
         for before, after in pairwise(events):
             assert before["t1"] <= after["t0"], where
+
+
+# ---------- куски, переставленные руками (фаза 4) ----------
+
+
+def test_words_of_a_moved_piece_are_shown_where_the_piece_stands_and_start_their_own_phrase():
+    """Павел поставил кусок 6–8 с перед 0–2: его слова — первыми, и фраза кусков не склеивает: «пять шесть» и «раз
+    два» — разные группы, хоть в исходнике между ними нет конца предложения."""
+    words = speech((0.0, 0.2, "раз"), (0.3, 0.5, "два"), (6.0, 6.2, "пять"), (6.3, 6.5, "шесть"))
+    events = build_sub_events(words, Timeline([(6, 8), (0, 2)], 1.0), "karaoke", 3)
+    assert [e["words"] for e in events] == [["пять", "шесть"], ["пять", "шесть"], ["раз", "два"], ["раз", "два"]]
+    assert [e["t0"] for e in events] == sorted(e["t0"] for e in events)
+    assert events[0]["t0"] == pytest.approx(0.0) and events[2]["t0"] == pytest.approx(2.0)
+    in_order = build_sub_events(words, Timeline([(0, 2), (6, 8)], 1.0), "karaoke", 3)
+    assert in_order[0]["words"] == ["раз", "два"], "по порядку — как всегда"

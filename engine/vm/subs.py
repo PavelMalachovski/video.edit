@@ -30,7 +30,7 @@
 """
 import math
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import zip_longest
 
 from .asr import Word
@@ -154,9 +154,14 @@ def _spoken(words: list[Word], tl: Timeline, hidden: list[tuple[float, float]] =
         if tl.to_final(middle) is None:
             continue  # середина вырезана или лежит за концом ролика
         t0 = tl.to_final_snap(word.t0)
-        spoken.append(_Spoken(word, t0, max(t0, tl.to_final_snap(word.t1)), fresh=gap, opens=not spoken or after_end))
+        item = _Spoken(word, t0, max(t0, tl.to_final_snap(word.t1)), fresh=gap, opens=not spoken or after_end)
+        spoken.append((tl.run_of(middle), item))
         gap = False
-    return lead + spoken
+    # по месту в ролике: куски могут стоять не по порядку исходника (переставлены руками); на стыке серий кусков —
+    # новая фраза. По порядку исходника серия одна — всё как всегда
+    ordered = sorted(spoken, key=lambda x: x[1].t0)
+    out = [item if not k or run == ordered[k - 1][0] else replace(item, fresh=True) for k, (run, item) in enumerate(ordered)]
+    return lead + out
 
 
 def _ends_sentence(text: str) -> bool:

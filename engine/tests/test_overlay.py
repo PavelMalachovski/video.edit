@@ -9,7 +9,7 @@ from itertools import pairwise
 import pytest
 
 from vm.asr import Word
-from vm.overlay import FPS, build_overlay_events
+from vm.overlay import FPS, build_overlay_events, insert_spans
 from vm.subs import build_sub_events
 from vm.timeline import Timeline
 
@@ -455,3 +455,13 @@ def test_an_accent_on_the_last_frame_stays_whole_on_the_freeze_frame():
     for t in (tl.duration - FRAME / 2, tl.duration + 0.5, tl.duration + 0.95):
         state = at(events, t)
         assert "accent" in state and "leave" not in state["accent"], f"{t}: на стоп-кадре акцент остаётся, как был"
+
+
+def test_an_insert_stays_with_its_piece_when_the_next_piece_is_moved_away():
+    """Вставка на 0,2–3 с исходника; Павел переставил кусок 2,5–4 в конец: вставка кончается с куском 0–2 (2 с), а не
+    тянется через чужой кусок 6–8 до места 3 с исходника."""
+    edit = {"hook": None, "inserts": [{"kind": "image", "t0": 0.2, "t1": 3.0}]}
+    in_order = insert_spans(edit, Timeline([(0, 2), (2.5, 4), (6, 8)], 1.0))
+    moved = insert_spans(edit, Timeline([(0, 2), (6, 8), (2.5, 4)], 1.0))
+    assert in_order == [(0, 6, 75)], "по порядку — до 3 с исходника (2,5 с ролика), как всегда"
+    assert moved == [(0, 6, 60)]

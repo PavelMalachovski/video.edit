@@ -2,7 +2,13 @@
 // edit.json сессии при каждом монтаже (engine/vm/edits.py); правило кусков то же — applyKeep, общая фикстура
 // engine/tests/fixtures/edits.json. Времена — секунды исходника, кроме music.at (секунда ролика).
 
-export type Edit = { op: 'cut' | 'restore'; t0: number; t1: number } | { op: 'split'; t: number };
+/** Правка кусков (секунды исходника): вырезать; вернуть (к куску перед ним в исходнике, `next` — к куску после него);
+ *  переставить оставленное в [t0, t1] перед моментом `before` (null — в конец); разрез — только граница на экране. */
+export type Edit =
+  | { op: 'cut'; t0: number; t1: number }
+  | { op: 'restore'; t0: number; t1: number; next?: boolean }
+  | { op: 'move'; t0: number; t1: number; before: number | null }
+  | { op: 'split'; t: number };
 export type Level = { gainDb?: number; muted?: boolean };
 export type MusicAdjust = Level & { at?: number; from?: number; fadeIn?: number; fadeOut?: number };
 /** Что правит Павел: куски, голос, музыка, звуки. */
@@ -29,12 +35,14 @@ const clamp = (x: number, r: { min: number; max: number }) => Math.min(r.max, Ma
 // ---------- куски ----------
 
 type Span = [number, number];
+const EPS = 1e-9;
 
-function merge(spans: Span[]): Span[] {
+/** Соседние в финале куски, что в исходнике идут вплотную, — один кусок. */
+function join(spans: Span[]): Span[] {
   const out: Span[] = [];
-  for (const [a, b] of [...spans].sort((x, y) => x[0] - y[0] || x[1] - y[1])) {
+  for (const [a, b] of spans) {
     const last = out.at(-1);
-    if (last && a <= last[1] + 1e-9) last[1] = Math.max(last[1], b);
+    if (last && Math.abs(a - last[1]) <= EPS) last[1] = b;
     else out.push([a, b]);
   }
   return out;
@@ -53,23 +61,84 @@ function cut(spans: Span[], a: number, b: number): Span[] {
   return out;
 }
 
-/** `keep` сессии и правки по порядку → новый `keep` (как apply_keep движка). Кривая правка — Error с её номером. */
+/** Вернуть [a, b]: каждая непокрытая часть — к куску, что кончается там, где она начинается (`toNext` — сначала к
+ *  куску, что начинается там, где она кончается); соседей нет — сразу за куском перед ней в исходнике (нет — перед
+ *  тем, что после неё). Как _restore движка. */
+function restore(spans: Span[], a: number, b: number, toNext: boolean): Span[] {
+  const out: Span[] = spans.map(([s, e]) => [s, e]);
+  const gaps: Span[] = [];
+  let at = a;
+  for (const [s, e] of [...out].sort((x, y) => x[0] - y[0])) {
+    if (e <= at || s >= b) continue;
+    if (s > at) gaps.push([at, s]);
+    at = Math.max(at, e);
+  }
+  if (at < b) gaps.push([at, b]);
+  for (const [ga, gb] of gaps) {
+    const left = out.findIndex(([, e]) => Math.abs(e - ga) <= EPS);
+    const right = out.findIndex(([s]) => Math.abs(s - gb) <= EPS);
+    if ((toNext && right >= 0) || (left < 0 && right >= 0)) out[right] = [ga, out[right][1]];
+    else if (left >= 0) out[left] = [out[left][0], gb];
+    else {
+      const before = out.map((s, i) => [s, i] as const).filter(([[, e]]) => e <= ga);
+      const after = out.map((s, i) => [s, i] as const).filter(([[s]]) => s >= gb);
+      const k = before.length ? before.reduce((m, x) => (x[0][1] > m[0][1] ? x : m))[1] + 1
+        : after.length ? after.reduce((m, x) => (x[0][0] < m[0][0] ? x : m))[1] : out.length;
+      out.splice(k, 0, [ga, gb]);
+    }
+  }
+  return out;
+}
+
+/** Оставленное в [a, b] (по порядку финала) — перед моментом `before`: внутри куска — кусок делится, в вырезанном —
+ *  перед куском, что за ним в исходнике; null или дальше всего — в конец. Ничего не оставлено — как было (_move). */
+function move(spans: Span[], a: number, b: number, before: number | null): Span[] {
+  const rest: Span[] = [];
+  const parts: Span[] = [];
+  for (const [s, e] of spans) {
+    if (e <= a || s >= b) {
+      rest.push([s, e]);
+      continue;
+    }
+    if (s < a) rest.push([s, a]);
+    parts.push([Math.max(s, a), Math.min(e, b)]);
+    if (e > b) rest.push([b, e]);
+  }
+  if (!parts.length) return spans;
+  if (before === null) return [...rest, ...parts];
+  const i = rest.findIndex(([s, e]) => s <= before && before < e);
+  if (i >= 0) {
+    const [s, e] = rest[i];
+    return [...rest.slice(0, i), ...(before > s ? [[s, before] as Span] : []), ...parts, [before, e], ...rest.slice(i + 1)];
+  }
+  const later = rest.map(([s], k) => [s, k] as const).filter(([s]) => s >= before);
+  if (!later.length) return [...rest, ...parts];
+  const k = later.reduce((m, x) => (x[0] < m[0] ? x : m))[1];
+  return [...rest.slice(0, k), ...parts, ...rest.slice(k)];
+}
+
+/** `keep` сессии и правки по порядку → новый `keep` в порядке финала (как apply_keep движка). Кривая правка — Error с
+ *  её номером. */
 export function applyKeep(keep: readonly (readonly number[])[], edits: readonly Edit[], duration?: number): Span[] {
   let spans: Span[] = keep.map(([a, b]) => [a, b]);
   edits.forEach((e, i) => {
     if (e.op === 'split') return;
-    if (e.op !== 'cut' && e.op !== 'restore') throw new Error(`timeline.json: edits[${i}] — op ${JSON.stringify((e as { op?: unknown }).op)}: cut, restore или split`);
+    if (e.op !== 'cut' && e.op !== 'restore' && e.op !== 'move') {
+      throw new Error(`timeline.json: edits[${i}] — op ${JSON.stringify((e as { op?: unknown }).op)}: cut, restore, move или split`);
+    }
     let { t0: a, t1: b } = e;
     if (!(b > a)) throw new Error(`timeline.json: edits[${i}] — конец ${b} не позже начала ${a}`);
-    if (e.op === 'cut') {
-      spans = cut(spans, a, b);
-      return;
+    if (e.op === 'cut') spans = cut(spans, a, b);
+    else if (e.op === 'move') {
+      if (!('before' in e)) throw new Error(`timeline.json: edits[${i}] — move без before (куда: момент исходника или null — в конец)`);
+      spans = move(spans, a, b, e.before);
+    } else {
+      a = Math.max(0, a);
+      if (duration !== undefined) b = Math.min(duration, b);
+      if (b > a) spans = restore(spans, a, b, Boolean(e.next));
     }
-    a = Math.max(0, a);
-    if (duration !== undefined) b = Math.min(duration, b);
-    if (b > a) spans = merge([...spans, [a, b]]);
   });
-  return merge(spans).filter(([a, b]) => b - a >= SLIVER).map(([a, b]) => [round3(a), round3(b)]);
+  return join(spans).filter(([a, b]) => b - a >= SLIVER).map(([a, b]) => [round3(a), round3(b)]);
 }
 
 /** Куски для редактора: `keep` (уже с правками) с разрезами Павла внутри кусков (разрез в вырезанном — не виден). */
@@ -86,25 +155,32 @@ export function pieces(keep: readonly Span[], edits: readonly Edit[]): Span[] {
 
 const push = (h: HandEdits, e: Edit): HandEdits => ({ ...h, edits: [...h.edits, e] });
 export const cutSpan = (h: HandEdits, t0: number, t1: number): HandEdits => push(h, { op: 'cut', t0: round3(t0), t1: round3(t1) });
-export const restoreSpan = (h: HandEdits, t0: number, t1: number): HandEdits => push(h, { op: 'restore', t0: round3(t0), t1: round3(t1) });
+export const restoreSpan = (h: HandEdits, t0: number, t1: number, next = false): HandEdits =>
+  push(h, { op: 'restore', t0: round3(t0), t1: round3(t1), ...(next ? { next: true } : {}) });
 export const splitAt = (h: HandEdits, t: number): HandEdits => push(h, { op: 'split', t: round3(t) });
+/** Переставить кусок [t0, t1] перед моментом исходника `before` (начало куска, перед которым встаёт; null — в конец). */
+export const moveSpan = (h: HandEdits, t0: number, t1: number, before: number | null): HandEdits =>
+  push(h, { op: 'move', t0: round3(t0), t1: round3(t1), before: before === null ? null : round3(before) });
 
-/** Начало куска `i` (из `keep`) — на `to` с исходника: правее — вырезать, левее — вернуть (не дальше прошлого куска).
- *  Остаётся меньше кадра — кусок вырезается целиком. */
+/** Начало куска `i` (из `keep`, порядок финала) — на `to` с исходника: правее — вырезать, левее — вернуть к этому
+ *  куску (не дальше конца того, что перед ним в исходнике). Остаётся меньше кадра — кусок вырезается целиком. */
 export function trimStart(h: HandEdits, keep: readonly Span[], i: number, to: number): HandEdits {
   const [a, b] = keep[i];
   if (Math.abs(to - a) < 1e-6) return h;
   if (to > a) return to >= b - SLIVER ? cutSpan(h, a, b) : cutSpan(h, a, to);
-  const from = Math.max(to, i > 0 ? keep[i - 1][1] : 0);
-  return from < a ? restoreSpan(h, from, a) : h;
+  const prev = Math.max(0, ...keep.filter(([, e]) => e <= a).map(([, e]) => e));
+  const from = Math.max(to, prev);
+  return from < a ? restoreSpan(h, from, a, true) : h;
 }
 
-/** Конец куска `i` — на `to`: левее — вырезать, правее — вернуть (не дальше следующего куска и конца исходника). */
+/** Конец куска `i` — на `to`: левее — вырезать, правее — вернуть (не дальше начала того, что после него в исходнике,
+ *  и конца исходника). */
 export function trimEnd(h: HandEdits, keep: readonly Span[], i: number, to: number, duration?: number): HandEdits {
   const [a, b] = keep[i];
   if (Math.abs(to - b) < 1e-6) return h;
   if (to < b) return to <= a + SLIVER ? cutSpan(h, a, b) : cutSpan(h, to, b);
-  const until = Math.min(to, i + 1 < keep.length ? keep[i + 1][0] : duration ?? to);
+  const next = Math.min(duration ?? to, ...keep.filter(([s]) => s >= b).map(([s]) => s));
+  const until = Math.min(to, next);
   return until > b ? restoreSpan(h, b, until) : h;
 }
 
@@ -171,9 +247,16 @@ function parseLevel(x: unknown, range: { min: number; max: number }): Level | nu
 function parseEdit(x: unknown): Edit | null {
   if (!isObj(x)) return null;
   if (x.op === 'split') return Object.keys(x).length === 2 && isNum(x.t) && x.t >= 0 ? (x as Edit) : null;
-  if (x.op !== 'cut' && x.op !== 'restore') return null;
   // конец позже начала — схема этого не скажет, а applyKeep на такой правке упал бы (движок её отвергает)
-  return Object.keys(x).length === 3 && isNum(x.t0) && isNum(x.t1) && x.t0 >= 0 && x.t1 > x.t0 ? (x as Edit) : null;
+  const span = isNum(x.t0) && isNum(x.t1) && x.t0 >= 0 && x.t1 > x.t0;
+  const only = (...keys: string[]) => Object.keys(x).every((k) => keys.includes(k));
+  if (x.op === 'cut') return span && only('op', 't0', 't1') ? (x as Edit) : null;
+  if (x.op === 'restore') return span && only('op', 't0', 't1', 'next') && (x.next === undefined || typeof x.next === 'boolean') ? (x as Edit) : null;
+  if (x.op === 'move') {
+    const before = x.before === null || (isNum(x.before) && x.before >= 0);
+    return span && 'before' in x && before && only('op', 't0', 't1', 'before') ? (x as Edit) : null;
+  }
+  return null;
 }
 
 /** timeline.json → правки; не та форма (как по схеме) — null. */

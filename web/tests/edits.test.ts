@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
-  applyKeep, commit, cutSpan, EMPTY, initHistory, LIMITS, parseTimeline, pieces, redo, restoreSpan, setMusic, setSound, setVoice, snapTo,
-  splitAt, trimEnd, trimStart, undo, type Edit,
+  applyKeep, commit, cutSpan, EMPTY, initHistory, LIMITS, moveSpan, parseTimeline, pieces, redo, restoreSpan, setMusic, setSound, setVoice,
+  snapTo, splitAt, trimEnd, trimStart, undo, type Edit,
 } from '../lib/edits.ts';
 
 // Общая с движком фикстура: apply_keep в engine/vm/edits.py обязан давать то же самое.
@@ -26,11 +26,15 @@ test('parseTimeline takes what the schema takes and refuses the rest; the limits
     music: { gainDb: -20, muted: false, at: 1.5, from: 12, fadeIn: 0.5, fadeOut: 2 }, sounds: { 'insert:0': { gainDb: 4 }, teaser: { muted: true } },
   };
   assert.deepEqual(parseTimeline(ok), ok);
+  const moved = { ...ok, edits: [{ op: 'move', t0: 1, t1: 2, before: null }, { op: 'move', t0: 3, t1: 4, before: 0.5 }, { op: 'restore', t0: 1, t1: 2, next: true }] };
+  assert.deepEqual(parseTimeline(moved), moved, 'перестановка и возврат к следующему куску');
   for (const bad of [
     { ...ok, rev: 0 }, { ...ok, edits: [{ op: 'cut', t0: -1, t1: 1 }] }, { ...ok, edits: [{ op: 'jump', t: 1 }] }, { ...ok, voice: { gainDb: 40 } },
     { ...ok, music: { fadeIn: 20 } }, { ...ok, sounds: { 'insert:x': { gainDb: 1 } } }, { ...ok, sounds: { teaser: { gainDb: 'громче' } } }, { ...ok, extra: true },
     { ...ok, edits: Array(LIMITS.edits + 1).fill({ op: 'split', t: 1 }) }, null,
     { ...ok, edits: [{ op: 'cut', t0: 2, t1: 2 }] }, { ...ok, edits: [{ op: 'restore', t0: 3, t1: 1 }] }, // конец не позже начала: applyKeep упал бы
+    { ...ok, edits: [{ op: 'move', t0: 1, t1: 2 }] }, { ...ok, edits: [{ op: 'move', t0: 1, t1: 2, before: -1 }] },
+    { ...ok, edits: [{ op: 'restore', t0: 1, t1: 2, next: 'да' }] }, { ...ok, edits: [{ op: 'cut', t0: 1, t1: 2, next: true }] },
   ]) assert.equal(parseTimeline(bad), null, JSON.stringify(bad).slice(0, 80));
   const level = SCHEMA.$defs.Level.properties.gainDb;
   const music = SCHEMA.$defs.Music.properties;
@@ -51,7 +55,7 @@ test('cut, restore and trims are edits in source time; trims stop at the neighbo
   assert.deepEqual(restoreSpan(EMPTY, 2, 3).edits, [{ op: 'restore', t0: 2, t1: 3 }]);
   // начало второго куска: правее — вырезать, левее — вернуть, но не дальше конца первого
   assert.deepEqual(trimStart(EMPTY, keep, 1, 3.4).edits, [{ op: 'cut', t0: 3, t1: 3.4 }]);
-  assert.deepEqual(trimStart(EMPTY, keep, 1, 1.0).edits, [{ op: 'restore', t0: 2, t1: 3 }]);
+  assert.deepEqual(trimStart(EMPTY, keep, 1, 1.0).edits, [{ op: 'restore', t0: 2, t1: 3, next: true }], 'к этому куску — его начало тянули');
   // конец первого куска: левее — вырезать, правее — вернуть, но не дальше начала второго
   assert.deepEqual(trimEnd(EMPTY, keep, 0, 1.6).edits, [{ op: 'cut', t0: 1.6, t1: 2 }]);
   assert.deepEqual(trimEnd(EMPTY, keep, 0, 9).edits, [{ op: 'restore', t0: 2, t1: 3 }]);
@@ -104,4 +108,17 @@ test('history: a slider\'s steps under one key are one edit to undo; another con
   assert.equal(h.past.length, 2, 'после отмены — новая правка, а не продолжение старой');
   h = undo(undo(h));
   assert.equal(h.present, EMPTY);
+});
+
+test('moving a piece is an edit too; trims of a moved piece stop at its neighbours in the recording', () => {
+  assert.deepEqual(moveSpan(EMPTY, 6, 8, 0).edits, [{ op: 'move', t0: 6, t1: 8, before: 0 }]);
+  assert.deepEqual(moveSpan(EMPTY, 6, 8, null).edits, [{ op: 'move', t0: 6, t1: 8, before: null }]);
+  const keep: [number, number][] = [[6, 8], [0, 2], [3, 5]]; // 6–8 переставлен в начало
+  // начало 6–8 — левее: вернуть 5–6, не дальше конца 3–5 (сосед по исходнику), и именно к этому куску (next)
+  assert.deepEqual(trimStart(EMPTY, keep, 0, 4).edits, [{ op: 'restore', t0: 5, t1: 6, next: true }]);
+  assert.deepEqual(applyKeep(keep, trimStart(EMPTY, keep, 0, 4).edits, 9), [[5, 8], [0, 2], [3, 5]]);
+  // конец 0–2 — правее: не дальше начала 3–5 (сосед по исходнику), хоть в финале за ним и стоит 3–5
+  assert.deepEqual(trimEnd(EMPTY, keep, 1, 9, 9).edits, [{ op: 'restore', t0: 2, t1: 3 }]);
+  // конец 3–5 — правее: до начала 6–8 (он в начале ролика, но в исходнике — следующий)
+  assert.deepEqual(trimEnd(EMPTY, keep, 2, 9, 9).edits, [{ op: 'restore', t0: 5, t1: 6 }]);
 });

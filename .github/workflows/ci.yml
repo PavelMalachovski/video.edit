@@ -14,7 +14,8 @@ concurrency:
 env:
   PLAYWRIGHT_BROWSERS_PATH: /opt/pw-browsers
   PW_VERSION: 1.56.1
-  PY_PACKAGES: sherpa-onnx soundfile numpy jsonschema fonttools pytest onnxruntime pillow ruff
+  # ruff — та же версия, что в облачном окружении: новые версии находят другое
+  PY_PACKAGES: sherpa-onnx soundfile numpy jsonschema fonttools pytest onnxruntime pillow ruff==0.16.8
 
 jobs:
   web:
@@ -38,7 +39,7 @@ jobs:
   template:
     name: template — layer in Chromium
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

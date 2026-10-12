@@ -349,7 +349,7 @@ def test_cli_prepare_then_render_on_fixture(tmp_path, speech, capsys):
         "style": STYLE,
     }
     job.write("edit.json", edit)
-    job.path("out").mkdir()
+    job.path("out").mkdir(exist_ok=True)  # prepare уже положил туда прокси редактора
     job.path("out/final.mp4.part-aa").write_bytes(b"old render")  # от прошлого push --outputs
     job.path("out/final.mp4.sha256").write_text("0  final.mp4\n", encoding="utf-8")
     assert main(["render", str(job.root), "--preset", "ultrafast"]) == 0

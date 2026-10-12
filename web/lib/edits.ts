@@ -1,6 +1,7 @@
 // Правки Павла руками в редакторе — timeline.json (схема engine/vm/schemas/timeline.json). Движок кладёт их поверх
 // edit.json сессии при каждом монтаже (engine/vm/edits.py); правило кусков то же — applyKeep, общая фикстура
-// engine/tests/fixtures/edits.json. Времена — секунды исходника, кроме music.at (секунда ролика).
+// engine/tests/fixtures/edits.json; текст и вставки — applyText (apply_text движка), общая фикстура
+// overlay-events.json (text). Времена — секунды исходника, кроме music.at (секунда ролика).
 
 /** Правка кусков (секунды исходника): вырезать; вернуть (к куску перед ним в исходнике, `next` — к куску после него);
  *  переставить оставленное в [t0, t1] перед моментом `before` (null — в конец); разрез — только граница на экране. */
@@ -11,8 +12,21 @@ export type Edit =
   | { op: 'split'; t: number };
 export type Level = { gainDb?: number; muted?: boolean };
 export type MusicAdjust = Level & { at?: number; from?: number; fadeIn?: number; fadeOut?: number };
-/** Что правит Павел: куски, голос, музыка, звуки. */
-export type HandEdits = { edits: Edit[]; voice?: Level; music?: MusicAdjust; sounds?: Record<string, Level> };
+/** Место блока в речи — `[t0, t1]`, как его записала сессия: правка держится за блок по нему, а не по номеру. */
+export type At = [number, number];
+/** Хук: конец (по исходнику) и текст; off — хука нет. */
+export type HookFix = { until?: number; text?: string; off?: true };
+export type CtaFix = { at: At; t0?: number; t1?: number; lines?: string[]; word?: string; off?: true };
+export type AccentFix = { at: At; t0?: number; t1?: number; lines?: string[]; off?: true };
+export type InsertFix = { at: At; t0?: number; t1?: number; text?: string; off?: true };
+/** Текст и вставки (фаза 5): хук, титр, акценты, вставки. */
+export type TextEdits = { hook?: HookFix; cta?: CtaFix; accents?: AccentFix[]; inserts?: InsertFix[] };
+/** Слово субтитров с ровно этими t0, t1 получает текст Павла; пустой — слова нет в субтитрах. */
+export type WordFix = { t0: number; t1: number; text: string };
+/** Что правит Павел: куски, голос, музыка, звуки, текст и вставки, слова субтитров. */
+export type HandEdits = {
+  edits: Edit[]; voice?: Level; music?: MusicAdjust; sounds?: Record<string, Level>; text?: TextEdits; words?: WordFix[];
+};
 /** timeline.json в ветке задачи: правки и ревизия (страница прибавляет 1 на каждое сохранение). */
 export type TimelineFile = HandEdits & { rev: number; at?: string };
 
@@ -23,6 +37,11 @@ export const LIMITS = {
   musicGain: { min: -40, max: 0 }, // дБ от громкости голоса (как music.gainDb в edit.json)
   fade: { min: 0, max: 10 }, // с — нарастание и затухание музыки
   edits: 2000,
+  line: 120, // знаков в строке хука, титра, акцента, текстовой вставки
+  lines: 3, // строк у титра и акцента
+  blocks: 200, // правок акцентов и вставок
+  word: 60, // знаков в слове субтитров
+  words: 5000, // исправленных слов
 } as const;
 export const EMPTY: HandEdits = { edits: [] };
 const SOUND_KEY = /^(insert:\d+|transition:\d+|teaser|end)$/;
@@ -151,6 +170,80 @@ export function pieces(keep: readonly Span[], edits: readonly Edit[]): Span[] {
   });
 }
 
+// ---------- текст и вставки (фаза 5) ----------
+
+type Span2 = { t0: number; t1: number };
+const spanOf = (x: Span2): At => [Number(x.t0), Number(x.t1)];
+const sameAt = (a: At, b: readonly number[]) => a[0] === Number(b[0]) && a[1] === Number(b[1]);
+
+/** Блок после правки: конец позже начала, иначе — Error с именем правки (как ValueError движка). */
+function timed<T extends Span2>(name: string, item: T): T {
+  if (!(Number(item.t1) > Number(item.t0))) throw new Error(`timeline.json: ${name} — конец ${item.t1} не позже начала ${item.t0}`);
+  return item;
+}
+
+/** Правки блоков списка по месту в речи: каждой — первый ещё не занятый блок с [t0, t1] == at; нет — не применяется. */
+function anchored<T extends Span2, F extends { at: At }>(items: readonly T[], changes: readonly F[], name: string,
+  change: (item: T, c: F, name: string) => T | null): (T | null)[] {
+  const out: (T | null)[] = [...items];
+  const used = new Set<number>();
+  changes.forEach((c, i) => {
+    const k = out.findIndex((item, j) => !used.has(j) && item !== null && sameAt(spanOf(item), c.at));
+    if (k < 0) return;
+    used.add(k);
+    out[k] = change(out[k] as T, c, `${name}[${i}]`);
+  });
+  return out;
+}
+
+const pick = <T extends object, K extends string>(from: T, keys: readonly K[]) =>
+  Object.fromEntries(keys.filter((k) => k in from).map((k) => [k, (from as Record<string, unknown>)[k]]));
+
+type TextBase = {
+  hook?: { text: string; until: number } | null;
+  cta?: (Span2 & { lines: string[]; word: string }) | null;
+  accents?: (Span2 & { lines: { text: string }[] })[] | null;
+  inserts?: (Partial<Span2> & { kind: string; text?: string; off?: boolean })[] | null;
+  words?: (Span2 & { text: string })[] | null;
+};
+
+/** Текст и вставки Павла поверх edit — как apply_text движка: хук — конец и текст; титр, акценты, вставки — по месту в
+ *  речи (`at`); вставка с off остаётся в списке (номера звуков те же); слова — по точному t0, t1, пустое — нет в
+ *  субтитрах. Правок нет — тот же edit. */
+export function applyText<T extends TextBase>(edit: T, text?: TextEdits, words?: readonly WordFix[]): T {
+  if (!text && !words?.length) return edit;
+  const out: T = { ...edit };
+  const t = text ?? {};
+  if (t.hook && edit.hook) out.hook = t.hook.off ? null : { ...edit.hook, ...pick(t.hook, ['until', 'text'] as const) };
+  if (t.cta && edit.cta && sameAt(spanOf(edit.cta), t.cta.at)) {
+    out.cta = t.cta.off ? null : timed('text.cta', { ...edit.cta, ...pick(t.cta, ['t0', 't1', 'lines', 'word'] as const) });
+  }
+  if (t.accents?.length && edit.accents?.length) {
+    out.accents = anchored(edit.accents, t.accents, 'text.accents', (item, c, name) => {
+      if (c.off) return null;
+      const lines = c.lines && c.lines.length === item.lines.length ? item.lines.map((line, i) => ({ ...line, text: (c.lines as string[])[i] })) : item.lines;
+      return timed(name, { ...item, ...pick(c, ['t0', 't1'] as const), lines });
+    }).filter((a) => a !== null);
+  }
+  if (t.inserts?.length && edit.inserts?.length) {
+    out.inserts = anchored(edit.inserts as (Span2 & { kind: string; text?: string })[], t.inserts, 'text.inserts', (item, c, name) => {
+      if (c.off) return { ...item, off: true };
+      const changed = { ...item, ...pick(c, ['t0', 't1'] as const) };
+      if ('text' in c && 'text' in item) changed.text = c.text; // текст — только у текстовых вставок
+      return timed(name, changed);
+    }) as T['inserts'];
+  }
+  if (words?.length && edit.words?.length) {
+    const fixed = new Map(words.map((w) => [`${Number(w.t0)}|${Number(w.t1)}`, w.text]));
+    out.words = edit.words.flatMap((w) => {
+      const next = fixed.get(`${Number(w.t0)}|${Number(w.t1)}`);
+      if (next === undefined) return [w];
+      return next.trim() ? [{ ...w, text: next }] : []; // пустое — слова нет в субтитрах
+    });
+  }
+  return out;
+}
+
 // ---------- правки ----------
 
 const push = (h: HandEdits, e: Edit): HandEdits => ({ ...h, edits: [...h.edits, e] });
@@ -215,6 +308,63 @@ export function snapTo(t: number, edges: readonly number[], within: number): num
   return best;
 }
 
+// ---------- правки текста и вставок ----------
+
+const withText = (h: HandEdits, text: TextEdits): HandEdits => {
+  const clean = Object.fromEntries(Object.entries(text).filter(([, v]) => v !== undefined && !(Array.isArray(v) && !v.length)));
+  const { text: _old, ...rest } = h;
+  return Object.keys(clean).length ? { ...rest, text: clean as TextEdits } : rest;
+};
+const roundTimes = <T extends { t0?: number; t1?: number; until?: number }>(fix: T): T => ({
+  ...fix,
+  ...(fix.t0 !== undefined ? { t0: round3(fix.t0) } : {}),
+  ...(fix.t1 !== undefined ? { t1: round3(fix.t1) } : {}),
+  ...(fix.until !== undefined ? { until: round3(fix.until) } : {}),
+});
+
+/** Хук: правка поверх прежней (конец — по исходнику, текст); null — как у сессии. */
+export function setHook(h: HandEdits, fix: HookFix | null): HandEdits {
+  const next = fix === null ? undefined : roundTimes({ ...(fix.off ? {} : h.text?.hook), ...fix });
+  return withText(h, { ...h.text, hook: next && Object.keys(next).length ? next : undefined });
+}
+
+/** Титр по месту `at`: правка поверх прежней; null — как у сессии. */
+export function setCta(h: HandEdits, at: At, fix: Omit<CtaFix, 'at'> | null): HandEdits {
+  const old = h.text?.cta && sameAt(h.text.cta.at, at) ? h.text.cta : { at };
+  const next = fix === null ? undefined : roundTimes({ ...(fix.off ? { at } : old), ...fix, at });
+  return withText(h, { ...h.text, cta: next });
+}
+
+/** Акцент или вставка по месту `at` (`occurrence` — какой по счёту блок с тем же местом): правка поверх прежней; null —
+ *  как у сессии. Правки одного места идут по порядку блоков: перед k-м — k правок (пустые — «как есть»). */
+export function setBlock<K extends 'accents' | 'inserts'>(h: HandEdits, kind: K, at: At, occurrence: number,
+  fix: Omit<NonNullable<TextEdits[K]>[number], 'at'> | null): HandEdits {
+  const list = [...(h.text?.[kind] ?? [])] as { at: At; off?: true }[];
+  const same = list.map((f, i) => [f, i] as const).filter(([f]) => sameAt(f.at, at)).map(([, i]) => i);
+  while (same.length <= occurrence) {
+    list.push({ at });
+    same.push(list.length - 1);
+  }
+  const i = same[occurrence];
+  list[i] = fix === null ? { at } : roundTimes({ ...(fix.off ? { at } : list[i]), ...fix, at });
+  // хвост «как есть» у этого места ничего не меняет — убрать
+  const blank = (f: object) => Object.keys(f).length === 1;
+  for (let k = list.length - 1; k >= 0; k--) {
+    if (!sameAt(list[k].at, at)) continue;
+    if (!blank(list[k])) break;
+    list.splice(k, 1);
+  }
+  return withText(h, { ...h.text, [kind]: list });
+}
+
+/** Слово субтитров (t0, t1 — как в edit.json): текст Павла; '' — слова нет в субтитрах; null — как у сессии. */
+export function setWord(h: HandEdits, t0: number, t1: number, text: string | null): HandEdits {
+  const rest = (h.words ?? []).filter((w) => !(w.t0 === t0 && w.t1 === t1));
+  const words = text === null ? rest : [...rest, { t0, t1, text }];
+  const { words: _old, ...base } = h;
+  return words.length ? { ...base, words } : base;
+}
+
 // ---------- отмена и повтор ----------
 
 /** `key` — чем сделана последняя правка: шаги одного ползунка подряд — одна правка для отмены. */
@@ -259,9 +409,36 @@ function parseEdit(x: unknown): Edit | null {
   return null;
 }
 
+const chars = (x: string) => [...x].length; // знаки, как maxLength схемы (а не единицы UTF-16)
+const isLine = (x: unknown): x is string => typeof x === 'string' && chars(x) >= 1 && chars(x) <= LIMITS.line;
+const isAt = (x: unknown): x is At => Array.isArray(x) && x.length === 2 && x.every((v) => isNum(v) && v >= 0);
+const onlyKeys = (o: Record<string, unknown>, keys: string[]) => Object.keys(o).every((k) => keys.includes(k));
+const okTime = (o: Record<string, unknown>) => ['t0', 't1'].every((k) => o[k] === undefined || (isNum(o[k]) && (o[k] as number) >= 0));
+const okOff = (o: Record<string, unknown>) => o.off === undefined || o.off === true;
+const okLines = (x: unknown) => x === undefined || (Array.isArray(x) && x.length >= 1 && x.length <= LIMITS.lines && x.every(isLine));
+
+function parseText(x: unknown): TextEdits | null {
+  if (!isObj(x) || !onlyKeys(x, ['hook', 'cta', 'accents', 'inserts'])) return null;
+  const { hook, cta, accents, inserts } = x;
+  if (hook !== undefined && !(isObj(hook) && onlyKeys(hook, ['until', 'text', 'off']) && okOff(hook)
+    && (hook.until === undefined || (isNum(hook.until) && hook.until > 0)) && (hook.text === undefined || isLine(hook.text)))) return null;
+  if (cta !== undefined && !(isObj(cta) && onlyKeys(cta, ['at', 't0', 't1', 'lines', 'word', 'off']) && isAt(cta.at) && okTime(cta)
+    && okOff(cta) && okLines(cta.lines) && (cta.word === undefined || isLine(cta.word)))) return null;
+  const list = (v: unknown, keys: string[], more: (o: Record<string, unknown>) => boolean) => v === undefined
+    || (Array.isArray(v) && v.length <= LIMITS.blocks && v.every((o) => isObj(o) && onlyKeys(o, keys) && isAt(o.at) && okTime(o) && okOff(o) && more(o)));
+  if (!list(accents, ['at', 't0', 't1', 'lines', 'off'], (o) => okLines(o.lines))) return null;
+  if (!list(inserts, ['at', 't0', 't1', 'text', 'off'], (o) => o.text === undefined || isLine(o.text))) return null;
+  return x as TextEdits;
+}
+
+const parseWords = (x: unknown): boolean => Array.isArray(x) && x.length <= LIMITS.words && x.every((w) => isObj(w)
+  && onlyKeys(w, ['t0', 't1', 'text']) && isNum(w.t0) && w.t0 >= 0 && isNum(w.t1) && w.t1 >= 0 && typeof w.text === 'string' && chars(w.text) <= LIMITS.word);
+
 /** timeline.json → правки; не та форма (как по схеме) — null. */
 export function parseTimeline(raw: unknown): TimelineFile | null {
-  if (!isObj(raw) || Object.keys(raw).some((k) => !['rev', 'at', 'edits', 'voice', 'music', 'sounds'].includes(k))) return null;
+  if (!isObj(raw) || Object.keys(raw).some((k) => !['rev', 'at', 'edits', 'voice', 'music', 'sounds', 'text', 'words'].includes(k))) return null;
+  if (raw.text !== undefined && !parseText(raw.text)) return null;
+  if (raw.words !== undefined && !parseWords(raw.words)) return null;
   if (!(Number.isInteger(raw.rev) && (raw.rev as number) >= 1) || (raw.at !== undefined && typeof raw.at !== 'string')) return null;
   if (!Array.isArray(raw.edits) || raw.edits.length > LIMITS.edits || !raw.edits.every((e) => parseEdit(e))) return null;
   if (raw.voice !== undefined && !parseLevel(raw.voice, LIMITS.gain)) return null;

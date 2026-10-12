@@ -9,7 +9,13 @@
 - `voice` — громкость голоса и «без звука» → `edit.voice`; `music` — громкость, «без звука» (музыки нет), где
   начинается в ролике и с какого места трека, нарастание и затухание → поля `edit.music`; `sounds` — громкость и «без
   звука» отдельных звуков → `edit.sounds`. Музыки в монтаже нет — её правки не действуют: добавлять музыку — не здесь.
-То же правило кусков — у страницы (web/lib/edits.ts, applyKeep), общая фикстура tests/fixtures/edits.json.
+- `text` (фаза 5) — текст и вставки: `hook` — конец и текст хука (хук один: правка сильнее пересчёта сессии); `cta`,
+  `accents`, `inserts` — по месту блока в речи (`at` — его [t0, t1], как их записала сессия; сессия передвинула или
+  убрала блок — правка не применяется): время, строки и слово титра, текст строк акцента (вид строки — как был), текст
+  текстовой вставки; `off` — блока нет (вставка остаётся в списке с `off`: номера звуков `insert:<n>` те же).
+  `words` — слово субтитров с ровно этими t0, t1 получает текст Павла; пустой — слова нет в субтитрах.
+Порядок: куски, звук, текст. То же правило — у страницы (web/lib/edits.ts: applyKeep, applyText), общие фикстуры
+tests/fixtures/edits.json (куски) и overlay-events.json (текст: пишет tests/shared_events.py).
 """
 from .job import Job, validate
 
@@ -153,6 +159,82 @@ def apply(edit: dict, timeline: dict | None, duration: float | None = None) -> d
             out["ab"] = None
     if timeline.get("sounds"):
         out["sounds"] = {k: dict(v) for k, v in timeline["sounds"].items()}
+    return apply_text(out, timeline.get("text"), timeline.get("words"))
+
+
+def _span(item: dict) -> list[float]:
+    return [float(item["t0"]), float(item["t1"])]
+
+
+def _timed(name: str, item: dict) -> dict:
+    """Блок после правки: конец позже начала, иначе — ValueError с именем правки."""
+    if not float(item["t1"]) > float(item["t0"]):
+        raise ValueError(f"timeline.json: {name} — конец {item['t1']} не позже начала {item['t0']}")
+    return item
+
+
+def _anchored(items: list | None, changes: list | None, name: str, change) -> list:
+    """Правки блоков списка по месту в речи: каждой — первый ещё не занятый блок с [t0, t1] == `at`; нет такого — правка
+    не применяется. `change(блок, правка)` → новый блок или None (блока нет)."""
+    out = list(items or [])
+    used: set[int] = set()
+    for i, c in enumerate(changes or []):
+        at = [float(x) for x in c["at"]]
+        k = next((j for j, item in enumerate(out) if j not in used and item is not None and _span(item) == at), None)
+        if k is None:
+            continue
+        used.add(k)
+        out[k] = change(out[k], c, f"{name}[{i}]")
+    return out
+
+
+def _lines(lines: list[dict], texts: list[str] | None) -> list[dict]:
+    """Текст строк акцента — Павла, вид строки (размер, цвет) — как был; строк не столько же — как было."""
+    if texts is None or len(texts) != len(lines):
+        return lines
+    return [{**line, "text": text} for line, text in zip(lines, texts, strict=True)]
+
+
+def apply_text(edit: dict, text: dict | None, words: list | None = None) -> dict:
+    """Текст и вставки Павла (`timeline.json` → `text`, `words`) поверх edit; правок нет — тот же edit."""
+    if not text and not words:
+        return edit
+    out = {**edit}
+    text = text or {}
+    hook = text.get("hook")
+    if hook and edit.get("hook"):
+        out["hook"] = None if hook.get("off") else {**edit["hook"], **{k: hook[k] for k in ("until", "text") if k in hook}}
+    cta = text.get("cta")
+    if cta and edit.get("cta") and _span(edit["cta"]) == [float(x) for x in cta["at"]]:
+        out["cta"] = None if cta.get("off") else _timed("text.cta", {**edit["cta"], **{k: cta[k] for k in ("t0", "t1", "lines", "word") if k in cta}})
+
+    def accent(item: dict, c: dict, name: str) -> dict | None:
+        if c.get("off"):
+            return None
+        return _timed(name, {**item, **{k: c[k] for k in ("t0", "t1") if k in c}, "lines": _lines(item["lines"], c.get("lines"))})
+
+    def insert(item: dict, c: dict, name: str) -> dict:
+        if c.get("off"):
+            return {**item, "off": True}
+        changed = {**item, **{k: c[k] for k in ("t0", "t1") if k in c}}
+        if "text" in c and "text" in item:  # текст — только у текстовых вставок
+            changed["text"] = c["text"]
+        return _timed(name, changed)
+
+    if text.get("accents") and edit.get("accents"):
+        out["accents"] = [a for a in _anchored(edit["accents"], text["accents"], "text.accents", accent) if a is not None]
+    if text.get("inserts") and edit.get("inserts"):
+        out["inserts"] = _anchored(edit["inserts"], text["inserts"], "text.inserts", insert)
+    if words and edit.get("words"):
+        fixed = {(float(w["t0"]), float(w["t1"])): w["text"] for w in words}
+        kept = []
+        for w in edit["words"]:
+            new = fixed.get((float(w["t0"]), float(w["t1"])))
+            if new is None:
+                kept.append(w)
+            elif new.strip():  # пустое — слова нет в субтитрах
+                kept.append({**w, "text": new})
+        out["words"] = kept
     return out
 
 

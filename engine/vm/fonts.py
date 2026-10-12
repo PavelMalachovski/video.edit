@@ -95,7 +95,7 @@ def texts(edit: dict) -> tuple[str, str]:
     accent_mode = ((edit.get("style") or {}).get("hook") or {}).get("mode") == "accent"
     main = [w.get("text", "") for w in edit.get("words") or []]
     main += [hook, cover, *(cta.get("lines") or [])]
-    main += [i.get(key) or "" for i in edit.get("inserts") or [] for key in ("title", "text")]
+    main += [i.get(key) or "" for i in edit.get("inserts") or [] if not i.get("off") for key in ("title", "text")]
     main += [line.get("text") or "" for a in edit.get("accents") or [] for line in a.get("lines") or []]
     card = edit.get("end") or {}
     main += [*(card.get("lines") or []), card.get("handle") or ""]  # финальная карточка — основным шрифтом

@@ -220,7 +220,7 @@ def _fonts(args: argparse.Namespace) -> None:
     без кнопок Павлу нечего выбрать."""
     job = _job(args)
     if job.path("edit.json").is_file():
-        main_text, hand_text = fonts.texts(job.read("edit.json"))
+        main_text, hand_text = fonts.texts(edits.edit_of(job))  # с текстом, что Павел поправил в редакторе
         if job.path("questions.json").is_file():
             questions = job.read("questions.json")["questions"]
 
@@ -255,8 +255,10 @@ def _fonts(args: argparse.Namespace) -> None:
 
 
 def _fonts_ok(job: Job) -> None:
-    """Шрифты стиля edit.json с буквами ролика — до тяжёлой работы: иначе превью и ролик разойдутся."""
-    if problems := fonts.check(job.read("edit.json")):
+    """Шрифты стиля edit.json с буквами ролика — до тяжёлой работы: иначе превью и ролик разойдутся. Текст — с правками
+    Павла из редактора (timeline.json: слова субтитров, текст хука, титра, акцентов и вставок)."""
+    source = job.path("source.mp4")
+    if problems := fonts.check(edits.edit_of(job, probe(source).duration if source.is_file() else None)):
         raise ValueError("шрифты:\n" + "\n".join(f"  - {line}" for line in problems))
 
 

@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
-  applyKeep, commit, cutSpan, EMPTY, initHistory, LIMITS, moveSpan, parseTimeline, pieces, redo, restoreSpan, setMusic, setSound, setVoice,
-  snapTo, splitAt, trimEnd, trimStart, undo, type Edit,
+  applyKeep, applyText, commit, cutSpan, EMPTY, initHistory, LIMITS, moveSpan, parseTimeline, pieces, redo, restoreSpan, setBlock, setCta, setHook,
+  setMusic, setSound, setVoice, setWord, snapTo, splitAt, trimEnd, trimStart, undo, type Edit, type TextEdits, type WordFix,
 } from '../lib/edits.ts';
 
 // Общая с движком фикстура: apply_keep в engine/vm/edits.py обязан давать то же самое.
@@ -121,4 +121,69 @@ test('moving a piece is an edit too; trims of a moved piece stop at its neighbou
   assert.deepEqual(trimEnd(EMPTY, keep, 1, 9, 9).edits, [{ op: 'restore', t0: 2, t1: 3 }]);
   // конец 3–5 — правее: до начала 6–8 (он в начале ролика, но в исходнике — следующий)
   assert.deepEqual(trimEnd(EMPTY, keep, 2, 9, 9).edits, [{ op: 'restore', t0: 5, t1: 6 }]);
+});
+
+// ---------- текст и вставки (фаза 5) ----------
+
+type TextCase = { name: string; edit: Parameters<typeof applyText>[0]; text: TextEdits; words: WordFix[]; expected?: Record<string, unknown> };
+const EVENTS = JSON.parse(fs.readFileSync(new URL('../../engine/tests/fixtures/overlay-events.json', import.meta.url), 'utf8')) as {
+  text: TextCase[]; textRefused: TextCase[];
+};
+
+test('text and insert edits land on the session\'s edit as the engine lays them (shared fixture written by the engine)', () => {
+  assert.ok(EVENTS.text.length >= 4);
+  for (const c of EVENTS.text) {
+    const out = applyText(c.edit, c.text, c.words);
+    const got = Object.fromEntries(['hook', 'cta', 'accents', 'inserts', 'words'].map((k) => [k, (out as Record<string, unknown>)[k] ?? null]));
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(got)), c.expected, c.name);
+  }
+  for (const c of EVENTS.textRefused) assert.throws(() => applyText(c.edit, c.text, c.words), /timeline\.json: text/, c.name);
+  const edit = EVENTS.text[0].edit;
+  assert.equal(applyText(edit, undefined, []), edit, 'правок нет — тот же edit');
+});
+
+test('parseTimeline takes text and word edits as the schema does', () => {
+  const ok = {
+    rev: 3, edits: [],
+    text: {
+      hook: { until: 2, text: 'Как я снимаю 🎬' }, cta: { at: [7, 8], t0: 6.8, lines: ['Напиши'], word: 'КАДР' },
+      accents: [{ at: [3, 4], t1: 4.3, lines: ['совсем', 'важно'] }, { at: [5, 5.5], off: true }],
+      inserts: [{ at: [4, 5], text: '10 минут' }, { at: [6, 6.5], off: true }],
+    },
+    words: [{ t0: 0.9, t1: 1.2, text: 'это' }, { t0: 1.3, t1: 1.6, text: '' }],
+  };
+  assert.deepEqual(parseTimeline(ok), ok);
+  for (const bad of [
+    { ...ok, text: { hook: { off: false } } }, { ...ok, text: { hook: { until: 0 } } }, { ...ok, text: { cta: { t0: 1 } } },
+    { ...ok, text: { accents: [{ at: [1] }] } }, { ...ok, text: { accents: [{ at: [1, 2], lines: [] }] } },
+    { ...ok, text: { inserts: [{ at: [1, 2], kind: 'image' }] } }, { ...ok, text: { other: {} } },
+    { ...ok, text: { hook: { text: 'я'.repeat(LIMITS.line + 1) } } }, { ...ok, words: [{ t0: 1, text: 'без конца' }] },
+    { ...ok, words: [{ t0: 1, t1: 2, text: 'с'.repeat(LIMITS.word + 1) }] }, { ...ok, text: { cta: { at: [1, 2], lines: ['a', 'b', 'c', 'd'] } } },
+  ]) assert.equal(parseTimeline(bad), null, JSON.stringify(bad).slice(0, 120));
+  assert.ok(parseTimeline({ ...ok, text: { hook: { text: '🔥'.repeat(LIMITS.line) } } }), 'длина — в знаках, как maxLength схемы');
+  const text = SCHEMA.properties.text.properties;
+  assert.deepEqual([SCHEMA.$defs.Line.maxLength, text.cta.properties.lines.maxItems, text.accents.maxItems, SCHEMA.properties.words.maxItems,
+    SCHEMA.properties.words.items.properties.text.maxLength], [LIMITS.line, LIMITS.lines, LIMITS.blocks, LIMITS.words, LIMITS.word]);
+});
+
+test('setters: a block edit keeps to its place in the speech, merges, and goes away when it is the session\'s again', () => {
+  let h = setHook(EMPTY, { until: 2.04567 });
+  h = setHook(h, { text: 'Новый хук' });
+  assert.deepEqual(h.text?.hook, { until: 2.046, text: 'Новый хук' }, 'правка хука — поверх прежней, время — до мс');
+  assert.deepEqual(setHook(h, { off: true }).text?.hook, { off: true }, 'убрать хук — только off');
+  assert.equal(setHook(h, null).text, undefined, 'как у сессии — правки нет');
+  const cta = setCta(EMPTY, [7, 8], { t0: 6.5 });
+  assert.deepEqual(setCta(cta, [7, 8], { lines: ['Пиши'] }).text?.cta, { at: [7, 8], t0: 6.5, lines: ['Пиши'] });
+  // две вставки на одном месте: вторую правят — перед ней правка «как есть» для первой
+  const second = setBlock(EMPTY, 'inserts', [4, 5], 1, { t0: 4.2 });
+  assert.deepEqual(second.text?.inserts, [{ at: [4, 5] }, { at: [4, 5], t0: 4.2 }]);
+  const back = setBlock(second, 'inserts', [4, 5], 1, null);
+  assert.equal(back.text, undefined, 'вернули как было — пустые правки уходят');
+  const off = setBlock(setBlock(EMPTY, 'accents', [3, 4], 0, { t1: 4.5 }), 'accents', [3, 4], 0, { off: true });
+  assert.deepEqual(off.text?.accents, [{ at: [3, 4], off: true }]);
+  const w = setWord(setWord(EMPTY, 0.9, 1.2, 'это'), 1.3, 1.6, '');
+  assert.deepEqual(w.words, [{ t0: 0.9, t1: 1.2, text: 'это' }, { t0: 1.3, t1: 1.6, text: '' }]);
+  assert.deepEqual(setWord(w, 0.9, 1.2, 'Это').words?.at(-1), { t0: 0.9, t1: 1.2, text: 'Это' }, 'слово правят снова — одна правка');
+  assert.equal(setWord(setWord(w, 0.9, 1.2, null), 1.3, 1.6, null).words, undefined);
+  assert.ok(parseTimeline({ rev: 1, ...second }) && parseTimeline({ rev: 1, ...off }) && parseTimeline({ rev: 1, ...w }), 'сеттеры пишут то, что примет схема');
 });

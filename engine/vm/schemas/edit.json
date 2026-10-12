@@ -262,7 +262,11 @@
         "y": { "type": "number" },
         "w": { "type": "number", "exclusiveMinimum": 0 },
         "sfx": { "type": ["string", "null"] },
-        "params": { "type": "object" }
+        "params": { "type": "object" },
+        "off": {
+          "description": "Служебное: вставку выключил Павел в редакторе (timeline.json) — в ролике её нет, номер (и ключ звука insert:<n>) остаётся. Сессия его не пишет.",
+          "const": true
+        }
       }
     }
   }

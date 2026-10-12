@@ -303,3 +303,18 @@ def test_accent_lines_are_checked_in_any_style():
     e["accents"] = [{"t0": 0.5, "t1": 1.0, "lines": [{"text": "Mulțumesc"}], "x": 500, "y": 900}]
     (problem,) = fonts.check(e)
     assert "russo-one" in problem and "Țț" in problem
+
+
+def test_vm_check_and_render_see_the_words_pavel_typed_in_the_editor(tmp_path):
+    """Слово, исправленное в редакторе (timeline.json), — тоже текст ролика: эмодзи в нём шрифтовая проверка видит до
+    рендера (иначе он упал бы на кадре или вышел бы квадратиком)."""
+    import vm.__main__ as cli
+    from vm.job import Job
+
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    job.path("edit.json").write_text(json.dumps(edit(["ahoj", "světe"])), encoding="utf-8")
+    cli._fonts_ok(job)
+    job.write("timeline.json", {"rev": 1, "edits": [], "words": [{"t0": 1.5, "t1": 1.9, "text": "světe🔥"}]})
+    with pytest.raises(ValueError, match="эмодзи"):
+        cli._fonts_ok(job)

@@ -550,3 +550,14 @@ def test_zoom_transitions_and_looks_match_the_shared_fixture(case):
 def test_beats_of_the_video_and_snapping_match_the_shared_fixture(case):
     got = json.loads(json.dumps(shared_events.beats_case(case)))
     assert got == {k: case[k] for k in ("times", "zoomsAt", "insertsAt", "moved", "played")}
+
+
+@pytest.mark.parametrize("case", SHARED["text"], ids=lambda c: c["name"])
+def test_hand_text_edits_match_the_shared_fixture(case):
+    assert json.loads(json.dumps(shared_events.text_case(case))) == case["expected"]
+
+
+@pytest.mark.parametrize("bad", SHARED["textRefused"], ids=lambda b: b["name"])
+def test_hand_text_edits_refuse_what_the_shared_fixture_refuses(bad):
+    with pytest.raises(ValueError, match="timeline.json: text"):
+        shared_events.text_case(bad)

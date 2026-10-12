@@ -234,11 +234,14 @@ def _hook_end(edit: dict, tl: Timeline) -> int:
 
 def insert_spans(edit: dict, tl: Timeline) -> list[tuple[int, int, int]]:
     """Кадры показа вставок `(номер в edit.inserts, первый кадр, кадр после последнего)` по правилам: не раньше
-    конца хука, не короче 1,5 с. Все виды, в том числе fullscreen (её монтирует ffmpeg, а звук — в нужный кадр)."""
+    конца хука, не короче 1,5 с. Все виды, в том числе fullscreen (её монтирует ffmpeg, а звук — в нужный кадр);
+    выключенных Павлом (`off`) — нет."""
     after_hook = _hook_end(edit, tl)
     min_show = math.ceil(MIN_SHOW * FPS - 1e-9)
     spans = []
     for i, ins in enumerate(edit.get("inserts") or []):
+        if ins.get("off"):  # выключил Павел в редакторе: в ролике её нет, номер остаётся
+            continue
         a, b = tl.span(float(ins["t0"]), float(ins["t1"]))  # не дальше своей серии: переставленный кусок не тянет за собой
         start = max(_frame(a), after_hook)
         stop = max(_frame(b), start + min_show)

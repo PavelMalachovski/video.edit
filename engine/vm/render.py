@@ -171,7 +171,8 @@ def draw_layer(job: Job, edit: dict | None = None, work: str = "work/render") ->
     if edit is None:  # с правками Павла руками (timeline.json); вернуть — не дальше конца исходника
         edit = edits.edit_of(job, probe(source).duration if source.is_file() else None)
     validate("edit.json", edit)  # файл пишет Claude: ошибка называет поле, а не падает KeyError где-то в графе
-    waiting = [ins["question"] for ins in edit["inserts"] if ins.get("question") and not ins.get("src") and ins["kind"] not in TEXTUAL]
+    waiting = [ins["question"] for ins in edit["inserts"]
+               if ins.get("question") and not ins.get("src") and ins["kind"] not in TEXTUAL and not ins.get("off")]
     if waiting:
         raise RenderError(
             "edit.json: вставки ждут ответа на вопросы " + ", ".join(f"«{q}»" for q in waiting)

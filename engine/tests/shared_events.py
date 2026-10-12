@@ -9,7 +9,7 @@ import json
 import sys
 from pathlib import Path
 
-from vm import beats, transitions
+from vm import beats, edits, transitions
 from vm.asr import Word
 from vm.overlay import build_overlay_events, insert_spans
 from vm.render import look_windows
@@ -223,6 +223,51 @@ def beats_case(case: dict) -> dict:
             "moved": moved, "played": beats.played(case["grid"]["length"], at, skip, tl.duration)}
 
 
+# Текст и вставки руками (edits.apply_text: timeline.json → text, words поверх edit.json) — web/lib/edits.ts (applyText)
+_BASE = {
+    "words": [{"t0": 0.5, "t1": 0.8, "text": "Привет,"}, {"t0": 0.9, "t1": 1.2, "text": "эта"}, {"t0": 1.3, "t1": 1.6, "text": "эээ"},
+              {"t0": 1.7, "t1": 2.0, "text": "ролик."}, {"t0": 2.1, "t1": 2.1, "text": "Я"}],
+    "hook": {"text": "Как я снимаю", "until": 1.5},
+    "cta": {"t0": 7.0, "t1": 8.0, "lines": ["Пиши в комментариях"], "word": "ВИДЕО"},
+    "accents": [{"t0": 3.0, "t1": 4.0, "x": 540, "y": 900, "lines": [{"text": "очень"}, {"text": "важно", "size": "big", "color": "accent"}]},
+                {"t0": 5.0, "t1": 5.5, "x": 540, "y": 900, "anim": "type", "lines": [{"text": "второй"}]}],
+    "inserts": [{"kind": "image", "src": "a.png", "t0": 2.0, "t1": 3.0, "x": 1, "y": 1, "w": 10, "sfx": "pop.mp3"},
+                {"kind": "sticker", "text": "5 минут", "t0": 4.0, "t1": 5.0, "x": 1, "y": 1, "w": 10},
+                {"kind": "image", "src": "a.png", "t0": 4.0, "t1": 5.0, "x": 1, "y": 1, "w": 10},
+                {"kind": "image", "src": "b.png", "t0": 6.0, "t1": 6.5, "x": 1, "y": 1, "w": 10}],
+}
+TEXT = [
+    {"name": "every kind of block: hook, title, accents, inserts and words",
+     "edit": _BASE, "text": {
+         "hook": {"until": 2.0, "text": "Как я снимаю на телефон"},
+         "cta": {"at": [7.0, 8.0], "t0": 6.8, "t1": 8.4, "lines": ["Напиши"], "word": "КАДР"},
+         "accents": [{"at": [3.0, 4.0], "t0": 2.9, "t1": 4.3, "lines": ["совсем", "важно!"]}, {"at": [5.0, 5.5], "off": True}],
+         "inserts": [{"at": [4.0, 5.0], "t0": 4.2, "t1": 6.0, "text": "10 минут"}, {"at": [4.0, 5.0], "t0": 4.5},
+                     {"at": [6.0, 6.5], "off": True}]},
+     "words": [{"t0": 0.9, "t1": 1.2, "text": "это"}, {"t0": 1.3, "t1": 1.6, "text": ""}, {"t0": 2.1, "t1": 2.1, "text": "Мы"}]},
+    {"name": "edits of blocks the session moved or removed no longer apply; lines of another count stay",
+     "edit": {**_BASE, "cta": {**_BASE["cta"], "t0": 7.5}, "inserts": _BASE["inserts"][1:]}, "text": {
+         "cta": {"at": [7.0, 8.0], "t0": 6.0}, "inserts": [{"at": [2.0, 3.0], "off": True}],
+         "accents": [{"at": [3.0, 4.0], "lines": ["одна строка"]}, {"at": [9.0, 9.5], "off": True}]},
+     "words": [{"t0": 0.9, "t1": 1.25, "text": "это"}]},
+    {"name": "hook and title switched off; a hook edit without a hook changes nothing",
+     "edit": _BASE, "text": {"hook": {"off": True}, "cta": {"at": [7.0, 8.0], "off": True}}, "words": []},
+    {"name": "nothing to change", "edit": {**_BASE, "hook": None, "cta": None, "accents": [], "inserts": []},
+     "text": {"hook": {"until": 3.0}, "cta": {"at": [7.0, 8.0], "t0": 6.0}}, "words": []},
+]
+TEXT_REFUSED = [
+    {"name": "title ends before it starts", "edit": _BASE, "text": {"cta": {"at": [7.0, 8.0], "t0": 8.5}}, "words": []},
+    {"name": "accent ends before it starts", "edit": _BASE, "text": {"accents": [{"at": [3.0, 4.0], "t1": 2.0}]}, "words": []},
+    {"name": "insert of no length", "edit": _BASE, "text": {"inserts": [{"at": [4.0, 5.0], "t0": 5.0, "t1": 5.0}]}, "words": []},
+]
+TEXT_FIELDS = ("hook", "cta", "accents", "inserts", "words")
+
+
+def text_case(case: dict) -> dict:
+    out = edits.apply_text(case["edit"], case["text"], case["words"])
+    return {k: out.get(k) for k in TEXT_FIELDS}
+
+
 def look_case(case: dict) -> dict:
     tl = _timeline(case)
     edit = case["edit"]
@@ -265,6 +310,8 @@ def build() -> dict:
         "renderRefused": RENDER_REFUSED,
         "look": [{**case, **look_case(case)} for case in LOOK],
         "beats": [{**case, **beats_case(case)} for case in BEATS],
+        "text": [{**case, "expected": text_case(case)} for case in TEXT],
+        "textRefused": TEXT_REFUSED,
     }
 
 
@@ -300,7 +347,9 @@ def dump(data: dict) -> str:
     out.append(f'  "render": {_rows(data["render"], "  ")},')
     out.append(f'  "renderRefused": {_rows(data["renderRefused"], "  ")},')
     out.append(f'  "look": {_rows(data["look"], "  ")},')
-    out.append(f'  "beats": {_rows(data["beats"], "  ")}')
+    out.append(f'  "beats": {_rows(data["beats"], "  ")},')
+    out.append(f'  "text": {_rows(data["text"], "  ")},')
+    out.append(f'  "textRefused": {_rows(data["textRefused"], "  ")}')
     out.append("}")
     return "\n".join(out) + "\n"
 

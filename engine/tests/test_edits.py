@@ -5,7 +5,9 @@ from pathlib import Path
 import pytest
 
 from vm import edits
-from vm.job import Job
+from vm.job import Job, validate
+from vm.overlay import build_overlay_events, insert_spans
+from vm.timeline import Timeline
 
 SHARED = json.loads((Path(__file__).parent / "fixtures" / "edits.json").read_text(encoding="utf-8"))
 
@@ -99,3 +101,97 @@ def test_the_schema_refuses_a_broken_timeline(tmp_path, bad):
     job.root.mkdir(parents=True)
     with pytest.raises(ValueError):
         job.write("timeline.json", bad)
+
+
+# ---------- текст и вставки руками (фаза 5): поверх edit.json по месту блока в речи ----------
+
+STYLE = {"subtitles": {"mode": "karaoke", "words": 3}, "hook": {"mode": "plate"}}
+TEXT_EDIT = {
+    **EDIT, "keep": [[0.0, 9.0]],
+    "words": [{"t0": 0.5, "t1": 0.8, "text": "Привет,"}, {"t0": 0.9, "t1": 1.2, "text": "эта"}, {"t0": 1.3, "t1": 1.6, "text": "эээ"},
+              {"t0": 1.7, "t1": 2.0, "text": "ролик."}],
+    "hook": {"text": "Как я снимаю", "until": 1.5},
+    "cta": {"t0": 7.0, "t1": 8.0, "lines": ["Пиши в комментариях"], "word": "ВИДЕО"},
+    "accents": [{"t0": 3.0, "t1": 4.0, "x": 540, "y": 900, "lines": [{"text": "очень"}, {"text": "важно", "size": "big"}]},
+                {"t0": 5.0, "t1": 5.5, "x": 540, "y": 900, "lines": [{"text": "второй"}]}],
+    "inserts": [{"kind": "image", "src": "a.png", "t0": 2.0, "t1": 3.0, "x": 1, "y": 1, "w": 10, "sfx": "pop.mp3"},
+                {"kind": "sticker", "text": "5 минут", "t0": 4.0, "t1": 5.0, "x": 1, "y": 1, "w": 10},
+                {"kind": "image", "src": "b.png", "t0": 6.0, "t1": 6.5, "x": 1, "y": 1, "w": 10, "sfx": "pop.mp3"}],
+}
+
+
+def test_text_and_insert_edits_reach_the_edit_by_the_place_of_each_block():
+    timeline = {"rev": 2, "edits": [], "text": {
+        "hook": {"until": 2.0, "text": "Как я снимаю на телефон"},
+        "cta": {"at": [7.0, 8.0], "t0": 6.8, "t1": 8.4, "lines": ["Напиши"], "word": "КАДР"},
+        "accents": [{"at": [3.0, 4.0], "t0": 2.9, "t1": 4.3, "lines": ["совсем", "важно!"]}, {"at": [5.0, 5.5], "off": True}],
+        "inserts": [{"at": [4.0, 5.0], "t0": 4.2, "t1": 6.0, "text": "10 минут"}, {"at": [6.0, 6.5], "off": True}],
+    }, "words": [{"t0": 0.9, "t1": 1.2, "text": "это"}, {"t0": 1.3, "t1": 1.6, "text": ""}]}
+    out = edits.apply(TEXT_EDIT, timeline, 9)
+    assert out["hook"] == {"text": "Как я снимаю на телефон", "until": 2.0}
+    assert out["cta"] == {"t0": 6.8, "t1": 8.4, "lines": ["Напиши"], "word": "КАДР"}
+    assert out["accents"] == [{**TEXT_EDIT["accents"][0], "t0": 2.9, "t1": 4.3,
+                               "lines": [{"text": "совсем"}, {"text": "важно!", "size": "big"}]}], "строки — текст, вид — как был; второй убран"
+    assert out["inserts"][0] == TEXT_EDIT["inserts"][0], "без правки — как у сессии"
+    assert out["inserts"][1] == {**TEXT_EDIT["inserts"][1], "t0": 4.2, "t1": 6.0, "text": "10 минут"}
+    assert out["inserts"][2] == {**TEXT_EDIT["inserts"][2], "off": True}, "выключенная вставка остаётся в списке: номера звуков те же"
+    assert [w["text"] for w in out["words"]] == ["Привет,", "это", "ролик."], "слово — по времени; пустое — из субтитров"
+    assert out["keep"] == TEXT_EDIT["keep"] and TEXT_EDIT["words"][1]["text"] == "эта", "edit.json сессии не меняется"
+
+
+def test_a_switched_off_insert_is_not_in_the_video_but_keeps_the_numbers():
+    tl = Timeline([(0.0, 9.0)], 1.0)
+    out = edits.apply(TEXT_EDIT, {"rev": 1, "edits": [], "text": {"inserts": [{"at": [2.0, 3.0], "off": True}]}}, 9)
+    assert [i for i, _, _ in insert_spans(out, tl)] == [1, 2], "первой вставки нет — у остальных номера прежние"
+    assert all(not s.get("insert0") for s in (e["state"] for e in build_overlay_events({**out, "style": STYLE}, tl)))
+
+
+def test_hook_and_title_switched_off_are_gone():
+    timeline = {"rev": 1, "edits": [], "text": {"hook": {"off": True}, "cta": {"at": [7.0, 8.0], "off": True}}}
+    out = edits.apply(TEXT_EDIT, timeline, 9)
+    assert out["hook"] is None and out["cta"] is None
+
+
+def test_an_edit_of_a_block_the_session_moved_no_longer_applies():
+    """Сессия переписала edit.json (правка текстом сдвинула титр, убрала вставку): правка Павла держится за блок по месту
+    в речи — его там больше нет, и правка молча не применяется (а не достаётся соседу по номеру)."""
+    moved = {**TEXT_EDIT, "cta": {**TEXT_EDIT["cta"], "t0": 7.5}, "inserts": TEXT_EDIT["inserts"][1:]}
+    timeline = {"rev": 1, "edits": [], "text": {"cta": {"at": [7.0, 8.0], "t0": 6.0}, "inserts": [{"at": [2.0, 3.0], "t0": 2.5}]},
+                "words": [{"t0": 0.9, "t1": 1.25, "text": "это"}]}
+    out = edits.apply(moved, timeline, 9)
+    assert out["cta"] == moved["cta"] and out["inserts"] == moved["inserts"] and out["words"] == moved["words"]
+    assert edits.apply(TEXT_EDIT, {"rev": 1, "edits": [], "text": {"hook": {"until": 3.0}}}, 9)["hook"]["until"] == 3.0
+    assert edits.apply({**TEXT_EDIT, "hook": None}, {"rev": 1, "edits": [], "text": {"hook": {"until": 3.0}}}, 9)["hook"] is None, \
+        "хука нет — правке нечего менять"
+
+
+def test_two_blocks_at_the_same_place_take_one_edit_each():
+    twin = {**TEXT_EDIT, "inserts": [TEXT_EDIT["inserts"][0], {**TEXT_EDIT["inserts"][0], "src": "c.png"}]}
+    timeline = {"rev": 1, "edits": [], "text": {"inserts": [{"at": [2.0, 3.0], "t0": 2.1}, {"at": [2.0, 3.0], "t0": 2.2}]}}
+    assert [i["t0"] for i in edits.apply(twin, timeline, 9)["inserts"]] == [2.1, 2.2]
+
+
+@pytest.mark.parametrize("text", [
+    {"cta": {"at": [7.0, 8.0], "t0": 8.5}},
+    {"accents": [{"at": [3.0, 4.0], "t1": 2.0}]},
+    {"inserts": [{"at": [4.0, 5.0], "t0": 5.0, "t1": 5.0}]},
+])
+def test_a_block_ending_before_it_starts_is_refused_by_name(text):
+    with pytest.raises(ValueError, match="timeline.json: text"):
+        edits.apply(TEXT_EDIT, {"rev": 1, "edits": [], "text": text}, 9)
+
+
+def test_text_edits_go_through_the_schema(tmp_path):
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    job.path("edit.json").write_text(json.dumps(TEXT_EDIT), encoding="utf-8")
+    job.write("timeline.json", {"rev": 1, "edits": [], "text": {"hook": {"until": 2.0}, "inserts": [{"at": [2.0, 3.0], "off": True}]},
+                                "words": [{"t0": 0.9, "t1": 1.2, "text": "это"}]})
+    out = edits.edit_of(job, 9)
+    assert out["hook"]["until"] == 2.0 and out["inserts"][0]["off"] and out["words"][1]["text"] == "это"
+    real = json.loads((Path(__file__).parent / "fixtures" / "style-merge.json").read_text(encoding="utf-8"))["expected"]
+    validate("edit.json", {**out, "style": real})  # служебное off у вставки схема edit.json принимает
+    for bad in ({"text": {"hook": {"off": False}}}, {"text": {"cta": {"t0": 1}}}, {"text": {"accents": [{"at": [1]}]}},
+                {"words": [{"t0": 1, "text": "без конца"}]}, {"text": {"inserts": [{"at": [1, 2], "kind": "image"}]}}):
+        with pytest.raises(ValueError):
+            job.write("timeline.json", {"rev": 2, "edits": [], **bad})

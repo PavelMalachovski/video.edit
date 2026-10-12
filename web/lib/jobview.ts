@@ -109,6 +109,11 @@ function parse<T>(text: string | null): T | null {
   }
 }
 
+/** Файл папки задачи на коммите `head` текстом (с тем же запоминанием, что у readJobFiles); нет — null. */
+export function readJobText(gh: GH, id: string, head: string, name: string): Promise<string | null> {
+  return cachedText(gh, head, `${jobDir(id)}/${name}`);
+}
+
 const LIST_FILES = ['job.json', 'status.json', 'fix.json'];
 const ALL_FILES = [...LIST_FILES, 'questions.json', 'styles.json', 'review.json', 'script.json', 'answers.json', 'result.json', 'restyle.json'];
 

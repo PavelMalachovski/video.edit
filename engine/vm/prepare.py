@@ -170,6 +170,20 @@ def _write_cuts(path: Path, cuts: dict) -> None:
     _atomic_write(path, f'{{{head}, "keep": {keep}}}\n')
 
 
+def _editor_files(job: Job) -> str:
+    """Файлы редактора (бета) → строка сводки. Сбой не останавливает шаг: недоделанное убирается, монтаж идёт как раньше."""
+    try:
+        made = editor.make(job)
+    except Exception as e:  # noqa: BLE001 — любой сбой беты (ffmpeg, память, схема) не должен ронять анализ
+        for name in ("out/proxy.mp4", "film.jpg", "editor.json"):
+            job.path(name).unlink(missing_ok=True)
+        return f"Редактор (бета): не вышло — {e}; монтаж это не задевает"
+    if made["proxy"] is None:
+        return f"Редактор (бета): без видео — исходник длинный; film.jpg ({made['film']['n']} кадров), editor.json"
+    size = job.path("out/proxy.mp4").stat().st_size / editor.MB
+    return f"Редактор (бета): out/proxy.mp4 ({size:.1f} МБ), film.jpg ({made['film']['n']} кадров), editor.json — уйдут с vm push"
+
+
 def prepare(
     job: Job, step: Callable[[str, str], None] | None = None, redo: bool = False, language: str | None = None
 ) -> str:
@@ -261,10 +275,7 @@ def prepare(
         contact_sheet(source, job.path("sheet.png"), fps=min(1.0, SHEET_THUMBS / info.duration))
     if redo or not job.path("editor.json").is_file():  # для редактора на странице (бета); прокси уйдёт в релиз с push
         step("Готовлю редактор", "Прокси-видео, волна и лента кадров для редактора")
-        made = editor.make(job)
-        size = job.path("out/proxy.mp4").stat().st_size / editor.MB
-        notes.append(f"Редактор (бета): out/proxy.mp4 ({size:.1f} МБ), film.jpg ({made['film']['n']} кадров), editor.json — "
-                     "уйдут с vm push")
+        notes.append(_editor_files(job))
 
     cut_line = f"Слов: {len(words)}; плотная резка: {max(0, len(keep) - 1)} пауз, вырезано {cuts['cut_seconds']:.1f} с"
     speech_spans = json.loads(speech_path.read_text(encoding="utf-8")) if speech_path.is_file() else []

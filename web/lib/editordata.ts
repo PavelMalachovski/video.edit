@@ -52,7 +52,7 @@ export async function loadEditor(gh: GH, id: string): Promise<EditorData | null>
     head,
     draft: parseDraft(json(edit)),
     media,
-    proxyUrl: mediaAsset(f, 'proxy.mp4') ? `/api/jobs/${id}/media?name=proxy.mp4` : null,
+    proxyUrl: media?.proxy && mediaAsset(f, 'proxy.mp4') ? `/api/jobs/${id}/media?name=proxy.mp4` : null,
     filmUrl: media && head ? `/api/jobs/${id}/file?path=${encodeURIComponent(media.film.file)}&v=${head}` : null,
     styles: f?.styles ?? null,
     answers: f?.answers ?? null,

@@ -10,23 +10,19 @@ import { tenths } from '@/lib/format.ts';
 import { loadLang, saveLang, tr, type Key, type Lang } from '@/lib/i18n.ts';
 import type { StyleChoice } from '@/lib/jobfiles.ts';
 import { finalStyle, loadChoice, overlayAt, subGroupSize } from '@/lib/style.ts';
+import { advance, locate } from '@/lib/player.ts';
 import { decodePeaks, draftTracks, peakAt, type Clip, type Tracks } from '@/lib/tracks.ts';
 import { BackIcon, PauseIcon, PlayIcon } from '../../../icons';
 import PreviewFrame from '../../../preview-frame';
 
 const HEAD = 112; // px — колонка с именами дорожек
-const MAX_WIDTH = 30_000; // px — ширина дорожек (canvas волны не бывает шире ~32 тыс. px)
+const MAX_WIDTH = 30_000; // px — ширина дорожек
+const MAX_CANVAS = 32_767; // px холста — больше браузеры не рисуют (с учётом плотности экрана)
 const ZOOM = 1.5;
 const THUMB_H = 56;
 const TICKS = [0.5, 1, 2, 5, 10, 15, 30, 60, 120];
 const RELOAD_MS = 20_000; // пока нет черновика или прокси — спрашиваем снова
 const FRAME_HZ = 15; // столько раз в секунду обновляем слой кадра во время пуска
-
-/** Кусок, в котором время финала `t` (после конца — последний). */
-function pieceAt(video: Clip[], t: number): number {
-  const i = video.findIndex((c) => t >= c.t0 && t < c.t1);
-  return i >= 0 ? i : Math.max(0, video.length - 1);
-}
 
 export default function Editor({ id }: { id: string }) {
   const [lang, setLang] = useState<Lang>('ru');
@@ -41,6 +37,9 @@ export default function Editor({ id }: { id: string }) {
   useEffect(() => setLang(loadLang(storage())), []);
   useEffect(() => {
     document.documentElement.lang = lang;
+    return () => {
+      document.documentElement.lang = 'ru'; // старый поток — по-русски
+    };
   }, [lang]);
   const pickLang = (l: Lang) => {
     setLang(l);
@@ -62,7 +61,7 @@ export default function Editor({ id }: { id: string }) {
   useEffect(() => {
     void load();
   }, [load]);
-  const waiting = !data || !data.draft || (data.media !== null && data.proxyUrl === null);
+  const waiting = !data || !data.draft || (data.media?.proxy != null && data.proxyUrl === null);
   useEffect(() => {
     if (!waiting) return;
     const timer = setInterval(() => document.visibilityState === 'visible' && void load(), RELOAD_MS);
@@ -98,11 +97,10 @@ export default function Editor({ id }: { id: string }) {
   const seek = useCallback((tf: number) => {
     if (!tracks?.video.length) return;
     const x = Math.min(Math.max(0, tf), duration);
-    const i = pieceAt(tracks.video, x);
-    piece.current = i;
-    const c = tracks.video[i];
+    const { index, src } = locate(tracks.video, speed, x);
+    piece.current = index;
     const v = video.current;
-    if (v && v.readyState > 0) v.currentTime = (c.src0 as number) + (x - c.t0) * speed;
+    if (v && v.readyState > 0) v.currentTime = src;
     show(x);
     setT(x);
   }, [tracks, duration, speed, show]);
@@ -114,7 +112,7 @@ export default function Editor({ id }: { id: string }) {
   const play = useCallback(async () => {
     const v = video.current;
     if (!v || !tracks?.video.length) return;
-    if (now.current >= duration - 0.05) seek(0);
+    if (v.ended || now.current >= duration - 0.05) seek(0); // доиграл — сначала
     v.playbackRate = speed;
     try {
       await v.play();
@@ -131,20 +129,16 @@ export default function Editor({ id }: { id: string }) {
     const tick = (ms: number) => {
       const v = video.current;
       if (!v) return;
-      let c = tracks.video[piece.current];
-      if (v.currentTime >= (c.src1 as number) - 1 / 60) { // конец куска: дальше — следующий, вырезанное пропускаем
-        if (piece.current + 1 < tracks.video.length) {
-          piece.current += 1;
-          c = tracks.video[piece.current];
-          v.currentTime = c.src0 as number;
-        } else {
-          pause();
-          show(duration);
-          setT(duration);
-          return;
-        }
+      const step = advance(tracks.video, speed, piece.current, v.currentTime); // конец куска — следующий, вырезанное мимо
+      piece.current = step.index;
+      if (step.end) {
+        pause();
+        show(duration);
+        setT(duration);
+        return;
       }
-      const tf = Math.min(c.t1, c.t0 + Math.max(0, v.currentTime - (c.src0 as number)) / speed);
+      if (step.seek !== undefined) v.currentTime = step.seek;
+      const tf = step.t;
       show(tf);
       if (ms - last > 1000 / FRAME_HZ) {
         last = ms;
@@ -156,17 +150,34 @@ export default function Editor({ id }: { id: string }) {
     return () => cancelAnimationFrame(raf);
   }, [playing, tracks, speed, duration, pause, show]);
 
-  // ссылка на ассет короткоживущая: видео перестало грузиться — берём адрес снова и встаём туда же
+  // ссылка на ассет короткоживущая: видео перестало грузиться — берём адрес снова, встаём туда же и, если играло, играем
   const retried = useRef(0);
   const onVideoError = () => {
     const v = video.current;
     if (!v || !data?.proxyUrl || Date.now() - retried.current < 5000) return;
     retried.current = Date.now();
     const at = now.current;
+    const was = playing;
+    setPlaying(false); // пока грузится заново, время не идёт
     v.src = `${data.proxyUrl}&r=${retried.current}`;
     v.load();
-    v.addEventListener('loadedmetadata', () => seek(at), { once: true });
+    v.addEventListener('loadedmetadata', () => {
+      seek(at);
+      if (was) void play();
+    }, { once: true });
   };
+  // доиграл — плейхед в конце ролика (видео могло кончиться раньше последнего куска)
+  const onEnded = () => {
+    pause();
+    if (tracks?.video.length) piece.current = tracks.video.length - 1;
+    show(duration);
+    setT(duration);
+  };
+  useEffect(() => { // вкладку спрятали — пауза: без кадров браузера куски не переключаются, звучало бы вырезанное
+    const hide = () => document.visibilityState === 'hidden' && pause();
+    document.addEventListener('visibilitychange', hide);
+    return () => document.removeEventListener('visibilitychange', hide);
+  }, [pause]);
 
   useEffect(() => { // пробел — пуск и пауза (не в полях и не на кнопках)
     const onKey = (e: KeyboardEvent) => {
@@ -233,7 +244,7 @@ export default function Editor({ id }: { id: string }) {
     const c = wave.current;
     if (!c || !tracks || !peaks || !data?.media) return;
     const h = 40;
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const dpr = Math.min(2, window.devicePixelRatio || 1, MAX_CANVAS / Math.max(1, width));
     c.width = Math.max(1, Math.round(width * dpr));
     c.height = h * dpr;
     c.style.width = `${width}px`;
@@ -283,7 +294,8 @@ export default function Editor({ id }: { id: string }) {
   const notice = !data ? (error ? T('error', { e: error }) : T('loading'))
     : !data.draft ? T('noDraft')
       : !data.media ? T('oldJob')
-        : !data.proxyUrl ? T('noProxy') : null;
+        : !data.media.proxy ? T('longSource')
+          : !data.proxyUrl ? T('noProxy') : null;
   const cutTotal = tracks?.cuts.reduce((s, c) => s + c.src1 - c.src0, 0) ?? 0;
 
   return (
@@ -307,7 +319,7 @@ export default function Editor({ id }: { id: string }) {
           <div className="ed-frame" style={{ width: frameW, height: Math.round((frameW * 16) / 9) }}>
             {data?.proxyUrl ? (
               <video ref={video} src={data.proxyUrl} playsInline preload="auto" onError={onVideoError}
-                onLoadedMetadata={() => seek(now.current)} onEnded={pause} data-editor-video="" />
+                onLoadedMetadata={() => seek(now.current)} onEnded={onEnded} data-editor-video="" />
             ) : null}
             {spec && overlay ? (
               <div className="ed-layer">

@@ -59,8 +59,31 @@ def test_a_long_source_gets_a_coarser_film_step_and_a_lower_bitrate():
     assert editor.film_step(60) == 0.5
     assert editor.film_step(3600) == pytest.approx(3.6)
     assert editor.proxy_rate(60) == editor.MAX_RATE
-    rate = editor.proxy_rate(3600)
-    assert rate * 3600 / 8 <= editor.PROXY_BUDGET
+    assert editor.audio_rate(60) == editor.AUDIO_RATE
+
+
+@pytest.mark.parametrize("seconds", [10, 60, 600, 1200, 1800, 3600, 2 * 3600])
+def test_picture_and_sound_together_stay_well_under_the_git_limit(seconds):
+    from vm.git import MAX_FILE_BYTES
+    total = (editor.proxy_rate(seconds) + editor.audio_rate(seconds)) * seconds / 8
+    assert total <= MAX_FILE_BYTES * 0.85, f"{seconds} с: {total / 2**20:.1f} МБ"
+    assert editor.proxy_rate(seconds) >= editor.MIN_RATE and editor.audio_rate(seconds) >= editor.MIN_AUDIO
+
+
+def test_a_source_too_long_for_a_proxy_gets_the_editor_without_video(job, monkeypatch):
+    monkeypatch.setattr(editor, "MAX_PROXY_SECONDS", 1)  # исходник длиннее — прокси не делается вовсе
+    data = editor.make(job)
+    assert data["proxy"] is None and not job.path("out/proxy.mp4").exists()
+    assert job.path("film.jpg").is_file() and data["peaks"]["data"]
+
+
+def test_a_proxy_over_the_limit_is_dropped_and_the_editor_says_so(job, monkeypatch):
+    monkeypatch.setattr(editor, "MAX_PROXY_BYTES", 1000)  # любой прокси «не влез»
+    data = editor.make(job)
+    assert data["proxy"] is None
+    assert not job.path("out/proxy.mp4").exists()
+    assert job.read("editor.json")["proxy"] is None, "схема принимает editor.json без прокси"
+    assert job.path("film.jpg").is_file()
 
 
 def test_silence_gives_flat_peaks(tmp_path, silent):

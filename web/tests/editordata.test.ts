@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loadEditor, mediaAsset } from '../lib/editordata.ts';
+import { readFileSync } from 'node:fs';
+import { loadEditor, MEDIA_NAMES, mediaAsset } from '../lib/editordata.ts';
 import { withFake } from './helpers.ts';
 
 const ID = '261010-070509-abcd';
@@ -49,4 +50,11 @@ test('only the proxy is served as editor media', () => {
   assert.equal(mediaAsset(files, 'proxy.mp4')?.id, 501);
   assert.equal(mediaAsset(files, 'final.mp4'), null, 'ролик — через download');
   assert.equal(mediaAsset({ released: null }, 'proxy.mp4'), null);
+});
+
+test('the proxy the player takes from the release is the one the engine writes', () => {
+  const schema = JSON.parse(readFileSync(new URL('../../engine/vm/schemas/editor.json', import.meta.url), 'utf8'));
+  const file = schema.properties.proxy.properties.file.const as string;
+  assert.equal(file, 'out/proxy.mp4');
+  assert.deepEqual([...MEDIA_NAMES], [file.replace(/^out\//, '')], 'в релиз Action кладёт файл out/ под его именем');
 });

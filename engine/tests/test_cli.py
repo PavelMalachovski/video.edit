@@ -411,6 +411,29 @@ def test_prepare_makes_the_editor_files_once(tmp_path, monkeypatch, capsys):
 
 
 @needs_ffmpeg
+def test_prepare_goes_on_when_the_editor_files_fail(tmp_path, monkeypatch, capsys):
+    """Редактор — бета: его сбой не останавливает шаг — вопросы, стили и монтаж идут как раньше."""
+    from vm import editor
+
+    no_models(monkeypatch, tmp_path)
+    job = Job(tmp_path / "jobs" / "abc")
+    make_source(job.path("in/source.mp4"), 2)
+    for name, text in SPEECH_WORK.items():
+        job.path(name).write_text(text, encoding="utf-8")
+
+    def broken(j):
+        j.path("out").mkdir(exist_ok=True)
+        j.path("out/proxy.mp4").write_bytes(b"half")  # половина работы осталась
+        raise RuntimeError("ffmpeg упал")
+
+    monkeypatch.setattr(editor, "make", broken)
+    assert main(["prepare", str(job.root)]) == 0
+    out = capsys.readouterr().out
+    assert "Редактор (бета): не вышло" in out and "ffmpeg упал" in out
+    assert not job.path("out/proxy.mp4").exists() and not job.path("editor.json").exists()
+
+
+@needs_ffmpeg
 def test_prepare_redo_recognises_again(tmp_path, monkeypatch, capsys):
     no_models(monkeypatch, tmp_path)
     job = Job(tmp_path / "jobs" / "abc")

@@ -1,8 +1,9 @@
 """Файлы для редактора на странице (бета): прокси-видео, волна звука и лента кадров исходника `source.mp4`.
 
-- `out/proxy.mp4` — 540×960, H.264 и AAC, ключевой кадр каждые 0,5 с (быстрый переход по кускам); битрейт — чтобы
-  файл уместился в git (до 95 МБ): Action job-outputs переносит его в черновик релиза, как готовый ролик, и
-  страница отдаёт его плееру ссылкой на ассет.
+- `out/proxy.mp4` — 540×960, H.264 и AAC, ключевой кадр каждые 0,5 с (быстрый переход по кускам); битрейт картинки и
+  звука вместе — чтобы файл уместился в git (до 95 МБ): Action job-outputs переносит его в черновик релиза, как готовый
+  ролик, и страница отдаёт его плееру ссылкой на ассет. Исходник длиннее MAX_PROXY_SECONDS или прокси всё-таки больше
+  предела — прокси нет (`proxy: null`), редактор показывает дорожки без видео.
 - `film.jpg` — лента кадров одной картинкой: кадр каждые `step` с, 54×96.
 - `editor.json` — что где: длительность, прокси, лента и волна (`peaks`: пиков в секунду и base64 байтов 0–255).
 Времена — по исходнику, как в words.json и edit.json.
@@ -16,6 +17,7 @@ from pathlib import Path
 
 import numpy as np
 
+from .git import MAX_FILE_BYTES
 from .job import Job
 from .media import MediaError, _atomic, _ffmpeg, extract_wav, probe
 
@@ -24,9 +26,13 @@ FILM = {"w": 54, "h": 96, "step": 0.5, "max": 1000}  # не больше 1000 к
 PEAKS_PER_S = 50
 PEAKS_RATE = 8000  # Гц — звук для волны: пики по 20 мс, этого хватает
 MB = 1024 * 1024
-PROXY_BUDGET = 80 * MB  # байт на картинку прокси: со звуком (96 кбит/с) — в пределах 95 МБ даже у часового исходника
-MAX_RATE = 1_500_000  # бит/с — для 540×960 больше не нужно
-AUDIO_RATE = 96_000
+TOTAL_BUDGET = 75 * MB  # байт на весь прокси — картинка и звук; запас до 95 МБ git — на перелёт битрейта x264
+MAX_PROXY_BYTES = MAX_FILE_BYTES  # больше — в git не положить: прокси не будет
+MAX_PROXY_SECONDS = 2 * 3600  # исходник длиннее — прокси не делаем: в бюджет влезла бы только каша
+MAX_RATE = 1_500_000  # бит/с картинки — для 540×960 больше не нужно
+MIN_RATE = 64_000
+AUDIO_RATE = 96_000  # бит/с звука; у длинного исходника меньше, но не ниже MIN_AUDIO
+MIN_AUDIO = 24_000
 
 
 def film_step(duration: float) -> float:
@@ -34,9 +40,18 @@ def film_step(duration: float) -> float:
     return max(FILM["step"], duration / FILM["max"])
 
 
+def _total_rate(duration: float) -> float:
+    return TOTAL_BUDGET * 8 / max(duration, 1.0)
+
+
+def audio_rate(duration: float) -> int:
+    """Битрейт звука прокси, бит/с: AUDIO_RATE, у длинного исходника — пятая часть бюджета (не ниже MIN_AUDIO)."""
+    return int(max(MIN_AUDIO, min(AUDIO_RATE, _total_rate(duration) / 5)))
+
+
 def proxy_rate(duration: float) -> int:
-    """Битрейт картинки прокси, бит/с: MAX_RATE, а у длинного исходника меньше — файл в PROXY_BUDGET."""
-    return int(min(MAX_RATE, PROXY_BUDGET * 8 / max(duration, 1.0)))
+    """Битрейт картинки прокси, бит/с: MAX_RATE, у длинного исходника — что осталось от бюджета после звука."""
+    return int(max(MIN_RATE, min(MAX_RATE, _total_rate(duration) - audio_rate(duration))))
 
 
 def _proxy(source: Path, out: Path, duration: float, fps: float, audio: bool) -> None:
@@ -48,7 +63,7 @@ def _proxy(source: Path, out: Path, duration: float, fps: float, audio: bool) ->
             "-vf", f"scale={PROXY['width']}:{PROXY['height']}:flags=bicubic,format=yuv420p",
             "-c:v", "libx264", "-preset", "veryfast", "-crf", 28, "-maxrate", rate, "-bufsize", 2 * rate,
             "-g", gop, "-keyint_min", gop, "-sc_threshold", 0,
-            *(["-c:a", "aac", "-b:a", AUDIO_RATE, "-ac", 2] if audio else []),
+            *(["-c:a", "aac", "-b:a", audio_rate(duration), "-ac", 2] if audio else []),
             "-movflags", "+faststart", tmp,
         )
 
@@ -66,24 +81,35 @@ def _film(source: Path, out: Path, duration: float) -> dict:
     return {"file": "film.jpg", "step": round(step, 3), "w": w, "h": h, "n": n}
 
 
+PEAKS_CHUNK = 60  # с звука за раз: длинный исходник не читается в память целиком
+
+
 def _peaks(source: Path, work: Path, duration: float) -> bytes:
-    """Пик громкости каждые 1/PEAKS_PER_S с, 0–255 (255 — громкий голос: 99,9-й перцентиль); звука нет — нули."""
+    """Пик громкости каждые 1/PEAKS_PER_S с, 0–255 (255 — громкий голос: 99-й перцентиль пиков); звука нет — нули."""
     n = max(1, math.ceil(duration * PEAKS_PER_S))
     try:
         wav = extract_wav(source, work / "peaks.wav", rate=PEAKS_RATE)
     except MediaError:  # у исходника нет звука
         return bytes(n)
+    per = PEAKS_RATE // PEAKS_PER_S
+    found = []
     try:
         with wave.open(str(wav)) as w:
-            x = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(np.float32) / 32768
+            while True:
+                block = w.readframes(per * PEAKS_PER_S * PEAKS_CHUNK)
+                if not block:
+                    break
+                x = np.abs(np.frombuffer(block, dtype=np.int16).astype(np.float32)) / 32768
+                x = np.pad(x, (0, -len(x) % per))
+                found.append(x.reshape(-1, per).max(axis=1))
     finally:
         wav.unlink(missing_ok=True)
-    per = PEAKS_RATE // PEAKS_PER_S
-    x = np.pad(np.abs(x), (0, max(0, n * per - len(x))))[: n * per]
-    top = float(np.percentile(x, 99.9)) if x.size else 0.0
+    peaks = np.concatenate(found) if found else np.zeros(0, dtype=np.float32)
+    peaks = np.pad(peaks, (0, max(0, n - len(peaks))))[:n]
+    top = float(np.percentile(peaks, 99)) if peaks.size else 0.0
     if top < 1e-4:  # тишина
         return bytes(n)
-    return bytes(np.clip(x.reshape(n, per).max(axis=1) / top * 255, 0, 255).astype(np.uint8))
+    return bytes(np.clip(peaks / top * 255, 0, 255).astype(np.uint8))
 
 
 def make(job: Job) -> dict:
@@ -93,12 +119,19 @@ def make(job: Job) -> dict:
     duration = info.duration
     if not (math.isfinite(duration) and duration > 0):
         raise ValueError(f"source.mp4: непонятная длительность {duration!r}")
-    _proxy(source, job.path("out/proxy.mp4"), duration, info.fps or 30, info.has_audio)
+    proxy_path = job.path("out/proxy.mp4")
+    proxy = None
+    if duration <= MAX_PROXY_SECONDS:
+        _proxy(source, proxy_path, duration, info.fps or 30, info.has_audio)
+        if proxy_path.stat().st_size > MAX_PROXY_BYTES:  # в git не положить — редактор без видео
+            proxy_path.unlink()
+        else:
+            proxy = {"file": "out/proxy.mp4", **PROXY}
     film = _film(source, job.path("film.jpg"), duration)
     peaks = _peaks(source, job.path("work"), duration) if info.has_audio else bytes(max(1, math.ceil(duration * PEAKS_PER_S)))
     data = {
         "duration": round(duration, 3),
-        "proxy": {"file": "out/proxy.mp4", **PROXY},
+        "proxy": proxy,
         "film": film,
         "peaks": {"perS": PEAKS_PER_S, "data": base64.b64encode(peaks).decode("ascii")},
     }

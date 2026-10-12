@@ -25,7 +25,7 @@ export type Draft = {
 /** editor.json: длина исходника, прокси (из релиза), лента кадров и волна (base64 байтов 0–255, perS в секунду). */
 export type EditorMedia = {
   duration: number;
-  proxy: { file: string; width: number; height: number; key: number };
+  proxy: { file: string; width: number; height: number; key: number } | null; // null — исходник длинный, прокси нет
   film: { file: string; step: number; w: number; h: number; n: number };
   peaks: { perS: number; data: string };
 };
@@ -83,9 +83,10 @@ export function parseDraft(raw: unknown): Draft | null {
 export function parseMedia(raw: unknown): EditorMedia | null {
   if (!isObj(raw) || !isNum(raw.duration) || raw.duration <= 0) return null;
   const { proxy, film, peaks } = raw;
-  if (!isObj(proxy) || !isStr(proxy.file) || !isNum(proxy.width) || !isNum(proxy.height) || !isNum(proxy.key)) return null;
-  if (!isObj(film) || !isStr(film.file) || !isNum(film.step) || film.step <= 0 || !isNum(film.w) || !isNum(film.h) || !isNum(film.n) || film.n < 1) return null;
-  if (!isObj(peaks) || !isNum(peaks.perS) || peaks.perS <= 0 || !isStr(peaks.data)) return null;
+  if (proxy !== null && !(isObj(proxy) && isStr(proxy.file) && isNum(proxy.width) && isNum(proxy.height) && isNum(proxy.key))) return null;
+  const int = (x: unknown, max: number) => Number.isInteger(x) && (x as number) >= 1 && (x as number) <= max;
+  if (!isObj(film) || !isStr(film.file) || !isNum(film.step) || film.step <= 0 || !int(film.w, 1080) || !int(film.h, 1920) || !int(film.n, FILM_MAX)) return null;
+  if (!isObj(peaks) || !int(peaks.perS, 1000) || !isStr(peaks.data)) return null;
   return raw as EditorMedia;
 }
 
@@ -106,6 +107,8 @@ export function peakAt(peaks: Uint8Array, perS: number, t: number): number {
 export const timelineOf = (d: Draft): Timeline => new Timeline(d.keep, d.speed, d.teaser ? [d.teaser.t0, d.teaser.t1] : null);
 
 const GROUP_GAP = 0.6; // с финала: пауза длиннее — новая группа субтитров
+const MIN_SHOW = 1.5; // с — вставка показывается не короче (MIN_SHOW движка, overlay.py)
+const FILM_MAX = 1000; // кадров в ленте — не больше (FILM['max'] движка, editor.py)
 
 /** Имя файла без папки и расширения. */
 const stem = (path: string): string => path.split('/').at(-1)?.replace(/\.[^.]+$/, '') ?? path;
@@ -152,14 +155,21 @@ export function draftTracks(d: Draft, { perGroup = 3, sourceDuration }: { perGro
   }
   close();
 
+  // хук — до hook.until на его месте в ролике, а с тизером — на весь тизер (_hook_end движка)
+  const hookEnd = d.hook ? (d.teaser ? tl.teaserDuration : at(d.hook.until)) : 0;
   const text: Clip[] = [];
-  if (d.hook) text.push({ kind: 'hook', label: d.hook.text, t0: 0, t1: at(d.hook.until) });
+  if (d.hook) text.push({ kind: 'hook', label: d.hook.text, t0: 0, t1: hookEnd });
   for (const a of d.accents ?? []) text.push({ kind: 'accent', label: a.lines.map((l) => l.text).join(' '), ...span(a) });
   if (d.cta) text.push({ kind: 'cta', label: [...d.cta.lines, d.cta.word].join(' '), ...span(d.cta) });
 
-  const inserts: Clip[] = d.inserts.filter(isSpan).map((i) => ({
-    kind: i.kind, label: i.kind === 'text' ? (i.text ?? i.id ?? '') : (i.question ?? (i.src ? stem(i.src) : i.id ?? '')), ...span(i as Span),
-  }));
+  // вставки — не раньше конца хука и не короче MIN_SHOW (insert_spans движка)
+  const inserts: Clip[] = d.inserts.filter(isSpan).map((i) => {
+    const t0 = Math.max(at(i.t0 as number), hookEnd);
+    return {
+      kind: i.kind, label: i.kind === 'text' ? (i.text ?? i.id ?? '') : (i.question ?? (i.src ? stem(i.src) : i.id ?? '')),
+      t0, t1: Math.max(at(i.t1 as number), t0 + MIN_SHOW),
+    };
+  });
   const looks: Clip[] = (d.looks ?? []).map((l) => ({ kind: l.look, label: l.look, ...span(l) }));
   const transitions = (d.transitions ?? []).flatMap((x) => {
     const t = tl.toFinal(x.t);

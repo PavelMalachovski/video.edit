@@ -8,8 +8,8 @@
   "properties": {
     "duration": { "description": "Длина исходника source.mp4, с.", "type": "number", "exclusiveMinimum": 0 },
     "proxy": {
-      "description": "Прокси-видео: путь от папки задачи (out/ — Action переносит его в черновик релиза, страница берёт оттуда по имени), размер кадра, ключевой кадр каждые key с.",
-      "type": "object",
+      "description": "Прокси-видео: путь от папки задачи (out/ — Action переносит его в черновик релиза, страница берёт оттуда по имени), размер кадра, ключевой кадр каждые key с. null — прокси нет: исходник слишком длинный, редактор показывает дорожки без видео.",
+      "type": ["object", "null"],
       "required": ["file", "width", "height", "key"],
       "additionalProperties": false,
       "properties": {

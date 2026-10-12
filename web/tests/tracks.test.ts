@@ -46,7 +46,7 @@ test('text, inserts, looks, music and transitions are placed in final time', () 
   assert.deepEqual(t.text.map((c) => [c.kind, c.label]), [['hook', 'Как я снимаю'], ['accent', 'на']]);
   assert.ok(near(t.text[0].t0, 0) && near(t.text[0].t1, (1.5 + 0.2) / 1.25));
   assert.deepEqual(t.inserts.map((c) => [c.kind, c.label]), [['image', 'insert-1'], ['text', '3 ошибки']]);
-  assert.ok(near(t.inserts[0].t0, 1.2) && near(t.inserts[0].t1, 2.0));
+  assert.ok(near(t.inserts[0].t0, (1.5 + 0.2) / 1.25) && near(t.inserts[0].t1, (1.5 + 0.2) / 1.25 + 1.5), 'после хука, не короче 1,5 с');
   assert.deepEqual(t.looks.map((c) => [c.t0, c.t1]), [[0, 0.5 / 1.25]]);
   assert.deepEqual(t.music, { label: 'Calm Morning', gainDb: -14 });
   assert.ok(t.transitions.length === 1 && near(t.transitions[0].t, 1.2));
@@ -98,4 +98,27 @@ test('the frame layer at a moment: the subtitle group with the word being said, 
   assert.equal(subGroupSize(soft), 4);
   const s = overlayAt(soft, draftTracks(DRAFT, { perGroup: subGroupSize(soft) }), second).sub;
   assert.deepEqual(s, { words: ['Сегодня', 'покажу,', 'как'], active: 0, visible: 2, lines: [1, 2], opens: true, t: second - 0.5 / 1.25 }, 'новая строка «покажу, как» появилась с «покажу,»');
+});
+
+test('with a teaser the hook stands on the whole teaser, as the engine has it', () => {
+  const t = draftTracks({ ...DRAFT, teaser: { t0: 3.5, t1: 4.5 } });
+  const hook = t.text.find((c) => c.kind === 'hook');
+  assert.ok(hook && near(hook.t0, 0) && near(hook.t1, 1 / 1.25), `хук — весь тизер: ${JSON.stringify(hook)}`);
+});
+
+test('inserts show after the hook and at least 1.5 s, as insert_spans of the engine', () => {
+  const t = draftTracks({ ...DRAFT, inserts: [{ kind: 'image', src: 'in/a.png', t0: 0.6, t1: 0.8 }] });
+  const hookEnd = (1.5 + 0.2) / 1.25;
+  assert.ok(near(t.inserts[0].t0, hookEnd), `не раньше конца хука: ${t.inserts[0].t0}`);
+  assert.ok(near(t.inserts[0].t1, hookEnd + 1.5), `не короче 1,5 с: ${t.inserts[0].t1}`);
+});
+
+test('editor.json without a proxy (a very long source) is read; junk film or peaks are refused', () => {
+  const base = {
+    duration: 2, proxy: null, film: { file: 'film.jpg', step: 0.5, w: 54, h: 96, n: 4 }, peaks: { perS: 2, data: 'AAAA' },
+  };
+  assert.ok(parseMedia(base) && parseMedia(base)?.proxy === null);
+  assert.equal(parseMedia({ ...base, film: { ...base.film, n: 1001 } }), null);
+  assert.equal(parseMedia({ ...base, film: { ...base.film, n: 2.5 } }), null);
+  assert.equal(parseMedia({ ...base, peaks: { perS: 2.5, data: 'AAAA' } }), null);
 });

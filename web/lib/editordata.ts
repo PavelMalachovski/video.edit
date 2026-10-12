@@ -2,7 +2,7 @@
 // (ассет черновика релиза — через /media) и ленту кадров (картинка ветки — через /file), стили и выбор Павла. Правки
 // руками — timeline.json: сохранение с ревизией (без force, гонка вкладок — конфликт) и «Монтировать» из редактора.
 import { commitFiles, readText } from './branch.ts';
-import { parseTimeline, type HandEdits, type TimelineFile } from './edits.ts';
+import { hasEmoji, parseTimeline, type HandEdits, type TimelineFile } from './edits.ts';
 import { sameJson } from './equal.ts';
 import type { GH } from './github.ts';
 import { appendFix, parseStyle, type AnswersFile, type FixFile, type Released, type Styles } from './jobfiles.ts';
@@ -156,6 +156,7 @@ function parseSave(body: unknown): { base: number; hand: HandEdits } | string {
   if (!Number.isInteger(base) || (base as number) < 0) return 'base: ревизия, от которой правки';
   const parsed = parseTimeline({ rev: 1, ...hand });
   if (!parsed || 'rev' in hand || 'at' in hand) return 'правки не той формы';
+  if (parsed.words?.some((w) => hasEmoji(w.text))) return 'в субтитрах эмодзи нельзя — только слова, как сказаны';
   const { rev: _rev, ...edits } = parsed;
   return { base: base as number, hand: edits };
 }

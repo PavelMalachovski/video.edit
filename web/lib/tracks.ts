@@ -69,6 +69,9 @@ export type Clip = Span & {
   file?: string; // у звуков — файл (как в edit.json)
   videoNo?: number; // у кусков — из какого видео задачи (номер в EditorMedia.videos), если их список есть
   ref?: BlockRef; ghost?: boolean; drawn?: boolean;
+  // у блока текста и вставки — его место в речи (время ролика): ручки и перенос двигают его; на кадре блок бывает
+  // дольше (акцент держится после своих слов, вставка — не меньше 1,5 с) — этот хвост в правку не идёт
+  core?: [number, number];
 };
 /** Из чего слой строит события (как его увидит монтаж) и его шкала: и кадр редактора, и дорожки — из них. */
 export type Layer = { edit: OverlayEdit & { zooms: Draft['zooms'] }; tl: Timeline };
@@ -293,22 +296,39 @@ export function draftTracks(d: Draft, { style = PLAIN, sourceDuration, splits = 
 
   // хук, титр, акценты — где их рисует слой; убранные Павлом — тенью
   const text: Clip[] = [];
-  if (blocks.hook && shown.hook) text.push({ kind: 'hook', label: shown.hook.text, t0: blocks.hook.t0, t1: blocks.hook.t1, ref: { kind: 'hook' } });
-  else if (d.hook && !shown.hook) text.push({ kind: 'hook', label: d.hook.text, t0: 0, t1: Math.max(0.3, hookEnd(d as OverlayEdit, tl) / FPS), ref: { kind: 'hook' }, ghost: true });
+  const place = (s: Span): [number, number] => tl.span(Number(s.t0), Number(s.t1)); // место в речи — время ролика
+  const shade = (s: Span) => { // убранное — тенью на своём месте
+    const g = ghost(s);
+    return { ...g, core: [g.t0, g.t1] as [number, number], ghost: true };
+  };
+  if (blocks.hook && shown.hook) {
+    text.push({ kind: 'hook', label: shown.hook.text, t0: blocks.hook.t0, t1: blocks.hook.t1, ref: { kind: 'hook' }, core: [blocks.hook.t0, blocks.hook.t1] });
+  } else if (d.hook && !shown.hook) {
+    const t1 = Math.max(0.3, hookEnd(d as OverlayEdit, tl) / FPS);
+    text.push({ kind: 'hook', label: d.hook.text, t0: 0, t1, ref: { kind: 'hook' }, core: [0, t1], ghost: true });
+  }
   for (const b of blocks.accents) {
     const a = (layer.accents ?? [])[b.n];
     const o = originOf(a);
-    if (o) text.push({ kind: 'accent', label: a.lines.map((l) => l.text).join(' '), t0: b.t0, t1: b.t1, ref: { kind: 'accent', n: o.n, at: o.at, occurrence: o.occurrence } });
+    if (o) {
+      text.push({
+        kind: 'accent', label: a.lines.map((l) => l.text).join(' '), t0: b.t0, t1: b.t1, ref: { kind: 'accent', n: o.n, at: o.at, occurrence: o.occurrence },
+        core: place(a),
+      });
+    }
   }
   const left = new Set((shown.accents ?? []).map((a) => originOf(a)?.n));
   for (const a of base.accents ?? []) {
     const o = originOf(a) as Origin;
-    if (!left.has(o.n)) text.push({ kind: 'accent', label: a.lines.map((l) => l.text).join(' '), ...ghost(a), ref: { kind: 'accent', n: o.n, at: o.at, occurrence: o.occurrence }, ghost: true });
+    if (!left.has(o.n)) text.push({ kind: 'accent', label: a.lines.map((l) => l.text).join(' '), ...shade(a), ref: { kind: 'accent', n: o.n, at: o.at, occurrence: o.occurrence } });
   }
   if (blocks.cta && shown.cta && d.cta) {
-    text.push({ kind: 'cta', label: [...shown.cta.lines, shown.cta.word].join(' '), t0: blocks.cta.t0, t1: blocks.cta.t1, ref: { kind: 'cta', at: [d.cta.t0, d.cta.t1] } });
+    text.push({
+      kind: 'cta', label: [...shown.cta.lines, shown.cta.word].join(' '), t0: blocks.cta.t0, t1: blocks.cta.t1, ref: { kind: 'cta', at: [d.cta.t0, d.cta.t1] },
+      core: place(shown.cta),
+    });
   } else if (d.cta && !shown.cta) {
-    text.push({ kind: 'cta', label: [...d.cta.lines, d.cta.word].join(' '), ...ghost(d.cta), ref: { kind: 'cta', at: [d.cta.t0, d.cta.t1] }, ghost: true });
+    text.push({ kind: 'cta', label: [...d.cta.lines, d.cta.word].join(' '), ...shade(d.cta), ref: { kind: 'cta', at: [d.cta.t0, d.cta.t1] } });
   }
   text.sort((a, b) => a.t0 - b.t0);
 
@@ -325,12 +345,12 @@ export function draftTracks(d: Draft, { style = PLAIN, sourceDuration, splits = 
     const own = (shown.inserts as DraftInsert[])[n]; // как в черновике: ждущая ответа на дорожке — своего вида
     inserts.push({
       kind: own.kind, label: label(own), t0: start / FPS, t1: end / FPS, ref: { kind: 'insert', n, at: o.at, occurrence: o.occurrence },
-      drawn: DRAWN.includes(ins.kind),
+      drawn: DRAWN.includes(ins.kind), core: [start / FPS, Math.max(start / FPS, place(ins)[1])], // начало — где её видно (после хука, на доле)
     });
   }
   for (const ins of (shown.inserts ?? []) as DraftInsert[]) {
     const o = originOf(ins) as Origin;
-    if (ins.off) inserts.push({ kind: ins.kind, label: label(ins), ...ghost(ins), ref: { kind: 'insert', n: o.n, at: o.at, occurrence: o.occurrence }, ghost: true });
+    if (ins.off) inserts.push({ kind: ins.kind, label: label(ins), ...shade(ins), ref: { kind: 'insert', n: o.n, at: o.at, occurrence: o.occurrence } });
   }
   inserts.sort((a, b) => a.t0 - b.t0);
 
@@ -362,6 +382,12 @@ export function draftTracks(d: Draft, { style = PLAIN, sourceDuration, splits = 
     music: d.music ? { label: stem(d.music.file), gainDb: d.music.gainDb, ...Object.fromEntries(MUSIC_PLACE.filter((m) => d.music?.[m] !== undefined).map((m) => [m, d.music?.[m]])) } : null,
     layer: { edit: layer, tl },
   };
+}
+
+/** Блок на дорожках «Текст» и «Вставки» по виду и номеру в edit.json (у хука и титра номера нет); убранный — тень. */
+export function findBlock(t: Tracks, kind: 'hook' | 'cta' | 'accent' | 'insert', n = 0): Clip | null {
+  const list = kind === 'insert' ? t.inserts : t.text;
+  return list.find((c) => c.ref?.kind === kind && (kind === 'hook' || kind === 'cta' || ('n' in c.ref && c.ref.n === n))) ?? null;
 }
 
 // ---------- правки руками ----------

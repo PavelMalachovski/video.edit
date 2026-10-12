@@ -479,6 +479,39 @@ ul.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:
 .ed-flag.bad { background: color-mix(in srgb, var(--e-bad) 10%, white); color: var(--e-bad); }
 .ed-primary:disabled { opacity: .5; cursor: default; filter: none; }
 button.ed-primary { border: 0; font: inherit; font-weight: 700; cursor: pointer; }
+/* фаза 5: кадр как в ролике — картинка с зумом, ч/б, смазом и перебивкой, вспышка, слой, шкала */
+.ed-pic { position: absolute; inset: 0; overflow: hidden; }
+.ed-pic video { will-change: transform; }
+.ed-cover { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.ed-cover[hidden] { display: none; }
+.ed-cover-note { display: grid; place-items: center; padding: 16px; text-align: center; color: #fff; font-size: 13px; line-height: 1.45;
+  background: repeating-linear-gradient(135deg, #2A2F38 0 10px, #232830 10px 20px); }
+.ed-flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+.ed-pbar { position: absolute; left: 0; width: 0; pointer-events: none; }
+/* блоки субтитров, текста и вставок: выбрать, тянуть, растянуть; убранные — тенью */
+.ed-clip.sub, .ed-clip.text, .ed-clip.ins { cursor: pointer; }
+.ed-clip.text.movable, .ed-clip.ins.movable { cursor: grab; }
+.ed-clip.text.movable.sel, .ed-clip.ins.movable.sel { touch-action: none; }
+.ed-clip.text.dragging, .ed-clip.ins.dragging { cursor: grabbing; opacity: .85; z-index: 5; box-shadow: 0 6px 16px rgba(19, 21, 18, .25); }
+.ed-clip.ghost { background: transparent; border-style: dashed; opacity: .6; text-decoration: line-through; }
+/* хвост блока: на кадре он ещё виден (акцент — после своих слов, вставка — до 1,5 с), а его место в речи кончилось */
+.ed-hold { position: absolute; top: 0; bottom: 0; pointer-events: none; border-left: 1px dashed currentColor; opacity: .5;
+  background: repeating-linear-gradient(135deg, rgba(255, 255, 255, .7) 0 4px, transparent 4px 8px); }
+.ed-clip.faint { opacity: .6; }
+.ed-clip.text .ed-handle::after { background: var(--e-text); }
+.ed-clip.ins .ed-handle::after { background: var(--e-ins); }
+.ed-clip.text.sel .ed-handle::after, .ed-clip.ins.sel .ed-handle::after { background: var(--e-select); }
+.ed-text { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--e-muted); }
+.ed-text input { min-height: 36px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--e-line); background: var(--e-surface); color: var(--e-ink);
+  font: inherit; font-size: 14px; }
+.ed-text input:focus { outline: 2px solid var(--e-select); outline-offset: -1px; }
+.ed-text input[aria-invalid=true] { border-color: var(--e-bad); }
+.ed-text.struck input { text-decoration: line-through; color: var(--e-faint); }
+.ed-err { color: var(--e-bad); font-size: 12px; }
+.ed-words { display: flex; flex-direction: column; gap: 6px; }
+.ed-word { display: flex; align-items: flex-end; gap: 6px; }
+.ed-word > .ed-text { flex: 1; min-width: 0; }
+.ed-word > .ed-btn { flex: none; }
 @media (max-width: 860px) {
   .ed { grid-template-rows: auto auto auto; position: static; min-height: 100vh; }
   .ed-bar { flex-wrap: wrap; }

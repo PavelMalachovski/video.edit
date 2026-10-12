@@ -169,9 +169,10 @@ export function layerBlocks(edit: OverlayEdit, tl: Timeline): { hook: LayerBlock
   };
 }
 
-/** Состояние слоя в момент `t` финала: событие, в котором он лежит (граница — следующему; после конца — последнее). */
-export function stateAt(events: readonly LayerEvent[], t: number): Record<string, unknown> {
-  if (!events.length) return {};
+/** Номер события, в котором лежит момент `t` финала (граница — следующему; до начала — первое, после конца —
+ *  последнее); событий нет — −1. Кадр редактора перерисовывается, только когда номер меняется. */
+export function eventIndexAt(events: readonly LayerEvent[], t: number): number {
+  if (!events.length) return -1;
   let lo = 0;
   let hi = events.length - 1;
   while (lo < hi) { // последнее событие с t0 <= t
@@ -179,7 +180,13 @@ export function stateAt(events: readonly LayerEvent[], t: number): Record<string
     if (events[mid].t0 <= t) lo = mid;
     else hi = mid - 1;
   }
-  return events[lo].state;
+  return lo;
+}
+
+/** Состояние слоя в момент `t` финала: событие, в котором он лежит (граница — следующему; после конца — последнее). */
+export function stateAt(events: readonly LayerEvent[], t: number): Record<string, unknown> {
+  const i = eventIndexAt(events, t);
+  return i < 0 ? {} : events[i].state;
 }
 
 function subtitlePieces(edit: OverlayEdit, tl: Timeline): Piece[] {

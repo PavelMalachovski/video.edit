@@ -51,3 +51,36 @@ export function hookUntil(tl: Timeline, b: number): number {
 }
 
 const round3 = (x: number) => Math.round(x * 1000) / 1000;
+
+/** Строки дорожки для блоков, что идут одновременно (акцент поверх титра, две вставки сразу): каждому — первая строка,
+ *  где предыдущий блок уже кончился (стык — не перекрытие). → строка каждого блока (по порядку списка) и сколько строк. */
+export function stackRows(clips: readonly { t0: number; t1: number }[]): { row: number[]; count: number } {
+  const ends: number[] = [];
+  const row = new Array<number>(clips.length).fill(0);
+  const order = clips.map((c, i) => i).sort((a, b) => clips[a].t0 - clips[b].t0 || a - b);
+  for (const i of order) {
+    let r = ends.findIndex((end) => end <= clips[i].t0 + EPS);
+    if (r < 0) r = ends.push(0) - 1;
+    ends[r] = clips[i].t1;
+    row[i] = r;
+  }
+  return { row, count: Math.max(1, ends.length) };
+}
+
+/** Границы слов во времени ролика — к ним липнут края блоков: начало и конец каждого слова, что есть в ролике (середина
+ *  не вырезана — как его берёт build_sub_events), по шкале монтажа (не дальше своей серии кусков). */
+export function finalEdges(tl: Timeline, words: readonly { t0: number; t1: number }[]): number[] {
+  const out = new Set<number>();
+  for (const w of words) {
+    const t1 = Math.max(w.t0, w.t1);
+    if (tl.toFinal((w.t0 + t1) / 2) === null) continue;
+    for (const x of tl.span(w.t0, t1)) out.add(Math.round(x * 1e6) / 1e6);
+  }
+  return [...out].sort((a, b) => a - b);
+}
+
+/** Куда можно поставить блок текста или вставку (время ролика): не раньше конца хука (`hookFrame` — его кадр, hookEnd) и
+ *  конца тизера — так их ставит движок; не дальше конца ролика. */
+export function blockRoom(tl: Timeline, hookFrame: number): { floor: number; max: number } {
+  return { floor: Math.max(hookFrame / 30, tl.teaserDuration), max: tl.duration };
+}

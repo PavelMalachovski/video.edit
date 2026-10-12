@@ -1,5 +1,6 @@
 'use client';
-// Панели редактора справа от кадра: выбранное на дорожках (кусок, голос, музыка, звук) и стиль ролика.
+// Панели редактора справа от кадра: выбранное на дорожках (кусок, голос, музыка, звук) и стиль ролика; блоки текста и
+// вставок, слова субтитров — blockpanel.tsx.
 import type { EditorData } from '@/lib/editordata.ts';
 import type { EditorMedia } from '@/lib/tracks.ts';
 import { LIMITS, setMusic, setSound, setVoice, type HandEdits, type Level } from '@/lib/edits.ts';
@@ -9,11 +10,13 @@ import { ADJUSTABLE, type StyleChoice } from '@/lib/jobfiles.ts';
 import type { MusicMix } from '@/lib/sound.ts';
 import { choiceFor, clampTo, finalStyle, SUB_SHADE, SWATCHES } from '@/lib/style.ts';
 import { moveTarget, type Tracks } from '@/lib/tracks.ts';
+import type { BlockSel, SubSel } from './blockpanel';
 
 type TFn = (k: Key, v?: Record<string, string | number>) => string;
 
-/** Что выбрано на дорожках: кусок (номер в дорожке «Видео»), голос, музыка или звук (ключ правки громкости). */
-export type Selection = { kind: 'piece'; index: number } | { kind: 'voice' } | { kind: 'music' } | { kind: 'sound'; key: string };
+/** Что выбрано на дорожках: кусок (номер в дорожке «Видео»), голос, музыка, звук (ключ правки громкости), блок текста или
+ *  вставки, группа субтитров. */
+export type Selection = { kind: 'piece'; index: number } | { kind: 'voice' } | { kind: 'music' } | { kind: 'sound'; key: string } | BlockSel | SubSel;
 
 const db = (x: number) => `${x > 0 ? '+' : x < 0 ? '−' : ''}${Math.abs(Math.round(x))} dB`;
 
@@ -38,14 +41,16 @@ function LevelControls({ T, label, level, base, range, disabled, onLevel }: {
   );
 }
 
-export function Inspector({ T, sel, tracks, hand, mix, editable, splitHere, videos, onSplit, onDelete, onMove, onEdit, sec }: {
+export function Inspector({ T, sel, tracks, hand, mix, editable, canMove, splitHere, videos, onSplit, onDelete, onMove, onEdit, sec }: {
   T: TFn; sel: Selection | null; tracks: Tracks; hand: HandEdits; mix: MusicMix | null; editable: boolean;
+  canMove: boolean; // движок задачи примет перестановку кусков
   videos: EditorMedia['videos'] | null; // несколько видео задачи — кусок показывает, из какого он и где в файле
   splitHere: boolean; // плейхед внутри выбранного куска
   onSplit: () => void; onDelete: () => void; onMove: (index: number, slot: number) => void;
   onEdit: (next: HandEdits, key?: string) => void; sec: (s: number) => string;
 }) {
   if (!sel) return <p className="ed-note faint">{T('selectHint')}</p>;
+  if (sel.kind === 'block' || sel.kind === 'sub') return null;
   if (sel.kind === 'piece') {
     const c = tracks.video[sel.index];
     if (!c || c.src0 === undefined || c.src1 === undefined) return <p className="ed-note faint">{T('selectHint')}</p>;
@@ -67,10 +72,10 @@ export function Inspector({ T, sel, tracks, hand, mix, editable, splitHere, vide
               {T('delete')}
             </button>
             {/* переставить: перед предыдущим — или за следующий (перед тем, что за ним) */}
-            <button type="button" className="ed-btn" disabled={!editable || !moveTarget(tracks, i, i - 1)} onClick={() => onMove(i, i - 1)} title={T('earlierT')}>
+            <button type="button" className="ed-btn" disabled={!canMove || !moveTarget(tracks, i, i - 1)} onClick={() => onMove(i, i - 1)} title={T('earlierT')}>
               {T('earlier')}
             </button>
-            <button type="button" className="ed-btn" disabled={!editable || !moveTarget(tracks, i, i + 2)} onClick={() => onMove(i, i + 2)} title={T('laterT')}>
+            <button type="button" className="ed-btn" disabled={!canMove || !moveTarget(tracks, i, i + 2)} onClick={() => onMove(i, i + 2)} title={T('laterT')}>
               {T('later')}
             </button>
           </div>

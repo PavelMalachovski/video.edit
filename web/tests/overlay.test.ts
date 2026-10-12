@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { buildOverlayEvents, frameOf, insertSpans, layerBlocks, pyRound, renderTimeline, stateAt, type OverlayEdit } from '../lib/overlay.ts';
+import { buildOverlayEvents, eventIndexAt, frameOf, insertSpans, layerBlocks, pyRound, renderTimeline, stateAt, type OverlayEdit } from '../lib/overlay.ts';
 import { buildSubEvents, subBlocks, type Word } from '../lib/subs.ts';
 import { Timeline } from '../lib/timeline.ts';
 import { beatTimes, musicBeats, played, snapEdit } from '../lib/beats.ts';
@@ -164,4 +164,6 @@ test('the state at a moment of the video is the event that covers it', () => {
   assert.deepStrictEqual(stateAt(events, 2.5), { b: 2 }, 'конец ролика — последнему');
   assert.deepStrictEqual(stateAt(events, 9), { b: 2 });
   assert.deepStrictEqual(stateAt([], 1), {});
+  assert.deepEqual([0, 0.999, 1, 2.5, 9, -1].map((t) => eventIndexAt(events, t)), [0, 0, 1, 1, 1, 0], 'номер события — по нему кадр перерисовывается');
+  assert.equal(eventIndexAt([], 1), -1);
 });

@@ -54,3 +54,6 @@ export function pictureAt(m: PictureModel, t: number): Picture {
     cover: m.covers.find((c) => t >= c.t0 && t < c.t1) ?? null,
   };
 }
+
+/** Ч/б-кадр ролика на прокси (прокси без цветокора): CSS-фильтр <video>, дающий то же, что COLOR и BW движка вместе. */
+export const BW_FILTER = 'grayscale(1) brightness(0.806) contrast(1.271)';

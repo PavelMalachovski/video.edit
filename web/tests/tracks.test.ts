@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  decodePeaks, draftTracks, moveTarget, parseDraft, parseMedia, peakAt, slotAt, splitTarget, videoKey, withHandEdits, wordEdges, type Draft,
+  decodePeaks, draftTracks, findBlock, moveTarget, parseDraft, parseMedia, peakAt, slotAt, splitTarget, videoKey, withHandEdits, wordEdges, type Draft,
 } from '../lib/tracks.ts';
 import { setSound, setVoice } from '../lib/edits.ts';
 import { cutSpan, EMPTY, moveSpan, setMusic, splitAt } from '../lib/edits.ts';
@@ -331,4 +331,30 @@ test('Pavel\'s text fixes: blocks move and change where the engine puts them; wh
   assert.ok(sticker && sticker.drawn && near(sticker.t0, 50 / 30) && near(sticker.t1, t.duration),
     `стикер — после нового конца хука и до конца ролика (1,5 с не влезают — режет конец): ${sticker?.t0}–${sticker?.t1}`);
   assert.ok(!t.layer.edit.inserts?.some((i, n) => n === 0 && !i.off), 'в слое — выключенной');
+});
+
+test('a block on the tracks is found by its kind and number in edit.json, ghosts too', () => {
+  const d: Draft = { ...DRAFT, cta: { t0: 4.0, t1: 4.9, lines: ['Пиши'], word: 'ВИДЕО' } };
+  const t = draftTracks(d, { fixes: { text: { cta: { at: [4.0, 4.9], off: true } } } });
+  assert.equal(findBlock(t, 'hook')?.label, 'Как я снимаю');
+  assert.equal(findBlock(t, 'accent', 0)?.label, 'на');
+  assert.equal(findBlock(t, 'accent', 1), null);
+  assert.ok(findBlock(t, 'cta')?.ghost, 'убранный титр — тенью');
+  assert.equal(findBlock(t, 'insert', 1)?.label, '3 ошибки');
+});
+
+test('a block knows its place in the speech (core) apart from how long it stays: an accent lingers, an insert stays 1.5 s', () => {
+  const d: Draft = {
+    ...DRAFT, hook: null, cta: { t0: 4.0, t1: 4.9, lines: ['Пиши'], word: 'ВИДЕО' },
+    inserts: [{ kind: 'sticker', text: '3 ошибки', t0: 3.2, t1: 3.6, x: 100, y: 300, w: 400 }],
+  };
+  const t = draftTracks(d, { sourceDuration: 6 });
+  const accent = findBlock(t, 'accent', 0);
+  assert.ok(accent?.core && near(accent.core[0], (1.5 + 0.45) / 1.25) && near(accent.core[1], (1.5 + 0.95) / 1.25), `акцент — где сказаны его слова: ${accent?.core}`);
+  assert.ok(accent && accent.t1 > accent.core[1], 'держится и после них');
+  const cta = findBlock(t, 'cta');
+  assert.ok(cta?.core && near(cta.core[0], cta.t0) && near(cta.core[1], (1.5 + 1.9) / 1.25), `титр — ровно своё место: ${cta?.core}`);
+  const sticker = findBlock(t, 'insert', 0);
+  assert.ok(sticker?.core && near(sticker.core[0], sticker.t0) && near(sticker.core[1], (1.5 + 0.6) / 1.25), `стикер — своё место: ${sticker?.core}`);
+  assert.ok(sticker && sticker.t1 > sticker.core[1] + 1 && near(sticker.t1, t.duration), 'а на кадре — дольше (не меньше 1,5 с, тут — до конца ролика)');
 });

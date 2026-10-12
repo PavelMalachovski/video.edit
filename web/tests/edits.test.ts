@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
   applyKeep, applyText, commit, cutSpan, EMPTY, initHistory, LIMITS, moveSpan, parseTimeline, pieces, redo, restoreSpan, setBlock, setCta, setHook,
-  setMusic, setSound, setVoice, setWord, snapTo, splitAt, trimEnd, trimStart, undo, type Edit, type TextEdits, type WordFix,
+  setMusic, setSound, setVoice, setWord, snapTo, splitAt, trimEnd, trimStart, undo, type Edit, type TextEdits, type WordFix, blockFix, hasEmoji,
 } from '../lib/edits.ts';
 
 // Общая с движком фикстура: apply_keep в engine/vm/edits.py обязан давать то же самое.
@@ -186,4 +186,30 @@ test('setters: a block edit keeps to its place in the speech, merges, and goes a
   assert.deepEqual(setWord(w, 0.9, 1.2, 'Это').words?.at(-1), { t0: 0.9, t1: 1.2, text: 'Это' }, 'слово правят снова — одна правка');
   assert.equal(setWord(setWord(w, 0.9, 1.2, null), 1.3, 1.6, null).words, undefined);
   assert.ok(parseTimeline({ rev: 1, ...second }) && parseTimeline({ rev: 1, ...off }) && parseTimeline({ rev: 1, ...w }), 'сеттеры пишут то, что примет схема');
+});
+
+test('emoji in a subtitle word are refused before saving, as the engine font check refuses them (shared emoji fixture)', () => {
+  type Case = { why: string; text: string; runs: [string, ...string[]][] };
+  const cases = JSON.parse(fs.readFileSync(new URL('../../engine/tests/fixtures/emoji-runs.json', import.meta.url), 'utf8')) as Case[];
+  for (const c of cases) {
+    const emoji = c.runs.some((r) => r[0] === 'emoji');
+    // невидимый селектор FE0F после буквы движок считает текстом, а страница не пропустит — в слове он не нужен
+    if (emoji || c.text.includes('\uFE0F')) assert.equal(hasEmoji(c.text), true, c.why);
+    else assert.equal(hasEmoji(c.text), false, c.why);
+  }
+  assert.equal(hasEmoji('Привет — №1, €5 → ♪'), false, 'тире, номер, евро, стрелка, нота — буквы шрифта');
+});
+
+test('the hand fix of a block: the hook, the title by its place, the k-th accent or insert with the same place', () => {
+  let h = setHook(EMPTY, { text: 'Новый хук' });
+  h = setCta(h, [7, 8], { word: 'ВИДЕО' });
+  h = setBlock(h, 'accents', [3, 4], 1, { t0: 3.5 });
+  h = setBlock(h, 'inserts', [2, 3], 0, { off: true });
+  assert.deepEqual(blockFix(h, 'hook'), { text: 'Новый хук' });
+  assert.deepEqual(blockFix(h, 'cta', [7, 8]), { at: [7, 8], word: 'ВИДЕО' });
+  assert.equal(blockFix(h, 'cta', [7, 9]), null, 'другое место — не его правка');
+  assert.equal(blockFix(h, 'accent', [3, 4], 0), null, 'первый акцент с этим местом — как у сессии (пустая правка)');
+  assert.deepEqual(blockFix(h, 'accent', [3, 4], 1), { at: [3, 4], t0: 3.5 });
+  assert.deepEqual(blockFix(h, 'insert', [2, 3], 0), { at: [2, 3], off: true });
+  assert.equal(blockFix(EMPTY, 'hook'), null);
 });

@@ -109,7 +109,8 @@ test('saving hand edits: another tab saving in between is a conflict too (checke
 
 test('saving hand edits: a bad body, a job Claude is mounting right now, a job not found', () => withFake(async ({ fake, gh }) => {
   start(fake, { ...STATUS, state: 'rendering', phase: 'Монтирую', needs: undefined } as unknown as typeof STATUS);
-  for (const bad of [null, { base: 0 }, { base: -1, edits: [] }, { base: 0, edits: [{ op: 'jump', t: 1 }] }, { base: 0, edits: [], voice: { gainDb: 99 } }, { base: 0, edits: [], rev: 5 }]) {
+  for (const bad of [null, { base: 0 }, { base: -1, edits: [] }, { base: 0, edits: [{ op: 'jump', t: 1 }] }, { base: 0, edits: [], voice: { gainDb: 99 } }, { base: 0, edits: [], rev: 5 },
+    { base: 0, edits: [], words: [{ t0: 1, t1: 1.3, text: 'огонь🔥' }] }]) { // эмодзи в субтитрах не пропустит проверка шрифтов
     const r = await saveTimeline(gh, ID, bad, NOW);
     assert.ok(!r.ok && r.status === 400, JSON.stringify(bad));
   }

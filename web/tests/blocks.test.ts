@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { hookUntil, sourceSpan } from '../lib/blocks.ts';
+import { blockRoom, finalEdges, hookUntil, sourceSpan, stackRows } from '../lib/blocks.ts';
 import { Timeline } from '../lib/timeline.ts';
 
 const near = (a: number, b: number) => Math.abs(a - b) < 1e-6;
@@ -28,4 +28,24 @@ test('the hook end on the track is its moment in source order (pieces moved by h
   const moved = new Timeline([[6, 8], [0, 2], [3, 5]], 1.25);
   assert.ok(near(hookUntil(moved, 1.2), 1.5), 'по порядку исходника 1,2 с финала — 1,5 с записи');
   assert.ok(near(new Timeline([[6, 8], [0, 2], [3, 5]], 1.25).inSourceOrder().toFinalSnap(hookUntil(moved, 1.2)), 1.2));
+});
+
+test('blocks that overlap in time go on separate rows of the lane; the rest share the first row', () => {
+  const rows = stackRows([{ t0: 0, t1: 2 }, { t0: 1, t1: 3 }, { t0: 2, t1: 4 }, { t0: 2.5, t1: 2.8 }, { t0: 5, t1: 6 }]);
+  assert.deepEqual(rows.row, [0, 1, 0, 2, 0], 'стык — не перекрытие; третий слой — когда заняты оба');
+  assert.equal(rows.count, 3);
+  assert.deepEqual(stackRows([]), { row: [], count: 1 }, 'пустая дорожка — одна строка');
+});
+
+test('word edges in final time: where each kept word starts and ends in the video, once, in order', () => {
+  const tl = new Timeline([[0, 2], [3, 5]], 1.25);
+  const words = [{ t0: 0.5, t1: 1.0, text: 'а' }, { t0: 2.2, t1: 2.6, text: 'вырезано' }, { t0: 3.0, t1: 3.5, text: 'б' }, { t0: 3.5, t1: 4.0, text: 'в' }];
+  assert.deepEqual(finalEdges(tl, words).map((x) => Math.round(x * 1000) / 1000), [0.4, 0.8, 1.6, 2, 2.4], 'вырезанное слово — без краёв');
+});
+
+test('where a text block may go: not before the hook ends (or the teaser), not past the video', () => {
+  const tl = new Timeline([[0, 6]], 1, [4, 5]);
+  assert.deepEqual(blockRoom(tl, 30), { floor: 1, max: 7 }, 'с тизером: не раньше его конца (хук — на тизере)');
+  assert.deepEqual(blockRoom(new Timeline([[0, 6]], 1), 45), { floor: 1.5, max: 6 }, 'без тизера — с конца хука');
+  assert.deepEqual(blockRoom(new Timeline([[0, 6]], 1), 0), { floor: 0, max: 6 }, 'хука нет — с начала');
 });

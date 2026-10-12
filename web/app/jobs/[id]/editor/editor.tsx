@@ -1,35 +1,44 @@
 'use client';
-// Редактор (бета): светлый экран как у veed — кадр с прокси-видео и слоем шаблона (тот же, что рисует финал), под ним
-// таймлайн с дорожками черновика монтажа. Куски играются подряд, как в ролике (вырезанное пропускается, скорость — как у
-// монтажа). Правки руками: разрезать, удалить, вернуть и переставить куски, тянуть их края (липнут к словам), громкость
-// и «без звука» голоса, музыки и звуков, где звучит музыка; отмена и повтор. Правки сохраняются сами в timeline.json — движок
-// кладёт их поверх черновика при монтаже; прослушивание сводит звук как ролик (mixer.ts). «Монтировать» у готового
-// ролика — новая версия (правка с правками и стилем); до монтажа — старый экран с вопросами.
+// Редактор (бета): светлый экран как у veed — кадр с прокси-видео, под ним таймлайн с дорожками черновика монтажа.
+// Кадр — как в ролике: текст и вставки рисует тот же шаблон по тем же событиям, что финал (перенос
+// build_overlay_events), картинка — зум к лицу, ч/б, вспышка, смаз, перебивки по формулам движка (frame.tsx); куски
+// играются подряд (вырезанное пропускается, скорость — как у монтажа), после них — стоп-кадр и финальная карточка.
+// Правки руками: разрезать, удалить, вернуть и переставить куски, тянуть их края (липнут к словам); тянуть и растягивать
+// хук, титр, акценты и вставки, убирать и возвращать их, править их текст и слова субтитров; громкость и «без звука»
+// голоса, музыки и звуков, где звучит музыка; отмена и повтор. Правки сохраняются сами в timeline.json — движок кладёт
+// их поверх черновика при монтаже; прослушивание сводит звук как ролик (mixer.ts). «Монтировать» у готового ролика —
+// новая версия (правка с правками и стилем); до монтажа — старый экран с вопросами.
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { musicBeats } from '@/lib/beats.ts';
+import { blockRoom, finalEdges, hookUntil, sourceSpan, stackRows } from '@/lib/blocks.ts';
 import { storage } from '@/lib/client.ts';
-import type { EditorData } from '@/lib/editordata.ts';
+import { createClock } from '@/lib/clock.ts';
+import { layerUrl, type EditorData } from '@/lib/editordata.ts';
 import { sameJson } from '@/lib/equal.ts';
 import {
-  commit, cutSpan, EMPTY, initHistory, moveSpan, redo, restoreSpan, setMusic, setSound, setVoice, splitAt, trimEnd, trimStart, undo,
+  commit, cutSpan, EMPTY, initHistory, moveSpan, redo, restoreSpan, setBlock, setCta, setHook, setMusic, setVoice, splitAt, trimEnd, trimStart, undo,
   type HandEdits, type History,
 } from '@/lib/edits.ts';
 import { tenths } from '@/lib/format.ts';
 import { loadLang, saveLang, tr, type Key, type Lang } from '@/lib/i18n.ts';
-import type { StyleChoice } from '@/lib/jobfiles.ts';
-import { buildOverlayEvents, stateAt } from '@/lib/overlay.ts';
-import { allowedFonts, finalStyle, loadChoice, sampleState, saveChoice } from '@/lib/style.ts';
-import { advance, locate } from '@/lib/player.ts';
+import type { StyleChoice, StyleSpec } from '@/lib/jobfiles.ts';
+import { buildOverlayEvents, hookEnd, type LayerEvent } from '@/lib/overlay.ts';
+import { pictureModel } from '@/lib/picture.ts';
+import { advance, locate, stillSource, tailAt } from '@/lib/player.ts';
+import { allowedFonts, finalStyle, loadChoice, loadInsertBoxes, mergeStyle, placedInserts, sampleState, saveChoice } from '@/lib/style.ts';
 import { dragTo, type Drag, type DragView } from '@/lib/drag.ts';
 import { Saver, type PutResult } from '@/lib/saver.ts';
 import { audioUrl, levelsOf, musicMix } from '@/lib/sound.ts';
 import {
-  decodePeaks, draftTracks, moveTarget, peakAt, splitTarget, videoKey, withHandEdits, wordEdges, type Clip, type Tracks,
+  decodePeaks, draftTracks, findBlock, moveTarget, peakAt, splitTarget, timelineOf, videoKey, withHandEdits, wordEdges, type Clip, type Tracks,
 } from '@/lib/tracks.ts';
 import { BackIcon, PauseIcon, PlayIcon, PlusIcon, RedoIcon, ScissorsIcon, SpeakerIcon, TrashIcon, UndoIcon } from '../../../icons';
 import PreviewFrame from '../../../preview-frame';
 import { useTemplateFonts } from '../../../use-fonts';
+import { BlockPanel, isPicked, removeBlock, sameRef, WordsPanel } from './blockpanel';
+import { Bar, Layer, Picture } from './frame';
 import { Mixer, type MixPlan } from './mixer';
 import { Inspector, StylePanel, type Selection } from './panels';
 
@@ -40,12 +49,14 @@ const ZOOM = 1.5;
 const THUMB_H = 56;
 const TICKS = [0.5, 1, 2, 5, 10, 15, 30, 60, 120];
 const RELOAD_MS = 20_000; // пока нет черновика или прокси или Claude монтирует — спрашиваем снова
-const FRAME_HZ = 15; // столько раз в секунду обновляем слой кадра во время пуска
+const UI_HZ = 15; // столько раз в секунду во время пуска обновляется остальной экран (кадр и плейхед — каждый кадр)
 const SAVE_MS = 1200; // правки сохраняются, когда Павел остановился на столько
-const SNAP_PX = 8; // край куска липнет к границе слова ближе стольких px
+const SNAP_PX = 8; // край куска или блока липнет к границе слова ближе стольких px
+const ROW_H = 26; // px — строка дорожки субтитров, текста и вставок (блоки одновременно — друг под другом)
 const EDITABLE = ['questions', 'result', 'error']; // сессия не работает — правки можно сохранять
 
 type SaveState = { state: 'idle' | 'saving' | 'saved' | 'error' | 'conflict'; error?: string };
+type BlockDrag = Extract<Drag, { kind: 'block' }>;
 /** Правки из timeline.json — без ревизии и времени. */
 const handOf = (data: EditorData | null): HandEdits => {
   if (!data?.timeline) return EMPTY;
@@ -121,6 +132,12 @@ export default function Editor({ id }: { id: string }) {
   const hand = hist.present;
   const dirty = hand !== saved;
   const editable = Boolean(data?.draft) && EDITABLE.includes(data?.screen ?? '');
+  const mounted = Boolean(data?.answers);
+  // что примет движок задачи (старая задача — старый движок) и когда правится текст: после монтажа (до него ответы на
+  // вопросы ещё поменяют хук, титр и вставки — правки потеряли бы своё место)
+  const canMove = editable && (data?.abilities.move ?? true);
+  const canText = editable && mounted && (data?.abilities.text ?? true);
+  const textNote = !data?.draft ? null : !mounted ? T('textAfterMount') : !data.abilities.text ? T('textOld') : null;
 
   // правки из ветки: при первой загрузке, после «Загрузить их» и когда пришла чужая ревизия (вторая вкладка), а своих
   // несохранённых нет. Своя сохранённая ревизия — уже в rev: данные с ней ничего не сбрасывают.
@@ -186,9 +203,8 @@ export default function Editor({ id }: { id: string }) {
   const [hint, setHint] = useState('');
   const [sel, setSel] = useState<Selection | null>(null);
 
-  // ---------- черновик с правками ----------
+  // ---------- стиль: какой увидит ролик ----------
   const styles = data?.styles ?? null;
-  const mounted = Boolean(data?.answers);
   const [choice, setChoiceState] = useState<StyleChoice | null>(null);
   const shown = useRef<unknown>(undefined); // стиль ролика, от которого начат выбор: новые данные с тем же — выбор не трогают
   useEffect(() => {
@@ -205,24 +221,87 @@ export default function Editor({ id }: { id: string }) {
     setChoiceState(c);
     if (!mounted) saveChoice(storage(), id, styles, c); // до монтажа — общий с «Превью»
   };
-  const styleChanged = mounted && choice !== null && !sameJson(choice, data?.answers?.style);
-  const spec = useMemo(() => (styles && choice ? finalStyle(styles, choice) : null), [styles, choice]);
+  const answered = data?.answers?.style ?? null;
+  const styleChanged = mounted && choice !== null && !sameJson(choice, answered);
+  const videoStyle = data?.draft?.style ?? null;
+  // стиль слоя: смонтированный ролик — стиль из edit.json (выбор Павла и правки текстом); Павел выбрал другой — новый
+  // поверх него, как сложит монтаж (vm style --onto); до монтажа — по выбору
+  const spec = useMemo((): StyleSpec | null => {
+    if (!styles || !choice) return null;
+    const picked = finalStyle(styles, choice);
+    if (!videoStyle || !answered) return picked;
+    if (sameJson(choice, answered)) return videoStyle;
+    return mergeStyle(finalStyle(styles, answered), videoStyle, picked);
+  }, [styles, choice, videoStyle, answered]);
   const fonts = useTemplateFonts();
   const offered = useMemo(() => (styles ? allowedFonts(fonts, styles) : []), [fonts, styles]); // со всеми буквами ролика
 
+  // ---------- черновик с правками ----------
   const sourceDuration = data?.media?.duration;
-  // дорожки — по кускам и музыке: громкость голоса и звуков их не пересчитывает (и плеер не перематывает)
-  const edited = useMemo(() => (data?.draft ? withHandEdits(data.draft, { edits: hand.edits, music: hand.music }, sourceDuration) : null),
-    [data, hand.edits, hand.music, sourceDuration]);
-  const tracks: Tracks | null = useMemo(() => (edited
-    ? draftTracks(edited.draft, { ...(spec ? { style: spec } : {}), sourceDuration, splits: edited.splits, videos: data?.media?.videos, fixes: { text: hand.text, words: hand.words } })
-    : null), [edited, spec, sourceDuration, data?.media?.videos, hand.text, hand.words]);
+  // до монтажа вставки стоят там, куда Павел их поставил на «Превью» (их рамки положит монтаж — placed_inserts)
+  const draft = useMemo(() => {
+    const d = data?.draft ?? null;
+    if (!d || mounted) return d;
+    const boxes = loadInsertBoxes(storage(), id);
+    return Object.keys(boxes).length ? { ...d, inserts: placedInserts(d.inserts, boxes) } : d;
+  }, [data?.draft, mounted, id]);
+  // куски и музыка: громкость голоса и звуков их не пересчитывает (и плеер не перематывает)
+  const edited = useMemo(() => (draft ? withHandEdits(draft, { edits: hand.edits, music: hand.music }, sourceDuration) : null),
+    [draft, hand.edits, hand.music, sourceDuration]);
+  // доли музыки ролика (beats.json): вставки и зум встают на них, как в render.on_beats; выключенная музыка — без долей
+  const beats = useMemo(() => {
+    if (!edited || !data?.beats) return null;
+    try {
+      return musicBeats(data.beats, hand.music?.muted ? null : edited.draft.music, timelineOf(edited.draft, sourceDuration).duration);
+    } catch {
+      return null;
+    }
+  }, [edited, data?.beats, hand.music?.muted, sourceDuration]);
+  // дорожки и слой — с правками текста; не сложились (так монтаж правку не примет) — без них, чтобы экран не пропал
+  const tracks: Tracks | null = useMemo(() => {
+    if (!edited) return null;
+    const base = { ...(spec ? { style: spec } : {}), sourceDuration, splits: edited.splits, videos: data?.media?.videos, beats };
+    try {
+      return draftTracks(edited.draft, { ...base, fixes: { text: hand.text, words: hand.words } });
+    } catch {
+      try {
+        return draftTracks(edited.draft, base);
+      } catch {
+        return null;
+      }
+    }
+  }, [edited, spec, sourceDuration, data?.media?.videos, hand.text, hand.words, beats]);
   const videos = (data?.media?.videos?.length ?? 0) > 1 ? data?.media?.videos ?? null : null; // несколько видео задачи — где какое
   const mix = useMemo(() => musicMix(data?.draft?.music ?? null, hand.music), [data, hand.music]);
   const edges = useMemo(() => (data?.draft ? wordEdges(data.draft) : []), [data]);
   const peaks = useMemo(() => (data?.media ? decodePeaks(data.media.peaks.data) : null), [data]);
   const duration = tracks?.duration ?? 0;
+  const tail = tracks?.tail ?? 0;
+  const full = duration + tail; // с хвостом: стоп-кадр и карточка после кусков
   const speed = data?.draft?.speed ?? 1;
+  const tl = tracks?.layer.tl ?? null;
+  const blockEdges = useMemo(() => (tl && data?.draft ? finalEdges(tl, data.draft.words) : []), [tl, data?.draft]);
+  const room = useMemo(() => (tracks ? blockRoom(tracks.layer.tl, hookEnd(tracks.layer.edit, tracks.layer.tl)) : { floor: 0, max: 0 }), [tracks]);
+
+  // слой кадра: события, которые нарисует финал; картинки вставок и логотип — по адресам страницы
+  const head = data?.head ?? null;
+  const urlOf = useCallback((path: string) => layerUrl(id, head, path), [id, head]);
+  const events = useMemo((): LayerEvent[] | null => {
+    if (!tracks) return null;
+    const { edit, tl: line } = tracks.layer;
+    const drawn = {
+      ...edit,
+      inserts: (edit.inserts ?? []).map((i) => (i.src ? { ...i, src: urlOf(i.src) } : i)),
+      end: edit.end?.logo ? { ...edit.end, logo: urlOf(edit.end.logo) } : edit.end,
+    };
+    try {
+      return buildOverlayEvents(drawn, line);
+    } catch {
+      return null;
+    }
+  }, [tracks, urlOf]);
+  const picture = useMemo(() => (tracks && edited
+    ? pictureModel(tracks.layer, { face: edited.draft.face, transitions: edited.draft.transitions, looks: edited.draft.looks }) : null), [tracks, edited]);
 
   /** Правка в историю: куски не должны пропасть совсем (движку нечего монтировать). */
   const edit = useCallback((next: HandEdits, key?: string) => {
@@ -237,20 +316,22 @@ export default function Editor({ id }: { id: string }) {
   const doUndo = useCallback(() => setHist(undo), []);
   const doRedo = useCallback(() => setHist(redo), []);
 
-  // ---------- плеер: куски подряд ----------
+  // ---------- плеер: куски подряд, потом стоп-кадр и карточка ----------
   const video = useRef<HTMLVideoElement>(null);
   const piece = useRef(0);
   const playhead = useRef<HTMLDivElement>(null);
-  const clock = useRef<HTMLSpanElement>(null);
+  const clockText = useRef<HTMLSpanElement>(null);
+  const clock = useMemo(() => createClock(0), []);
   const now = useRef(0);
   const scale = useRef(40);
+  const playingRef = useRef(false);
+  const tailFrom = useRef<number | null>(null); // хвост играет: когда (мс performance.now) он начался бы с начала
   const mixer = useRef<Mixer | null>(null);
   useEffect(() => {
     const m = new Mixer();
     mixer.current = m;
     return () => m.close();
   }, []);
-  const head = data?.head ?? null;
   const plan: MixPlan | null = useMemo(() => (tracks && head ? {
     duration: tracks.duration + tracks.tail, // музыка затухает к концу ролика — после стоп-кадра и карточки
     voice: hand.voice ?? {},
@@ -270,22 +351,36 @@ export default function Editor({ id }: { id: string }) {
     v.muted = Boolean(hand.voice?.muted);
   }, [hand.voice, data?.proxyUrl]);
 
-  const show = useCallback((tf: number) => { // плейхед и часы — без React, каждый кадр
+  const show = useCallback((tf: number) => { // часы (кадр и шкала подписаны на них), плейхед и время — без React, каждый кадр
     now.current = tf;
+    clock.set(tf);
     if (playhead.current) playhead.current.style.transform = `translateX(${HEAD + tf * scale.current}px)`;
-    if (clock.current) clock.current.textContent = tenths(tf);
-  }, []);
+    if (clockText.current) clockText.current.textContent = tenths(tf);
+  }, [clock]);
 
   const seek = useCallback((tf: number) => {
     if (!tracks?.video.length) return;
-    const x = Math.min(Math.max(0, tf), duration);
-    const { index, src } = locate(tracks.video, speed, x);
-    piece.current = index;
+    const x = Math.min(Math.max(0, tf), full);
     const v = video.current;
-    if (v && v.readyState > 0) v.currentTime = src;
+    if (x >= duration && tail > 0) { // стоп-кадр и карточка: видео стоит на последнем кадре, часы идут сами
+      piece.current = tracks.video.length - 1;
+      if (v && v.readyState > 0) v.currentTime = stillSource(tracks.video);
+      if (playingRef.current) {
+        v?.pause();
+        tailFrom.current = performance.now() - (x - duration) * 1000;
+      }
+    } else {
+      const { index, src } = locate(tracks.video, speed, x);
+      piece.current = index;
+      if (v && v.readyState > 0) v.currentTime = src;
+      if (tailFrom.current !== null) { // из хвоста — обратно в куски: видео снова играет
+        tailFrom.current = null;
+        if (playingRef.current) void v?.play().catch(() => undefined);
+      }
+    }
     show(x);
     setT(x);
-  }, [tracks, duration, speed, show]);
+  }, [tracks, full, duration, tail, speed, show]);
   const seekRef = useRef(seek);
   seekRef.current = seek;
   const vkey = tracks ? videoKey(tracks) : '';
@@ -294,21 +389,42 @@ export default function Editor({ id }: { id: string }) {
   const pause = useCallback(() => {
     video.current?.pause();
     mixer.current?.stop();
+    playingRef.current = false;
+    tailFrom.current = null;
     setPlaying(false);
   }, []);
+  /** Куски кончились: дальше — стоп-кадр и карточка (их нет — false: ролик кончился). */
+  const toTail = useCallback((ms: number): boolean => {
+    const v = video.current;
+    if (!tracks?.video.length || tail <= 0) return false;
+    v?.pause();
+    if (v) v.currentTime = stillSource(tracks.video);
+    piece.current = tracks.video.length - 1;
+    tailFrom.current = ms;
+    show(duration);
+    return true;
+  }, [tracks, tail, duration, show]);
   const play = useCallback(async () => {
     const v = video.current;
     if (!v || !tracks?.video.length) return;
-    if (v.ended || now.current >= duration - 0.05) seek(0); // доиграл — сначала
+    if (now.current >= full - 0.05) seek(0); // доиграл — сначала
     v.playbackRate = speed;
+    playingRef.current = true;
+    if (tail > 0 && now.current >= duration) { // в хвосте: часы сами, видео стоит
+      tailFrom.current = performance.now() - (now.current - duration) * 1000;
+      setPlaying(true);
+      if (plan) void mixer.current?.start(() => now.current, plan);
+      return;
+    }
     try {
       await v.play();
       setPlaying(true);
       if (plan) void mixer.current?.start(() => now.current, plan);
     } catch {
+      playingRef.current = false;
       setPlaying(false);
     }
-  }, [tracks, duration, speed, seek, plan]);
+  }, [tracks, full, duration, tail, speed, seek, plan]);
 
   useEffect(() => {
     if (!playing || !tracks) return;
@@ -317,19 +433,35 @@ export default function Editor({ id }: { id: string }) {
     const tick = (ms: number) => {
       const v = video.current;
       if (!v) return;
-      const step = advance(tracks.video, speed, piece.current, v.currentTime); // конец куска — следующий, вырезанное мимо
-      piece.current = step.index;
-      if (step.end) {
-        pause();
-        show(duration);
-        setT(duration);
-        return;
+      let tf: number;
+      if (tailFrom.current !== null) {
+        const r = tailAt(duration, full, tailFrom.current, ms);
+        if (r.end) {
+          pause();
+          show(full);
+          setT(full);
+          return;
+        }
+        tf = r.t;
+      } else {
+        const step = advance(tracks.video, speed, piece.current, v.currentTime); // конец куска — следующий, вырезанное мимо
+        piece.current = step.index;
+        if (step.end) {
+          if (!toTail(ms)) {
+            pause();
+            show(duration);
+            setT(duration);
+            return;
+          }
+          tf = duration;
+        } else {
+          if (step.seek !== undefined) v.currentTime = step.seek;
+          tf = step.t;
+        }
       }
-      if (step.seek !== undefined) v.currentTime = step.seek;
-      const tf = step.t;
       show(tf);
       mixer.current?.sync(tf);
-      if (ms - last > 1000 / FRAME_HZ) {
+      if (ms - last > 1000 / UI_HZ) {
         last = ms;
         setT(tf);
       }
@@ -337,7 +469,7 @@ export default function Editor({ id }: { id: string }) {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [playing, tracks, speed, duration, pause, show]);
+  }, [playing, tracks, speed, duration, full, pause, show, toTail]);
 
   // ссылка на ассет короткоживущая: видео перестало грузиться — берём адрес снова, встаём туда же и, если играло, играем
   const retried = useRef(0);
@@ -355,8 +487,10 @@ export default function Editor({ id }: { id: string }) {
       if (was) void play();
     }, { once: true });
   };
-  // доиграл — плейхед в конце ролика (видео могло кончиться раньше последнего куска)
+  // видео кончилось раньше, чем это заметил кадр плеера: дальше — хвост; его нет — плейхед в конце кусков
   const onEnded = () => {
+    if (tailFrom.current !== null) return;
+    if (playingRef.current && toTail(performance.now())) return;
     pause();
     if (tracks?.video.length) piece.current = tracks.video.length - 1;
     show(duration);
@@ -371,6 +505,7 @@ export default function Editor({ id }: { id: string }) {
   // ---------- правки на дорожках ----------
   const keep = edited?.draft.keep ?? [];
   const selPiece = sel?.kind === 'piece' ? tracks?.video[sel.index] ?? null : null;
+  const selBlock = sel?.kind === 'block' && tracks ? findBlock(tracks, sel.block, sel.n) : null;
   const splitSrc = tracks ? splitTarget(tracks, t) : null;
   const splitHere = Boolean(selPiece && splitSrc !== null && splitSrc > (selPiece.src0 as number) && splitSrc < (selPiece.src1 as number));
   const doSplit = useCallback(() => {
@@ -383,16 +518,20 @@ export default function Editor({ id }: { id: string }) {
     edit(cutSpan(hand, selPiece.src0, selPiece.src1));
     setSel(null);
   }, [selPiece, edit, hand]);
+  const doRemoveBlock = useCallback(() => {
+    if (!selBlock?.ref || selBlock.ghost || !canText) return;
+    edit(removeBlock(hand, selBlock.ref));
+  }, [selBlock, canText, edit, hand]);
   const doRestore = (c: { src0: number; src1: number }) => edit(restoreSpan(hand, c.src0, c.src1));
   // переставить кусок перед куском `slot`; выбранным остаётся он — на новом месте, плейхед — в его начало
   const follow = useRef<number | null>(null); // момент исходника внутри переставленного куска
   const doMove = useCallback((index: number, slot: number) => {
     if (!tracks) return;
     const m = moveTarget(tracks, index, slot);
-    if (!m || !editable) return; // правка не пройдёт — выбор не должен потом прыгнуть
+    if (!m || !canMove) return; // правка не пройдёт — выбор не должен потом прыгнуть
     follow.current = (m.t0 + m.t1) / 2;
     edit(moveSpan(hand, m.t0, m.t1, m.before));
-  }, [tracks, edit, hand, editable]);
+  }, [tracks, edit, hand, canMove]);
   useEffect(() => {
     const src = follow.current;
     if (src === null || !tracks) return;
@@ -403,7 +542,7 @@ export default function Editor({ id }: { id: string }) {
     seekRef.current(tracks.video[k].t0);
   }, [tracks]);
 
-  useEffect(() => { // клавиши: пробел — пуск, S — разрезать, Delete — удалить кусок, Ctrl+Z / Ctrl+Shift+Z — отмена и повтор
+  useEffect(() => { // клавиши: пробел — пуск, S — разрезать, Delete — удалить кусок или убрать блок, Ctrl+Z / Ctrl+Shift+Z — отмена и повтор
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       if (el && (el.closest('input, textarea, select') || el.isContentEditable)) return;
@@ -428,14 +567,15 @@ export default function Editor({ id }: { id: string }) {
       } else if (e.code === 'KeyS' && editable) {
         e.preventDefault();
         doSplit();
-      } else if ((e.code === 'Delete' || e.code === 'Backspace') && editable && selPiece) {
+      } else if ((e.code === 'Delete' || e.code === 'Backspace') && editable && (selPiece || selBlock)) {
         e.preventDefault();
-        doDelete();
+        if (selPiece) doDelete();
+        else doRemoveBlock();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [playing, play, pause, editable, doSplit, doDelete, doUndo, doRedo, selPiece]);
+  }, [playing, play, pause, editable, doSplit, doDelete, doRemoveBlock, doUndo, doRedo, selPiece, selBlock]);
 
   // ---------- кадр ----------
   const stage = useRef<HTMLDivElement>(null);
@@ -453,15 +593,6 @@ export default function Editor({ id }: { id: string }) {
     ro.observe(el);
     return () => ro.disconnect();
   }, [data]);
-  const events = useMemo(() => {
-    if (!tracks) return null;
-    try {
-      return buildOverlayEvents(tracks.layer.edit, tracks.layer.tl);
-    } catch {
-      return null;
-    }
-  }, [tracks]);
-  const overlay = useMemo(() => (events ? stateAt(events, t) : null), [events, t]);
   // черновика ещё нет — кадр-образец сессии с текстом-образцом: стиль видно и так
   const sample = useMemo(() => (spec && styles && !tracks ? sampleState(spec, styles.sample, styles.sample.hook ?? null, []) : null),
     [spec, styles, tracks]);
@@ -479,7 +610,6 @@ export default function Editor({ id }: { id: string }) {
     ro.observe(el);
     return () => ro.disconnect();
   }, [data]);
-  const full = duration + (tracks?.tail ?? 0); // с хвостом: стоп-кадр и карточка после кусков
   const fitPps = full > 0 ? laneW / full : 40;
   const maxPps = full > 0 ? Math.min(400, MAX_WIDTH / full) : 400;
   const px = Math.min(maxPps, Math.max(Math.min(fitPps, 4), pps ?? fitPps));
@@ -497,19 +627,39 @@ export default function Editor({ id }: { id: string }) {
     seek(x / px);
   };
 
-  // края кусков и музыка — мышью или пальцем: тянем, отпустили — правка
+  // края кусков, куски, музыка, блоки текста и вставок — мышью или пальцем: тянем, отпустили — правка
   const [drag, setDrag] = useState<Drag | null>(null);
+  const noClick = useRef(false);
   const grab = (e: React.PointerEvent, d: Drag) => {
     e.stopPropagation();
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
     setDrag(d);
   };
-  const dragView = (t: Tracks): DragView => ({ tracks: t, px, speed, edges, snapPx: SNAP_PX, duration });
+  const dragView = (on: Tracks): DragView => ({ tracks: on, px, speed, edges, snapPx: SNAP_PX, duration, finalEdges: blockEdges });
   const onDragMove = (e: React.PointerEvent) => {
     if (!drag || !tracks) return;
-    e.stopPropagation(); // ручка — внутри клипа музыки: тот же жест не обрабатываем дважды
+    e.stopPropagation(); // ручка — внутри клипа: тот же жест не обрабатываем дважды
     setDrag(dragTo(drag, e.clientX, dragView(tracks)));
+  };
+  /** Блок перетащили или растянули: где он теперь в исходнике (как его прочтёт движок) — в правку. */
+  const commitBlock = (d: BlockDrag) => {
+    if (!tracks) return;
+    const line = tracks.layer.tl;
+    const ref = d.ref;
+    if (ref.kind === 'hook') {
+      edit(setHook(hand, { until: hookUntil(line, d.b) }));
+      return;
+    }
+    const span = sourceSpan(line, d.a, d.b);
+    if (!span) {
+      setHint(T('inTeaser'));
+      return;
+    }
+    if (span.t1 <= span.t0) return; // в самом конце своей серии кусков места нет — такую правку движок не примет
+    if (ref.kind === 'cta') edit(setCta(hand, ref.at, span));
+    else if (ref.kind === 'accent') edit(setBlock(hand, 'accents', ref.at, ref.occurrence, span));
+    else if (ref.kind === 'insert') edit(setBlock(hand, 'inserts', ref.at, ref.occurrence, span));
   };
   const onDragEnd = (e: React.PointerEvent) => {
     if (!drag || !tracks) return;
@@ -530,7 +680,9 @@ export default function Editor({ id }: { id: string }) {
       noClick.current = true; // щелчок после перетаскивания — не выбор (номер куска уже другой)
       if (released.slot !== null) doMove(released.index, released.slot);
     } else if (released.kind === 'block') {
-      return;
+      if (!released.moved) return; // щелчок — выбор (onClick блока)
+      noClick.current = true;
+      commitBlock(released);
     } else if (!released.moved) { // щелчок по музыке — выбрать и встать туда
       setSel({ kind: 'music' });
       const box = lanes.current?.querySelector('.ed-row.music .ed-lane')?.getBoundingClientRect();
@@ -540,14 +692,36 @@ export default function Editor({ id }: { id: string }) {
     }
   };
   const dragProps = { onPointerMove: onDragMove, onPointerUp: onDragEnd, onPointerCancel: () => setDrag(null) };
-  const noClick = useRef(false);
   // кусок тянут целиком: мышью — сразу, пальцем — выбранный (иначе палец листает дорожки)
   const grabPiece = (e: React.PointerEvent<HTMLDivElement>, index: number, picked: boolean) => {
     noClick.current = false;
-    if (!editable || e.button !== 0 || (e.pointerType === 'touch' && !picked)) return;
+    if (!canMove || e.button !== 0 || (e.pointerType === 'touch' && !picked)) return;
     const lane = e.currentTarget.parentElement?.getBoundingClientRect();
     if (!lane) return;
     grab(e, { kind: 'piece', index, x0: e.clientX, tf0: (e.clientX - lane.left) / px, dx: 0, slot: null, moved: false });
+  };
+  // блок тянут так же: целиком (хук — только за конец), за край — растянуть; не раньше конца хука и тизера. Тянут его
+  // место в речи — хвост (акцент держится после слов, вставка — не меньше 1,5 с) движок добавит сам
+  const grabBlock = (e: React.PointerEvent<HTMLElement>, c: Clip, mode: BlockDrag['mode'], picked: boolean) => {
+    noClick.current = false;
+    if (!c.ref || c.ref.kind === 'sub' || e.button !== 0 || (mode === 'move' && e.pointerType === 'touch' && !picked)) return;
+    const [t0, t1] = c.core ?? [c.t0, c.t1];
+    grab(e, {
+      kind: 'block', ref: c.ref, mode, x0: e.clientX, t0, t1, a: t0, b: t1, moved: false,
+      floor: c.ref.kind === 'hook' ? 0 : room.floor, max: room.max,
+    });
+  };
+  // щелчок по блоку или группе субтитров — выбрать и встать на её начало (кадр её покажет)
+  const pickClip = (c: Clip) => {
+    if (noClick.current) {
+      noClick.current = false;
+      return;
+    }
+    const ref = c.ref;
+    if (!ref) return;
+    if (ref.kind === 'sub') setSel({ kind: 'sub', from: ref.words[0]?.t0 ?? 0, to: ref.words.at(-1)?.t1 ?? 0 });
+    else setSel({ kind: 'block', block: ref.kind, n: 'n' in ref ? ref.n : 0 });
+    seek(c.t0);
   };
   // куда встанет перетаскиваемый кусок (время ролика) — только если место другое
   const dropAt = drag?.kind === 'piece' && drag.slot !== null && tracks && moveTarget(tracks, drag.index, drag.slot)
@@ -599,12 +773,45 @@ export default function Editor({ id }: { id: string }) {
     });
   };
   const sec = (s: number) => T('seconds', { n: lang === 'en' ? s.toFixed(1) : s.toFixed(1).replace('.', ',') });
-  const clip = (c: Clip, cls: string, label: string, key: string | number) => (
-    <div key={key} className={`ed-clip ${cls}`} style={{ left: X(c.t0), width: Math.max(2, X(c.t1 - c.t0)) }} title={`${label} · ${tenths(c.t0)}–${tenths(c.t1)}`}>
-      <span>{label}</span>
-    </div>
-  );
   const kindName: Record<string, Key> = { hook: 'hook', accent: 'accent', cta: 'cta' };
+  /** Блоки дорожки (группы субтитров, текст, вставки): идущие одновременно — друг под другом; выбранный, тени убранных,
+   *  бледные — вставки, которых на кадре нет (ждут ответа, без места; перебивку на весь кадр рисует картинка); ручки
+   *  краёв у тех, что можно тянуть (хук — только за конец, с тизером — никак: он стоит на всём тизере). */
+  const blockRow = (clips: Clip[], cls: string, label: (c: Clip) => string) => {
+    const { row, count } = stackRows(clips);
+    const els = clips.map((c, i) => {
+      const ref = c.ref;
+      const picked = isPicked(sel, c);
+      const block = ref && ref.kind !== 'sub' ? ref : null;
+      const dragging = drag?.kind === 'block' && block && sameRef(drag.ref, block) && drag.moved ? drag : null;
+      // место в речи и хвост после него; пока тянут — место там, куда тянут, хвост — той же длины
+      const core = c.core ?? [c.t0, c.t1];
+      const tailS = Math.max(0, c.t1 - core[1]);
+      const a = dragging ? dragging.a : Math.min(c.t0, core[0]);
+      const end = dragging ? dragging.b : core[1];
+      const b = dragging ? dragging.b + tailS : Math.max(c.t1, core[1]);
+      const tailW = X(b - end);
+      const can = Boolean(block && canText && !c.ghost && !(block.kind === 'hook' && tl?.teaser));
+      const movable = can && block?.kind !== 'hook';
+      return (
+        <div key={`${cls}${i}${c.ghost ? 'g' : ''}`} data-kind={ref?.kind} data-n={block && 'n' in block ? block.n : undefined}
+          className={`ed-clip ${cls}${c.drawn === false && c.kind !== 'fullscreen' ? ' faint' : ''}${c.ghost ? ' ghost' : ''}${picked ? ' sel' : ''}${movable ? ' movable' : ''}${dragging ? ' dragging' : ''}`}
+          style={{ left: X(a), width: Math.max(4, X(b - a)), top: 3 + row[i] * ROW_H, height: ROW_H - 4, bottom: 'auto' }}
+          title={`${label(c)} · ${tenths(dragging ? a : c.t0)}–${tenths(dragging ? b : c.t1)}`}
+          onClick={() => pickClip(c)}
+          {...(movable ? { onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => grabBlock(e, c, 'move', picked), ...dragProps } : {})}>
+          {tailW >= 1 ? <span className="ed-hold" style={{ left: X(end - a), width: tailW }} aria-hidden="true" /> : null}
+          {movable ? <span className="ed-handle start" aria-hidden="true" onPointerDown={(e) => grabBlock(e, c, 'start', picked)} {...dragProps} /> : null}
+          {can ? (
+            <span className="ed-handle end" aria-hidden="true" style={tailW >= 1 ? { left: X(end - a) - 6, right: 'auto' } : undefined}
+              onPointerDown={(e) => grabBlock(e, c, 'end', picked)} {...dragProps} />
+          ) : null}
+          <span>{label(c)}</span>
+        </div>
+      );
+    });
+    return { els, height: 6 + count * ROW_H };
+  };
   // где стоит край куска, пока его тянут (время финала)
   const ghost = drag?.kind === 'trim' && tracks ? (() => {
     const c = tracks.video[drag.index];
@@ -656,6 +863,9 @@ export default function Editor({ id }: { id: string }) {
   const saveText = save.state === 'saving' ? T('saving') : save.state === 'error' ? T('saveFailed', { e: save.error ?? '' })
     : save.state === 'conflict' ? T('conflict') : dirty ? '' : save.state === 'saved' ? T('saved') : '';
   const styleNote = styleLocked ? T('styleLocked') : mounted ? T('styleMounted') : T('styleShared');
+  const subRow = tracks ? blockRow(tracks.subtitles, 'sub', (c) => c.label) : null;
+  const textRow = tracks ? blockRow(tracks.text, 'text', (c) => `${T(kindName[c.kind] ?? 'text')}: ${c.label}`) : null;
+  const insRow = tracks ? blockRow(tracks.inserts, 'ins', (c) => c.label) : null;
 
   return (
     <div className="ed">
@@ -683,15 +893,17 @@ export default function Editor({ id }: { id: string }) {
       <div className="ed-main">
         <section className="ed-stage" ref={stage} aria-label={T('video')}>
           <div className="ed-frame" style={{ width: frameW, height: Math.round((frameW * 16) / 9) }}>
-            {data?.proxyUrl ? (
-              <video ref={video} src={data.proxyUrl} playsInline preload="auto" onError={onVideoError}
-                onLoadedMetadata={() => seek(now.current)} onEnded={onEnded} data-editor-video="" />
+            {tracks ? (
+              <Picture clock={clock} model={picture} video={video} src={data?.proxyUrl ?? null} duration={duration} width={frameW} playing={playing}
+                urlOf={urlOf} note={T('coverUpload')}>
+                {data?.proxyUrl ? (
+                  <video ref={video} src={data.proxyUrl} playsInline preload="auto" onError={onVideoError}
+                    onLoadedMetadata={() => seek(now.current)} onEnded={onEnded} data-editor-video="" />
+                ) : null}
+              </Picture>
             ) : null}
-            {spec && overlay ? (
-              <div className="ed-layer">
-                <PreviewFrame frameUrl={null} spec={spec} state={overlay} progress={duration ? t / duration : 0} width={frameW} big />
-              </div>
-            ) : null}
+            {tracks ? <Layer clock={clock} events={events} spec={spec} width={frameW} /> : null}
+            {tracks ? <Bar clock={clock} spec={spec} duration={duration} width={frameW} /> : null}
             {spec && sample && frameUrl ? (
               <div className="ed-layer">
                 <PreviewFrame frameUrl={frameUrl} spec={spec} state={sample} progress={0.3} width={frameW} big />
@@ -704,11 +916,18 @@ export default function Editor({ id }: { id: string }) {
         <aside className="ed-side">
           {data?.screen === 'working' ? <p className="ed-note ed-flag">{mount.state === 'started' ? T('mountStarted') : T('working')}</p> : null}
           {mount.state === 'error' ? <p className="ed-note ed-flag bad" role="alert">{T('mountFailed', { e: mount.error ?? '' })}</p> : null}
+          {tracks && draft && sel?.kind === 'block' ? (
+            <BlockPanel T={T} sel={sel} tracks={tracks} draft={draft} hand={hand} editable={canText} note={editable ? textNote : null} onEdit={edit} sec={sec} />
+          ) : null}
+          {tracks && draft && sel?.kind === 'sub' ? (
+            <WordsPanel T={T} sel={sel} tracks={tracks} draft={draft} hand={hand} editable={canText} note={editable ? textNote : null} onEdit={edit} sec={sec} />
+          ) : null}
           {tracks ? (
-            <Inspector T={T} sel={sel} tracks={tracks} hand={hand} mix={mix} editable={editable} splitHere={splitHere} videos={videos}
+            <Inspector T={T} sel={sel} tracks={tracks} hand={hand} mix={mix} editable={editable} canMove={canMove} splitHere={splitHere} videos={videos}
               onSplit={doSplit} onDelete={doDelete} onMove={doMove} onEdit={edit} sec={sec} />
           ) : null}
           {hint ? <p className="ed-note ed-flag bad" role="status">{hint}</p> : null}
+          {data?.draft && editable && !data.abilities.move ? <p className="ed-note faint">{T('moveOld')}</p> : null}
           {styles && choice ? (
             <StylePanel T={T} styles={styles} choice={choice} spec={spec} offered={offered} locked={styleLocked} note={styleNote} onPick={pick} />
           ) : null}
@@ -757,15 +976,15 @@ export default function Editor({ id }: { id: string }) {
         <div className="ed-bar">
           <button type="button" className="ed-play" onClick={() => (playing ? pause() : void play())} disabled={!data?.proxyUrl || !tracks}
             aria-label={playing ? T('pause') : T('play')}>{playing ? <PauseIcon /> : <PlayIcon />}</button>
-          <span className="mono ed-clock"><span ref={clock}>{tenths(t)}</span> / {tenths(duration)}</span>
+          <span className="mono ed-clock"><span ref={clockText}>{tenths(t)}</span> / {tenths(full)}</span>
           <span className="ed-sep" />
           <button type="button" className="ed-icon" aria-label={T('undo')} title={T('undoT')} onClick={doUndo} disabled={!editable || !hist.past.length}><UndoIcon /></button>
           <button type="button" className="ed-icon" aria-label={T('redo')} title={T('redoT')} onClick={doRedo} disabled={!editable || !hist.future.length}><RedoIcon /></button>
           <button type="button" className="ed-tool" aria-label={T('split')} title={T('splitT')} onClick={doSplit} disabled={!editable || splitSrc === null}>
             <ScissorsIcon /><span>{T('split')}</span>
           </button>
-          <button type="button" className="ed-tool" aria-label={T('delete')} title={T('deleteT')} onClick={doDelete}
-            disabled={!editable || !selPiece || selPiece.kind !== 'piece'}>
+          <button type="button" className="ed-tool" aria-label={T('delete')} title={T('deleteT')} onClick={() => (selPiece ? doDelete() : doRemoveBlock())}
+            disabled={!editable || !((selPiece && selPiece.kind === 'piece') || (selBlock && !selBlock.ghost && canText))}>
             <TrashIcon /><span>{T('delete')}</span>
           </button>
           <span className="ed-save" data-state={save.state} role="status">
@@ -778,7 +997,7 @@ export default function Editor({ id }: { id: string }) {
           <button type="button" className="ed-icon" aria-label={T('zoomIn')} onClick={() => setPps(px * ZOOM)} disabled={px >= maxPps - 1e-6}>+</button>
         </div>
         <div className="ed-scroll" ref={lanes}>
-          {tracks ? (
+          {tracks && subRow && textRow && insRow ? (
             <div className="ed-inner" style={{ width: HEAD + width + 24 }}>
               <div className="ed-ruler" style={{ marginLeft: HEAD, width }} onPointerDown={onLanes}>
                 {Array.from({ length: Math.floor(full / tick) + 1 }, (_, k) => (
@@ -788,7 +1007,7 @@ export default function Editor({ id }: { id: string }) {
               <Row name={T('video')} cls="video" width={width} onSeek={onLanes}>
                 {tracks.video.map((c, i) => {
                   const picked = sel?.kind === 'piece' && sel.index === i;
-                  const movable = editable && c.kind === 'piece';
+                  const movable = canMove && c.kind === 'piece';
                   const dragging = drag?.kind === 'piece' && drag.index === i && drag.moved;
                   return (
                     <div key={`${c.src0}-${c.src1}`}
@@ -866,15 +1085,9 @@ export default function Editor({ id }: { id: string }) {
                   })}
                 </Row>
               ) : null}
-              <Row name={T('subtitles')} cls="sub" width={width} onSeek={onLanes}>
-                {tracks.subtitles.map((c, i) => clip(c, 'sub', c.label, i))}
-              </Row>
-              <Row name={T('text')} cls="text" width={width} onSeek={onLanes}>
-                {tracks.text.map((c, i) => clip(c, 'text', `${T(kindName[c.kind] ?? 'text')}: ${c.label}`, i))}
-              </Row>
-              <Row name={T('inserts')} cls="ins" width={width} onSeek={onLanes}>
-                {tracks.inserts.map((c, i) => clip(c, 'ins', c.label, i))}
-              </Row>
+              <Row name={T('subtitles')} cls="sub" width={width} height={subRow.height} onSeek={onLanes}>{subRow.els}</Row>
+              <Row name={T('text')} cls="text" width={width} height={textRow.height} onSeek={onLanes}>{textRow.els}</Row>
+              <Row name={T('inserts')} cls="ins" width={width} height={insRow.height} onSeek={onLanes}>{insRow.els}</Row>
               <div className="ed-playhead" ref={playhead} aria-hidden="true" />
             </div>
           ) : <div className="ed-empty pad">{notice}</div>}
@@ -884,13 +1097,14 @@ export default function Editor({ id }: { id: string }) {
   );
 }
 
-function Row({ name, cls, width, onSeek, tool, children }: {
-  name: string; cls: string; width: number; onSeek: (e: React.PointerEvent<HTMLDivElement>) => void; tool?: React.ReactNode; children: React.ReactNode;
+function Row({ name, cls, width, height, onSeek, tool, children }: {
+  name: string; cls: string; width: number; height?: number; onSeek: (e: React.PointerEvent<HTMLDivElement>) => void; tool?: React.ReactNode;
+  children: React.ReactNode;
 }) {
   return (
     <div className={`ed-row ${cls}`}>
       <div className="ed-head"><span>{name}</span>{tool}</div>
-      <div className="ed-lane" style={{ width }} onPointerDown={onSeek}>{children}</div>
+      <div className="ed-lane" style={{ width, ...(height ? { height } : {}) }} onPointerDown={onSeek}>{children}</div>
     </div>
   );
 }

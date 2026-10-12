@@ -357,6 +357,21 @@ export function setBlock<K extends 'accents' | 'inserts'>(h: HandEdits, kind: K,
   return withText(h, { ...h.text, [kind]: list });
 }
 
+/** Правка руками блока, если она есть: хук; титр по месту `at`; `occurrence`-й акцент или вставка с местом `at` (так их
+ *  сопоставляет applyText). Пустая правка («как есть» — только место) — null. */
+export function blockFix(h: HandEdits, kind: 'hook' | 'cta' | 'accent' | 'insert', at?: At, occurrence = 0): HookFix | CtaFix | AccentFix | InsertFix | null {
+  if (kind === 'hook') return h.text?.hook ?? null;
+  if (kind === 'cta') return h.text?.cta && at && sameAt(h.text.cta.at, at) ? h.text.cta : null;
+  const list: (AccentFix | InsertFix)[] = (kind === 'accent' ? h.text?.accents : h.text?.inserts) ?? [];
+  const f = list.filter((x) => at && sameAt(x.at, at))[occurrence];
+  return f && Object.keys(f).length > 1 ? f : null;
+}
+
+/** Есть ли в тексте эмодзи — в слове субтитров их не примет проверка шрифтов движка (fonts.check: «субтитры только
+ *  слова»). Правило — mayHaveEmoji шаблона (template/emoji.js): знак, который по умолчанию картинка, или FE0F, ZWJ,
+ *  кейкап — есть в любой последовательности эмодзи; «№», «€», «→», «♪» — буквы. */
+export const hasEmoji = (text: string): boolean => /\p{Emoji_Presentation}|[\u200D\uFE0F\u20E3]/u.test(text);
+
 /** Слово субтитров (t0, t1 — как в edit.json): текст Павла; '' — слова нет в субтитрах; null — как у сессии. */
 export function setWord(h: HandEdits, t0: number, t1: number, text: string | null): HandEdits {
   const rest = (h.words ?? []).filter((w) => !(w.t0 === t0 && w.t1 === t1));

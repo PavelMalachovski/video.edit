@@ -7,7 +7,7 @@ import subprocess
 
 import pytest
 
-from vm import editor
+from vm import audio, editor
 from vm.job import Job
 from vm.media import probe
 
@@ -37,6 +37,21 @@ def test_proxy_is_small_vertical_with_sound_and_a_key_frame_every_half_second(jo
     keys = keyframes(proxy)
     assert len(keys) >= 6 and all(b - a <= 0.51 for a, b in itertools.pairwise(keys)), keys
     assert info["proxy"] == {"file": "out/proxy.mp4", "width": 540, "height": 960, "key": 0.5}
+
+
+def test_the_proxy_voice_is_as_loud_as_the_voice_in_the_video(job, tmp_path):
+    """Редактор сводит голос прокси с музыкой и звуками как движок, поэтому голос прокси — на громкости голоса в
+    ролике (VOICE_LUFS), и у тихой записи тоже: иначе на прослушивании музыка звучала бы громче, чем в ролике."""
+    quiet = tmp_path / "quiet.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(job.path("source.mp4")), "-af", "volume=-24dB", "-c:v", "copy",
+                    "-c:a", "aac", str(quiet)], check=True)
+    shutil.copy(quiet, job.path("source.mp4"))
+    assert audio._loudness(quiet, 2, 30) < audio.VOICE_LUFS - 15
+    editor.make(job)
+    proxy = job.path("out/proxy.mp4")
+    level = audio._loudness(proxy, 2, 30)
+    assert level is not None and abs(level - audio.VOICE_LUFS) < 2.5, level
+    assert abs(probe(proxy).duration - probe(job.path("source.mp4")).duration) < 0.1, "звук не длиннее картинки"
 
 
 def test_editor_json_has_the_peaks_and_the_film_strip_and_passes_its_schema(job):

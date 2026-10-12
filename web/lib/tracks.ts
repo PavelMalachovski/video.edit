@@ -40,6 +40,7 @@ export type EditorMedia = {
  *  (время финала), у звуков `key` — ключ правки громкости (insert:<n>, teaser, transition:<n>, end). */
 export type Clip = Span & {
   kind: string; label: string; src0?: number; src1?: number; words?: DraftWord[]; piece?: number; edgeStart?: boolean; edgeEnd?: boolean; key?: string;
+  file?: string; // у звуков — файл (как в edit.json)
 };
 export type Tracks = {
   duration: number; // длина финала, с
@@ -207,7 +208,7 @@ export function draftTracks(d: Draft, { perGroup = 3, sourceDuration, splits = [
   // звуки — где их ставит движок (_sounds): вставка — с её появлением, тизер — на стыке, переход — с его началом,
   // карточка — в конце ролика
   const sounds: Clip[] = [];
-  const sound = (key: string, t: number, file: string) => sounds.push({ kind: 'sound', key, label: stem(file), t0: t, t1: t + SOUND_SHOW });
+  const sound = (key: string, t: number, file: string) => sounds.push({ kind: 'sound', key, file, label: stem(file), t0: t, t1: t + SOUND_SHOW });
   d.inserts.forEach((ins, i) => {
     const shown = inserts.find((c) => c.index === i);
     if (ins.sfx && shown) sound(`insert:${i}`, shown.t0, ins.sfx);

@@ -17,6 +17,7 @@ from pathlib import Path
 
 import numpy as np
 
+from .audio import LOUDNORM
 from .git import MAX_FILE_BYTES
 from .job import Job
 from .media import MediaError, _atomic, _ffmpeg, extract_wav, probe
@@ -63,7 +64,9 @@ def _proxy(source: Path, out: Path, duration: float, fps: float, audio: bool) ->
             "-vf", f"scale={PROXY['width']}:{PROXY['height']}:flags=bicubic,format=yuv420p",
             "-c:v", "libx264", "-preset", "veryfast", "-crf", 28, "-maxrate", rate, "-bufsize", 2 * rate,
             "-g", gop, "-keyint_min", gop, "-sc_threshold", 0,
-            *(["-c:a", "aac", "-b:a", audio_rate(duration), "-ac", 2] if audio else []),
+            # голос — на громкости голоса в ролике (как его выравнивает движок): редактор сводит его с музыкой как в ролике
+            *(["-af", f"{LOUDNORM},aresample=48000,atrim=end={duration:.3f}", "-c:a", "aac", "-b:a", audio_rate(duration), "-ac", 2]
+              if audio else []),
             "-movflags", "+faststart", tmp,
         )
 

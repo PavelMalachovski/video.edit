@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { audioUrl, editorFix, loadEditor, MEDIA_NAMES, mediaAsset, saveTimeline, timelineOf } from '../lib/editordata.ts';
+import { editorFix, loadEditor, MEDIA_NAMES, mediaAsset, saveTimeline, timelineOf } from '../lib/editordata.ts';
 import type { AnswersFile } from '../lib/jobfiles.ts';
 import { withFake } from './helpers.ts';
 
@@ -145,9 +145,4 @@ test('«Монтировать» from the editor: a fix with the saved revision 
   assert.ok('error' in badStyle && badStyle.status === 400);
   const unmounted = editorFix({ editor: { style } }, { rev: 0, answers: null, fix: null }, NOW);
   assert.ok('error' in unmounted && unmounted.status === 409, 'стиль меняется у смонтированного ролика');
-});
-
-test('the editor hears the music and the sounds through the page (same origin), pinned to the head', () => {
-  const head = 'a'.repeat(40);
-  assert.equal(audioUrl(ID, head, 'assets/music/lo fi.mp3'), `/api/jobs/${ID}/audio?path=assets%2Fmusic%2Flo%20fi.mp3&v=${head}`);
 });

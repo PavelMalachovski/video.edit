@@ -69,9 +69,6 @@ export async function loadEditor(gh: GH, id: string): Promise<EditorData | null>
   };
 }
 
-/** Звук (музыка, звуки появления) — через страницу: тот же источник, Web Audio его читает; с головой — кэшируется. */
-export const audioUrl = (id: string, head: string, file: string): string => `/api/jobs/${id}/audio?path=${encodeURIComponent(file)}&v=${head}`;
-
 // ---------- правки руками: timeline.json ----------
 
 export const TIMELINE = 'timeline.json';

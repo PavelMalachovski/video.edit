@@ -104,6 +104,7 @@ jobs:
           path: ~/.cache/vm
           key: vm-models-${{ hashFiles('setup/cloud-setup.sh') }}
       - name: Models — setup/cloud-setup.sh, as in the cloud environment
+        shell: bash  # явный bash — с pipefail: сбой установки не прячется за tee
         run: |
           bash setup/cloud-setup.sh | tee setup.log
           grep -E '^[A-Z_]+=' setup.log >> "$GITHUB_ENV"

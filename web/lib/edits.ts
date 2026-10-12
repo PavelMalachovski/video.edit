@@ -172,7 +172,8 @@ function parseEdit(x: unknown): Edit | null {
   if (!isObj(x)) return null;
   if (x.op === 'split') return Object.keys(x).length === 2 && isNum(x.t) && x.t >= 0 ? (x as Edit) : null;
   if (x.op !== 'cut' && x.op !== 'restore') return null;
-  return Object.keys(x).length === 3 && isNum(x.t0) && isNum(x.t1) && x.t0 >= 0 && x.t1 >= 0 ? (x as Edit) : null;
+  // конец позже начала — схема этого не скажет, а applyKeep на такой правке упал бы (движок её отвергает)
+  return Object.keys(x).length === 3 && isNum(x.t0) && isNum(x.t1) && x.t0 >= 0 && x.t1 > x.t0 ? (x as Edit) : null;
 }
 
 /** timeline.json → правки; не та форма (как по схеме) — null. */

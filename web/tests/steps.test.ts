@@ -126,6 +126,18 @@ test('back after a failed fix drops that fix and keeps the finished video', () =
   assert.equal(read(fake, `claude/job-${ID}`, 'status.json').state, 'rendered');
 }));
 
+test('back after a failed fix from the editor with a new style puts the rendered style back into answers.json', () => withFake(async ({ fake, gh, routine }) => {
+  fake.addAsset(`job-${ID}`, 'manifest.json', JSON.stringify(MANIFEST));
+  const d: Deps = { gh, routine, now: () => NOW };
+  await startJob(d, ID);
+  const old = { variant: 'A' as const, font: 'montserrat', hand: 'caveat', colors: { text: '#FFFFFF', accent: '#FFD400', bar: '#FFD400' } };
+  const fix = appendFix(null, 'Правки в редакторе', NOW, { timeline: 2, styleFrom: old });
+  await runStep(d, ID, 'fix', { 'fix.json': JSON.stringify(fix), 'answers.json': JSON.stringify({ answers: {}, style: { ...old, variant: 'B' } }) });
+  assert.deepEqual(await backStep(d, ID), { screen: 'result' });
+  assert.deepEqual(read(fake, `claude/job-${ID}`, 'fix.json'), { fixes: [] });
+  assert.deepEqual(read(fake, `claude/job-${ID}`, 'answers.json'), { answers: {}, style: old }, 'стиль — тот, в котором ролик смонтирован');
+}));
+
 test('back after a failed analyze is refused', () => withFake(async ({ fake, gh, routine }) => {
   fake.addAsset(`job-${ID}`, 'manifest.json', JSON.stringify(MANIFEST));
   const d: Deps = { gh, routine, now: () => NOW };

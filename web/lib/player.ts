@@ -21,7 +21,10 @@ export function advance(video: Clip[], speed: number, index: number, current: nu
   if (current >= (c.src1 as number) - EDGE) {
     const next = video[index + 1];
     if (!next) return { index, t: c.t1, end: true };
-    return { index: index + 1, t: next.t0, seek: next.src0 as number };
+    const src0 = next.src0 as number;
+    // следующий кусок — сразу за этим в исходнике (разрез Павла): видео играет дальше, без перемотки и подгрузки
+    if (Math.abs(src0 - (c.src1 as number)) < EDGE) return { index: index + 1, t: next.t0 + Math.max(0, current - src0) / speed };
+    return { index: index + 1, t: next.t0, seek: src0 };
   }
   return { index, t: Math.min(c.t1, c.t0 + Math.max(0, current - (c.src0 as number)) / speed) };
 }

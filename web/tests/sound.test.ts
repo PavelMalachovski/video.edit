@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  audioUrl, dbToGain, DEFAULT_MUSIC_DB, envelopeCurve, FADE_IN, FADE_OUT, levelsOf, loudnessDb, MUSIC_BOOST, musicEnvelope, musicGainDb, musicMix,
-  musicOffset, SFX_GAIN_DB, soundPlan, VOICE_LUFS,
+  audioUrl, dbToGain, DEFAULT_MUSIC_DB, MIN_MUSIC, envelopeCurve, FADE_IN, FADE_OUT, levelsOf, loudnessDb, MUSIC_BOOST, musicEnvelope, musicGainDb, musicMix,
+  musicOffset, scheduleKey, SFX_GAIN_DB, soundPlan, VOICE_LUFS,
 } from '../lib/sound.ts';
 
 const close = (a: number, b: number, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} ≈ ${b}`);
@@ -11,7 +11,8 @@ const close = (a: number, b: number, eps = 1e-6) => assert.ok(Math.abs(a - b) < 
 test('the mix numbers are the engine\'s (audio.py): voice level, music boost, sounds, fades, default music dB', () => {
   const py = readFileSync(new URL('../../engine/vm/audio.py', import.meta.url), 'utf8');
   const num = (name: string) => Number(new RegExp(`^${name} = (-?[\\d.]+)`, 'm').exec(py)?.[1]);
-  assert.deepEqual([VOICE_LUFS, MUSIC_BOOST, SFX_GAIN_DB, FADE_IN, FADE_OUT], ['VOICE_LUFS', 'MUSIC_BOOST', 'SFX_GAIN_DB', 'FADE_IN', 'FADE_OUT'].map(num));
+  assert.deepEqual([VOICE_LUFS, MUSIC_BOOST, SFX_GAIN_DB, FADE_IN, FADE_OUT, MIN_MUSIC],
+    ['VOICE_LUFS', 'MUSIC_BOOST', 'SFX_GAIN_DB', 'FADE_IN', 'FADE_OUT', 'MIN_MUSIC'].map(num));
   assert.match(py, new RegExp(`music\\.get\\("gainDb", ${DEFAULT_MUSIC_DB}\\)`));
 });
 
@@ -66,6 +67,11 @@ test('track loudness: channel power summed (mono counts twice, as the engine spr
   half.set(sine);
   close(loudnessDb([half], 48000, 1) as number, -0.691 + 10 * Math.log10(0.25), 0.01);
   assert.equal(loudnessDb([new Float32Array(1000)], 48000, 10), null);
+  // с места трека: тихое вступление пропущено — меряется то, что звучит (как _loudness движка с -ss)
+  const intro = new Float32Array(96000);
+  intro.set(sine, 48000);
+  close(loudnessDb([intro], 48000, 1, 1) as number, -0.691 + 10 * Math.log10(0.25), 0.01);
+  assert.equal(loudnessDb([intro], 48000, 1, 0), null, 'тишина вступления');
 });
 
 test('levels: the voice as loud as the element can play (up to 1); a louder voice turns the rest down — the balance stays', () => {
@@ -86,4 +92,16 @@ test('sounds from a moment: the coming ones wait, one still ringing plays on fro
   const plan = soundPlan(sounds, { end: { muted: true } }, 2.5, () => 2);
   assert.deepEqual(plan.map((p) => [p.key, p.when, p.offset]), [['insert:0', 0, 1.5], ['teaser', 0.5, 0]]);
   assert.deepEqual(soundPlan(sounds, {}, 5, () => 1).map((p) => p.key), ['end']);
+});
+
+test('what plays when (the schedule) — not how loud: a volume or mute change needs no restart of the music and sounds', () => {
+  const music = { file: 'm.mp3', gainDb: -14, muted: false, at: 1, from: 0, fadeIn: 0.1, fadeOut: 1 };
+  const sounds = [{ key: 'insert:0', t0: 2, file: 'pop.wav' }];
+  const key = scheduleKey({ duration: 10, music, sounds });
+  assert.equal(scheduleKey({ duration: 10, music: { ...music, gainDb: -30, muted: true }, sounds }), key);
+  assert.notEqual(scheduleKey({ duration: 10, music: { ...music, at: 2 }, sounds }), key);
+  assert.notEqual(scheduleKey({ duration: 10, music: { ...music, fadeOut: 3 }, sounds }), key);
+  assert.notEqual(scheduleKey({ duration: 10, music, sounds: [{ ...sounds[0], t0: 3 }] }), key);
+  assert.notEqual(scheduleKey({ duration: 12, music, sounds }), key);
+  assert.notEqual(scheduleKey({ duration: 10, music: null, sounds }), key);
 });

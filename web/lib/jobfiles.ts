@@ -355,8 +355,9 @@ export function answersFile(p: ParsedAnswers, job: JobFile): AnswersFile {
 export type Note = { text: string; at: string };
 export type RestyleFile = { requests: Note[] };
 /** Правка: текстом («Поправить») или «Монтировать» из редактора — `timeline` (ревизия timeline.json с правками руками) и
- *  `style` (стиль поменян: новый — в answers.json). */
-export type FixFile = { fixes: (Note & { version: number; timeline?: number; style?: true })[] };
+ *  `style` (стиль поменян: новый — в answers.json, прошлый — `styleFrom`: по нему vm style --onto сохраняет правки
+ *  текстом, а «Вернуть готовый ролик» — стиль ролика). */
+export type FixFile = { fixes: (Note & { version: number; timeline?: number; style?: true; styleFrom?: StyleChoice })[] };
 
 export function parseNote(body: unknown): string | { error: string } {
   const text = isObject(body) && typeof body.text === 'string' ? body.text.trim() : '';
@@ -370,13 +371,14 @@ export function appendRestyle(prev: RestyleFile | null, text: string, now: Date)
 }
 
 /** Правка k получает версию k + 1: первый ролик — final.mp4, после первой правки — final-v2.mp4. `editor` — что
- *  монтировать из редактора. */
-export function appendFix(prev: FixFile | null, text: string, now: Date, editor: { timeline?: number; style?: boolean } = {}): FixFile {
+ *  монтировать из редактора: ревизию правок руками и, если стиль поменян, прошлый (`styleFrom`). */
+export function appendFix(prev: FixFile | null, text: string, now: Date, editor: { timeline?: number; styleFrom?: StyleChoice } = {}): FixFile {
   const fixes = prev?.fixes ?? [];
   return {
     fixes: [...fixes, {
       text, at: now.toISOString(), version: 2 + fixes.length,
-      ...(editor.timeline !== undefined ? { timeline: editor.timeline } : {}), ...(editor.style ? { style: true as const } : {}),
+      ...(editor.timeline !== undefined ? { timeline: editor.timeline } : {}),
+      ...(editor.styleFrom ? { style: true as const, styleFrom: editor.styleFrom } : {}),
     }],
   };
 }

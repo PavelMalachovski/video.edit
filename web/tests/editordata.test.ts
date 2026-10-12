@@ -131,7 +131,8 @@ test('«Монтировать» from the editor: a fix with the saved revision 
   const style = { ...ANSWERS.style, variant: 'B' as const, colors: { ...ANSWERS.style.colors, accent: '#FF3B30' } };
   const restyled = editorFix({ editor: { timeline: 3, style } }, { rev: 3, answers: ANSWERS, fix: null }, NOW);
   assert.ok('files' in restyled);
-  assert.deepEqual(JSON.parse(restyled.files['fix.json']).fixes[0], { text: 'Правки в редакторе', at: NOW.toISOString(), version: 2, timeline: 3, style: true });
+  assert.deepEqual(JSON.parse(restyled.files['fix.json']).fixes[0],
+    { text: 'Правки в редакторе', at: NOW.toISOString(), version: 2, timeline: 3, style: true, styleFrom: ANSWERS.style }, 'с прошлым стилем — для vm style --onto и «Вернуть»');
   assert.deepEqual(JSON.parse(restyled.files['answers.json'] ?? '{}'), { ...ANSWERS, style });
 
   const onlyStyle = editorFix({ editor: { style } }, { rev: 0, answers: ANSWERS, fix: null }, NOW);

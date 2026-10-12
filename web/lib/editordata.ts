@@ -158,7 +158,7 @@ export function editorFix(body: unknown, ctx: { rev: number; answers: AnswersFil
   const pretty = (data: unknown) => `${JSON.stringify(data, null, 2)}\n`;
   return {
     files: {
-      'fix.json': pretty(appendFix(ctx.fix, EDITOR_FIX, now, { timeline: timeline as number | undefined, style: Boolean(next) })),
+      'fix.json': pretty(appendFix(ctx.fix, EDITOR_FIX, now, { timeline: timeline as number | undefined, ...(next ? { styleFrom: ctx.answers?.style } : {}) })),
       ...(next && ctx.answers ? { 'answers.json': pretty({ ...ctx.answers, style: next }) } : {}),
     },
   };

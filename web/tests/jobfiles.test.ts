@@ -128,10 +128,12 @@ test('fix versions: final.mp4, then final-v2.mp4', () => {
   assert.deepEqual(r.requests.map((n) => n.text), ['ярче', 'крупнее']);
 });
 
-test('a fix from the editor carries the revision of the hand edits and a new style', () => {
-  const f = appendFix(null, 'Правки в редакторе', NOW, { timeline: 3, style: true });
-  assert.deepEqual(f.fixes[0], { text: 'Правки в редакторе', at: NOW.toISOString(), version: 2, timeline: 3, style: true });
-  assert.deepEqual(appendFix(f, 'только стиль', NOW, { style: true }).fixes[1], { text: 'только стиль', at: NOW.toISOString(), version: 3, style: true });
+test('a fix from the editor carries the revision of the hand edits and a new style (with the one it replaces)', () => {
+  const old = { variant: 'A' as const, font: 'montserrat', hand: 'caveat', colors: { text: '#FFFFFF', accent: '#FFD400', bar: '#FFD400' } };
+  const f = appendFix(null, 'Правки в редакторе', NOW, { timeline: 3, styleFrom: old });
+  assert.deepEqual(f.fixes[0], { text: 'Правки в редакторе', at: NOW.toISOString(), version: 2, timeline: 3, style: true, styleFrom: old });
+  assert.deepEqual(appendFix(f, 'только стиль', NOW, { styleFrom: old }).fixes[1],
+    { text: 'только стиль', at: NOW.toISOString(), version: 3, style: true, styleFrom: old });
   assert.deepEqual(Object.keys(appendFix(null, 'x', NOW).fixes[0]), ['text', 'at', 'version'], 'правка текстом — как раньше');
 });
 

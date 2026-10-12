@@ -9,6 +9,7 @@ import type { Level, MusicAdjust } from './edits.ts';
 
 export const VOICE_LUFS = -14; // громкость голоса в ролике и в прокси редактора
 export const MUSIC_BOOST = 12; // дБ — тихий трек поднимается к голосу не больше
+export const MIN_MUSIC = 0.5; // с — с места `from` трека остаётся меньше — движок ставит ролик без музыки
 export const SFX_GAIN_DB = -13; // дБ к громкости файла звука
 export const FADE_IN = 0.1; // с — нарастание музыки, если Павел не задал своё
 export const FADE_OUT = 1.0; // с — затухание к концу ролика
@@ -67,14 +68,17 @@ export function envelopeCurve(m: { at: number; fadeIn: number; fadeOut: number }
 export const musicGainDb = (gainDb: number, level: number | null): number =>
   gainDb + (level === null ? 0 : Math.min(MUSIC_BOOST, VOICE_LUFS - level));
 
-/** Громкость трека по первым `seconds` с его отсчётов, как её меряет движок (стерео; моно — в оба канала): мощность
- *  каналов сложена, −0,691 дБ — примерно LUFS, только без частотного взвешивания. Тишина — null. */
-export function loudnessDb(channels: Float32Array[], rate: number, seconds: number): number | null {
-  const n = Math.min(channels[0]?.length ?? 0, Math.round(seconds * rate));
-  if (!n) return null;
+/** Громкость трека: `seconds` с его отсчётов с секунды `start` (та часть, что звучит в ролике), как её меряет движок
+ *  (стерео; моно — в оба канала): мощность каналов сложена, −0,691 дБ — примерно LUFS, только без частотного
+ *  взвешивания. Тишина — null. */
+export function loudnessDb(channels: Float32Array[], rate: number, seconds: number, start = 0): number | null {
+  const from = Math.max(0, Math.round(start * rate));
+  const to = Math.min(channels[0]?.length ?? 0, from + Math.round(seconds * rate));
+  const n = to - from;
+  if (n <= 0) return null;
   const power = (x: Float32Array) => {
     let sum = 0;
-    for (let i = 0; i < n; i++) sum += x[i] * x[i];
+    for (let i = from; i < to; i++) sum += x[i] * x[i];
     return sum / n;
   };
   const total = channels.length === 1 ? 2 * power(channels[0]) : power(channels[0]) + power(channels[1]);
@@ -114,4 +118,10 @@ export function soundPlan<S extends SoundAt>(sounds: readonly S[], levels: Recor
     if (s.t0 >= t) return [{ ...s, when: s.t0 - t, offset: 0 }];
     return t - s.t0 < lengthOf(s.file) ? [{ ...s, when: 0, offset: t - s.t0 }] : [];
   });
+}
+
+/** Что и когда звучит (без громкости): поменялось — звук перезапускается; громкость и «без звука» меняются на ходу. */
+export function scheduleKey(p: { duration: number; music: MusicMix | null; sounds: readonly SoundAt[] }): string {
+  const m = p.music;
+  return JSON.stringify([p.duration, m && [m.file, m.at, m.from, m.fadeIn, m.fadeOut], p.sounds.map((s) => [s.key, s.t0, s.file])]);
 }

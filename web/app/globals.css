@@ -427,6 +427,10 @@ ul.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:
 .ed-handle.start { left: 0; }
 .ed-handle.end { right: 0; }
 .ed-clip:hover .ed-handle::after, .ed-clip.sel .ed-handle::after { opacity: .9; }
+.ed-tail { position: absolute; top: 3px; bottom: 3px; border-radius: 6px; display: flex; align-items: center; padding: 0 6px; font-size: 11px;
+  color: var(--e-muted); overflow: hidden; white-space: nowrap; pointer-events: none;
+  background: repeating-linear-gradient(135deg, var(--e-sunk) 0 6px, var(--e-hover) 6px 12px); border: 1px dashed var(--e-line-strong); }
+.ed-tail > span { overflow: hidden; text-overflow: ellipsis; }
 .ed-ghost { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px solid var(--e-select); z-index: 4; pointer-events: none; }
 .ed-cut { z-index: 4; } /* «＋» на стыке — поверх кусков; ручки краёв — выше него (у кусков — в верхней части) */
 .ed-piece .ed-handle { bottom: 24px; }

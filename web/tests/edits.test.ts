@@ -30,6 +30,7 @@ test('parseTimeline takes what the schema takes and refuses the rest; the limits
     { ...ok, rev: 0 }, { ...ok, edits: [{ op: 'cut', t0: -1, t1: 1 }] }, { ...ok, edits: [{ op: 'jump', t: 1 }] }, { ...ok, voice: { gainDb: 40 } },
     { ...ok, music: { fadeIn: 20 } }, { ...ok, sounds: { 'insert:x': { gainDb: 1 } } }, { ...ok, sounds: { teaser: { gainDb: 'громче' } } }, { ...ok, extra: true },
     { ...ok, edits: Array(LIMITS.edits + 1).fill({ op: 'split', t: 1 }) }, null,
+    { ...ok, edits: [{ op: 'cut', t0: 2, t1: 2 }] }, { ...ok, edits: [{ op: 'restore', t0: 3, t1: 1 }] }, // конец не позже начала: applyKeep упал бы
   ]) assert.equal(parseTimeline(bad), null, JSON.stringify(bad).slice(0, 80));
   const level = SCHEMA.$defs.Level.properties.gainDb;
   const music = SCHEMA.$defs.Music.properties;

@@ -44,7 +44,8 @@ export type Clip = Span & {
   file?: string; // у звуков — файл (как в edit.json)
 };
 export type Tracks = {
-  duration: number; // длина финала, с
+  duration: number; // длина финала без хвоста (кусков), с
+  tail: number; // после кусков — стоп-кадр (hold) и финальная карточка, с
   video: Clip[]; // куски по порядку (тизер — первым): t0–t1 финала, src0–src1 исходника
   cuts: { at: number; src0: number; src1: number }[]; // вырезанное исходника — на стыке финала
   subtitles: Clip[];
@@ -219,11 +220,11 @@ export function draftTracks(d: Draft, { perGroup = 3, sourceDuration, splits = [
     const t = at(x.t);
     if (x.sfx && fits(t)) sound(`transition:${i}`, Math.max(0, t - HALF), x.sfx);
   });
-  if (d.end?.sfx) sound('end', tl.duration, d.end.sfx);
+  if (d.end?.sfx) sound('end', tl.duration + (d.hold ?? 0), d.end.sfx); // карточка — после стоп-кадра (render._sounds)
   sounds.sort((a, b) => a.t0 - b.t0);
 
   return {
-    duration: tl.duration, video, cuts, subtitles, text, inserts, looks, transitions, sounds,
+    duration: tl.duration, tail: (d.hold ?? 0) + (d.end?.seconds ?? 0), video, cuts, subtitles, text, inserts, looks, transitions, sounds,
     music: d.music ? { label: stem(d.music.file), gainDb: d.music.gainDb, ...Object.fromEntries(MUSIC_PLACE.filter((k) => d.music?.[k] !== undefined).map((k) => [k, d.music?.[k]])) } : null,
   };
 }
@@ -252,3 +253,7 @@ export function splitTarget(t: Tracks, at: number): number | null {
 
 /** Границы слов (с исходника) по порядку — к ним липнут края кусков. */
 export const wordEdges = (d: Draft): number[] => [...new Set(d.words.flatMap((w) => [w.t0, w.t1]))].sort((a, b) => a - b);
+
+/** Ключ кусков дорожки «Видео»: меняется, только когда меняются куски (вырезать, вернуть, разрезать), — тогда плеер
+ *  встаёт на тот же момент ролика на новых кусках; громкость и музыка его не трогают. */
+export const videoKey = (t: Tracks): string => t.video.map((c) => `${c.src0}-${c.src1}@${c.t0.toFixed(4)}`).join('|');

@@ -32,3 +32,11 @@ test('playing: the end of the last piece is the end of the video', () => {
   const before = advance(video, 1.25, 2, 4.9);
   assert.ok(!before.end && before.seek === undefined);
 });
+
+test('playing: from a piece to the next one right after it in the source (Pavel\'s split) — no seek, the video plays on', () => {
+  const split = draftTracks({ ...DRAFT, teaser: null }, { splits: [1.2] }).video; // 0,5–1,2 и 1,2–2 — подряд в исходнике
+  const on = advance(split, 1.25, 0, 1.195);
+  assert.ok(on.index === 1 && on.seek === undefined && near(on.t, split[1].t0), JSON.stringify(on));
+  const gap = advance(split, 1.25, 1, 2.0);
+  assert.ok(gap.index === 2 && gap.seek === 3, 'через вырезанное — как раньше, с перемоткой');
+});

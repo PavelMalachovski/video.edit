@@ -4,7 +4,7 @@
 import { brandForJob } from './brand.ts';
 import { commitFiles, deleteBranch, readText, type FileMap } from './branch.ts';
 import { createDraftRelease, deleteRelease, findReleaseByTag, listAllAssets, readAssetText, type GH } from './github.ts';
-import { backStatus, buildJobFile, errorStatus, queuedStatus, type FixFile, type JobFile, type Manifest, type Run } from './jobfiles.ts';
+import { backStatus, buildJobFile, errorStatus, queuedStatus, type AnswersFile, type FixFile, type JobFile, type Manifest, type Run } from './jobfiles.ts';
 import { jobBranch, jobDir, jobTag, newJobId } from './jobs.ts';
 import { fireRoutine, RoutineError, type Routine, type Step } from './routine.ts';
 import { buildScriptJob, type ScriptRequest } from './script.ts';
@@ -107,8 +107,12 @@ export async function backStep(d: Deps, id: string): Promise<{ screen: 'question
     const fixes = text ? (JSON.parse(text) as FixFile).fixes ?? [] : [];
     const dropped = fixes.at(-1);
     if (!dropped) throw new Error('Правок нет — возвращать нечего');
-    await commitFiles(d.gh, branch, { [`${dir}/fix.json`]: json({ fixes: fixes.slice(0, -1) }), [`${dir}/status.json`]: json(backStatus('fix', now)) },
-      `web(${id}): правка ${dropped.version} отменена`);
+    // правка из редактора с новым стилем: в answers.json — снова стиль, в котором ролик смонтирован
+    const answersText = dropped.styleFrom ? await readText(d.gh, branch, `${dir}/answers.json`) : null;
+    const restyled = answersText ? { [`${dir}/answers.json`]: json({ ...(JSON.parse(answersText) as AnswersFile), style: dropped.styleFrom }) } : {};
+    await commitFiles(d.gh, branch, {
+      [`${dir}/fix.json`]: json({ fixes: fixes.slice(0, -1) }), [`${dir}/status.json`]: json(backStatus('fix', now)), ...restyled,
+    }, `web(${id}): правка ${dropped.version} отменена`);
     return { screen: 'result' };
   }
   await commitFiles(d.gh, branch, { [`${dir}/status.json`]: json(backStatus(last.step, now)) }, `web(${id}): назад к ответам после ${last.step}`);

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { decodePeaks, draftTracks, parseDraft, parseMedia, peakAt, splitTarget, withHandEdits, wordEdges, type Draft } from '../lib/tracks.ts';
+import { decodePeaks, draftTracks, parseDraft, parseMedia, peakAt, splitTarget, videoKey, withHandEdits, wordEdges, type Draft } from '../lib/tracks.ts';
+import { setSound, setVoice } from '../lib/edits.ts';
 import { cutSpan, EMPTY, setMusic, splitAt } from '../lib/edits.ts';
 import { overlayAt, subGroupSize } from '../lib/style.ts';
 import type { StyleSpec } from '../lib/jobfiles.ts';
@@ -144,7 +145,9 @@ test('the sounds track: each sound where the engine plays it, with its key', () 
   assert.ok(near(by.teaser.t0, 1 / 1.25), 'на стыке тизера');
   assert.ok(near(by['transition:0'].t0, (1 + 1.5) / 1.25 - 0.12), 'с началом перехода');
   assert.equal(by['insert:0'].label, 'pop');
-  assert.ok(near(by.end.t0, t.duration), 'карточка — в конце ролика');
+  assert.ok(near(by.end.t0, t.duration + 0.5), 'звук карточки — после стоп-кадра (hold), как у движка');
+  assert.ok(near(t.tail, 0.5 + 1.5), 'после кусков — стоп-кадр и карточка');
+  assert.equal(draftTracks(DRAFT).tail, 0, 'нет ни стоп-кадра, ни карточки — хвоста нет');
 });
 
 test('music on its track: from where it starts, with its place in the track', () => {
@@ -179,4 +182,16 @@ test('split at the playhead: inside a piece (not at its very edge, not in the te
 test('word edges for snapping: every start and end, in order, once', () => {
   assert.deepEqual(wordEdges({ ...DRAFT, words: [{ t0: 1, t1: 1.5, text: 'a' }, { t0: 0.2, t1: 0.6, text: 'b' }, { t0: 1.5, t1: 2, text: 'c' }] }),
     [0.2, 0.6, 1, 1.5, 2]);
+});
+
+test('the video key changes only when the pieces do: sound, voice and music edits keep the player where it is', () => {
+  const key = (h: Parameters<typeof withHandEdits>[1]) => {
+    const { draft, splits } = withHandEdits(DRAFT, h, 6);
+    return videoKey(draftTracks(draft, { splits }));
+  };
+  const base = key(EMPTY);
+  assert.equal(key(setVoice(setSound(EMPTY, 'insert:0', { muted: true }), { gainDb: -6 })), base);
+  assert.equal(key(setMusic(EMPTY, { at: 1, gainDb: -20, muted: true })), base);
+  assert.notEqual(key(cutSpan(EMPTY, 1, 1.5)), base);
+  assert.notEqual(key(splitAt(EMPTY, 1.2)), base);
 });

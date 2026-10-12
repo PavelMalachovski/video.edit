@@ -20,8 +20,9 @@ import { loadLang, saveLang, tr, type Key, type Lang } from '@/lib/i18n.ts';
 import type { StyleChoice } from '@/lib/jobfiles.ts';
 import { allowedFonts, finalStyle, loadChoice, overlayAt, sampleState, saveChoice, subGroupSize } from '@/lib/style.ts';
 import { advance, locate } from '@/lib/player.ts';
+import { Saver, type PutResult } from '@/lib/saver.ts';
 import { audioUrl, levelsOf, musicMix } from '@/lib/sound.ts';
-import { decodePeaks, draftTracks, peakAt, splitTarget, withHandEdits, wordEdges, type Clip, type Tracks } from '@/lib/tracks.ts';
+import { decodePeaks, draftTracks, peakAt, splitTarget, videoKey, withHandEdits, wordEdges, type Clip, type Tracks } from '@/lib/tracks.ts';
 import { BackIcon, PauseIcon, PlayIcon, PlusIcon, RedoIcon, ScissorsIcon, SpeakerIcon, TrashIcon, UndoIcon } from '../../../icons';
 import PreviewFrame from '../../../preview-frame';
 import { useTemplateFonts } from '../../../use-fonts';
@@ -103,7 +104,19 @@ export default function Editor({ id }: { id: string }) {
   // ---------- правки руками: история, сохранение ----------
   const [hist, setHist] = useState<History>(() => initHistory(EMPTY));
   const [saved, setSaved] = useState<HandEdits>(EMPTY); // что лежит в ветке
-  const rev = useRef(0); // ревизия timeline.json в ветке
+  // сохранения — по одному (lib/saver.ts): «Монтировать» во время автосохранения ждёт его, а не шлёт то же ещё раз
+  const saver = useRef<Saver<HandEdits> | null>(null);
+  if (!saver.current) {
+    saver.current = new Saver<HandEdits>(async (base, value): Promise<PutResult> => {
+      const r = await fetch(`/api/jobs/${id}/timeline`, {
+        method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ base, ...value }),
+      });
+      const body = await r.json().catch(() => null);
+      if (r.ok) return { ok: true, rev: body.timeline.rev };
+      const error = typeof body?.error === 'string' ? body.error : `HTTP ${r.status}`;
+      return { ok: false, conflict: r.status === 409 && typeof body?.rev === 'number', error };
+    }, EMPTY, 0);
+  }
   const adopted = useRef(false);
   const [save, setSave] = useState<SaveState>({ state: 'idle' });
   const hand = hist.present;
@@ -117,7 +130,7 @@ export default function Editor({ id }: { id: string }) {
   dirtyRef.current = dirty;
   const adopt = useCallback((d: EditorData) => {
     const h = handOf(d);
-    rev.current = d.rev;
+    saver.current?.reset(h, d.rev);
     seen.current = d.rev;
     adopted.current = true;
     setHist(initHistory(h));
@@ -128,34 +141,26 @@ export default function Editor({ id }: { id: string }) {
     if (!adopted.current) adopt(data);
     else if (data.rev !== seen.current) {
       seen.current = data.rev;
-      if (data.rev !== rev.current && !dirtyRef.current) adopt(data);
+      if (data.rev !== saver.current?.rev && !dirtyRef.current) adopt(data);
     }
   }, [data, adopt]);
 
   const histRef = useRef(hist);
   histRef.current = hist;
+  /** Сохранить то, что сейчас на дорожках (идущее сохранение — дождаться); true — в ветке. */
   const flush = useCallback(async (): Promise<boolean> => {
-    const sending = histRef.current.present;
+    const s = saver.current;
+    if (!s) return false;
     setSave({ state: 'saving' });
-    try {
-      const r = await fetch(`/api/jobs/${id}/timeline`, {
-        method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ base: rev.current, ...sending }),
-      });
-      const body = await r.json().catch(() => null);
-      if (r.status === 409 && typeof body?.rev === 'number') {
-        setSave({ state: 'conflict' });
-        return false;
-      }
-      if (!r.ok) throw new Error(typeof body?.error === 'string' ? body.error : `HTTP ${r.status}`);
-      rev.current = body.timeline.rev;
-      setSaved(sending);
+    const r = await s.save(histRef.current.present);
+    if (r.ok) {
+      setSaved(s.saved);
       setSave({ state: 'saved' });
       return true;
-    } catch (e) {
-      setSave({ state: 'error', error: e instanceof Error ? e.message : String(e) });
-      return false;
     }
-  }, [id]);
+    setSave(r.conflict ? { state: 'conflict' } : { state: 'error', error: r.error });
+    return false;
+  }, []);
   useEffect(() => { // остановился — сохраняем; ошибка и конфликт ждут Павла
     if (!dirty || !editable || save.state === 'saving' || save.state === 'conflict' || save.state === 'error') return;
     const timer = setTimeout(() => void flush(), SAVE_MS);
@@ -186,9 +191,14 @@ export default function Editor({ id }: { id: string }) {
   const styles = data?.styles ?? null;
   const mounted = Boolean(data?.answers);
   const [choice, setChoiceState] = useState<StyleChoice | null>(null);
+  const shown = useRef<unknown>(undefined); // стиль ролика, от которого начат выбор: новые данные с тем же — выбор не трогают
   useEffect(() => {
     // смонтирован — от стиля ролика (новый, ещё не смонтированный, живёт до перезагрузки); иначе — выбор с «Превью»
-    if (styles) setChoiceState(data?.answers?.style ?? loadChoice(storage(), id, styles));
+    if (!styles) return;
+    const rendered = data?.answers?.style ?? null;
+    if (shown.current !== undefined && sameJson(shown.current, rendered)) return;
+    shown.current = rendered;
+    setChoiceState(rendered ?? loadChoice(storage(), id, styles));
   }, [styles, data?.answers, id]);
   const styleLocked = data?.screen === 'working';
   const pick = (c: StyleChoice) => {
@@ -202,7 +212,9 @@ export default function Editor({ id }: { id: string }) {
   const offered = useMemo(() => (styles ? allowedFonts(fonts, styles) : []), [fonts, styles]); // со всеми буквами ролика
 
   const sourceDuration = data?.media?.duration;
-  const edited = useMemo(() => (data?.draft ? withHandEdits(data.draft, hand, sourceDuration) : null), [data, hand, sourceDuration]);
+  // дорожки — по кускам и музыке: громкость голоса и звуков их не пересчитывает (и плеер не перематывает)
+  const edited = useMemo(() => (data?.draft ? withHandEdits(data.draft, { edits: hand.edits, music: hand.music }, sourceDuration) : null),
+    [data, hand.edits, hand.music, sourceDuration]);
   const tracks: Tracks | null = useMemo(() => (edited
     ? draftTracks(edited.draft, { perGroup: spec ? subGroupSize(spec) : 3, sourceDuration, splits: edited.splits })
     : null), [edited, spec, sourceDuration]);
@@ -240,7 +252,7 @@ export default function Editor({ id }: { id: string }) {
   }, []);
   const head = data?.head ?? null;
   const plan: MixPlan | null = useMemo(() => (tracks && head ? {
-    duration: tracks.duration,
+    duration: tracks.duration + tracks.tail, // музыка затухает к концу ролика — после стоп-кадра и карточки
     voice: hand.voice ?? {},
     music: mix ? { ...mix, url: audioUrl(id, head, mix.file) } : null,
     sounds: tracks.sounds.flatMap((c) => (c.key && c.file ? [{ key: c.key, t0: c.t0, file: c.file, url: audioUrl(id, head, c.file) }] : [])),
@@ -251,9 +263,11 @@ export default function Editor({ id }: { id: string }) {
     mixer.current?.preload(plan);
     mixer.current?.update(plan);
   }, [plan]);
-  useEffect(() => { // голос — громкость элемента (громче 0 дБ — тише музыка и звуки, levelsOf)
-    const v = video.current;
-    if (v) v.volume = levelsOf({ voice: hand.voice, musicDb: null }).voice;
+  useEffect(() => { // голос — громкость элемента (громче 0 дБ — тише музыка и звуки, levelsOf); iPhone громкость
+    const v = video.current; // элемента не слушает — «без звука» ещё и muted
+    if (!v) return;
+    v.volume = levelsOf({ voice: hand.voice, musicDb: null }).voice;
+    v.muted = Boolean(hand.voice?.muted);
   }, [hand.voice, data?.proxyUrl]);
 
   const show = useCallback((tf: number) => { // плейхед и часы — без React, каждый кадр
@@ -272,7 +286,10 @@ export default function Editor({ id }: { id: string }) {
     show(x);
     setT(x);
   }, [tracks, duration, speed, show]);
-  useEffect(() => seek(now.current), [seek]); // куски поменялись — тот же момент ролика на новых кусках
+  const seekRef = useRef(seek);
+  seekRef.current = seek;
+  const vkey = tracks ? videoKey(tracks) : '';
+  useEffect(() => seekRef.current(now.current), [vkey]); // куски поменялись — тот же момент ролика на новых кусках
 
   const pause = useCallback(() => {
     video.current?.pause();
@@ -436,13 +453,15 @@ export default function Editor({ id }: { id: string }) {
     ro.observe(el);
     return () => ro.disconnect();
   }, [data]);
-  const fitPps = duration > 0 ? laneW / duration : 40;
-  const maxPps = duration > 0 ? Math.min(400, MAX_WIDTH / duration) : 400;
+  const full = duration + (tracks?.tail ?? 0); // с хвостом: стоп-кадр и карточка после кусков
+  const fitPps = full > 0 ? laneW / full : 40;
+  const maxPps = full > 0 ? Math.min(400, MAX_WIDTH / full) : 400;
   const px = Math.min(maxPps, Math.max(Math.min(fitPps, 4), pps ?? fitPps));
   scale.current = px;
   useEffect(() => show(now.current), [px, show]);
   const X = (s: number) => s * px;
-  const width = Math.ceil(X(duration));
+  const width = Math.ceil(X(full));
+  const videoW = Math.ceil(X(duration)); // куски — волна голоса только под ними
   const tick = TICKS.find((s) => s * px >= 64) ?? 120;
 
   const onLanes = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -502,10 +521,10 @@ export default function Editor({ id }: { id: string }) {
     const c = wave.current;
     if (!c || !tracks || !peaks || !data?.media) return;
     const h = 40;
-    const dpr = Math.min(2, window.devicePixelRatio || 1, MAX_CANVAS / Math.max(1, width));
-    c.width = Math.max(1, Math.round(width * dpr));
+    const dpr = Math.min(2, window.devicePixelRatio || 1, MAX_CANVAS / Math.max(1, videoW));
+    c.width = Math.max(1, Math.round(videoW * dpr));
     c.height = h * dpr;
-    c.style.width = `${width}px`;
+    c.style.width = `${videoW}px`;
     c.style.height = `${h}px`;
     const g = c.getContext('2d');
     if (!g) return;
@@ -513,7 +532,7 @@ export default function Editor({ id }: { id: string }) {
     g.fillStyle = getComputedStyle(c).color;
     const perS = data.media.peaks.perS;
     let k = 0;
-    for (let x = 0; x < width; x++) {
+    for (let x = 0; x < videoW; x++) {
       const tf = x / px;
       while (k + 1 < tracks.video.length && tf >= tracks.video[k].t1) k++;
       const clip = tracks.video[k];
@@ -523,7 +542,7 @@ export default function Editor({ id }: { id: string }) {
       const bar = Math.max(1, a * (h - 6));
       g.fillRect(x, (h - bar) / 2, 1, bar);
     }
-  }, [tracks, peaks, data, width, px, speed]);
+  }, [tracks, peaks, data, videoW, px, speed]);
 
   const film = data?.media?.film;
   const thumbW = film ? (THUMB_H * film.w) / film.h : 32;
@@ -558,7 +577,8 @@ export default function Editor({ id }: { id: string }) {
 
   // ---------- «Монтировать» ----------
   const [mount, setMount] = useState<{ state: 'idle' | 'busy' | 'started' | 'error'; error?: string }>({ state: 'idle' });
-  const canMount = data?.screen === 'result' && editable && (dirty || rev.current > 0 || styleChanged);
+  const rev = saver.current?.rev ?? 0;
+  const canMount = data?.screen === 'result' && editable && (dirty || rev > 0 || styleChanged);
   const doMount = async () => {
     if (!canMount) return;
     setMount({ state: 'busy' });
@@ -567,7 +587,8 @@ export default function Editor({ id }: { id: string }) {
       return;
     }
     try {
-      const editor = { ...(rev.current > 0 ? { timeline: rev.current } : {}), ...(styleChanged && choice ? { style: choice } : {}) };
+      const savedRev = saver.current?.rev ?? 0;
+      const editor = { ...(savedRev > 0 ? { timeline: savedRev } : {}), ...(styleChanged && choice ? { style: choice } : {}) };
       const r = await fetch(`/api/jobs/${id}/run`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'fix', editor }),
       });
@@ -697,7 +718,7 @@ export default function Editor({ id }: { id: string }) {
           {tracks ? (
             <div className="ed-inner" style={{ width: HEAD + width + 24 }}>
               <div className="ed-ruler" style={{ marginLeft: HEAD, width }} onPointerDown={onLanes}>
-                {Array.from({ length: Math.floor(duration / tick) + 1 }, (_, k) => (
+                {Array.from({ length: Math.floor(full / tick) + 1 }, (_, k) => (
                   <span key={k} style={{ left: X(k * tick) }}>{tenths(k * tick).replace(/\.0$/, '')}</span>
                 ))}
               </div>
@@ -729,6 +750,11 @@ export default function Editor({ id }: { id: string }) {
                   </span>
                 ))}
                 {ghost !== null ? <span className="ed-ghost" style={{ left: X(ghost) }} /> : null}
+                {tracks.tail > 0 ? (
+                  <div className="ed-tail" style={{ left: X(duration), width: Math.max(2, X(tracks.tail)) }} title={`${T('tail')} · ${sec(tracks.tail)}`}>
+                    <span>{T('tail')}</span>
+                  </div>
+                ) : null}
               </Row>
               <Row name={T('voice')} cls={`voice${voiceMuted ? ' muted' : ''}${sel?.kind === 'voice' ? ' sel' : ''}`} width={width}
                 onSeek={(e) => { setSel({ kind: 'voice' }); onLanes(e); }}

@@ -2,10 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
-  applyKeep, applyText, commit, cutSpan, EMPTY, initHistory, LIMITS, moveSpan, parseTimeline, pieces, redo, restoreSpan, setBlock, setCta, setHook,
+  applyKeep, applyText, blockPlace, commit, cutSpan, EMPTY, initHistory, LIMITS, moveSpan, parseTimeline, pieces, placeBlock, redo, restoreSpan, setBlock, setCta, setHook,
   setMusic, setSound, setVoice, setWord, snapTo, splitAt, trimEnd, trimStart, undo, type Edit, type TextEdits, type WordFix, badSymbols, blockFix, hasEmoji,
   setLook, setTransition, setZoom, TRANSITION_KINDS, setDim, setTrack, setEnd, MUSIC_FILE, setTeaser, setSpeed,
 } from '../lib/edits.ts';
+import { INSERT_W, INSERT_ZONE } from '../lib/jobfiles.ts';
 
 // Общая с движком фикстура: apply_keep в engine/vm/edits.py обязан давать то же самое.
 const FIXTURE = JSON.parse(fs.readFileSync(new URL('../../engine/tests/fixtures/edits.json', import.meta.url), 'utf8')) as {
@@ -187,6 +188,49 @@ test('setters: a block edit keeps to its place in the speech, merges, and goes a
   assert.deepEqual(setWord(w, 0.9, 1.2, 'Это').words?.at(-1), { t0: 0.9, t1: 1.2, text: 'Это' }, 'слово правят снова — одна правка');
   assert.equal(setWord(setWord(w, 0.9, 1.2, null), 1.3, 1.6, null).words, undefined);
   assert.ok(parseTimeline({ rev: 1, ...second }) && parseTimeline({ rev: 1, ...off }) && parseTimeline({ rev: 1, ...w }), 'сеттеры пишут то, что примет схема');
+});
+
+test('a block placed on the frame by hand: the place goes with the block\'s other edits and back to the session\'s on its own', () => {
+  let h = setBlock(EMPTY, 'inserts', [4, 5], 0, { t0: 4.2 });
+  h = placeBlock(h, 'inserts', [4, 5], 0, { x: 120.4, y: 1099.6, w: 300 });
+  assert.deepEqual(h.text?.inserts, [{ at: [4, 5], t0: 4.2, x: 120, y: 1100, w: 300 }], 'место — к правке времени; px — целые');
+  assert.deepEqual(placeBlock(h, 'inserts', [4, 5], 0, { x: 200, y: 600, w: 400 }).text?.inserts, [{ at: [4, 5], t0: 4.2, x: 200, y: 600, w: 400 }],
+    'новое место — вместо прежнего');
+  assert.deepEqual(placeBlock(h, 'inserts', [4, 5], 0, null).text?.inserts, [{ at: [4, 5], t0: 4.2 }], 'место как у монтажа — время остаётся');
+  const a = placeBlock(EMPTY, 'accents', [3, 4], 1, { x: 300, y: 1200, w: 999 });
+  assert.deepEqual(a.text?.accents, [{ at: [3, 4] }, { at: [3, 4], x: 300, y: 1200 }], 'у акцента — только центр; второй с тем же местом');
+  assert.equal(placeBlock(a, 'accents', [3, 4], 1, null).text, undefined, 'правки не осталось — её нет');
+  assert.deepEqual(setBlock(h, 'inserts', [4, 5], 0, { off: true }).text?.inserts, [{ at: [4, 5], off: true }], 'убрать — только off');
+  assert.deepEqual(blockPlace(h, 'insert', [4, 5], 0), { x: 120, y: 1100, w: 300 });
+  assert.deepEqual(blockPlace(a, 'accent', [3, 4], 1), { x: 300, y: 1200 });
+  assert.equal(blockPlace(a, 'accent', [3, 4], 0), null, 'первый акцент с этим местом — где его поставил монтаж');
+  for (const x of [h, a]) assert.ok(parseTimeline({ rev: 1, ...x }), 'сеттеры пишут то, что примет схема');
+  const far = placeBlock(placeBlock(EMPTY, 'inserts', [4, 5], 0, { x: 5000, y: -9, w: 9999 }), 'accents', [3, 4], 0, { x: -1, y: 1600 });
+  assert.deepEqual([far.text?.inserts, far.text?.accents], [[{ at: [4, 5], x: 810, y: 120, w: 830 }], [{ at: [3, 4], x: 60, y: 1530 }]],
+    'что бы ни насчитали ручки — в пределах схемы');
+  assert.ok(parseTimeline({ rev: 1, ...far }));
+});
+
+test('parseTimeline takes places on the frame as the schema does: an insert\'s box and an accent\'s centre, whole and in the safe zone', () => {
+  const ok = { rev: 1, edits: [], text: { accents: [{ at: [3, 4], x: 890, y: 120 }], inserts: [{ at: [2, 3], x: 60, y: 1490, w: 830 }] } };
+  assert.deepEqual(parseTimeline(ok), ok);
+  for (const text of [ // те же, что не пропускает схема (test_places_on_the_frame_go_through_the_schema)
+    { accents: [{ at: [3, 4], x: 300 }] }, { accents: [{ at: [3, 4], x: 30, y: 900 }] }, { accents: [{ at: [3, 4], x: 300, y: 1600 }] },
+    { accents: [{ at: [3, 4], x: 300, y: 900, w: 400 }] }, { inserts: [{ at: [2, 3], x: 200, y: 600 }] }, { inserts: [{ at: [2, 3], w: 400 }] },
+    { inserts: [{ at: [2, 3], x: 820, y: 600, w: 80 }] }, { inserts: [{ at: [2, 3], x: 200, y: 600, w: 840 }] },
+    { inserts: [{ at: [2, 3], x: 200, y: 1500, w: 400 }] }, { inserts: [{ at: [2, 3], x: '200', y: 600, w: 400 }] },
+  ]) assert.equal(parseTimeline({ ...ok, text }), null, JSON.stringify(text));
+  const t = SCHEMA.properties.text.properties;
+  const acc = t.accents.items;
+  const ins = t.inserts.items;
+  const range = (p: { minimum: number; maximum: number }) => ({ min: p.minimum, max: p.maximum });
+  assert.deepEqual({ x: range(acc.properties.x), y: range(acc.properties.y) }, LIMITS.accentAt);
+  assert.deepEqual({ x: range(ins.properties.x), y: range(ins.properties.y), w: range(ins.properties.w) }, LIMITS.insertBox);
+  assert.deepEqual([acc.dependentRequired, ins.dependentRequired], [{ x: ['y'], y: ['x'] }, { x: ['y', 'w'], y: ['x', 'w'], w: ['x', 'y'] }]);
+  assert.deepEqual(LIMITS.insertBox, { // рамка вставки — как рамки answers.insertBoxes с превью (isInsertBox)
+    x: { min: INSERT_ZONE.x0, max: INSERT_ZONE.x1 - INSERT_W.min }, y: { min: INSERT_ZONE.y0, max: INSERT_ZONE.y1 - 40 }, w: INSERT_W,
+  });
+  assert.deepEqual(LIMITS.accentAt, { x: { min: INSERT_ZONE.x0, max: INSERT_ZONE.x1 }, y: { min: INSERT_ZONE.y0, max: INSERT_ZONE.y1 } });
 });
 
 test('emoji in a subtitle word are refused before saving, as the engine font check refuses them (shared emoji fixture)', () => {

@@ -359,6 +359,12 @@ TEXT = [
          "inserts": [{"at": [4.0, 5.0], "t0": 4.2, "t1": 6.0, "text": "10 минут"}, {"at": [4.0, 5.0], "t0": 4.5},
                      {"at": [6.0, 6.5], "off": True}]},
      "words": [{"t0": 0.9, "t1": 1.2, "text": "это"}, {"t0": 1.3, "t1": 1.6, "text": ""}, {"t0": 2.1, "t1": 2.1, "text": "Мы"}]},
+    {"name": "blocks placed on the frame by hand: an insert moved and widened, an accent moved; a fullscreen insert has no place",
+     "edit": {**_BASE, "inserts": [*_BASE["inserts"], {"kind": "fullscreen", "src": "c.mp4", "t0": 7.0, "t1": 7.5}]}, "text": {
+         "accents": [{"at": [3.0, 4.0], "x": 300, "y": 1200}, {"at": [5.0, 5.5], "t0": 5.1, "x": 700, "y": 400}],
+         "inserts": [{"at": [2.0, 3.0], "x": 200, "y": 600, "w": 400}, {"at": [4.0, 5.0], "t0": 4.2, "x": 120.5, "y": 1100, "w": 300},
+                     {"at": [7.0, 7.5], "x": 100, "y": 300, "w": 500}]},
+     "words": []},
     {"name": "edits of blocks the session moved or removed no longer apply; lines of another count stay",
      "edit": {**_BASE, "cta": {**_BASE["cta"], "t0": 7.5}, "inserts": _BASE["inserts"][1:]}, "text": {
          "cta": {"at": [7.0, 8.0], "t0": 6.0}, "inserts": [{"at": [2.0, 3.0], "off": True}],

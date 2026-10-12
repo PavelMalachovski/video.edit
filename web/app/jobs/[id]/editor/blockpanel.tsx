@@ -3,11 +3,13 @@
 // группа субтитров — её слова (правится только текст: время и звук те же; пусто — слова нет в субтитрах). Правки — в
 // timeline.json (text, words), их кладёт движок поверх черновика (edits.apply_text); строка поля — одна правка для отмены.
 import { useEffect, useId, useState } from 'react';
-import { badSymbols, blockFix, hasEmoji, LIMITS, setBlock, setCta, setEnd, setHook, setWord, type HandEdits } from '@/lib/edits.ts';
+import { badSymbols, blockFix, blockPlace, hasEmoji, LIMITS, setBlock, setCta, setEnd, setHook, setWord, type HandEdits, type Place } from '@/lib/edits.ts';
 import { handWord } from '@/lib/fontchars.ts';
 import { tenths } from '@/lib/format.ts';
 import type { Key } from '@/lib/i18n.ts';
+import { INSERT_W, moveBox, moveCentre, resizeBox, type BoxExt } from '@/lib/style.ts';
 import { findBlock, type BlockRef, type Clip, type Draft, type Tracks } from '@/lib/tracks.ts';
+import { STEP } from '../../../handles';
 
 type TFn = (k: Key, v?: Record<string, string | number>) => string;
 type Kind = 'hook' | 'cta' | 'accent' | 'insert';
@@ -66,10 +68,55 @@ function setFix(h: HandEdits, ref: BlockRef, fix: Record<string, unknown> | null
 export const removeBlock = (h: HandEdits, ref: BlockRef): HandEdits => setFix(h, ref, { off: true });
 export const restoreBlock = (h: HandEdits, ref: BlockRef): HandEdits => setFix(h, ref, null);
 
-export function BlockPanel({ T, sel, tracks, draft, hand, editable, note, onEdit, sec, letters = NO_LETTERS }: {
+/** Место вставки или акцента на кадре руками: что умеет и куда пишет (`onPlace`; null — место как у монтажа), `size` — рамка
+ *  блока, как его нарисовал шаблон (нет — блок ещё не был на кадре), `note` — почему двигать нельзя. */
+export type Placing = {
+  editable: boolean; note: string | null; size: () => { w: number; h: number; ext?: BoxExt } | null; onPlace: (place: Place | null) => void;
+};
+const ARROWS: [Key, string, number, number][] = [['moveLeft', '←', -STEP, 0], ['moveUp', '↑', 0, -STEP], ['moveDown', '↓', 0, STEP], ['moveRight', '→', STEP, 0]];
+
+/** Где блок на кадре и как его подвинуть кнопками: ←↑↓→ — на STEP px кадра, у вставки — ползунок ширины; «Место как у
+ *  монтажа». Рамка — в безопасной зоне, как у ручки на кадре (moveBox и resizeBox; у акцента — moveCentre). */
+function PlaceControls({ T, kind, now, moved, placing }: { T: TFn; kind: 'insert' | 'accent'; now: Place; moved: boolean; placing: Placing }) {
+  const { editable, note, size, onPlace } = placing;
+  const w = now.w ?? 0;
+  const moveBy = (dx: number, dy: number): Place => {
+    const s = size();
+    return kind === 'insert' ? moveBox({ x: now.x, y: now.y, w }, now.x + dx, now.y + dy, s?.h ?? w, s?.ext) : moveCentre(s ?? { w: 0, h: 0 }, now.x + dx, now.y + dy);
+  };
+  return (
+    <div className="ed-place" role="group" aria-label={T('framePlace')} data-place={kind}>
+      <span className="ed-place-name">{T('framePlace')}</span>
+      <div className="ed-btns">
+        {ARROWS.map(([k, sign, dx, dy]) => (
+          <button key={k} type="button" className="ed-btn ed-arrow" aria-label={T(k)} title={T(k)} disabled={!editable} onClick={() => onPlace(moveBy(dx, dy))}>
+            {sign}
+          </button>
+        ))}
+      </div>
+      {kind === 'insert' ? (
+        <div className="ed-shade">
+          <span className="ed-range-name">{T('width')}</span>
+          <input type="range" aria-label={T('insertWidth')} min={INSERT_W.min} max={INSERT_W.max} step={10} value={w} disabled={!editable}
+            onChange={(e) => {
+              const s = size();
+              onPlace(resizeBox({ x: now.x, y: now.y, w }, Number(e.target.value), s?.h ?? w, s?.ext));
+            }} />
+          <span className="mono">{w}</span>
+        </div>
+      ) : null}
+      <p className="ed-note mono">{kind === 'insert' ? T('placeBox', { x: now.x, y: now.y, w }) : T('placeAt', { x: now.x, y: now.y })}</p>
+      {moved ? <button type="button" className="ed-btn" disabled={!editable} onClick={() => onPlace(null)}>{T('placeAsSession')}</button> : null}
+      <p className="ed-note faint">{note ?? T(kind === 'insert' ? 'placeInsertHint' : 'placeAccentHint')}</p>
+    </div>
+  );
+}
+
+export function BlockPanel({ T, sel, tracks, draft, hand, editable, note, onEdit, sec, letters = NO_LETTERS, placing }: {
   T: TFn; sel: BlockSel; tracks: Tracks; draft: Draft; hand: HandEdits; editable: boolean;
   note: string | null; // почему править нельзя (старый движок, ещё не смонтирован)
   onEdit: (next: HandEdits, key?: string) => void; sec: (s: number) => string; letters?: Letters;
+  placing?: Placing; // место вставки и акцента на кадре (нет — не двигаются)
 }) {
   const c = findBlock(tracks, sel.block, sel.n);
   const ref = c?.ref;
@@ -117,6 +164,17 @@ export function BlockPanel({ T, sel, tracks, draft, hand, editable, note, onEdit
       if (ins?.kind === 'fullscreen') fields.push(<p key="fs" className="ed-note faint">{T('fullscreenInsert')}</p>);
       else if (ins?.question && !ins.src && !TEXTUAL.includes(ins.kind)) fields.push(<p key="wait" className="ed-note faint">{T('waitingInsert')}</p>);
       else if (ins && DRAWN.includes(ins.kind) && c.drawn === false) fields.push(<p key="np" className="ed-note faint">{T('unplacedInsert')}</p>);
+      else if (ins && placing && typeof ins.x === 'number' && typeof ins.y === 'number' && typeof ins.w === 'number') { // вставка с рамкой на кадре
+        const own = blockPlace(hand, 'insert', ref.at, ref.occurrence);
+        fields.push(<PlaceControls key="place" T={T} kind="insert" now={own ?? { x: ins.x, y: ins.y, w: ins.w }} moved={own !== null} placing={placing} />);
+      }
+    }
+    if (ref.kind === 'accent' && placing) {
+      const a = draft.accents?.[ref.n];
+      const own = blockPlace(hand, 'accent', ref.at, ref.occurrence);
+      if (a && typeof a.x === 'number' && typeof a.y === 'number') {
+        fields.push(<PlaceControls key="place" T={T} kind="accent" now={own ?? { x: a.x, y: a.y }} moved={own !== null} placing={placing} />);
+      }
     }
   }
   return (

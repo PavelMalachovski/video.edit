@@ -20,8 +20,10 @@ export type At = [number, number];
 /** Хук: конец (по исходнику) и текст; off — хука нет. */
 export type HookFix = { until?: number; text?: string; off?: true };
 export type CtaFix = { at: At; t0?: number; t1?: number; lines?: string[]; word?: string; off?: true };
-export type AccentFix = { at: At; t0?: number; t1?: number; lines?: string[]; off?: true };
-export type InsertFix = { at: At; t0?: number; t1?: number; text?: string; off?: true };
+export type AccentFix = { at: At; t0?: number; t1?: number; lines?: string[]; x?: number; y?: number; off?: true };
+export type InsertFix = { at: At; t0?: number; t1?: number; text?: string; x?: number; y?: number; w?: number; off?: true };
+/** Место блока на кадре руками, px кадра: у акцента — центр блока, у вставки — левый верхний угол и ширина. */
+export type Place = { x: number; y: number; w?: number };
 /** Финальная карточка: строки (1–2) и ник ('' — без ника); off — карточки нет. */
 export type EndFix = { lines?: string[]; handle?: string; off?: true };
 /** Текст и вставки (фаза 5): хук, титр, акценты, вставки, финальная карточка. */
@@ -61,6 +63,8 @@ export const LIMITS = {
   speed: { min: 0.8, max: 1.5 }, // скорость ролика
   endLines: 2, // строк финальной карточки
   handle: 60, // знаков в нике карточки
+  accentAt: { x: { min: 60, max: 890 }, y: { min: 120, max: 1530 } }, // центр акцента на кадре — в безопасной зоне
+  insertBox: { x: { min: 60, max: 810 }, y: { min: 120, max: 1490 }, w: { min: 80, max: 830 } }, // рамка вставки — как answers.insertBoxes
 } as const;
 /** Трек музыки из библиотеки (как Music.file в схеме timeline.json). */
 export const MUSIC_FILE = /^assets\/music\/[^/]+\.(mp3|wav|m4a|aac|ogg|flac)$/;
@@ -224,14 +228,14 @@ type TextBase = {
   end?: { lines: string[]; handle?: string | null } | null;
   hook?: { text: string; until: number } | null;
   cta?: (Span2 & { lines: string[]; word: string }) | null;
-  accents?: (Span2 & { lines: { text: string }[] })[] | null;
-  inserts?: (Partial<Span2> & { kind: string; text?: string; off?: boolean })[] | null;
+  accents?: (Span2 & { lines: { text: string }[]; x?: number; y?: number })[] | null;
+  inserts?: (Partial<Span2> & { kind: string; text?: string; x?: number; y?: number; w?: number; off?: boolean })[] | null;
   words?: (Span2 & { text: string })[] | null;
 };
 
 /** Текст и вставки Павла поверх edit — как apply_text движка: хук — конец и текст; титр, акценты, вставки — по месту в
- *  речи (`at`); вставка с off остаётся в списке (номера звуков те же); слова — по точному t0, t1, пустое — нет в
- *  субтитрах. Правок нет — тот же edit. */
+ *  речи (`at`); место на кадре — центр акцента, рамка вставки (у fullscreen её нет); вставка с off остаётся в списке
+ *  (номера звуков те же); слова — по точному t0, t1, пустое — нет в субтитрах. Правок нет — тот же edit. */
 export function applyText<T extends TextBase>(edit: T, text?: TextEdits, words?: readonly WordFix[]): T {
   if (!text && !words?.length) return edit;
   const out: T = { ...edit };
@@ -244,14 +248,15 @@ export function applyText<T extends TextBase>(edit: T, text?: TextEdits, words?:
     out.accents = anchored(edit.accents, t.accents, 'text.accents', (item, c, name) => {
       if (c.off) return null;
       const lines = c.lines && c.lines.length === item.lines.length ? item.lines.map((line, i) => ({ ...line, text: (c.lines as string[])[i] })) : item.lines;
-      return timed(name, { ...item, ...pick(c, ['t0', 't1'] as const), lines });
+      return timed(name, { ...item, ...pick(c, ['t0', 't1', 'x', 'y'] as const), lines });
     }).filter((a) => a !== null);
   }
   if (t.inserts?.length && edit.inserts?.length) {
-    out.inserts = anchored(edit.inserts as (Span2 & { kind: string; text?: string })[], t.inserts, 'text.inserts', (item, c, name) => {
+    out.inserts = anchored(edit.inserts as (Span2 & { kind: string; text?: string; x?: number; w?: number })[], t.inserts, 'text.inserts', (item, c, name) => {
       if (c.off) return { ...item, off: true };
       const changed = { ...item, ...pick(c, ['t0', 't1'] as const) };
       if ('text' in c && 'text' in item) changed.text = c.text; // текст — только у текстовых вставок
+      if ('x' in item && 'w' in item) Object.assign(changed, pick(c, ['x', 'y', 'w'] as const)); // рамка — у вставок на кадре (не fullscreen)
       return timed(name, changed);
     }) as T['inserts'];
   }
@@ -431,6 +436,27 @@ export function blockFix(h: HandEdits, kind: 'hook' | 'cta' | 'accent' | 'insert
   return f && Object.keys(f).length > 1 ? f : null;
 }
 
+/** Место акцента или вставки на кадре руками (`occurrence`-й блок с местом `at`; px кадра — целые): у акцента — центр,
+ *  у вставки — ещё и ширина; поверх прочих правок блока (время, текст). null — место как у монтажа, остальное остаётся. */
+export function placeBlock(h: HandEdits, kind: 'accents' | 'inserts', at: At, occurrence: number, place: Place | null): HandEdits {
+  const now = ((h.text?.[kind] ?? []) as InsertFix[]).filter((f) => sameAt(f.at, at))[occurrence];
+  const rest = Object.fromEntries(Object.entries(now ?? {}).filter(([k]) => !['at', 'x', 'y', 'w'].includes(k)));
+  const r = kind === 'inserts' ? LIMITS.insertBox : LIMITS.accentAt; // что бы ни насчитали ручки — в пределах схемы
+  const fit = (v: number, range: { min: number; max: number }) => Math.round(clamp(v, range));
+  const box = place === null ? {} : {
+    x: fit(place.x, r.x), y: fit(place.y, r.y), ...(kind === 'inserts' && place.w !== undefined ? { w: fit(place.w, LIMITS.insertBox.w) } : {}),
+  };
+  const next = { ...rest, ...box };
+  return setBlock(setBlock(h, kind, at, occurrence, null), kind, at, occurrence, Object.keys(next).length ? next : null);
+}
+
+/** Место блока на кадре, которое поставил Павел (`occurrence`-й акцент или вставка с местом `at`); нет — null. */
+export function blockPlace(h: HandEdits, kind: 'accent' | 'insert', at: At, occurrence = 0): Place | null {
+  const f = (((kind === 'accent' ? h.text?.accents : h.text?.inserts) ?? []) as InsertFix[]).filter((x) => sameAt(x.at, at))[occurrence];
+  if (f?.x === undefined || f.y === undefined) return null;
+  return f.w === undefined ? { x: f.x, y: f.y } : { x: f.x, y: f.y, w: f.w };
+}
+
 /** Есть ли в тексте эмодзи — в слове субтитров их не примет проверка шрифтов движка (fonts.check: «субтитры только
  *  слова»). Правило — mayHaveEmoji шаблона (template/emoji.js): знак, который по умолчанию картинка, или FE0F, ZWJ,
  *  кейкап — есть в любой последовательности эмодзи; «№», «€», «→», «♪» — буквы. */
@@ -587,8 +613,14 @@ function parseText(x: unknown): TextEdits | null {
     && okOff(cta) && okLines(cta.lines) && (cta.word === undefined || isLine(cta.word)))) return null;
   const list = (v: unknown, keys: string[], more: (o: Record<string, unknown>) => boolean) => v === undefined
     || (Array.isArray(v) && v.length <= LIMITS.blocks && v.every((o) => isObj(o) && onlyKeys(o, keys) && isAt(o.at) && okTime(o) && okOff(o) && more(o)));
-  if (!list(accents, ['at', 't0', 't1', 'lines', 'off'], (o) => okLines(o.lines))) return null;
-  if (!list(inserts, ['at', 't0', 't1', 'text', 'off'], (o) => o.text === undefined || isLine(o.text))) return null;
+  // место на кадре — целиком (у акцента x и y, у вставки x, y и w) и в безопасной зоне, как dependentRequired и пределы схемы
+  const whole = (o: Record<string, unknown>, keys: string[]) => keys.every((k) => o[k] === undefined) || keys.every((k) => o[k] !== undefined);
+  const inRange = (v: unknown, r: { min: number; max: number }) => v === undefined || (isNum(v) && v >= r.min && v <= r.max);
+  const { accentAt: ac, insertBox: ib } = LIMITS;
+  if (!list(accents, ['at', 't0', 't1', 'lines', 'x', 'y', 'off'], (o) => okLines(o.lines) && whole(o, ['x', 'y'])
+    && inRange(o.x, ac.x) && inRange(o.y, ac.y))) return null;
+  if (!list(inserts, ['at', 't0', 't1', 'text', 'x', 'y', 'w', 'off'], (o) => (o.text === undefined || isLine(o.text)) && whole(o, ['x', 'y', 'w'])
+    && inRange(o.x, ib.x) && inRange(o.y, ib.y) && inRange(o.w, ib.w))) return null;
   return x as TextEdits;
 }
 

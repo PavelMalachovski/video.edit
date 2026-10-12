@@ -102,6 +102,11 @@
 - Тизер и скорость руками (`timeline.json` → `teaser: false`, `speed`): `edits.apply` ↔ `withHandEdits` в
   `web/lib/tracks.ts` и `setTeaser`, `setSpeed`, `LIMITS.speed` в `web/lib/edits.ts`, раздел `pipeline`; старая задача —
   `abilitiesOf` (`video`).
+- Место вставок и акцентов на кадре руками (`timeline.json` → `text.inserts[].x, y, w`, `text.accents[].x, y`):
+  `apply_text` и пределы схемы (`dependentRequired`, безопасная зона — как у `answers.insertBoxes`) ↔ `applyText`,
+  `placeBlock`, `blockPlace`, `LIMITS.insertBox`, `LIMITS.accentAt`, `parseTimeline` в `web/lib/edits.ts`, раздел `text`;
+  рамка в зоне — `moveBox`, `resizeBox`, `moveCentre` в `web/lib/style.ts`; ручки — `web/app/handles.tsx` (и на
+  «Превью»); старая задача — `abilitiesOf` (`place`).
 - Картинки Павла в релизе — куски `<файл>.part-NNNNN` (даже один): `chunkName` в `web/lib/jobs.ts` и `fetch.PART` в
   `engine/vm/fetch.py` ↔ `uploadParts` в `web/lib/editordata.ts` (кадр редактора склеивает их так же).
 - Картинки слоя в редакторе: `render._resolve` (от папки задачи, потом от корня) ↔ `layerUrl` в `web/lib/editordata.ts`

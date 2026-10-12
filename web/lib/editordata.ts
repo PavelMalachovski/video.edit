@@ -20,12 +20,12 @@ export const isMediaName = (x: string): x is MediaName => (MEDIA_NAMES as readon
  *  своей поры — новых полей timeline.json старый движок не примет (схема без лишних полей). По схеме в ветке: `edits` —
  *  правки руками вообще (схемы нет — задача до редактора: её движок timeline.json не читает), `move` — перестановка
  *  кусков (фаза 4), `text` — текст и вставки, слова субтитров (фаза 5), `picture` — сила зума, ч/б-куски, переходы и
- *  затемнение фона, `track` — другой трек музыки, `card` — текст финальной карточки, `video` — скорость ролика и тизер
- *  (фаза 5в). */
-export type Abilities = { edits: boolean; move: boolean; text: boolean; picture: boolean; track: boolean; card: boolean; video: boolean };
+ *  затемнение фона, `track` — другой трек музыки, `card` — текст финальной карточки, `video` — скорость ролика и тизер,
+ *  `place` — место вставок и акцентов на кадре (фаза 5в). */
+export type Abilities = { edits: boolean; move: boolean; text: boolean; picture: boolean; track: boolean; card: boolean; video: boolean; place: boolean };
 export const ENGINE_SCHEMA = 'engine/vm/schemas/timeline.json';
-const ALL: Abilities = { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true };
-const NONE: Abilities = { edits: false, move: false, text: false, picture: false, track: false, card: false, video: false };
+const ALL: Abilities = { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true };
+const NONE: Abilities = { edits: false, move: false, text: false, picture: false, track: false, card: false, video: false, place: false };
 
 /** Схема timeline.json из ветки задачи → что примет её движок. Схемы нет — ничего (задача до редактора); есть, но не
  *  читается — движок нынешний. */
@@ -34,11 +34,12 @@ export function abilitiesOf(schema: string | null): Abilities {
   try {
     const parsed = JSON.parse(schema) as { properties: Record<string, unknown>; $defs?: { Music?: { properties?: object } } };
     const props = parsed.properties;
-    const text = (props.text as { properties?: object } | undefined)?.properties ?? {};
+    const text = (props.text as { properties?: Record<string, { items?: { properties?: object } }> } | undefined)?.properties ?? {};
     const ops = ((props.edits as { items: { oneOf: { properties: { op: { const: string } } }[] } }).items.oneOf).map((o) => o.properties.op.const);
     return {
       edits: true, move: ops.includes('move'), text: 'text' in props && 'words' in props, picture: ['zoom', 'looks', 'transitions', 'dim'].every((k) => k in props),
       track: 'file' in (parsed.$defs?.Music?.properties ?? {}), card: 'end' in text, video: 'teaser' in props && 'speed' in props,
+      place: 'x' in (text.inserts?.items?.properties ?? {}),
     };
   } catch {
     return ALL;
@@ -57,6 +58,10 @@ export function refusedBy(a: Abilities, hand: HandEdits): string | null {
   if (!a.card && hand.text?.end) return 'Эта задача создана до правок финальной карточки в редакторе: её движок их не примет — карточка здесь правится через «Поправить»';
   if (!a.video && (hand.teaser !== undefined || hand.speed !== undefined)) {
     return 'Эта задача создана до правок скорости и тизера в редакторе: её движок их не примет — они здесь меняются через «Поправить»';
+  }
+  const placed = [...(hand.text?.accents ?? []), ...(hand.text?.inserts ?? [])].some((f) => f.x !== undefined || f.y !== undefined || ('w' in f && f.w !== undefined));
+  if (!a.place && placed) {
+    return 'Эта задача создана до перетаскивания вставок и акцентов в редакторе: её движок их места не примет — место здесь меняется через «Поправить»';
   }
   return null;
 }

@@ -239,7 +239,9 @@ def _lines(lines: list[dict], texts: list[str] | None) -> list[dict]:
 
 
 def apply_text(edit: dict, text: dict | None, words: list | None = None) -> dict:
-    """Текст и вставки Павла (`timeline.json` → `text`, `words`) поверх edit; правок нет — тот же edit."""
+    """Текст и вставки Павла (`timeline.json` → `text`, `words`) поверх edit; правок нет — тот же edit. Место на кадре:
+    у акцента `x, y` — центр блока, у вставки с рамкой `x, y, w` — левый верхний угол и ширина (в безопасной зоне их
+    держит страница, схема — пределы)."""
     if not text and not words:
         return edit
     out = {**edit}
@@ -254,7 +256,7 @@ def apply_text(edit: dict, text: dict | None, words: list | None = None) -> dict
     def accent(item: dict, c: dict, name: str) -> dict | None:
         if c.get("off"):
             return None
-        return _timed(name, {**item, **{k: c[k] for k in ("t0", "t1") if k in c}, "lines": _lines(item["lines"], c.get("lines"))})
+        return _timed(name, {**item, **{k: c[k] for k in ("t0", "t1", "x", "y") if k in c}, "lines": _lines(item["lines"], c.get("lines"))})
 
     def insert(item: dict, c: dict, name: str) -> dict:
         if c.get("off"):
@@ -262,6 +264,8 @@ def apply_text(edit: dict, text: dict | None, words: list | None = None) -> dict
         changed = {**item, **{k: c[k] for k in ("t0", "t1") if k in c}}
         if "text" in c and "text" in item:  # текст — только у текстовых вставок
             changed["text"] = c["text"]
+        if "x" in item and "w" in item:  # место и ширина — у вставок с рамкой на кадре (у fullscreen их нет)
+            changed.update({k: c[k] for k in ("x", "y", "w") if k in c})
         return _timed(name, changed)
 
     if text.get("accents") and edit.get("accents"):

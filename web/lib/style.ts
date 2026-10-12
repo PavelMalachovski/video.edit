@@ -237,21 +237,39 @@ export function placedInserts<T extends { x?: number; y?: number; w?: number; qu
 
 const within = (v: number, lo: number, hi: number) => Math.round(Math.min(Math.max(v, lo), Math.max(lo, hi)));
 
+/** Поля рамки от шаблона вокруг вставки — тень или обводка, px кадра: на сколько нарисованное выходит за её x, y, w. */
+export type BoxExt = { left: number; top: number; right: number };
+const NO_EXT: BoxExt = { left: 0, top: 0, right: 0 };
+
 /** Новая ширина вставки (шагом 10 px, в пределах INSERT_W): центр по горизонтали и верх остаются, рамка — в безопасной
- *  зоне. `h` — нынешняя высота вставки, px кадра (по ней — высота после растяжения). */
-export function resizeBox(b: InsertBox, width: number, h: number): InsertBox {
+ *  зоне. `h` — нынешняя высота вставки, px кадра (по ней — высота после растяжения); `ext` — поля её тени: в зоне тогда
+ *  вся нарисованная рамка, как её проверяет монтаж. */
+export function resizeBox(b: InsertBox, width: number, h: number, ext: BoxExt = NO_EXT): InsertBox {
   const w = Math.min(INSERT_W.max, Math.max(INSERT_W.min, Math.round(width / 10) * 10));
   const tall = b.w > 0 ? (h * w) / b.w : h;
   return {
-    x: within(b.x + (b.w - w) / 2, INSERT_ZONE.x0, INSERT_ZONE.x1 - w),
-    y: within(b.y, INSERT_ZONE.y0, INSERT_ZONE.y1 - tall),
+    x: within(b.x + (b.w - w) / 2, INSERT_ZONE.x0 + ext.left, INSERT_ZONE.x1 - w - ext.right),
+    y: within(b.y, INSERT_ZONE.y0 + ext.top, INSERT_ZONE.y1 - tall + ext.top),
     w,
   };
 }
 
-/** Рамка, перетащенная в (x, y): в безопасной зоне целиком; `h` — высота вставки, px кадра. */
-export function moveBox(b: InsertBox, x: number, y: number, h: number): InsertBox {
-  return { x: within(x, INSERT_ZONE.x0, INSERT_ZONE.x1 - b.w), y: within(y, INSERT_ZONE.y0, INSERT_ZONE.y1 - h), w: b.w };
+/** Рамка, перетащенная в (x, y): в безопасной зоне целиком; `h` — высота вставки, px кадра; `ext` — поля её тени. */
+export function moveBox(b: InsertBox, x: number, y: number, h: number, ext: BoxExt = NO_EXT): InsertBox {
+  return {
+    x: within(x, INSERT_ZONE.x0 + ext.left, INSERT_ZONE.x1 - b.w - ext.right), y: within(y, INSERT_ZONE.y0 + ext.top, INSERT_ZONE.y1 - h + ext.top), w: b.w,
+  };
+}
+
+/** Центр акцента, перетащенный в (x, y): его блок (рамка от шаблона размером `box` — вокруг центра) — в безопасной зоне,
+ *  той же, что у вставок; блок шире или выше зоны — посередине неё (шаблон сам впишет его в зону). Центр — целые px, в
+ *  пределах схемы timeline.json (LIMITS.accentAt). */
+export function moveCentre(box: { w: number; h: number }, x: number, y: number): { x: number; y: number } {
+  const fit = (v: number, lo: number, hi: number) => Math.round(lo <= hi ? Math.min(Math.max(v, lo), hi) : (lo + hi) / 2);
+  return {
+    x: fit(x, INSERT_ZONE.x0 + box.w / 2, INSERT_ZONE.x1 - box.w / 2),
+    y: fit(y, INSERT_ZONE.y0 + box.h / 2, INSERT_ZONE.y1 - box.h / 2),
+  };
 }
 
 const insertsKey = (jobId: string): string => `vm:inserts:${jobId}`;

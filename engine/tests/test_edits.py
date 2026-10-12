@@ -182,6 +182,51 @@ def test_a_block_ending_before_it_starts_is_refused_by_name(text):
         edits.apply(TEXT_EDIT, {"rev": 1, "edits": [], "text": text}, 9)
 
 
+def test_inserts_and_accents_placed_by_hand_on_the_frame():
+    """Редактор: вставку перетащили и растянули на кадре (x, y — левый верхний угол, w — ширина, px кадра), акцент
+    перетащили (x, y — центр блока). У вставки на весь кадр места нет — правка места её не трогает; убранная вставка
+    остаётся убранной."""
+    full = {**TEXT_EDIT, "inserts": [*TEXT_EDIT["inserts"], {"kind": "fullscreen", "src": "c.mp4", "t0": 7.0, "t1": 7.5}]}
+    timeline = {"rev": 1, "edits": [], "text": {
+        "accents": [{"at": [3.0, 4.0], "x": 300, "y": 1200}],
+        "inserts": [{"at": [2.0, 3.0], "x": 200, "y": 600, "w": 400}, {"at": [4.0, 5.0], "t0": 4.2, "x": 120, "y": 1100, "w": 300},
+                    {"at": [7.0, 7.5], "x": 100, "y": 300, "w": 500}],
+    }}
+    out = edits.apply(full, timeline, 9)
+    assert out["accents"][0] == {**TEXT_EDIT["accents"][0], "x": 300, "y": 1200}
+    assert out["accents"][1] == TEXT_EDIT["accents"][1], "без правки — где поставила сессия"
+    assert out["inserts"][0] == {**TEXT_EDIT["inserts"][0], "x": 200, "y": 600, "w": 400}
+    assert out["inserts"][1] == {**TEXT_EDIT["inserts"][1], "t0": 4.2, "x": 120, "y": 1100, "w": 300}, "место — вместе с временем"
+    assert out["inserts"][3] == full["inserts"][3], "у вставки на весь кадр места нет"
+    tl = Timeline([(0.0, 9.0)], 1.0)
+    moved = [e["state"]["accent"] for e in build_overlay_events({**out, "style": STYLE}, tl) if e["state"].get("accent")]
+    assert moved and all((a["x"], a["y"]) == (300, 1200) for a in moved[:1]), "кадр рисует акцент на новом месте"
+    off = edits.apply(full, {"rev": 1, "edits": [], "text": {"inserts": [{"at": [2.0, 3.0], "off": True}]}}, 9)
+    assert off["inserts"][0] == {**TEXT_EDIT["inserts"][0], "off": True}
+
+
+@pytest.mark.parametrize("bad", [
+    {"accents": [{"at": [3.0, 4.0], "x": 300}]},
+    {"accents": [{"at": [3.0, 4.0], "x": 30, "y": 900}]},
+    {"accents": [{"at": [3.0, 4.0], "x": 300, "y": 1600}]},
+    {"accents": [{"at": [3.0, 4.0], "x": 300, "y": 900, "w": 400}]},
+    {"inserts": [{"at": [2.0, 3.0], "x": 200, "y": 600}]},
+    {"inserts": [{"at": [2.0, 3.0], "w": 400}]},
+    {"inserts": [{"at": [2.0, 3.0], "x": 820, "y": 600, "w": 80}]},
+    {"inserts": [{"at": [2.0, 3.0], "x": 200, "y": 600, "w": 840}]},
+    {"inserts": [{"at": [2.0, 3.0], "x": 200, "y": 1500, "w": 400}]},
+    {"inserts": [{"at": [2.0, 3.0], "x": "200", "y": 600, "w": 400}]},
+])
+def test_places_on_the_frame_go_through_the_schema(tmp_path, bad):
+    """Место — целиком (у вставки x, y и w, у акцента x и y) и в безопасной зоне кадра, как рамки вставок на превью."""
+    job = Job(tmp_path / "j")
+    job.root.mkdir()
+    job.write("timeline.json", {"rev": 1, "edits": [], "text": {"accents": [{"at": [3.0, 4.0], "x": 890, "y": 120}],
+                                                                 "inserts": [{"at": [2.0, 3.0], "x": 60, "y": 1490, "w": 830}]}})
+    with pytest.raises(ValueError):
+        job.write("timeline.json", {"rev": 1, "edits": [], "text": bad})
+
+
 def test_text_edits_go_through_the_schema(tmp_path):
     job = Job(tmp_path / "jobs" / "abc")
     job.root.mkdir(parents=True)

@@ -3,11 +3,14 @@
 // вспышка — по формулам движка, lib/picture.ts), слой шаблона (те же события, что рисуют финал: перерисовывается,
 // только когда событие сменилось) и шкала времени (в финале её рисует ffmpeg, здесь — страница). Всё — по часам плеера,
 // без перерисовки всего редактора.
-import { useEffect, useRef, useSyncExternalStore, type ReactNode, type RefObject } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type MutableRefObject, type ReactNode, type RefObject } from 'react';
 import type { Clock } from '@/lib/clock.ts';
+import type { Place } from '@/lib/edits.ts';
 import type { StyleSpec } from '@/lib/jobfiles.ts';
 import { eventIndexAt, FPS, type LayerEvent } from '@/lib/overlay.ts';
 import { BW_FILTER, pictureAt, type Cover, type PictureModel } from '@/lib/picture.ts';
+import { INSERT_W, moveBox, moveCentre, resizeBox, type BoxExt } from '@/lib/style.ts';
+import { BoxHandle, type Box } from '../../../handles';
 import PreviewFrame from '../../../preview-frame';
 
 /** Перебивка-видео из загрузок Павла — в ветке её нет, а целиком её не отдаёт /upload: на кадре — метка. */
@@ -114,14 +117,75 @@ export function Picture({ clock, model, video, src, duration, width, playing, ur
   );
 }
 
-/** Слой шаблона в момент часов: событие слоя — то, в котором лежит момент; перерисовка — только при смене события. */
-export function Layer({ clock, events, spec, width }: { clock: Clock; events: LayerEvent[] | null; spec: StyleSpec | null; width: number }) {
+/** Блок, выбранный на дорожке, у которого Павел двигает место на кадре: вставка — по номеру в edit.json (он есть у неё в
+ *  состоянии слоя), акцент — по своему времени на дорожке (на кадре акцент один). */
+export type FramePick = { kind: 'insert'; n: number } | { kind: 'accent'; t0: number; t1: number };
+/** Какой это блок — чтобы рамка одного не досталась другому. */
+export const pickKey = (p: FramePick): string => (p.kind === 'insert' ? `insert:${p.n}` : `accent:${p.t0}`);
+/** Рамка выбранного блока, когда шаблон его нарисовал (по ней кнопки панели держат блок в зоне), поля тени вставки и
+ *  какой это блок. */
+export type PickedBox = { key: string; box: Box; ext?: BoxExt };
+/** Подписи ручки: имя, подсказка и место словами — для экранного чтеца. */
+export type HandleText = (place: Place) => { label: string; title: string; valueText: string };
+type Drawn = { boxes: { inserts?: (Box & { n?: number })[]; accent?: Box }; state: Record<string, unknown> }; // рамки — и что нарисовано
+type Placed = { n?: number; x?: number; y?: number; w?: number };
+
+/** Слой шаблона в момент часов: событие слоя — то, в котором лежит момент; перерисовка — только при смене события. Пока
+ *  выбранная вставка или акцент на кадре — поверх него ручка (`onPlace` — новое место): тащить, у вставки — и ширина.
+ *  Рамка ручки — где шаблон нарисовал блок в последний раз: пока его тащат, ручка не пропадает между перерисовками. */
+export function Layer({ clock, events, spec, width, pick = null, onPlace, handleText, picked }: {
+  clock: Clock; events: LayerEvent[] | null; spec: StyleSpec | null; width: number;
+  pick?: FramePick | null; onPlace?: (place: Place) => void; handleText?: HandleText; picked?: MutableRefObject<PickedBox | null>;
+}) {
   const index = useSyncExternalStore(clock.subscribe, () => (events ? eventIndexAt(events, clock.get()) : -1), () => -1);
+  const [drawn, setDrawn] = useState<Drawn | null>(null);
   const ev = events && index >= 0 ? events[index] : null;
+  let handle: ReactNode = null;
+  let box: Box | null = null;
+  let ext: BoxExt | undefined;
+  if (spec && ev && pick && onPlace && handleText) {
+    const scale = width / 1080;
+    if (pick.kind === 'insert') {
+      const ins = ((ev.state.inserts ?? []) as Placed[]).find((i) => i.n === pick.n);
+      const at = drawn?.boxes.inserts?.find((b) => b.n === pick.n);
+      // поля тени — по нарисованному состоянию и его рамке (вместе, не вперемешку со свежей правкой)
+      const was = ((drawn?.state.inserts ?? []) as Placed[]).find((i) => i.n === pick.n);
+      if (at && typeof was?.x === 'number' && typeof was.y === 'number' && typeof was.w === 'number') {
+        ext = { left: Math.max(0, was.x - at.x), top: Math.max(0, was.y - at.y), right: Math.max(0, at.x + at.w - was.x - was.w) };
+      }
+      if (ins && at && typeof ins.x === 'number' && typeof ins.y === 'number' && typeof ins.w === 'number') {
+        const now = { x: ins.x, y: ins.y, w: ins.w };
+        const shadow = ext;
+        box = at;
+        handle = (
+          <BoxHandle key={`insert${pick.n}`} {...handleText(now)} box={at} x={now.x} y={now.y} scale={scale}
+            onDrag={(x, y) => onPlace(moveBox(now, x, y, at.h, shadow))}
+            size={{ value: now.w, min: INSERT_W.min, max: INSERT_W.max, onSize: (w) => onPlace(resizeBox(now, w, at.h, shadow)) }} />
+        );
+      }
+    } else {
+      const acc = ev.state.accent as { x?: number; y?: number } | undefined;
+      const at = drawn?.boxes.accent;
+      const mine = ev.t0 >= pick.t0 - 1e-6 && ev.t0 < pick.t1 - 1e-6; // событие — во время выбранного акцента
+      if (mine && acc && at && typeof acc.x === 'number' && typeof acc.y === 'number') {
+        const now = { x: acc.x, y: acc.y };
+        box = at;
+        handle = (
+          <BoxHandle key="accent" {...handleText(now)} box={at} x={now.x} y={now.y} scale={scale} onDrag={(x, y) => onPlace(moveCentre(at, x, y))} />
+        );
+      }
+    }
+  }
+  const key = pick ? pickKey(pick) : null;
+  useEffect(() => { // рамку выбранного блока — кнопкам панели (они двигают его и тогда, когда он не на кадре)
+    if (picked && key && box) picked.current = { key, box, ext };
+  });
   if (!spec || !ev) return null;
   return (
     <div className="ed-layer" data-event={index} data-t0={ev.t0}>
-      <PreviewFrame frameUrl={null} spec={spec} state={ev.state} width={width} big />
+      <PreviewFrame frameUrl={null} spec={spec} state={ev.state} width={width} big
+        onBoxes={(b, state) => setDrawn({ boxes: (b ?? {}) as Drawn['boxes'], state: state as Record<string, unknown> })} />
+      {handle}
     </div>
   );
 }

@@ -18,8 +18,8 @@ import { createClock } from '@/lib/clock.ts';
 import { layerUrl, type EditorData } from '@/lib/editordata.ts';
 import { sameJson } from '@/lib/equal.ts';
 import {
-  commit, cutSpan, EMPTY, initHistory, moveSpan, redo, restoreSpan, setBlock, setCta, setHook, setLook, setMusic, setTransition, setVoice, splitAt, trimEnd,
-  trimStart, undo, type HandEdits, type History, type TransitionKind,
+  commit, cutSpan, EMPTY, initHistory, moveSpan, placeBlock, redo, restoreSpan, setBlock, setCta, setHook, setLook, setMusic, setTransition, setVoice, splitAt,
+  trimEnd, trimStart, undo, type HandEdits, type History, type Place, type TransitionKind,
 } from '@/lib/edits.ts';
 import { tenths } from '@/lib/format.ts';
 import { loadLang, saveLang, tr, type Key, type Lang } from '@/lib/i18n.ts';
@@ -40,7 +40,7 @@ import { BackIcon, PauseIcon, PlayIcon, PlusIcon, RedoIcon, ScissorsIcon, Speake
 import PreviewFrame from '../../../preview-frame';
 import { useFontChars, useTemplateFonts } from '../../../use-fonts';
 import { BlockPanel, EndPanel, isPicked, removeBlock, sameRef, WordsPanel, type Letters } from './blockpanel';
-import { Bar, Layer, Picture } from './frame';
+import { Bar, Layer, Picture, pickKey, type FramePick, type HandleText, type PickedBox } from './frame';
 import { Mixer, type MixPlan } from './mixer';
 import { Inspector, StylePanel, type Selection } from './panels';
 import { KIND_NAMES, PicturePick, PictureSection, VideoSection } from './picturepanel';
@@ -151,6 +151,9 @@ export default function Editor({ id }: { id: string }) {
   const canTrack = editable && (data?.abilities.track ?? true);
   const canCard = editable && mounted && (data?.abilities.card ?? true);
   const cardNote = !data?.draft ? null : !mounted ? T('textAfterMount') : !data.abilities.card ? T('cardOld') : null;
+  // место вставок и акцентов на кадре — после монтажа, как текст (до него их места выбирает «Превью»)
+  const canPlace = canText && (data?.abilities.place ?? true);
+  const placeNote = data?.draft && mounted && data.abilities.text && !data.abilities.place ? T('placeOld') : null;
   // скорость ролика — и до монтажа; тизер — после него (до него его выбирает ответ на вопрос)
   const canSpeed = editable && (data?.abilities.video ?? true);
   const canTeaser = canSpeed && mounted;
@@ -564,6 +567,29 @@ export default function Editor({ id }: { id: string }) {
     if (!selBlock?.ref || selBlock.ghost || !canText) return;
     edit(removeBlock(hand, selBlock.ref));
   }, [selBlock, canText, edit, hand]);
+  // место выбранной вставки или акцента на кадре: ручкой поверх кадра (пока блок на нём) и кнопками в панели блока
+  const placeRef = selBlock && !selBlock.ghost && (selBlock.ref?.kind === 'insert' || selBlock.ref?.kind === 'accent') ? selBlock.ref : null;
+  const framePick: FramePick | null = !canPlace || !placeRef || !selBlock ? null
+    : placeRef.kind === 'insert' ? (selBlock.drawn === false ? null : { kind: 'insert', n: placeRef.n }) : { kind: 'accent', t0: selBlock.t0, t1: selBlock.t1 };
+  const picked = useRef<PickedBox | null>(null);
+  const doPlace = useCallback((place: Place | null) => {
+    if (placeRef?.kind !== 'insert' && placeRef?.kind !== 'accent') return;
+    const kind = placeRef.kind === 'accent' ? 'accents' : 'inserts';
+    // шаги одного блока подряд (тащат, жмут стрелки, ползунок) — одна правка для отмены; «как у монтажа» — своя
+    edit(placeBlock(hand, kind, placeRef.at, placeRef.occurrence, place), place ? `place:${placeRef.kind}${placeRef.n}` : undefined);
+  }, [placeRef, edit, hand]);
+  const handleText: HandleText = useCallback((place: Place) => ({
+    label: T(placeRef?.kind === 'accent' ? 'accent' : 'insert'),
+    title: T(placeRef?.kind === 'accent' ? 'placeAccentT' : 'placeInsertT'),
+    valueText: place.w === undefined ? T('placeAt', { x: place.x, y: place.y }) : T('placeBox', { x: place.x, y: place.y, w: place.w }),
+  }), [T, placeRef]);
+  const placing = useMemo(() => ({
+    editable: canPlace, note: editable ? placeNote : null, onPlace: doPlace,
+    size: () => { // рамка блока, когда шаблон его рисовал, — только этого блока
+      const p = picked.current;
+      return p && framePick && p.key === pickKey(framePick) ? { w: p.box.w, h: p.box.h, ext: p.ext } : null;
+    },
+  }), [canPlace, editable, placeNote, doPlace, framePick]);
   // ч/б-кусок или переход, выбранный на дорожке «Картинка»: Delete — убрать (вид перехода, если Павел его менял, остаётся)
   const selLook = sel?.kind === 'look' ? tracks?.looks.find((l) => l.at[0] === sel.at[0] && l.at[1] === sel.at[1]) ?? null : null;
   const selTransition = sel?.kind === 'transition' ? tracks?.transitions.find((x) => x.at === sel.at) ?? null : null;
@@ -982,7 +1008,9 @@ export default function Editor({ id }: { id: string }) {
                 ) : null}
               </Picture>
             ) : null}
-            {tracks ? <Layer clock={clock} events={events} spec={spec} width={frameW} /> : null}
+            {tracks ? (
+              <Layer clock={clock} events={events} spec={spec} width={frameW} pick={framePick} onPlace={doPlace} handleText={handleText} picked={picked} />
+            ) : null}
             {tracks ? <Bar clock={clock} spec={spec} duration={duration} width={frameW} /> : null}
             {spec && sample && frameUrl ? (
               <div className="ed-layer">
@@ -998,7 +1026,7 @@ export default function Editor({ id }: { id: string }) {
           {mount.state === 'error' ? <p className="ed-note ed-flag bad" role="alert">{T('mountFailed', { e: mount.error ?? '' })}</p> : null}
           {tracks && draft && sel?.kind === 'block' ? (
             <BlockPanel T={T} sel={sel} tracks={tracks} draft={draft} hand={hand} editable={canText} note={editable ? textNote : null} onEdit={edit} sec={sec}
-              letters={letters} />
+              letters={letters} placing={placing} />
           ) : null}
           {tracks && draft && sel?.kind === 'sub' ? (
             <WordsPanel T={T} sel={sel} tracks={tracks} draft={draft} hand={hand} editable={canText} note={editable ? textNote : null} onEdit={edit} sec={sec}

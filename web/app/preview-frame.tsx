@@ -12,11 +12,12 @@ type OverlayWindow = Window & {
   renderState?: (spec: StyleSpec, state: OverlayState | Record<string, unknown>, opts: { bar?: { progress: number } }) => Promise<void>;
   layoutBoxes?: () => unknown;
 };
-/** `onBoxes` — рамки нарисованного (window.layoutBoxes шаблона, px кадра) после каждой отрисовки: по ним ручки на превью.
+/** `onBoxes` — рамки нарисованного (window.layoutBoxes шаблона, px кадра) после каждой отрисовки и состояние, которое
+ *  нарисовано (пока шаблон рисовал, состояние могло смениться): по ним ручки на превью и в редакторе.
  *  `progress` — шкала времени (0..1) рисует шаблон; нет — шкалы в слое нет (редактор рисует её сам: она бежит каждый кадр). */
 type Props = {
   frameUrl: string | null; spec: StyleSpec; state: OverlayState | Record<string, unknown>; progress?: number | null; width: number; big?: boolean;
-  onBoxes?: (boxes: unknown) => void;
+  onBoxes?: (boxes: unknown, state: OverlayState | Record<string, unknown>) => void;
 };
 type Draw = { spec: StyleSpec; state: Props['state']; progress: number | null };
 
@@ -47,7 +48,7 @@ export default function PreviewFrame({ frameUrl, spec, state, progress = null, w
         () => {
           if (!live.current) return;
           setError('');
-          boxes.current?.(win.layoutBoxes?.());
+          boxes.current?.(win.layoutBoxes?.(), d.state);
         },
         (e: unknown) => live.current && setError(e instanceof Error ? e.message : String(e)),
       ).finally(() => {

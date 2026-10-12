@@ -1133,6 +1133,70 @@ const segments = [
     await textBlocks.nth(2).click();
     await page.locator('.ed-insp[data-block=cta]').getByLabel('Кодовое слово').fill('ПЛАН');
     await until(async () => (await textBlocks.nth(2).textContent()).includes('ПЛАН'), 3000, 'титр с новым словом');
+    // место на кадре (фаза 5в): стикер — перетащить по кадру и расширить уголком ⤢, ширина — и ползунком панели; акцент —
+    // перетащить и подвинуть кнопками; «Место как у монтажа» и отмена. Кадр рисует сразу, рамки — в безопасной зоне
+    const onFrame = (name) => page.locator('.ed-layer').getByRole('slider', { name, exact: true });
+    const frameScale = async () => (await page.locator('.ed-frame').boundingBox()).width / 1080;
+    const dragBy = async (loc, dx, dy) => {
+      const r = await loc.boundingBox();
+      const [x, y] = [r.x + r.width / 2, r.y + r.height / 2];
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.mouse.move(x + dx / 2, y + dy / 2, { steps: 4 });
+      await page.mouse.move(x + dx, y + dy, { steps: 4 });
+      await page.mouse.up();
+    };
+    const k = await frameScale();
+    await insBlocks.nth(0).click();
+    const stickerNow = async () => ((await layerState()).inserts ?? []).find((i) => i.n === 0);
+    await onFrame('Вставка').waitFor({ timeout: 3000 });
+    const s0 = await stickerNow();
+    check(s0?.x === 120 && s0.y === 1100 && s0.w === 400, `стикер на кадре: ${JSON.stringify(s0)}`);
+    await dragBy(onFrame('Вставка'), 30, -45);
+    const moved = { x: Math.round(120 + 30 / k), y: Math.round(1100 - 45 / k) };
+    await until(async () => { const i = await stickerNow(); return i?.x === moved.x && i.y === moved.y && i.w === 400; }, 3000,
+      async () => `стикер перетащен в ${JSON.stringify(moved)}: ${JSON.stringify(await stickerNow())}`);
+    await shot(page, 'editor-place');
+    await dragBy(onFrame('Вставка').locator('[data-grip]'), 27, 0);
+    const grown = Math.min(830, Math.round((400 * (1 + 27 / (540 * k))) / 10) * 10);
+    await until(async () => (await stickerNow())?.w === grown, 3000, async () => `стикер шире — ${grown}: ${JSON.stringify(await stickerNow())}`);
+    const wide = await stickerNow();
+    check(wide.x === Math.max(60, Math.round(moved.x + (400 - grown) / 2)) && wide.x + wide.w <= 890, `шире — от центра, в зоне: ${JSON.stringify(wide)}`);
+    const insertPanel = page.locator('.ed-insp[data-block=insert]');
+    const widthSlider = insertPanel.getByRole('slider', { name: 'Ширина вставки' });
+    await widthSlider.focus();
+    await page.keyboard.press('ArrowRight');
+    await until(async () => (await stickerNow())?.w === grown + 10, 3000, async () => `ползунок ширины: ${JSON.stringify(await stickerNow())}`);
+    check((await insertPanel.locator('[data-place=insert] .mono').last().textContent()).includes(`ширина ${grown + 10}`), 'панель — место и ширина словами');
+    // к краю зоны — стрелками на ручке кадра: дальше края не идёт, и тень стикера — тоже в зоне (как её проверит монтаж)
+    await onFrame('Вставка').focus();
+    for (let i = 0; i < 25; i++) await page.keyboard.press('ArrowLeft');
+    const drawnSticker = async () => (await page.frameLocator('.ed-layer iframe').locator('body').evaluate(() => window.layoutBoxes())).inserts?.find((b) => b.n === 0);
+    await until(async () => { const b = await drawnSticker(); return b?.x === 60; }, 3000, async () => `у левого края — вместе с тенью: ${JSON.stringify(await drawnSticker())}`);
+    check((await stickerNow()).x > 60, `стикер у края, а его тень — внутри зоны: ${JSON.stringify(await stickerNow())}`);
+    await shot(page, 'editor-place-edge');
+    const stickerPlaced = await stickerNow();
+    // акцент — на своём месте в речи (его перетащили на 1,5 с): тащить по кадру, потом кнопки «Правее» и «Выше»
+    await textBlocks.nth(1).click();
+    const accentNow = async () => (await layerState()).accent;
+    await onFrame('Акцент').waitFor({ timeout: 3000 });
+    check((await accentNow())?.x === 540 && (await accentNow()).y === 900, `акцент на кадре: ${JSON.stringify(await accentNow())}`);
+    await dragBy(onFrame('Акцент'), -30, 60);
+    const aMoved = { x: Math.round(540 - 30 / k), y: Math.round(900 + 60 / k) };
+    await until(async () => { const a = await accentNow(); return a?.x === aMoved.x && a.y === aMoved.y; }, 3000,
+      async () => `акцент перетащен в ${JSON.stringify(aMoved)}: ${JSON.stringify(await accentNow())}`);
+    const accentPanel = page.locator('.ed-insp[data-block=accent]');
+    await accentPanel.getByRole('button', { name: 'Правее', exact: true }).click();
+    await accentPanel.getByRole('button', { name: 'Выше', exact: true }).click();
+    const aPlaced = { x: aMoved.x + 20, y: aMoved.y - 20 };
+    await until(async () => { const a = await accentNow(); return a?.x === aPlaced.x && a.y === aPlaced.y; }, 3000,
+      async () => `кнопки сдвинули акцент: ${JSON.stringify(await accentNow())}`);
+    await shot(page, 'editor-place-accent');
+    await accentPanel.getByRole('button', { name: 'Место как у монтажа', exact: true }).click();
+    await until(async () => (await accentNow())?.x === 540 && (await accentNow()).y === 900, 3000, 'место акцента — как у монтажа');
+    await page.keyboard.press('Control+z');
+    await until(async () => (await accentNow())?.x === aPlaced.x && (await accentNow()).y === aPlaced.y, 3000, 'отмена вернула место акцента');
+
     // картинку — убрать (Delete): тень на дорожке, звука нет; отмена и повтор
     await insBlocks.nth(1).click();
     await page.locator('.ed-insp[data-block=insert]').waitFor({ timeout: 3000 });
@@ -1153,9 +1217,10 @@ const segments = [
     engineValidate('timeline.json', tl);
     const t = tl.text ?? {};
     // акцент переехал целиком: его место в речи — той же длины (хвост после слов движок добавит сам)
-    check(t.hook?.until === 0.9 && isDeepStrictEqual(t.accents, [{ at: [1.0, 1.15], t0: 1.7, t1: 1.85 }]), `хук и акцент: ${JSON.stringify(t)}`);
+    check(t.hook?.until === 0.9 && isDeepStrictEqual(t.accents, [{ at: [1.0, 1.15], t0: 1.7, t1: 1.85, ...aPlaced }]), `хук и акцент: ${JSON.stringify(t)}`);
     check(isDeepStrictEqual(t.cta, { at: [2.1, 2.6], word: 'ПЛАН' }), `титр: ${JSON.stringify(t.cta)}`);
-    check(isDeepStrictEqual(t.inserts, [{ at: [0.9, 1.3], t0: 0.9, t1: 2.6 }, { at: [1.7, 2.2], off: true }]), `вставки: ${JSON.stringify(t.inserts)}`);
+    const { x: sx, y: sy, w: sw } = stickerPlaced;
+    check(isDeepStrictEqual(t.inserts, [{ at: [0.9, 1.3], t0: 0.9, t1: 2.6, x: sx, y: sy, w: sw }, { at: [1.7, 2.2], off: true }]), `вставки: ${JSON.stringify(t.inserts)}`);
     check(isDeepStrictEqual(tl.words, [{ t0: 0.7, t1: 0.9, text: 'вот' }, { t0: 0.3, t1: 0.6, text: '' }]), `слова: ${JSON.stringify(tl.words)}`);
 
     // движок нарисует то же, что показал кадр: события слоя по сохранённым правкам — состояние в каждом моменте
@@ -1211,6 +1276,25 @@ const segments = [
     check(await page.locator('.ed-row.text .ed-handle').count() === 0, 'у старой задачи блоки не тянутся');
     const refused = await page.request.put(`${APP}/api/jobs/${ctx.jobId}/timeline`, { data: { base: tl.rev, edits: [], text: { hook: { until: 1.2 } } } });
     check(refused.status() === 409, `старый движок: правка текста не сохраняется (${refused.status()})`);
+    // задача движка до мест на кадре (у вставок и акцентов в схеме нет x, y, w): ручки на кадре нет, кнопки панели —
+    // недоступны и говорят почему, сервер место не сохранит
+    const noPlace = structuredClone(schema);
+    for (const kind of ['accents', 'inserts']) {
+      const item = noPlace.properties.text.properties[kind].items;
+      for (const f of ['x', 'y', 'w']) delete item.properties[f];
+      delete item.dependentRequired;
+    }
+    await fakeJson('/__commit', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ branch: `claude/job-${ctx.jobId}`, files: { 'engine/vm/schemas/timeline.json': JSON.stringify(noPlace) }, message: 'engine before places' }) });
+    await page.reload();
+    await insBlocks.first().waitFor({ timeout: 10_000 });
+    await insBlocks.nth(0).click();
+    await page.locator('.ed-place').getByText('до перетаскивания вставок').waitFor({ timeout: 3000 });
+    check(await page.locator('.ed-place').getByRole('button', { name: 'Правее', exact: true }).isDisabled(), 'у старой задачи место не двигается кнопками');
+    check(await onFrame('Вставка').count() === 0, 'у старой задачи на кадре нет ручки');
+    const noPlaceSave = await page.request.put(`${APP}/api/jobs/${ctx.jobId}/timeline`,
+      { data: { base: tl.rev, edits: [], text: { inserts: [{ at: [0.9, 1.3], x: 200, y: 600, w: 400 }] } } });
+    check(noPlaceSave.status() === 409 && (await noPlaceSave.json()).error?.includes('до перетаскивания'), `старый движок: место не сохраняется (${noPlaceSave.status()})`);
     await fakeJson('/__commit', { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ branch: `claude/job-${ctx.jobId}`, files: { 'engine/vm/schemas/timeline.json': JSON.stringify(schema) }, message: 'engine back' }) });
     await page.setViewportSize({ width: 390, height: 844 });

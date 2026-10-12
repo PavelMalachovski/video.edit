@@ -175,8 +175,10 @@ input[type="color"]::-moz-color-swatch { border: none; border-radius: 50%; }
 .time b { color: var(--ink); font-weight: 600; }
 .tl-bar .zoom { width: 110px; flex: none; }
 @container (max-width: 1000px) { .tl-lbl, .tbtn kbd.k-hint { display: none; } .tl-bar .zoom { width: 72px; } }
-@container (max-width: 640px) { .edge-btn, .zoom, .keys-btn { display: none !important; } }
-.tl-scroll { flex: 1; overflow: auto; position: relative; min-height: 0; overscroll-behavior: contain; }
+@container (max-width: 640px) { .tl-bar .zoom { display: none; } }
+@container (max-width: 520px) { .keys-btn { display: none !important; } }
+@container (max-width: 440px) { .edge-btn { display: none !important; } }
+.tl-scroll { flex: 1; overflow: auto; position: relative; min-height: 0; overscroll-behavior-x: contain; scroll-padding-left: var(--hw); scroll-padding-top: 26px; }
 .tl-inner { position: relative; min-width: 100%; }
 .ruler { position: sticky; top: 0; z-index: 6; height: 26px; display: flex; background: var(--surface); border-bottom: 1px solid var(--line); }
 .corner { position: sticky; left: 0; z-index: 7; width: var(--hw); flex: none; background: var(--surface); border-right: 1px solid var(--line); }
@@ -198,7 +200,8 @@ input[type="color"]::-moz-color-swatch { border: none; border-radius: 50%; }
 .track.voice .lane { height: 50px; }
 .track.music .lane { height: 38px; }
 .track.sfx .lane, .track.subs .lane, .track.text .lane, .track.insr .lane { height: 30px; }
-.clip { position: absolute; top: 5px; bottom: 5px; border-radius: 7px; overflow: hidden; cursor: grab; touch-action: none; user-select: none; }
+.clip { position: absolute; top: 5px; bottom: 5px; border-radius: 7px; overflow: hidden; cursor: grab; touch-action: pan-x pan-y; user-select: none; }
+.clip.sel { touch-action: none; }
 .clip.sel { box-shadow: 0 0 0 2px var(--select); z-index: 3; }
 .clip:focus-visible { outline: 2px solid var(--select); outline-offset: 1px; z-index: 3; }
 .clip .lbl2 { position: absolute; left: 6px; top: 3px; font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: calc(100% - 12px); pointer-events: none; }
@@ -217,7 +220,7 @@ input[type="color"]::-moz-color-swatch { border: none; border-radius: 50%; }
 .clip.text { background: #FCE1EE; border: 1px solid var(--t-text); color: #8A1E52; top: 4px; bottom: 4px; }
 .clip.insc { background: #D6F3EC; border: 1px solid var(--t-ins); color: #11624F; top: 4px; bottom: 4px; }
 .clip.subc .lbl2, .clip.text .lbl2, .clip.insc .lbl2, .clip.sfx .lbl2 { top: 50%; transform: translateY(-50%); }
-.handle { position: absolute; top: 0; bottom: 0; width: 9px; cursor: ew-resize; z-index: 2; }
+.handle { position: absolute; top: 0; bottom: 0; width: min(9px, 22%); cursor: ew-resize; z-index: 2; }
 .handle.l { left: 0; }
 .handle.r { right: 0; }
 .clip.sel .handle::after { content: ""; position: absolute; top: 50%; transform: translateY(-50%); width: 3px; height: 60%; max-height: 26px; border-radius: 2px; background: var(--select); left: 3px; }
@@ -284,9 +287,11 @@ input[type="color"]::-moz-color-swatch { border: none; border-radius: 50%; }
   .mtabs button { border: none; background: var(--sunk); border-radius: 999px; padding: 8px 13px; font-size: 13px; font-weight: 500; white-space: nowrap; flex: none; }
   .mtabs button[aria-current="true"] { background: var(--ink); color: #fff; }
   .panel { order: 4; border-right: none; overflow: visible; scroll-margin-top: 64px; }
-  .clip { touch-action: pan-x pan-y; cursor: pointer; }
+  .clip, .clip.sel { touch-action: pan-x pan-y; cursor: pointer; }
+  .top-tools #undoBtn { display: none; }
   .phone-note { margin: 0; padding: 8px 16px 0; font-size: 12px; color: var(--muted); }
 }
+@media (max-width: 400px) { .brand { display: none; } }
 @media (prefers-reduced-motion: reduce) {
   .steps li.now i { animation: none; border-top-color: var(--select); }
   .toggle, .toggle::after, .prog i { transition: none; }
@@ -328,6 +333,7 @@ input[type="color"]::-moz-color-swatch { border: none; border-radius: 50%; }
         <button class="tbtn" data-act="split" title="Разрезать по плейхеду (S)" aria-label="Разрезать" data-i18n-title="splitT" data-i18n-aria="split"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4L8.1 15.9M14.5 14.5L20 20M8.1 8.1L12 12"/></svg><span class="tl-lbl" data-i18n="split">Разрезать</span><kbd class="k-hint desk-only">S</kbd></button>
         <button class="tbtn" id="delBtn" data-act="delete" title="Удалить выбранное (Delete)" aria-label="Удалить" data-i18n-title="deleteT" data-i18n-aria="delete"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg><span class="tl-lbl" data-i18n="delete">Удалить</span></button>
         <button class="tbtn only-phone" data-act="muteVoice" id="mMute" aria-label="Голос без звука" data-i18n-aria="muteA"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5L6 9H3v6h3l5 4z"/><path d="M16 9l5 6M21 9l-5 6"/></svg><span class="tl-lbl" data-i18n="mute">Без звука</span></button>
+        <button class="tbtn only-phone" data-act="undo" id="mUndo" aria-label="Отменить" data-i18n-aria="undoA"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 010 11H11"/></svg></button>
       </div>
       <div class="mid">
         <button class="ibtn edge-btn" data-act="toStart" title="В начало" aria-label="В начало" data-i18n-title="toStart" data-i18n-aria="toStart"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button>
@@ -430,13 +436,15 @@ function layout() { let x = 0; return doc.clips.map((c) => { const d = (c.out - 
 function total() { const L = layout(); return L.length ? L[L.length - 1].end : 0; }
 function locate(t) { const L = layout(); for (const r of L) if (t >= r.start && t < r.end) return { r, st: r.c.in + (t - r.start) * doc.speed }; const r = L[L.length - 1]; return r ? { r, st: r.c.out } : null; }
 // слово попадает в тот кусок, где его середина: разрез посреди слова не удваивает его в субтитрах
+// ключ слова — файл, номер слова и номер повтора: две копии одного куска не делят субтитры
 function finalWords() {
-  const out = [];
+  const out = []; const seen = {};
   for (const r of layout()) {
     SOURCES[r.c.src].words.forEach((w, i) => {
       const mid = (w.t0 + w.t1) / 2; if (mid < r.c.in || mid >= r.c.out) return;
       const a = Math.max(w.t0, r.c.in), b = Math.min(w.t1, r.c.out);
-      out.push({ w: w.w, key: r.c.src + ':' + i, t0: r.start + (a - r.c.in) / doc.speed, t1: r.start + (b - r.c.in) / doc.speed, clip: r.c.id });
+      const base = r.c.src + ':' + i; const n = seen[base] = (seen[base] ?? -1) + 1;
+      out.push({ w: w.w, key: n ? base + '#' + n : base, t0: r.start + (a - r.c.in) / doc.speed, t1: r.start + (b - r.c.in) / doc.speed, clip: r.c.id });
     });
   }
   return out;
@@ -477,8 +485,8 @@ function seed() {
   ];
   const f = find('по-чешски'), p = find('подкасты');
   doc.inserts = [
-    { id: nid('i'), kind: 'flag', t0: f ? f.t0 : 1.5, t1: (f ? f.t0 : 1.5) + 1.6, x: 0.6, y: 0.3, w: 0.3 },
-    { id: nid('i'), kind: 'mic', t0: p ? p.t0 : 20, t1: (p ? p.t0 : 20) + 1.8, x: 0.62, y: 0.28, w: 0.26 },
+    { id: nid('i'), kind: 'flag', t0: f ? f.t0 : 1.5, t1: (f ? f.t0 : 1.5) + 1.6, x: 0.5, y: 0.3, w: 0.3 },
+    { id: nid('i'), kind: 'mic', t0: p ? p.t0 : 20, t1: (p ? p.t0 : 20) + 1.8, x: 0.54, y: 0.28, w: 0.26 },
   ];
   doc.sfx = [{ id: nid('f'), kind: 'whoosh', at: doc.inserts[0].t0 }, { id: nid('f'), kind: 'pop', at: doc.inserts[1].t0 }];
   doc.music.len = T;
@@ -519,14 +527,14 @@ const textName = (x) => x.kind === 'hook' ? T('hook') : x.kind === 'cta' ? T('ct
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-function tc(t, frac = true) { t = Math.max(0, t); const m = Math.floor(t / 60), s = t - m * 60; return frac ? `${m}:${s.toFixed(1).padStart(4, '0')}` : `${m}:${String(Math.floor(s)).padStart(2, '0')}`; }
+function tc(t, frac = true) { t = Math.max(0, Math.round(t * 10) / 10); const m = Math.floor(t / 60), s = t - m * 60; return frac ? `${m}:${s.toFixed(1).padStart(4, '0')}` : `${m}:${String(Math.floor(s)).padStart(2, '0')}`; }
 const sec = (s) => (ui.lang === 'en' ? s.toFixed(1) + ' s' : s.toFixed(1).replace('.', ',') + ' с');
 let HW = 168;
 function setHW() { HW = isPhone() ? 100 : 168; document.documentElement.style.setProperty('--hw', HW + 'px'); }
 setHW();
 let toastTimer = 0;
 function toast(msg, undoable) {
-  const layer = $('#layer'); layer.querySelector('.toast')?.remove();
+  const layer = $('#layer'); layer.querySelector('.toast')?.remove(); if (layer.querySelector('.modal-bg')) undoable = false;
   const el = document.createElement('div'); el.className = 'toast'; el.setAttribute('role', 'status');
   el.innerHTML = `<span>${esc(msg)}</span>` + (undoable ? `<button data-act="undo">${L2('Отменить', 'Undo')}</button>` : '');
   layer.appendChild(el); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.remove(), 3200);
@@ -607,6 +615,7 @@ function sizeStage() {
   const dpr = Math.min(2, window.devicePixelRatio || 1); scene.width = Math.round(fw * dpr); scene.height = Math.round(fh * dpr);
   drawFrame();
 }
+function lum(hex) { const n = parseInt(hex.slice(1), 16); return (0.299 * (n >> 16 & 255) + 0.587 * (n >> 8 & 255) + 0.114 * (n & 255)) / 255; }
 function curWordKey(t) { for (const w of finalWords()) if (t >= w.t0 && t <= w.t1 + 0.04) return w.key; return null; }
 function drawFrame() {
   const loc = locate(ui.t); if (!loc) return;
@@ -628,15 +637,17 @@ function drawFrame() {
   const g = groupAt(t);
   if (g) {
     const ck = curWordKey(t); const V = st.variant;
+    const dark = lum(st.text) < 0.35; const tone = dark ? '-webkit-text-stroke-color:#fff;' : ''; const box = `<span class="box"${dark ? ' style="background:rgba(255,255,255,.9)"' : ''}>`;
     if (V === 'C') {
-      let word;
-      if (g.edited) { const parts = g.text.split(/\s+/).filter(Boolean); let idx = g.words.findIndex((w) => w.key === ck); if (idx < 0) idx = 0; word = parts[Math.min(idx, parts.length - 1)] || ''; }
-      else word = (g.words.find((w) => w.key === ck) || g.words[0]).w;
-      html += `<div class="sub C" style="${font}color:${st.hl}">${esc(word.replace(/[.,!?]$/, ''))}</div>`;
-    } else if (g.edited) html += `<div class="sub ${V}" style="${font}color:${st.text}">${V === 'B' ? `<span class="box">${esc(g.text)}</span>` : esc(g.text)}</div>`;
+      const idx = Math.max(0, g.words.filter((w) => w.t0 <= t + 0.02).length - 1); let word;
+      if (g.edited) { const parts = g.text.split(/\s+/).filter(Boolean); word = parts[Math.min(idx, parts.length - 1)] || ''; }
+      else word = g.words[idx].w;
+      word = word.replace(/[.,!?]$/, ''); const size = Math.min(13, 84 / (Math.max(1, [...word].length) * 0.86));
+      html += `<div class="sub C" style="${font}color:${st.hl};font-size:${size.toFixed(2)}cqw">${esc(word)}</div>`;
+    } else if (g.edited) html += `<div class="sub ${V}" style="${font}color:${st.text};${tone}">${V === 'B' ? `${box}${esc(g.text)}</span>` : esc(g.text)}</div>`;
     else {
       const inner = g.words.map((w) => `<span class="w" style="${w.key === ck ? `color:${st.hl}` : ''}">${esc(w.w)}</span>`).join('');
-      html += `<div class="sub ${V}" style="${font}color:${st.text}">${V === 'B' ? `<span class="box">${inner}</span>` : inner}</div>`;
+      html += `<div class="sub ${V}" style="${font}color:${st.text};${tone}">${V === 'B' ? `${box}${inner}</span>` : inner}</div>`;
     }
   }
   html += `<div class="bar" style="width:${(t / Math.max(0.01, total())) * 100}%;background:${st.bar}"></div>`;
@@ -664,6 +675,7 @@ function canRestore(a, b) {
 function clipAttrs(kind, id, label, focusable = true) { const sel = isSel(kind, id); return `data-kind="${kind}" data-id="${id}" role="button" aria-label="${esc(label)}" aria-pressed="${sel}"${focusable ? ' tabindex="0"' : ''}`; }
 function isSel(kind, id) { const s = ui.sel; if (!s) return false; const k = kind === 'insert' ? 'insert' : kind; return s.type === k && (s.id === id || k === 'voice' || k === 'music'); }
 function renderTimeline() {
+  const fc = document.activeElement?.closest?.('#tlInner .clip'); const fk = fc ? [fc.dataset.kind, fc.dataset.id] : null;
   const T0 = total(); const W = Math.max(scroller.clientWidth - HW, X(T0) + 160);
   inner.style.width = (HW + W) + 'px';
   const L = layout(); let h = '';
@@ -751,15 +763,18 @@ function renderTimeline() {
       const bh = Math.max(1, a * (hh - 18)); c.fillRect(x, hh - 3 - bh, 2, bh);
     }
   });
+  if (fk) inner.querySelector(`.clip[data-kind="${fk[0]}"][data-id="${CSS.escape(fk[1])}"]`)?.focus({ preventScroll: true });
   updateButtons();
 }
 function updatePlayhead() {
   const ph = $('#ph'); if (ph) ph.style.left = (HW + X(ui.t)) + 'px';
   if (ui.playing) { const x = HW + X(ui.t); if (x > scroller.scrollLeft + scroller.clientWidth - 40) scroller.scrollLeft = x - HW - 40; }
-  const a = $('#phA'), c = $('#phC'); if (a) a.textContent = tc(ui.t); if (c) c.textContent = tc(ui.t);
+  const a = $('#phA'), c = $('#phC'); if (a) a.textContent = tc(sfxAt()); if (c) c.textContent = tc(ui.t);
 }
+const sfxAt = () => Math.min(ui.t, Math.max(0, total() - 0.3));
+function keepInView() { const x = X(ui.t), w = scroller.clientWidth - HW; if (x < scroller.scrollLeft + 8 || x > scroller.scrollLeft + w - 24) scroller.scrollLeft = Math.max(0, x - w / 2); }
 function updateButtons() {
-  $('#undoBtn').disabled = !undo.length && !inputSnap; $('#redoBtn').disabled = !redo.length;
+  $('#undoBtn').disabled = $('#mUndo').disabled = !undo.length && !inputSnap; $('#redoBtn').disabled = !redo.length;
   $('#delBtn').disabled = !ui.sel || ui.sel.type === 'sub' || ui.sel.type === 'voice';
   $('#playIco').innerHTML = ui.playing ? '<path d="M6 4h4v16H6zM14 4h4v16h-4z"/>' : '<path d="M7 4l14 8-14 8z"/>';
   $('#playBtn').setAttribute('aria-label', ui.playing ? L2('Пауза', 'Pause') : L2('Пуск', 'Play'));
@@ -800,7 +815,7 @@ function renderPanel() {
     for (const m of MUSIC) h += `<div class="item"><button class="play-mini" data-act="mock" aria-label="${L2('Послушать', 'Listen to')} ${esc(m.name)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4l14 8-14 8z"/></svg></button><div class="grow"><b>${esc(m.name)}</b><span class="mono">${tc(m.dur, false)} · ${m.bpm} bpm</span></div>${doc.music.asset === m.id && doc.music.len > 0 ? `<span class="hint">${L2('стоит', 'in use')}</span>` : `<button class="btn small soft" data-act="setMusic" data-v="${m.id}">${L2('Поставить', 'Use')}</button>`}</div>`;
     h += `</div></div><div class="group"><h3>${L2('ЗВУКИ', 'SOUNDS')}</h3><div class="chips">`;
     for (const s of SFX) h += `<button data-act="addSfx" data-v="${s.id}">+ ${esc(s[ui.lang])}</button>`;
-    h += `</div><p>${L2('Встанет в место плейхеда', 'Goes to the playhead')} (<span class="mono" id="phA">${tc(ui.t)}</span>).</p></div><div class="group"><h3>${L2('ОЗВУЧКА', 'VOICE-OVER')}</h3><button class="btn line wide" data-act="mock">${L2('Загрузить запись голоса', 'Upload a voice recording')}</button><p>${L2('Заменит звук видео на дорожке «Голос».', 'Replaces the video sound on the Voice track.')}</p></div>`;
+    h += `</div><p>${L2('Встанет в место плейхеда', 'Goes to the playhead')} (<span class="mono" id="phA">${tc(sfxAt())}</span>).</p></div><div class="group"><h3>${L2('ОЗВУЧКА', 'VOICE-OVER')}</h3><button class="btn line wide" data-act="mock">${L2('Загрузить запись голоса', 'Upload a voice recording')}</button><p>${L2('Заменит звук видео на дорожке «Голос».', 'Replaces the video sound on the Voice track.')}</p></div>`;
   } else if (p === 'subs') {
     const gs = subGroups(); const cur = groupAt(ui.t);
     h += `<h2>${T('subs')}</h2><div class="row between"><span class="lbl">${L2('Слов на экране', 'Words on screen')}</span><div class="seg" role="group" aria-label="${L2('Слов на экране', 'Words on screen')}">${[1, 2, 3].map((n) => `<button data-act="subWords" data-v="${n}" aria-pressed="${doc.style.words === n}">${n}</button>`).join('')}</div></div><p>${L2('Время субтитров — по речи; текст можно поправить. Исправленная фраза держится вместе. Нажми на время — плейхед перейдёт туда.', 'Timing follows speech; fix the text here. An edited phrase stays together. Click a time to jump.')}</p><div class="list">`;
@@ -822,7 +837,7 @@ function renderPanel() {
   } else if (p === 'style') {
     const st = doc.style;
     const vs = { A: L2('Обводка, слово цветом', 'Outline, word in colour'), B: L2('Плашка', 'Box'), C: L2('По слову крупно', 'One big word') };
-    h += `<h2>${T('style')}</h2><div class="variants">${['A', 'B', 'C'].map((v) => `<button class="variant" data-act="variant" data-v="${v}" aria-pressed="${st.variant === v}" aria-label="${v}: ${vs[v]}" title="${vs[v]}"><span class="vlabel">${v}</span><span class="vs" style="font-family:'${st.font}';font-weight:900;${v === 'B' ? 'background:rgba(0,0,0,.75);border-radius:5px;padding:2px 5px;text-transform:none' : 'text-transform:uppercase'};${v === 'C' ? `font-size:17px;color:${st.hl}` : ''}">${v === 'C' ? L2('ЧЕХИ', 'CZECH') : `${L2('учи', 'learn')} <span style="color:${st.hl}">${L2('фразы', 'phrases')}</span>`}</span></button>`).join('')}</div><p>${vs[st.variant]}</p>`;
+    h += `<h2>${T('style')}</h2><div class="variants">${['A', 'B', 'C'].map((v) => `<button class="variant" data-act="variant" data-v="${v}" aria-pressed="${st.variant === v}" aria-label="${v}: ${vs[v]}" title="${vs[v]}"><span class="vlabel">${v}</span><span class="vs" style="font-family:'${st.font}';font-weight:900;${v === 'B' ? 'background:rgba(0,0,0,.75);border-radius:5px;padding:2px 5px;text-transform:none' : 'text-transform:uppercase'};${v === 'C' ? 'font-size:17px' : ''}">${v === 'C' ? `<span class="vhl" style="color:${st.hl}">${L2('ЧЕХИ', 'CZECH')}</span>` : `${L2('учи', 'learn')} <span class="vhl" style="color:${st.hl}">${L2('фразы', 'phrases')}</span>`}</span></button>`).join('')}</div><p>${vs[st.variant]}</p>`;
     h += `<div class="group"><h3>${L2('ШРИФТ', 'FONT')}</h3><div class="chips">${FONTS.map((f) => `<button data-act="font" data-v="${f}" aria-pressed="${st.font === f}" style="font-family:'${f}';font-weight:800">${f}</button>`).join('')}</div></div>`;
     const sw = (key, list) => `<div class="swatches">${list.map((c) => `<button class="sw" data-act="color" data-k="${key}" data-v="${c}" style="background:${c}" aria-pressed="${st[key] === c}" aria-label="${c}"></button>`).join('')}<input type="color" data-input="color" data-k="${key}" value="${st[key]}" aria-label="${L2('Свой цвет', 'Custom colour')}"></div>`;
     h += `<div class="group"><h3>${L2('ПОДСВЕТКА СЛОВА', 'WORD HIGHLIGHT')}</h3>${sw('hl', HL)}</div><div class="group"><h3>${L2('ТЕКСТ', 'TEXT')}</h3>${sw('text', ['#FFFFFF', '#FFF6D8', '#111111'])}</div><div class="group"><h3>${L2('ШКАЛА ВРЕМЕНИ', 'PROGRESS BAR')}</h3>${sw('bar', HL)}</div>`;
@@ -876,12 +891,13 @@ function inspector() {
     const nm = s.type === 'insert' ? insName(x.kind) : textName(x);
     h += `<h2>${esc(nm)}</h2><dl class="kv"><dt>${L2('Время', 'Time')}</dt><dd class="mono">${tc(x.t0)}–${tc(x.t1)}</dd><dt>${L2('Длина', 'Length')}</dt><dd class="mono">${sec(x.t1 - x.t0)}</dd></dl>`;
     if (s.type === 'text') h += `<input class="field" data-input="text" data-id="${x.id}" data-f="text" value="${esc(x.text)}" aria-label="${L2('Текст', 'Text')}">` + (x.kind === 'hook' ? `<input class="field" data-input="text" data-id="${x.id}" data-f="accent" value="${esc(x.accent || '')}" aria-label="${L2('Рукописное слово', 'Handwritten word')}">` : '');
-    else h += `<div class="group"><span class="lbl">${L2('Размер', 'Size')}</span><input type="range" min="0.15" max="0.6" step="0.01" value="${x.w}" data-input="insW" data-id="${x.id}" aria-label="${L2('Размер', 'Size')}"><span class="lbl">${L2('Слева', 'From left')}</span><input type="range" min="0" max="${(1 - x.w).toFixed(2)}" step="0.01" value="${x.x}" data-input="insX" data-id="${x.id}" aria-label="${L2('Слева', 'From left')}"><span class="lbl">${L2('Сверху', 'From top')}</span><input type="range" min="0.05" max="${insYMax(x).toFixed(2)}" step="0.01" value="${x.y}" data-input="insY" data-id="${x.id}" aria-label="${L2('Сверху', 'From top')}"><p>${L2('Вставка остаётся в кадре; не ставим её на лицо и в зону кнопок соцсетей.', 'The insert stays in the frame; keep it off the face and the app buttons zone.')}</p></div>`;
+    else h += `<div class="group"><span class="lbl">${L2('Размер', 'Size')}</span><input type="range" min="0.15" max="0.6" step="0.01" value="${x.w}" data-input="insW" data-id="${x.id}" aria-label="${L2('Размер', 'Size')}"><span class="lbl">${L2('Слева', 'From left')}</span><input type="range" min="${ZONE.x0.toFixed(3)}" max="${(ZONE.x1 - x.w).toFixed(3)}" step="0.005" value="${x.x}" data-input="insX" data-id="${x.id}" aria-label="${L2('Слева', 'From left')}"><span class="lbl">${L2('Сверху', 'From top')}</span><input type="range" min="${ZONE.y0.toFixed(3)}" max="${insYMax(x).toFixed(3)}" step="0.01" value="${x.y}" data-input="insY" data-id="${x.id}" aria-label="${L2('Сверху', 'From top')}"><p>${L2('Вставка остаётся в кадре; не ставим её на лицо и в зону кнопок соцсетей.', 'The insert stays in the frame; keep it off the face and the app buttons zone.')}</p></div>`;
     h += `<div class="row"><button class="btn small soft" data-act="seek" data-v="${x.t0}">${L2('К началу', 'Go to start')}</button><button class="btn small soft" data-act="delete">${T('delete')}</button></div><p>${L2('На таймлайне: тяни блок — сдвиг, края — длина; липнет к словам и плейхеду.', 'On the timeline: drag to move, edges to resize; snaps to words and the playhead.')}</p>`;
   }
   return h;
 }
-const insYMax = (x) => { const hf = x.w * (9 / 16) * (INSERTS.find((k) => k.kind === x.kind)?.hf ?? 1); return Math.max(0.05, 0.98 - hf); };
+const ZONE = { x0: 60 / 1080, x1: 890 / 1080, y0: 120 / 1920, y1: 1530 / 1920 };
+const insYMax = (x) => { const hf = x.w * (9 / 16) * (INSERTS.find((k) => k.kind === x.kind)?.hf ?? 1); return Math.max(ZONE.y0, ZONE.y1 - hf); };
 function applyI18n() {
   document.documentElement.lang = ui.lang; document.title = T('docTitle');
   document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = T(el.dataset.i18n); });
@@ -894,7 +910,8 @@ function renderAll() { renderRail(); renderPanel(); renderTimeline(); drawFrame(
 
 // ───────── правки ─────────
 function select(type, id, inspect = true) { ui.sel = type ? { type, id } : null; ui.inspect = !!type && inspect; renderAll(); }
-function split() {
+function split(fromInspector) {
+  if (fromInspector && ui.sel?.type === 'clip') { const r = layout().find((r) => r.c.id === ui.sel.id); if (r && !(ui.t > r.start && ui.t < r.end)) seek((r.start + r.end) / 2); }
   const loc = locate(ui.t); if (!loc) return; const c = loc.r.c; let st = loc.st;
   const w = SOURCES[c.src].words.find((w) => st > w.t0 && st < w.t1); if (w) st = (st - w.t0 < w.t1 - st) ? w.t0 : w.t1; // не режем посреди слова
   if (st - c.in < 2 / FPS || c.out - st < 2 / FPS) { toast(L2('Плейхед у края куска — сдвинь его внутрь', 'Playhead is at a piece edge — move it inside')); return; }
@@ -951,7 +968,7 @@ inner.addEventListener('pointerdown', (e) => {
   const ae = document.activeElement; if (ae && ae !== document.body) ae.blur(); // клавиши после клика — таймлайну, а не полю
   if (e.target.closest('#knob') || e.target.closest('.ticks')) { startScrub(e); return; }
   const el = e.target.closest('.clip');
-  if (e.pointerType === 'touch' && isPhone()) { tapOnly(e, () => pick(el, e)); return; }
+  if (e.pointerType === 'touch' && (isPhone() || !el || !el.classList.contains('sel') || el.dataset.kind === 'sub' || el.dataset.kind === 'voice')) { tapOnly(e, () => pick(el, e)); return; }
   if (!el || el.dataset.kind === 'sub' || el.dataset.kind === 'voice') { pick(el, e); return; }
   e.preventDefault();
   flushInput();
@@ -978,9 +995,9 @@ inner.addEventListener('pointerdown', (e) => {
         const r = layout().find((r) => r.c.id === id); ui.guide = d.edge === 'l' ? r.start : r.end;
       } else {
         // место по середине самого куска, а не по курсору: короткий сдвиг оставляет кусок на месте
-        const center = d.start + dt + d.len / 2; let acc = 0, k = 0;
-        for (const r of layout()) { if (r.c.id === id) continue; const ln = r.end - r.start; if (center > acc + ln / 2) { acc += ln; k++; } else break; }
-        ui.caret = k === d.idx ? null : acc; d.target = k;
+        const center = d.start + dt + d.len / 2; const others = layout().filter((r) => r.c.id !== id);
+        const k = others.filter((r) => (r.start + r.end) / 2 < center).length;
+        ui.caret = k === d.idx ? null : k < d.idx ? others[k].start : others[k - 1].end; d.target = k;
       }
     } else if (d.type === 'music') {
       const m = doc.music; const ma = musicAsset(); const Tn = total();
@@ -1020,11 +1037,11 @@ inner.addEventListener('pointerdown', (e) => {
   window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
 });
 function startScrub(e) {
-  e.preventDefault(); const go = (ev) => { seek(lanePos(ev)); }; go(e);
+  e.preventDefault(); const go = (ev) => { seek(lanePos(ev), true); }; go(e);
   const up = () => { window.removeEventListener('pointermove', go); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); };
   window.addEventListener('pointermove', go); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
 }
-function seek(t) { ui.t = clamp(t, 0, Math.max(0, total() - 0.001)); updatePlayhead(); drawFrame(); if (ui.panel === 'subs' && !ui.inspect) markSub(); }
+function seek(t, scrub) { ui.t = clamp(t, 0, Math.max(0, total() - 0.001)); if (!scrub) keepInView(); updatePlayhead(); drawFrame(); if (ui.panel === 'subs' && !ui.inspect) markSub(); }
 function markSub() { const cur = groupAt(ui.t); document.querySelectorAll('input[data-input="sub"]').forEach((el) => el.classList.toggle('cur', !!cur && el.dataset.k === cur.key)); }
 scroller.addEventListener('wheel', (e) => {
   if (!(e.ctrlKey || e.metaKey)) return; e.preventDefault();
@@ -1034,7 +1051,7 @@ scroller.addEventListener('wheel', (e) => {
 const PMIN = 6, PMAX = 260;
 function setPps(p) { ui.pps = clamp(p, PMIN, PMAX); $('#zoom').value = String(Math.round(Math.log(ui.pps / PMIN) / Math.log(PMAX / PMIN) * 100)); renderTimeline(); }
 function fit() { const w = scroller.clientWidth - HW - 24; let p = w / Math.max(1, total()); if (isPhone()) p = Math.max(p, 22); setPps(p); scroller.scrollLeft = 0; }
-$('#zoom').addEventListener('input', (e) => { ui.pps = PMIN * Math.pow(PMAX / PMIN, Number(e.target.value) / 100); renderTimeline(); });
+$('#zoom').addEventListener('input', (e) => { ui.pps = PMIN * Math.pow(PMAX / PMIN, Number(e.target.value) / 100); renderTimeline(); keepInView(); });
 
 // ───────── пуск ─────────
 let last = 0;
@@ -1050,6 +1067,7 @@ function play() { if (ui.playing) { ui.playing = false; updateButtons(); return;
 // ───────── окна: пока открыто, остальная страница неактивна; закрыли — фокус туда, откуда открыли ─────────
 function modal(html) {
   const l = $('#layer'); const had = l.querySelector('.modal-bg'); if (had) had.remove(); else ui.opener = document.activeElement;
+  l.querySelector('.toast')?.remove();
   const bg = document.createElement('div'); bg.className = 'modal-bg'; bg.innerHTML = `<div class="modal" role="dialog" aria-modal="true">${html}</div>`;
   bg.addEventListener('click', (e) => { if (e.target === bg) closeModal(); }); l.appendChild(bg); $('#app').inert = true; bg.querySelector('button')?.focus(); return bg;
 }
@@ -1071,6 +1089,7 @@ function renderModal() {
   const finish = () => {
     ui.rendering = false; ui.rendered = true; ui.ver++; updateButtons();
     if (bg.isConnected) bg.querySelector('.modal').innerHTML = `<h2>${L2('Готово', 'Done')} · v${ui.ver}</h2><p>${L2('Ролик 1080×1920 и субтитры .srt готовы. Правь дальше на таймлайне — следующий «Монтировать» сделает версию', 'The 1080×1920 video and .srt are ready. Keep editing — the next Render makes version')} ${ui.ver + 1}.</p><div class="row"><button class="btn primary" data-act="download">${T('download')} MP4</button><button class="btn soft" data-act="download">.srt</button><button class="btn soft" data-act="closeModal">${L2('Закрыть', 'Close')}</button></div>`;
+    if (bg.isConnected) bg.querySelector('.modal button')?.focus();
     else toast(L2('Готово', 'Done') + ' · v' + ui.ver);
   };
   const tick = () => {
@@ -1083,19 +1102,22 @@ function renderModal() {
 // ───────── нажатия ─────────
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-act]'); if (!b || b.disabled) return; const a = b.dataset.act, v = b.dataset.v;
+  const zone = b.closest('#panel, #rail, #mtabs, .tl-bar');
+  const back = document.activeElement === b && zone ? `#${zone.id || 'tl'} ${zone.id ? '' : '.tl-bar '}[data-act="${a}"]` + ['v', 'k', 'kind', 'i'].map((n) => b.dataset[n] != null ? `[data-${n}="${CSS.escape(b.dataset[n])}"]` : '').join('') : null;
+  if (back) requestAnimationFrame(() => { if (document.activeElement === document.body || !document.activeElement) document.querySelector(back)?.focus(); });
   switch (a) {
     case 'panel': ui.panel = v; ui.inspect = false; renderRail(); renderPanel(); if (isPhone()) $('#panel').scrollIntoView({ block: 'start', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); break;
     case 'uninspect': ui.inspect = false; renderRail(); renderPanel(); break;
     case 'play': play(); break;
     case 'toStart': seek(0); break;
     case 'toEnd': seek(total()); break;
-    case 'split': split(); break;
+    case 'split': split(!!b.closest('#panel')); break;
     case 'delete': del(); break;
     case 'restore': restore(Number(b.dataset.i)); break;
     case 'undo': doUndo(); break;
     case 'redo': doRedo(); break;
-    case 'zoomIn': setPps(ui.pps * 1.4); break;
-    case 'zoomOut': setPps(ui.pps / 1.4); break;
+    case 'zoomIn': setPps(ui.pps * 1.4); keepInView(); break;
+    case 'zoomOut': setPps(ui.pps / 1.4); keepInView(); break;
     case 'fit': fit(); break;
     case 'keys': keysModal(); break;
     case 'about': aboutModal(); break;
@@ -1114,8 +1136,8 @@ document.addEventListener('click', (e) => {
     case 'ab': ui.ab = v; renderPanel(); renderTimeline(); toast(v === 'before' ? L2('Слышно как было (в сервисе — звук)', 'Hear the original (sound in the service)') : L2('Слышно очищенный', 'Hear the cleaned voice')); break;
     case 'addSource': { snap(); const S = SOURCES[v]; const k = boundaryAt(ui.t); doc.clips.splice(k, 0, { id: nid('c'), src: v, in: 0, out: S.dur }); changed(); toast(L2('Добавлен', 'Added') + ' ' + S.name, true); break; }
     case 'setMusic': { snap(); const m = doc.music; m.asset = v; m.in = 0; if (m.len <= 0) { m.at = 0; m.len = total(); } m.len = Math.min(m.len, musicAsset().dur, total() - m.at); changed(); break; }
-    case 'addSfx': { const at = Math.min(ui.t, Math.max(0, total() - 0.3)); snap(); const x = { id: nid('f'), kind: v, at }; doc.sfx.push(x); ui.sel = { type: 'sfx', id: x.id }; changed(); toast(sfxName(v) + ' — ' + tc(at), true); break; }
-    case 'addInsert': { snap(); const t0 = Math.min(ui.t, Math.max(0, total() - 1.6)); const x = { id: nid('i'), kind: v, t0, t1: Math.min(total(), t0 + 1.6), x: 0.6, y: 0.3, w: 0.28 }; doc.inserts.push(x); ui.sel = { type: 'insert', id: x.id }; ui.inspect = true; changed(); break; }
+    case 'addSfx': { const at = sfxAt(); snap(); const x = { id: nid('f'), kind: v, at }; doc.sfx.push(x); ui.sel = { type: 'sfx', id: x.id }; changed(); toast(sfxName(v) + ' — ' + tc(at), true); break; }
+    case 'addInsert': { snap(); const t0 = Math.min(ui.t, Math.max(0, total() - 1.6)); const x = { id: nid('i'), kind: v, t0, t1: Math.min(total(), t0 + 1.6), x: 0.5, y: 0.3, w: 0.28 }; doc.inserts.push(x); ui.sel = { type: 'insert', id: x.id }; ui.inspect = true; changed(); break; }
     case 'addText': { snap(); const t0 = Math.min(ui.t, Math.max(0, total() - 2)); const x = { id: nid('x'), kind: 'text', t0, t1: Math.min(total(), t0 + 2), text: L2('Новый текст', 'New text') }; doc.texts.push(x); ui.sel = { type: 'text', id: x.id }; ui.inspect = true; changed(); break; }
     case 'select': { const x = (b.dataset.kind === 'text' ? doc.texts : doc.inserts).find((x) => x.id === v); if (x) seek(x.t0 + 0.05); select(b.dataset.kind === 'insert' ? 'insert' : 'text', v); break; }
     case 'seek': seek(Number(v)); break;
@@ -1145,16 +1167,16 @@ document.addEventListener('input', (e) => {
     if (el.value === orig) delete doc.subEdits[g.key]; else doc.subEdits[g.key] = { keys: g.words.map((w) => w.key), text: el.value };
     document.querySelectorAll(`input[data-input="sub"][data-k="${g.key}"]`).forEach((o) => { if (o !== el) o.value = el.value; });
   } else if (k === 'text') { const x = doc.texts.find((x) => x.id === el.dataset.id); if (x) x[el.dataset.f] = el.value; }
-  else if (k === 'color') { doc.style[el.dataset.k] = el.value; document.querySelectorAll(`.sw[data-k="${el.dataset.k}"]`).forEach((s) => s.setAttribute('aria-pressed', 'false')); }
+  else if (k === 'color') { doc.style[el.dataset.k] = el.value; document.querySelectorAll(`.sw[data-k="${el.dataset.k}"]`).forEach((s) => s.setAttribute('aria-pressed', 'false')); if (el.dataset.k === 'hl') document.querySelectorAll('.vhl').forEach((s) => { s.style.color = el.value; }); }
   else if (k === 'voiceGain') { doc.voice.gainDb = Number(el.value); $('#vgVal').textContent = `${doc.voice.gainDb > 0 ? '+' : ''}${doc.voice.gainDb} dB`; }
   else if (k === 'musicGain') { doc.music.gainDb = Number(el.value); $('#mgVal').textContent = `${doc.music.gainDb} dB`; }
   else if (k === 'fadeOut') { doc.music.fadeOut = Number(el.value); $('#foVal').textContent = sec(doc.music.fadeOut); }
   else if (k === 'insW' || k === 'insX' || k === 'insY') {
     const x = doc.inserts.find((x) => x.id === el.dataset.id); if (!x) return;
     x[{ insW: 'w', insX: 'x', insY: 'y' }[k]] = Number(el.value);
-    x.x = clamp(x.x, 0, 1 - x.w); x.y = clamp(x.y, 0.05, insYMax(x)); // вставка не выходит за кадр
+    x.x = clamp(x.x, ZONE.x0, ZONE.x1 - x.w); x.y = clamp(x.y, ZONE.y0, insYMax(x)); // вставка остаётся в зоне вставок сервиса
     const ix = $('input[data-input="insX"]'), iy = $('input[data-input="insY"]');
-    if (ix) { ix.max = (1 - x.w).toFixed(2); ix.value = String(x.x); } if (iy) { iy.max = insYMax(x).toFixed(2); iy.value = String(x.y); }
+    if (ix) { ix.max = (ZONE.x1 - x.w).toFixed(3); ix.value = String(x.x); } if (iy) { iy.max = insYMax(x).toFixed(3); iy.value = String(x.y); }
     if (!(ui.t >= x.t0 && ui.t <= x.t1)) { ui.t = x.t0 + 0.05; updatePlayhead(); }
   }
   updateButtons(); renderTimeline(); drawFrame();
@@ -1180,8 +1202,10 @@ document.addEventListener('keydown', (e) => {
   else if (range) return; // стрелки двигают ползунок под фокусом
   else if (e.key === 'ArrowRight') { e.preventDefault(); seek(ui.t + 1 / FPS * (e.shiftKey ? 10 : 1)); }
   else if (e.key === 'ArrowLeft') { e.preventDefault(); seek(ui.t - 1 / FPS * (e.shiftKey ? 10 : 1)); }
-  else if (e.key === '+' || e.key === '=') setPps(ui.pps * 1.25);
-  else if (e.key === '-') setPps(ui.pps / 1.25);
+  else if (e.key === '+' || e.key === '=') { setPps(ui.pps * 1.25); keepInView(); }
+  else if (e.key === '-') { setPps(ui.pps / 1.25); keepInView(); }
+  else if (e.key === 'Home') { e.preventDefault(); seek(0); }
+  else if (e.key === 'End') { e.preventDefault(); seek(total()); }
   else if (e.key === '?') keysModal();
 });
 // пробел — всегда пуск: кнопка под фокусом не нажимается им ещё раз

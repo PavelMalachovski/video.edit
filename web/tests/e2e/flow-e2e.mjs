@@ -55,13 +55,13 @@ async function session(ctx, files) {
   return fakeJson('/__commit', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ branch: `claude/job-${ctx.jobId}`, files: out, message: 'session' }) });
 }
 
-/** Ждать, пока `fn` не вернёт истину (или не истечёт `ms`). */
+/** Ждать, пока `fn` не вернёт истину (или не истечёт `ms`). `what` — что ждали; функция — с тем, что было на деле. */
 async function until(fn, ms, what) {
   const end = Date.now() + ms;
   for (;;) {
     const v = await fn();
     if (v) return v;
-    if (Date.now() > end) throw new Error(`не дождался: ${what}`);
+    if (Date.now() > end) throw new Error(`не дождался: ${typeof what === 'function' ? await what() : what}`);
     await new Promise((r) => setTimeout(r, 200));
   }
 }
@@ -939,7 +939,8 @@ const segments = [
     await page.mouse.down();
     await page.mouse.move(fromX - 0.295 * perSrc, grabY, { steps: 6 });
     await page.mouse.up();
-    await until(async () => ((await page.locator('.ed-cut').last().getAttribute('title')) ?? '').includes('0,4 с'), 3000, 'конец куска прилип к слову');
+    await until(async () => ((await page.locator('.ed-cut').last().getAttribute('title')) ?? '').includes('0,4 с'), 3000,
+      async () => `конец куска прилип к слову: ${JSON.stringify(await page.locator('.ed-cut').evaluateAll((els) => els.map((el) => el.title)))}, ролик ${await clock.textContent()}`);
     // переставить (фаза 4а): второй кусок — мышью перед первым; выбранным остаётся он, «Позже» — обратно, отмена — снова первый
     const titles = async () => Promise.all([0, 1].map((k) => pieces.nth(k).getAttribute('title')));
     const order = await titles();

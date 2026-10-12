@@ -12,7 +12,7 @@ import { storage } from '@/lib/client.ts';
 import type { EditorData } from '@/lib/editordata.ts';
 import { sameJson } from '@/lib/equal.ts';
 import {
-  commit, cutSpan, EMPTY, initHistory, moveSpan, redo, restoreSpan, setMusic, setSound, setVoice, snapTo, splitAt, trimEnd, trimStart, undo,
+  commit, cutSpan, EMPTY, initHistory, moveSpan, redo, restoreSpan, setMusic, setSound, setVoice, splitAt, trimEnd, trimStart, undo,
   type HandEdits, type History,
 } from '@/lib/edits.ts';
 import { tenths } from '@/lib/format.ts';
@@ -20,10 +20,11 @@ import { loadLang, saveLang, tr, type Key, type Lang } from '@/lib/i18n.ts';
 import type { StyleChoice } from '@/lib/jobfiles.ts';
 import { allowedFonts, finalStyle, loadChoice, overlayAt, sampleState, saveChoice, subGroupSize } from '@/lib/style.ts';
 import { advance, locate } from '@/lib/player.ts';
+import { dragTo, type Drag, type DragView } from '@/lib/drag.ts';
 import { Saver, type PutResult } from '@/lib/saver.ts';
 import { audioUrl, levelsOf, musicMix } from '@/lib/sound.ts';
 import {
-  decodePeaks, draftTracks, moveTarget, peakAt, slotAt, splitTarget, videoKey, withHandEdits, wordEdges, type Clip, type Tracks,
+  decodePeaks, draftTracks, moveTarget, peakAt, splitTarget, videoKey, withHandEdits, wordEdges, type Clip, type Tracks,
 } from '@/lib/tracks.ts';
 import { BackIcon, PauseIcon, PlayIcon, PlusIcon, RedoIcon, ScissorsIcon, SpeakerIcon, TrashIcon, UndoIcon } from '../../../icons';
 import PreviewFrame from '../../../preview-frame';
@@ -41,16 +42,9 @@ const RELOAD_MS = 20_000; // пока нет черновика или прок�
 const FRAME_HZ = 15; // столько раз в секунду обновляем слой кадра во время пуска
 const SAVE_MS = 1200; // правки сохраняются, когда Павел остановился на столько
 const SNAP_PX = 8; // край куска липнет к границе слова ближе стольких px
-const CLICK_PX = 3; // сдвиг мыши меньше — это щелчок, а не перетаскивание
 const EDITABLE = ['questions', 'result', 'error']; // сессия не работает — правки можно сохранять
 
 type SaveState = { state: 'idle' | 'saving' | 'saved' | 'error' | 'conflict'; error?: string };
-type Drag =
-  | { kind: 'trim'; index: number; side: 'start' | 'end'; x0: number; to: number }
-  // кусок целиком — на другое место: tf0 — момент ролика под пальцем в начале, slot — перед каким куском встанет
-  | { kind: 'piece'; index: number; x0: number; tf0: number; dx: number; slot: number | null; moved: boolean }
-  | { kind: 'music'; mode: 'move' | 'trim'; x0: number; at0: number; from0: number; at: number; from: number; moved: boolean };
-
 /** Правки из timeline.json — без ревизии и времени. */
 const handOf = (data: EditorData | null): HandEdits => {
   if (!data?.timeline) return EMPTY;
@@ -502,49 +496,36 @@ export default function Editor({ id }: { id: string }) {
     e.currentTarget.setPointerCapture(e.pointerId);
     setDrag(d);
   };
+  const dragView = (t: Tracks): DragView => ({ tracks: t, px, speed, edges, snapPx: SNAP_PX, duration });
   const onDragMove = (e: React.PointerEvent) => {
     if (!drag || !tracks) return;
     e.stopPropagation(); // ручка — внутри клипа музыки: тот же жест не обрабатываем дважды
-    const dx = e.clientX - drag.x0;
-    if (drag.kind === 'trim') {
-      const c = tracks.video[drag.index];
-      const edge = (drag.side === 'start' ? c.src0 : c.src1) as number;
-      setDrag({ ...drag, to: snapTo(edge + (dx / px) * speed, edges, (SNAP_PX / px) * speed) });
-    } else if (drag.kind === 'piece') {
-      const moved = drag.moved || Math.abs(dx) >= CLICK_PX;
-      setDrag({ ...drag, dx, moved, slot: moved ? slotAt(tracks, drag.tf0 + dx / px) : null });
-    } else {
-      const d = dx / px;
-      const room = Math.max(0, duration - 0.5);
-      if (drag.mode === 'move') setDrag({ ...drag, at: Math.min(room, Math.max(0, drag.at0 + d)), moved: drag.moved || Math.abs(dx) >= CLICK_PX });
-      else {
-        const k = Math.min(room - drag.at0, Math.max(-Math.min(drag.at0, drag.from0), d));
-        setDrag({ ...drag, at: drag.at0 + k, from: drag.from0 + k, moved: drag.moved || Math.abs(dx) >= CLICK_PX });
-      }
-    }
+    setDrag(dragTo(drag, e.clientX, dragView(tracks)));
   };
   const onDragEnd = (e: React.PointerEvent) => {
     if (!drag || !tracks) return;
     e.stopPropagation();
     setDrag(null);
-    if (drag.kind === 'trim') {
-      const c = tracks.video[drag.index];
+    // где отпустили — а не последний нарисованный шаг: он мог ещё не попасть на экран (lib/drag.ts)
+    const released = dragTo(drag, e.clientX, dragView(tracks));
+    if (released.kind === 'trim') {
+      const c = tracks.video[released.index];
       if (c.piece === undefined) return;
-      edit(drag.side === 'start' ? trimStart(hand, keep, c.piece, drag.to) : trimEnd(hand, keep, c.piece, drag.to, sourceDuration));
-    } else if (drag.kind === 'piece') {
-      if (!drag.moved) { // щелчок — выбрать кусок и встать туда
-        setSel({ kind: 'piece', index: drag.index });
-        seek(drag.tf0);
+      edit(released.side === 'start' ? trimStart(hand, keep, c.piece, released.to) : trimEnd(hand, keep, c.piece, released.to, sourceDuration));
+    } else if (released.kind === 'piece') {
+      if (!released.moved) { // щелчок — выбрать кусок и встать туда
+        setSel({ kind: 'piece', index: released.index });
+        seek(released.tf0);
         return;
       }
       noClick.current = true; // щелчок после перетаскивания — не выбор (номер куска уже другой)
-      if (drag.slot !== null) doMove(drag.index, drag.slot);
-    } else if (!drag.moved) { // щелчок по музыке — выбрать и встать туда
+      if (released.slot !== null) doMove(released.index, released.slot);
+    } else if (!released.moved) { // щелчок по музыке — выбрать и встать туда
       setSel({ kind: 'music' });
       const box = lanes.current?.querySelector('.ed-row.music .ed-lane')?.getBoundingClientRect();
       if (box) seek((e.clientX - box.left) / px);
     } else {
-      edit(setMusic(hand, drag.mode === 'move' ? { at: drag.at } : { at: drag.at, from: drag.from }));
+      edit(setMusic(hand, released.mode === 'move' ? { at: released.at } : { at: released.at, from: released.from }));
     }
   };
   const dragProps = { onPointerMove: onDragMove, onPointerUp: onDragEnd, onPointerCancel: () => setDrag(null) };

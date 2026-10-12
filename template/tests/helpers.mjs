@@ -57,8 +57,11 @@ export function darkenedAmong(page, scratch, keys) {
   return shot(page, scratch, undefined, `let n = 0; for (const i of ${JSON.stringify(keys)}) if (d[4 * i + 1] < 200) n++; return n;`);
 }
 
-export function contains(outer, inner) {
-  return inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.w <= outer.x + outer.w && inner.y + inner.h <= outer.y + outer.h;
+/** `inner` внутри `outer`; `slack` px — на сглаживание краёв: на другой машине (процессор, библиотеки шрифтов) Chromium
+той же версии сглаживает край буквы на пиксель шире. */
+export function contains(outer, inner, slack = 1) {
+  return inner.x >= outer.x - slack && inner.y >= outer.y - slack && inner.x + inner.w <= outer.x + outer.w + slack
+    && inner.y + inner.h <= outer.y + outer.h + slack;
 }
 
 /** Кодовые точки, которые есть в cmap шрифта TrueType/OpenType (форматы 4 и 12). */

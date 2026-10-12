@@ -104,11 +104,14 @@ test('shade: the layout and the box for checks do not change', async () => {
   assert.deepEqual([await rows(), await page.evaluate(() => window.layoutBoxes().sub)], plain);
 });
 
+/** Точка под строкой: по её середине, на `em` кегля ниже букв — туда не заходят буквы, разъезжающиеся при появлении. */
+const below = (r, em = 0.3) => [(r.left + r.right) / 2, r.bottom + em * 64];
+
 test('shade: only under the lines already shown, and it grows with the new line', async () => {
   const at = (visible, t) => ({ sub: { words: WORDS, active: 0, visible, lines: [3, 3], t } });
   await render(spec({ shade: 0.6 }), at(6, 1));
   const [first, second] = await rows();
-  const under2 = leftOf(second);
+  const under2 = below(second);
   const full = await alphaAt(...under2);
   await render(spec({ shade: 0.6 }), at(3, 1));
   const one = await alphaAt(...under2);

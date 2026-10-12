@@ -101,7 +101,8 @@
         "properties": {
           "t0": { "type": "number", "minimum": 0 },
           "t1": { "type": "number", "minimum": 0 },
-          "look": { "enum": ["bw"] }
+          "look": { "enum": ["bw"] },
+          "off": { "const": true, "description": "Служебное: Павел убрал этот ч/б-кусок в редакторе (timeline.json) — в ролике его нет; сессия это поле не пишет." }
         }
       }
     },
@@ -151,7 +152,8 @@
         "properties": {
           "t": { "type": "number", "minimum": 0 },
           "kind": { "enum": ["flash", "zoom", "blur"] },
-          "sfx": { "type": ["string", "null"] }
+          "sfx": { "type": ["string", "null"] },
+          "off": { "const": true, "description": "Служебное: Павел убрал этот переход в редакторе (timeline.json) — в ролике его нет; сессия это поле не пишет." }
         }
       }
     },

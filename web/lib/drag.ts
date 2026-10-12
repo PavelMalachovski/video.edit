@@ -54,7 +54,7 @@ export function dragTo(d: Drag, clientX: number, v: DragView): Drag {
   if (d.kind === 'block') {
     const dt = dx / v.px;
     const near = (t: number) => snapTo(t, v.finalEdges ?? [], v.snapPx / v.px);
-    const len = Math.max(MIN_BLOCK, d.t1 - d.t0); // места в речи ещё нет (вставка под хуком) — двигаем короткий блок
+    const len = d.t1 - d.t0 > 1e-6 ? d.t1 - d.t0 : MIN_BLOCK; // места в речи ещё нет (вставка под хуком) — двигаем короткий блок
     if (d.mode === 'move') {
       const a = Math.min(Math.max(d.floor, near(d.t0 + dt)), Math.max(d.floor, d.max - len));
       return { ...d, a, b: a + len, moved };

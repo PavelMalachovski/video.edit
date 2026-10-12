@@ -147,6 +147,38 @@
           "text": { "type": "string", "maxLength": 60 }
         }
       }
+    },
+    "zoom": {
+      "description": "Сила зума, которую Павел выбрал в редакторе: доля от зума монтажа (уровень 1 + (уровень − 1) · zoom, четыре знака); 0 — без зума, 1 — как у монтажа. Нет — как у монтажа.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1.5
+    },
+    "looks": {
+      "description": "Ч/б-куски, которые Павел убрал в редакторе: кусок edit.looks с ровно этим [t0, t1] (at) — без ч/б (остаётся в списке выключенным).",
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "required": ["at", "off"],
+        "additionalProperties": false,
+        "properties": { "at": { "$ref": "#/$defs/At" }, "off": { "const": true } }
+      }
+    },
+    "transitions": {
+      "description": "Переходы, которые Павел поменял в редакторе: переход edit.transitions с ровно этим t (at) — другого вида (kind) или убран (off; остаётся в списке: номера звуков transition:<n> те же).",
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "required": ["at"],
+        "additionalProperties": false,
+        "properties": {
+          "at": { "type": "number", "minimum": 0 },
+          "kind": { "enum": ["flash", "zoom", "blur"] },
+          "off": { "const": true }
+        }
+      }
     }
   },
   "$defs": {

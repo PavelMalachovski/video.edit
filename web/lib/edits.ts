@@ -3,6 +3,8 @@
 // engine/tests/fixtures/edits.json; текст и вставки — applyText (apply_text движка), общая фикстура
 // overlay-events.json (text). Времена — секунды исходника, кроме music.at (секунда ролика).
 
+import { pyRound } from './pyround.ts';
+
 /** Правка кусков (секунды исходника): вырезать; вернуть (к куску перед ним в исходнике, `next` — к куску после него);
  *  переставить оставленное в [t0, t1] перед моментом `before` (null — в конец); разрез — только граница на экране. */
 export type Edit =
@@ -23,9 +25,16 @@ export type InsertFix = { at: At; t0?: number; t1?: number; text?: string; off?:
 export type TextEdits = { hook?: HookFix; cta?: CtaFix; accents?: AccentFix[]; inserts?: InsertFix[] };
 /** Слово субтитров с ровно этими t0, t1 получает текст Павла; пустой — слова нет в субтитрах. */
 export type WordFix = { t0: number; t1: number; text: string };
-/** Что правит Павел: куски, голос, музыка, звуки, текст и вставки, слова субтитров. */
+/** Ч/б-кусок по месту `at` — убран; переход по своему `t` (`at`) — другого вида или убран. */
+export type LookFix = { at: At; off: true };
+/** Виды переходов (edit.json, transitions.kind): вспышка, толчок зумом, смаз. */
+export const TRANSITION_KINDS = ['flash', 'zoom', 'blur'] as const;
+export type TransitionKind = (typeof TRANSITION_KINDS)[number];
+export type TransitionFix = { at: number; kind?: TransitionKind; off?: true };
+/** Что правит Павел: куски, голос, музыка, звуки, текст и вставки, слова субтитров, картинка. */
 export type HandEdits = {
   edits: Edit[]; voice?: Level; music?: MusicAdjust; sounds?: Record<string, Level>; text?: TextEdits; words?: WordFix[];
+  zoom?: number; looks?: LookFix[]; transitions?: TransitionFix[]; // картинка: сила зума (доля от зума монтажа), ч/б, переходы
 };
 /** timeline.json в ветке задачи: правки и ревизия (страница прибавляет 1 на каждое сохранение). */
 export type TimelineFile = HandEdits & { rev: number; at?: string };
@@ -42,6 +51,7 @@ export const LIMITS = {
   blocks: 200, // правок акцентов и вставок
   word: 60, // знаков в слове субтитров
   words: 5000, // исправленных слов
+  zoom: { min: 0, max: 1.5 }, // сила зума: доля от зума монтажа
 } as const;
 export const EMPTY: HandEdits = { edits: [] };
 const SOUND_KEY = /^(insert:\d+|transition:\d+|teaser|end)$/;
@@ -244,6 +254,34 @@ export function applyText<T extends TextBase>(edit: T, text?: TextEdits, words?:
   return out;
 }
 
+type PictureBase = {
+  zooms?: readonly { t: number; level: number; over?: number }[] | null;
+  looks?: readonly (Span2 & { look: string; off?: boolean })[] | null;
+  transitions?: readonly { t: number; kind: string; sfx?: string | null; off?: boolean }[] | null;
+};
+
+/** Картинка руками поверх edit — как apply_picture движка: сила зума — доля от зума монтажа (1 + (уровень − 1) · zoom,
+ *  четыре знака), ч/б-кусок по месту `at` — выключен, переход по своему `t` — другого вида или выключен; выключенное
+ *  остаётся в списке (номера звуков переходов те же). Правок нет — тот же edit. */
+export function applyPicture<T extends PictureBase>(edit: T, zoom?: number, looks?: readonly LookFix[], transitions?: readonly TransitionFix[]): T {
+  if (zoom === undefined && !looks?.length && !transitions?.length) return edit;
+  const out: T = { ...edit };
+  if (zoom !== undefined) out.zooms = (edit.zooms ?? []).map((z) => ({ ...z, level: pyRound(1 + (Number(z.level) - 1) * zoom, 4) }));
+  if (looks?.length) out.looks = anchored(edit.looks ?? [], looks, 'looks', (item) => ({ ...item, off: true })) as T['looks'];
+  if (transitions?.length) {
+    const list = [...(edit.transitions ?? [])];
+    const used = new Set<number>();
+    for (const c of transitions) {
+      const k = list.findIndex((x, j) => !used.has(j) && Number(x.t) === Number(c.at));
+      if (k < 0) continue;
+      used.add(k);
+      list[k] = { ...list[k], ...(c.kind ? { kind: c.kind } : {}), ...(c.off ? { off: true } : {}) };
+    }
+    out.transitions = list;
+  }
+  return out;
+}
+
 // ---------- правки ----------
 
 const push = (h: HandEdits, e: Edit): HandEdits => ({ ...h, edits: [...h.edits, e] });
@@ -397,6 +435,34 @@ export function typedTexts(h: HandEdits): string[] {
     .filter((x): x is string => typeof x === 'string');
 }
 
+// ---------- картинка ----------
+
+/** Сила зума — доля от зума монтажа (ползунок: шаг — процент); 1 или null — как у монтажа (поля нет). */
+export function setZoom(h: HandEdits, zoom: number | null): HandEdits {
+  const { zoom: _old, ...rest } = h;
+  if (zoom === null) return rest;
+  const z = Math.round(clamp(zoom, LIMITS.zoom) * 100) / 100;
+  return z === 1 ? rest : { ...rest, zoom: z };
+}
+
+/** Ч/б-кусок edit.looks с местом `at` ([t0, t1], как его записала сессия): `off` — убран из ролика; иначе — как у сессии. */
+export function setLook(h: HandEdits, at: At, off: boolean): HandEdits {
+  const rest = (h.looks ?? []).filter((f) => !sameAt(f.at, at));
+  const looks: LookFix[] = off ? [...rest, { at: [at[0], at[1]], off: true }] : rest;
+  const { looks: _old, ...base } = h;
+  return looks.length ? { ...base, looks } : base;
+}
+
+/** Переход edit.transitions с моментом `at` (его t): другого вида (`kind`) и/или убран (`off`); ни того ни другого или
+ *  null — как у сессии (правки нет). Вид, как у сессии, страница не пишет (панель передаёт только другой). */
+export function setTransition(h: HandEdits, at: number, fix: { kind?: TransitionKind; off?: boolean } | null): HandEdits {
+  const rest = (h.transitions ?? []).filter((f) => f.at !== at);
+  const next: TransitionFix = { at, ...(fix?.kind ? { kind: fix.kind } : {}), ...(fix?.off ? { off: true as const } : {}) };
+  const transitions = Object.keys(next).length > 1 ? [...rest, next] : rest;
+  const { transitions: _old, ...base } = h;
+  return transitions.length ? { ...base, transitions } : base;
+}
+
 /** Слово субтитров (t0, t1 — как в edit.json): текст Павла; '' — слова нет в субтитрах; null — как у сессии. */
 export function setWord(h: HandEdits, t0: number, t1: number, text: string | null): HandEdits {
   const rest = (h.words ?? []).filter((w) => !(w.t0 === t0 && w.t1 === t1));
@@ -471,14 +537,26 @@ function parseText(x: unknown): TextEdits | null {
   return x as TextEdits;
 }
 
+/** Картинка руками (zoom, looks, transitions), как по схеме. */
+function parsePicture({ zoom, looks, transitions }: Record<string, unknown>): boolean {
+  if (zoom !== undefined && !(isNum(zoom) && zoom >= LIMITS.zoom.min && zoom <= LIMITS.zoom.max)) return false;
+  const list = (v: unknown, ok: (o: Record<string, unknown>) => boolean) => v === undefined
+    || (Array.isArray(v) && v.length <= LIMITS.blocks && v.every((o) => isObj(o) && ok(o)));
+  if (!list(looks, (o) => onlyKeys(o, ['at', 'off']) && isAt(o.at) && o.off === true)) return false;
+  return list(transitions, (o) => onlyKeys(o, ['at', 'kind', 'off']) && isNum(o.at) && o.at >= 0
+    && (o.kind === undefined || (TRANSITION_KINDS as readonly unknown[]).includes(o.kind)) && (o.off === undefined || o.off === true));
+}
+
 const parseWords = (x: unknown): boolean => Array.isArray(x) && x.length <= LIMITS.words && x.every((w) => isObj(w)
   && onlyKeys(w, ['t0', 't1', 'text']) && isNum(w.t0) && w.t0 >= 0 && isNum(w.t1) && w.t1 >= 0 && typeof w.text === 'string' && chars(w.text) <= LIMITS.word);
 
 /** timeline.json → правки; не та форма (как по схеме) — null. */
 export function parseTimeline(raw: unknown): TimelineFile | null {
-  if (!isObj(raw) || Object.keys(raw).some((k) => !['rev', 'at', 'edits', 'voice', 'music', 'sounds', 'text', 'words'].includes(k))) return null;
+  const keys = ['rev', 'at', 'edits', 'voice', 'music', 'sounds', 'text', 'words', 'zoom', 'looks', 'transitions'];
+  if (!isObj(raw) || Object.keys(raw).some((k) => !keys.includes(k))) return null;
   if (raw.text !== undefined && !parseText(raw.text)) return null;
   if (raw.words !== undefined && !parseWords(raw.words)) return null;
+  if (!parsePicture(raw)) return null;
   if (!(Number.isInteger(raw.rev) && (raw.rev as number) >= 1) || (raw.at !== undefined && typeof raw.at !== 'string')) return null;
   if (!Array.isArray(raw.edits) || raw.edits.length > LIMITS.edits || !raw.edits.every((e) => parseEdit(e))) return null;
   if (raw.voice !== undefined && !parseLevel(raw.voice, LIMITS.gain)) return null;

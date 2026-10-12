@@ -14,7 +14,7 @@ const DRAFT: Draft = {
 
 test('the picture at a moment: zoom to the face, b/w frames, flash, blur, a full-frame cut-in — by the engine\'s formulas', () => {
   const t = draftTracks(DRAFT, { sourceDuration: 9 });
-  const m = pictureModel(t.layer, { face: DRAFT.face, transitions: DRAFT.transitions, looks: DRAFT.looks });
+  const m = pictureModel(t.layer, { face: DRAFT.face });
   assert.deepEqual(m.face, { x: 0.4, y: 0.3 });
   assert.equal(pictureAt(m, 0.5).zoom, 1, 'до первой ступени — без зума');
   assert.ok(near(pictureAt(m, 3).zoom, 1.1), 'ступень по смыслу — 1,1');
@@ -30,6 +30,16 @@ test('the picture at a moment: zoom to the face, b/w frames, flash, blur, a full
   assert.ok(cut && cut.video && cut.src === 'in/uploads/upload-i1.mp4', 'перебивка-видео на весь кадр');
   assert.equal(pictureAt(m, 6.6).cover?.src, 'assets/library/a.png', 'перебивка-картинка (не короче 1,5 с, как вставка)');
   assert.equal(pictureAt(m, 8.5).cover, null);
+});
+
+test('the picture follows Pavel\'s picture edits: zoom half as strong, a b/w piece off in colour, a transition off or of another kind', () => {
+  const fixes = { zoom: 0.5, looks: [{ at: [2, 3] as [number, number], off: true as const }], transitions: [{ at: 5, off: true as const }, { at: 8, kind: 'blur' as const }] };
+  const m = pictureModel(draftTracks(DRAFT, { sourceDuration: 9, fixes }).layer, { face: DRAFT.face });
+  assert.ok(near(pictureAt(m, 3).zoom, 1.05), 'ступень 1,1 — вполовину');
+  assert.ok(near(pictureAt(m, 4.0).zoom, 1.125) && near(pictureAt(m, 3.95).zoom, 1.05), 'на стыке — сразу ступень 1,25 вполовину, толчка нет: переход убран');
+  assert.ok(!pictureAt(m, 2.5).bw, 'ч/б-кусок убран — в цвете');
+  assert.equal(pictureAt(m, 7.0).flash, 0, 'вместо вспышки — смаз');
+  assert.ok(near(pictureAt(m, 7.0).blur, Math.sqrt(8 ** 2 + 14 ** 2 + 24 ** 2)));
 });
 
 const model = (flashes: number[], blurs: number[]): PictureModel => ({ level: () => 1, face: { x: 0.5, y: 0.5 }, looks: [], flashes, blurs, covers: [] });

@@ -74,6 +74,8 @@ test('a block with no room in speech yet (an insert under the hook) is moved at 
   assert.ok(moved.kind === 'block' && near(moved.a, 1.5) && near(moved.b, 1.5 + MIN_BLOCK), JSON.stringify(moved));
   const late = dragTo(flat, 100 + 10_000, v);
   assert.ok(late.kind === 'block' && near(late.b, 3.5) && near(late.a, 3.5 - MIN_BLOCK), 'и у конца ролика — не короче');
+  const word = dragTo({ ...flat, t0: 1.0, t1: 1.15, a: 1.0, b: 1.15 }, 100 + 50, v);
+  assert.ok(word.kind === 'block' && near(word.a, 1.5) && near(word.b, 1.65), `короткое слово — той же длины: ${JSON.stringify(word)}`);
 });
 
 test('the click that ends a drag does not select; the next press is a new gesture even when no click came after the drag (a finger)', () => {

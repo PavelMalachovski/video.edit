@@ -358,3 +358,21 @@ test('a block knows its place in the speech (core) apart from how long it stays:
   assert.ok(sticker?.core && near(sticker.core[0], sticker.t0) && near(sticker.core[1], (1.5 + 0.6) / 1.25), `стикер — своё место: ${sticker?.core}`);
   assert.ok(sticker && sticker.t1 > sticker.core[1] + 1 && near(sticker.t1, t.duration), 'а на кадре — дольше (не меньше 1,5 с, тут — до конца ролика)');
 });
+
+test('the picture by hand on the tracks: zoom strength in the layer, a b/w piece off — a shade with its place, a transition of another kind or off, its swoosh gone', () => {
+  const d: Draft = {
+    ...DRAFT, keep: [[0.5, 5]], looks: [{ t0: 0.5, t1: 1.0, look: 'bw' }, { t0: 3.0, t1: 3.6, look: 'bw' }], zooms: [{ t: 1.0, level: 1.3, over: 0 }],
+    transitions: [{ t: 2.0, kind: 'flash', sfx: 'assets/sfx/swoosh.mp3' }, { t: 4.0, kind: 'zoom', sfx: 'assets/sfx/swoosh.mp3' }],
+  };
+  const plain = draftTracks(d);
+  assert.deepEqual(plain.looks.map((l) => [l.at, l.off]), [[[0.5, 1.0], false], [[3.0, 3.6], false]], 'у каждого ч/б-куска — его место в edit.looks');
+  assert.deepEqual(plain.transitions.map((x) => [x.at, x.kind, x.was, x.off]), [[2, 'flash', 'flash', false], [4, 'zoom', 'zoom', false]]);
+  const t = draftTracks(d, { fixes: { zoom: 0.5, looks: [{ at: [3.0, 3.6], off: true }], transitions: [{ at: 2, off: true }, { at: 4, kind: 'blur' }] } });
+  assert.deepEqual(t.layer.edit.zooms, [{ t: 1.0, level: 1.15, over: 0 }], 'зум — вполовину');
+  assert.deepEqual(t.looks.map((l) => [l.at, l.off]), [[[0.5, 1.0], false], [[3.0, 3.6], true]], 'убранный — тенью на своём месте');
+  assert.ok(near(t.looks[1].t0, plain.looks[1].t0) && near(t.looks[1].t1, plain.looks[1].t1));
+  assert.deepEqual(t.transitions.map((x) => [x.at, x.kind, x.was, x.off]), [[2, 'flash', 'flash', true], [4, 'blur', 'zoom', false]]);
+  assert.deepEqual(t.sounds.filter((s) => s.key?.startsWith('transition')).map((s) => s.key), ['transition:1'], 'у убранного перехода свуша нет, номер второго — тот же');
+  assert.deepEqual(t.layer.edit.looks?.map((l) => l.off ?? false), [false, true], 'картинка плеера читает правки из слоя');
+  assert.deepEqual(t.layer.edit.transitions?.map((x) => [x.kind, x.off ?? false]), [['flash', true], ['blur', false]]);
+});

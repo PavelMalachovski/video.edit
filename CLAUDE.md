@@ -68,7 +68,7 @@
 - Слой ролика (кадр редактора = финал): `engine/vm/subs.py` (`build_sub_events`) и `engine/vm/overlay.py`
   (`build_overlay_events`, `insert_spans`, `_hook_end`) ↔ `web/lib/subs.ts` (`buildSubEvents`, `subBlocks`) и
   `web/lib/overlay.ts` (`buildOverlayEvents`, `layerBlocks`, `insertSpans`, `hookEnd`); шкала монтажа на целых кадрах —
-  `render.timeline` ↔ `renderTimeline`. Общая фикстура `engine/tests/fixtures/overlay-events.json` — её пишет движок:
+  `render.timeline` ↔ `renderTimeline` (по ней и плеер: края кусков `play0`, `play1` в `draftTracks`). Общая фикстура `engine/tests/fixtures/overlay-events.json` — её пишет движок:
   `cd engine && python3 -m tests.shared_events` (устарела — падает быстрый тест движка).
 - Картинка ролика в редакторе: `engine/vm/zoom.py` (`zoom_at`, `cut_frame`), `engine/vm/transitions.py` (`marks`, `HALF`,
   `PUNCH`, `BLUR`; вспышка и смаз по кадру — `flash_alpha`, `blur_sigma`: так их рисует `picture_chains`, проверено по
@@ -85,6 +85,16 @@
   `hasEmoji` (правило `mayHaveEmoji` из `template/emoji.js`); что примет движок старой задачи — `abilitiesOf` и
   `refusedBy` в `web/lib/editordata.ts` (по схеме в её ветке). Блоки на дорожках ↔ время исходника — `web/lib/blocks.ts`
   (`sourceSpan`, `hookUntil`: как `Timeline.span` и `_hook_end`).
+- Знаки, которых шрифт ролика не нарисует (★, ✓, ♪ — не эмодзи): `fonts.symbols` и `lacking_symbols` в
+  `engine/vm/fonts.py` (`check`) ↔ `badSymbols` и `SYMBOLS_OK` в `web/lib/edits.ts` (их не пропускают панели блоков и
+  `parseSave` в `web/lib/editordata.ts`).
+- Картинка руками (`timeline.json` → `zoom`, `looks`, `transitions`): `engine/vm/edits.py` (`apply_picture`, `_moments`)
+  и схема `engine/vm/schemas/timeline.json` (выключенное — `off` в схеме `edit.json`) ↔ `web/lib/edits.ts`
+  (`applyPicture`, `setZoom`, `setLook`, `setTransition`, `TRANSITION_KINDS`, `LIMITS.zoom`, `parseTimeline`), раздел
+  `picture` общей фикстуры; выключенное пропускают `look_windows`, `transitions._placed` (и свуш перехода),
+  `snap_edit` ↔ `lookWindows`, `transitionMarks`, `snapEdit`, `draftTracks`; старая задача — `abilitiesOf` (`picture`).
+- Картинки Павла в релизе — куски `<файл>.part-NNNNN` (даже один): `chunkName` в `web/lib/jobs.ts` и `fetch.PART` в
+  `engine/vm/fetch.py` ↔ `uploadParts` в `web/lib/editordata.ts` (кадр редактора склеивает их так же).
 - Картинки слоя в редакторе: `render._resolve` (от папки задачи, потом от корня) ↔ `layerUrl` в `web/lib/editordata.ts`
   и маршруты `/api/jobs/[id]/file` и `/api/jobs/[id]/upload`.
 - Шкала времени исходник ↔ финал: `engine/vm/timeline.py` (`Timeline`; `keep` — в порядке финала, серии кусков —

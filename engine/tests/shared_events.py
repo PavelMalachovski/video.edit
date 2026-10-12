@@ -33,7 +33,9 @@ NOTE = (
     "(render.BW_CSS_BRIGHTNESS, BW_CSS_CONTRAST ↔ BW_FILTER в web/lib/picture.ts); beats — доли музыки в ролике и "
     "что на них встаёт (web/lib/beats.ts); text — текст и вставки руками (edits.apply_text ↔ web/lib/edits.ts); "
     "pipeline — весь путь правок Павла до слоя, как у монтажа (edits.apply → render.timeline → render.music_beats и "
-    "beats.snap_edit → build_overlay_events ↔ withHandEdits, musicBeats, draftTracks, buildOverlayEvents). "
+    "beats.snap_edit → build_overlay_events ↔ withHandEdits, musicBeats, draftTracks, buildOverlayEvents); picture — "
+    "картинка руками (edits.apply_picture: сила зума, убранные ч/б-куски, вид и «убрать» переходов ↔ applyPicture) и что "
+    "выходит в ролике: зум, переходы, кадры ч/б. "
     "Времена слов и edit — по исходнику, событий — секунды финала; keep — в порядке финала. Пишет "
     "engine/tests/shared_events.py (python3 -m tests.shared_events из engine/)."
 )
@@ -281,6 +283,38 @@ def pipeline_case(case: dict) -> dict:
             "insertSpans": [list(s) for s in insert_spans(edit, tl)]}
 
 
+# Картинка руками (edits.apply_picture: timeline.json → zoom, looks, transitions поверх edit.json) и что из неё выходит в
+# ролике: уровни зума, кадры ч/б, переходы на стыках — web/lib/edits.ts (applyPicture), zoom.ts
+_PICTURE = {
+    "zooms": [{"t": 1.0, "level": 1.12}, {"t": 3.0, "level": 1.0}, {"t": 4.0, "level": 1.2, "over": 0}, {"t": 6.2, "level": 1.07}],
+    "looks": [{"t0": 2.0, "t1": 3.0, "look": "bw"}, {"t0": 5.0, "t1": 6.0, "look": "bw"}, {"t0": 5.0, "t1": 6.0, "look": "bw"}],
+    "transitions": [{"t": 2.5, "kind": "flash", "sfx": "assets/sfx/swoosh.mp3"}, {"t": 4.5, "kind": "zoom"}, {"t": 7.0, "kind": "blur"}],
+}
+PICTURE = [
+    {"name": "zoom weaker, a b/w piece off (the second of two at one place), a transition of another kind and one off",
+     "keep": [[0.0, 8.5]], "speed": 1.0, "teaser": None, "edit": _PICTURE,
+     "timeline": {"zoom": 0.5, "looks": [{"at": [5.0, 6.0], "off": True}, {"at": [5.0, 6.0], "off": True}],
+                  "transitions": [{"at": 2.5, "kind": "blur"}, {"at": 4.5, "off": True}]}},
+    {"name": "zoom stronger is capped by the rules; no zoom at all; an edit for a moment that is not there",
+     "keep": [[0.0, 4.0], [4.6, 8.5]], "speed": 1.1, "teaser": None, "edit": _PICTURE,
+     "timeline": {"zoom": 1.5, "transitions": [{"at": 3.3, "off": True}, {"at": 7.0, "kind": "flash"}]}},
+    {"name": "zoom off",
+     "keep": [[0.0, 8.5]], "speed": 1.0, "teaser": [5.2, 6.5], "edit": _PICTURE, "timeline": {"zoom": 0, "looks": [{"at": [2.0, 3.0], "off": True}]}},
+]
+
+
+def picture_case(case: dict) -> dict:
+    t = case["timeline"]
+    out = edits.apply_picture(case["edit"], t.get("zoom"), t.get("looks"), t.get("transitions"))
+    tl = _timeline(case)
+    marks = transitions.marks(out, tl)
+    zoom = [[round(k * 0.1, 4), round(zoom_at(out["zooms"], tl, k * 0.1, TRANS, [m.t for m in marks if m.kind == "zoom"]), 6)]
+            for k in range(math.ceil(tl.duration * 10) + 1)]
+    return {"expected": {k: out[k] for k in ("zooms", "looks", "transitions")},
+            "marks": [{"t": m.t, "kind": m.kind, "source": m.source} for m in marks], "lookWindows": [list(w) for w in look_windows(out, tl)],
+            "zoom": zoom}
+
+
 def beats_case(case: dict) -> dict:
     tl = _timeline(case)
     music = case["music"]
@@ -391,6 +425,7 @@ def build() -> dict:
         "text": [{**case, "expected": text_case(case)} for case in TEXT],
         "textRefused": TEXT_REFUSED,
         "pipeline": [{**case, **pipeline_case(case)} for case in PIPELINE],
+        "picture": [{**case, **picture_case(case)} for case in PICTURE],
     }
 
 
@@ -430,7 +465,8 @@ def dump(data: dict) -> str:
     out.append(f'  "beats": {_rows(data["beats"], "  ")},')
     out.append(f'  "text": {_rows(data["text"], "  ")},')
     out.append(f'  "textRefused": {_rows(data["textRefused"], "  ")},')
-    out.append(f'  "pipeline": {_rows(data["pipeline"], "  ")}')
+    out.append(f'  "pipeline": {_rows(data["pipeline"], "  ")},')
+    out.append(f'  "picture": {_rows(data["picture"], "  ")}')
     out.append("}")
     return "\n".join(out) + "\n"
 

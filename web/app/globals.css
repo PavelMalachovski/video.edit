@@ -376,6 +376,15 @@ ul.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:
 .ed-clip.sub { background: color-mix(in srgb, var(--e-sub) 30%, white); border: 1px solid var(--e-sub); }
 .ed-clip.text { background: color-mix(in srgb, var(--e-text) 20%, white); border: 1px solid var(--e-text); }
 .ed-clip.ins { background: color-mix(in srgb, var(--e-ins) 20%, white); border: 1px solid var(--e-ins); }
+/* дорожка «Картинка»: линия крупности (зум и толчки), ч/б-куски и переходы — их нажимают */
+.ed-zoomline { position: absolute; inset: 0; color: color-mix(in srgb, var(--e-select) 45%, transparent); pointer-events: none; }
+.ed-clip.bw { cursor: pointer; color: #fff; background: #4B4F48; border: 1px solid #2B2E29; }
+.ed-clip.bw.ghost { color: var(--e-ink); }
+.ed-clip.tr { cursor: pointer; justify-content: center; padding: 0 2px; font-weight: 700; z-index: 3; border: 1px solid var(--e-ink); } /* поверх ч/б-куска, и выбранного */
+.ed-clip.tr.sel { z-index: 4; }
+.ed-clip.tr.flash { background: #FFF6C9; }
+.ed-clip.tr.zoom { background: color-mix(in srgb, var(--e-select) 22%, white); }
+.ed-clip.tr.blur { background: color-mix(in srgb, var(--e-music) 22%, white); }
 .ed-empty { font-size: 12px; color: var(--e-faint); padding: 0 8px; line-height: 30px; white-space: nowrap; }
 .ed-empty.pad { padding: 24px 16px; line-height: 1.45; white-space: normal; }
 .ed-playhead { position: absolute; top: 0; bottom: 0; left: 0; width: 2px; margin-left: -1px; background: var(--e-select); pointer-events: none; z-index: 3; }

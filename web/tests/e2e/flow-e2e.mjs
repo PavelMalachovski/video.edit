@@ -140,6 +140,26 @@ const STYLES = { ...FIXTURE.styles, sample: { ...FIXTURE.styles.sample, inserts:
 
 /** Снимок экрана в папку E2E_SHOTS (если задана) — посмотреть вёрстку глазами. */
 /** Экран снят: на телефоне страница не шире экрана (вбок не листается) и, если просили, скриншот. */
+/** Редактор: линейка (заново на каждом шаге: дорожки меняют высоту — пропала строка «Звуки», таймлайн ниже — и она
+ *  съезжает), состояние слоя кадра и «встать на момент ролика». `full` — длина ролика с хвостом. */
+function editorKit(page, full) {
+  const geo = async () => {
+    const r = await page.locator('.ed-ruler').boundingBox();
+    return { r, pps: r.width / full, X: (t) => r.x + (t * r.width) / full };
+  };
+  const layerState = async () => JSON.parse((await page.locator('.ed-layer iframe').getAttribute('data-state')) ?? '{}');
+  /** Встать на момент ролика `t` (щелчок по линейке) и дождаться события слоя, в котором он лежит. */
+  const seekTo = async (t) => {
+    const { r, X } = await geo();
+    await page.mouse.click(X(t), r.y + r.height / 2);
+    await until(async () => {
+      const t0 = Number(await page.locator('.ed-layer').getAttribute('data-t0'));
+      return Number.isFinite(t0) && t0 <= t + 0.02;
+    }, 3000, `слой на ${t} с`);
+  };
+  return { geo, layerState, seekTo };
+}
+
 async function shot(page, name) {
   const { inner, scroll } = await page.evaluate(() => ({ inner: window.innerWidth, scroll: document.documentElement.scrollWidth }));
   if (inner <= 430) check(scroll <= inner + 1, `экран «${name}» шире телефона: ${scroll} px при ${inner} px`);
@@ -1034,6 +1054,7 @@ const segments = [
     const SOURCE = 3;
     const shownTracks = draftTracks(parseDraft(edit), { style: FIXTURE.expected, sourceDuration: SOURCE });
     const FULL = shownTracks.duration + shownTracks.tail;
+    ctx.editorEdit = { edit, source: SOURCE, full: FULL }; // для сегмента картинки
 
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto(`${APP}/jobs/${ctx.jobId}/editor`);
@@ -1042,21 +1063,7 @@ const segments = [
     await until(async () => (await textBlocks.count()) === 3 && (await insBlocks.count()) === 2, 10_000,
       async () => `блоки: текст ${await textBlocks.count()}, вставки ${await insBlocks.count()}`);
     check(isDeepStrictEqual(await textBlocks.evaluateAll((els) => els.map((el) => el.dataset.kind)), ['hook', 'accent', 'cta']), 'хук, акцент, титр');
-    // линейка — заново на каждом шаге: дорожки меняют высоту (пропала строка «Звуки» — таймлайн ниже), и она съезжает
-    const geo = async () => {
-      const r = await page.locator('.ed-ruler').boundingBox();
-      return { r, pps: r.width / FULL, X: (t) => r.x + (t * r.width) / FULL };
-    };
-    const layerState = async () => JSON.parse((await page.locator('.ed-layer iframe').getAttribute('data-state')) ?? '{}');
-    /** Встать на момент ролика `t` (щелчок по линейке) и дождаться события слоя, в котором он лежит. */
-    const seekTo = async (t) => {
-      const { r, X } = await geo();
-      await page.mouse.click(X(t), r.y + r.height / 2);
-      await until(async () => {
-        const t0 = Number(await page.locator('.ed-layer').getAttribute('data-t0'));
-        return Number.isFinite(t0) && t0 <= t + 0.02;
-      }, 3000, `слой на ${t} с`);
-    };
+    const { geo, layerState, seekTo } = editorKit(page, FULL);
     // щелчок по акценту — панель блока и кадр на его начале (слова акцента — вместо субтитров)
     await textBlocks.nth(1).click();
     const insp = page.locator('.ed-insp[data-block=accent]');
@@ -1197,8 +1204,101 @@ const segments = [
     const refused = await page.request.put(`${APP}/api/jobs/${ctx.jobId}/timeline`, { data: { base: tl.rev, edits: [], text: { hook: { until: 1.2 } } } });
     check(refused.status() === 409, `старый движок: правка текста не сохраняется (${refused.status()})`);
     await fakeJson('/__commit', { method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ branch: `claude/job-${ctx.jobId}`, files: { 'engine/vm/schemas/timeline.json': null }, message: 'engine back' }) });
+      body: JSON.stringify({ branch: `claude/job-${ctx.jobId}`, files: { 'engine/vm/schemas/timeline.json': JSON.stringify(schema) }, message: 'engine back' }) });
     await page.setViewportSize({ width: 390, height: 844 });
+  }],
+
+  ['editor-picture', async (ctx) => {
+    // фаза 5в: сила зума — ползунок, ч/б-кусок — убрать, переход — другой вид или убрать; кадр меняется сразу, а движок по
+    // сохранённому timeline.json даст ту же картинку (ступени зума, кадры ч/б, переходы на стыках)
+    const { page } = ctx;
+    const { edit, source, full } = ctx.editorEdit;
+    const { seekTo } = editorKit(page, full);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(`${APP}/jobs/${ctx.jobId}/editor`);
+    const row = page.locator('.ed-row.pic');
+    const look = row.locator('.ed-clip[data-kind=look]');
+    const tr = row.locator('.ed-clip[data-kind=transition]');
+    await until(async () => (await look.count()) === 1 && (await tr.count()) === 1, 10_000, 'на дорожке «Картинка» — ч/б-кусок и переход');
+    const v = page.locator('video[data-editor-video]');
+    const zoomAt = async (t) => {
+      await seekTo(t);
+      await page.waitForTimeout(150); // картинка — по кадру часов
+      return Number(await v.getAttribute('data-zoom'));
+    };
+    const z0 = await zoomAt(1.6);
+    check(z0 > 1.1, `зум монтажа: ${z0}`);
+    // сила зума — ползунок с клавиатуры: 100 % → 50 % (шаг — 5 %)
+    const slider = page.getByRole('slider', { name: 'Сила зума' });
+    await slider.focus();
+    for (let k = 0; k < 10; k++) await page.keyboard.press('ArrowLeft');
+    await page.locator('.ed-pic-panel').getByText('50 %').first().waitFor({ timeout: 3000 });
+    const z1 = await zoomAt(1.6);
+    check(Math.abs(z1 - (1 + (z0 - 1) / 2)) < 0.002, `зум вполовину: было ${z0}, стало ${z1}`);
+
+    // ч/б-кусок: выбрать на дорожке — убрать; кадр в цвете, на дорожке — тень
+    await look.click();
+    const lookPanel = page.locator('.ed-insp[aria-label="Ч/б-кусок"]');
+    await lookPanel.getByRole('button', { name: 'Убрать ч/б' }).click();
+    await until(async () => (await look.getAttribute('class')).includes('ghost'), 3000, 'ч/б-кусок — тенью');
+    await seekTo(1.6);
+    await until(async () => (await v.getAttribute('data-bw')) === '', 3000, 'кадр куска — в цвете');
+    // переход: вместо вспышки — смаз; на стыке белого нет, кадр размыт
+    await tr.click();
+    const trPanel = page.locator('.ed-insp[aria-label="Переход"]');
+    await trPanel.getByRole('button', { name: 'Смаз' }).click();
+    await until(async () => (await trPanel.getByRole('button', { name: 'Смаз' }).getAttribute('aria-pressed')) === 'true', 3000, 'смаз выбран');
+    await seekTo(1.4);
+    await until(async () => (await page.locator('.ed-pic').evaluate((el) => getComputedStyle(el).filter)).includes('blur'), 3000, 'смаз на стыке');
+    check(Number(await page.locator('.ed-flash').evaluate((el) => getComputedStyle(el).opacity)) === 0, 'вспышки нет');
+    await shot(page, 'editor-picture');
+    // Delete — убрать переход (вид Павла остаётся в правке); отмена — вернуть
+    await page.keyboard.press('Delete');
+    await until(async () => (await tr.getAttribute('class')).includes('ghost'), 3000, 'переход убран — тенью');
+    await page.keyboard.press('Control+z');
+    await until(async () => !(await tr.getAttribute('class')).includes('ghost'), 3000, 'отмена вернула переход');
+    await page.keyboard.press('Control+Shift+z');
+    await until(async () => (await tr.getAttribute('class')).includes('ghost'), 3000, 'повтор снова убрал');
+
+    // сохранено — по схеме движка; движок по тем же правкам: зум, кадры ч/б и переходы — как на странице
+    await page.locator('.ed-save').getByText('Сохранено').waitFor({ timeout: 8000 });
+    const tl = JSON.parse((await branchFile(ctx, 'timeline.json')) ?? '{}');
+    engineValidate('timeline.json', tl);
+    check(tl.zoom === 0.5 && isDeepStrictEqual(tl.looks, [{ at: [1.6, 2.0], off: true }]) && isDeepStrictEqual(tl.transitions, [{ at: 1.6, kind: 'blur', off: true }]),
+      `картинка в timeline.json: ${JSON.stringify({ zoom: tl.zoom, looks: tl.looks, transitions: tl.transitions })}`);
+    const engine = JSON.parse(execFileSync('python3', ['-c', [
+      'import json, sys', 'from vm import transitions', 'from vm.edits import apply', 'from vm.render import look_windows, timeline',
+      'from vm.zoom import TRANS, zoom_at',
+      'd = json.load(sys.stdin)', 'e = apply(d["edit"], d["timeline"], d["duration"])', 'tl = timeline(e, d["duration"])',
+      'marks = transitions.marks(e, tl)',
+      'print(json.dumps({"windows": look_windows(e, tl), "marks": [[m.t, m.kind] for m in marks],',
+      '  "zoom": zoom_at(e["zooms"], tl, 1.6, TRANS, [m.t for m in marks if m.kind == "zoom"])}))',
+    ].join('\n')], { input: JSON.stringify({ edit, timeline: tl, duration: source }), env: { ...process.env, PYTHONPATH: path.resolve('../engine') } }).toString());
+    check(isDeepStrictEqual(engine.windows, []) && isDeepStrictEqual(engine.marks, []), `движок: ч/б и переход убраны — ${JSON.stringify(engine)}`);
+    check(Math.abs(engine.zoom - z1) < 1e-4, `зум движка на 1,6 с ${engine.zoom}, на странице ${z1}`);
+    // задача старого движка (схема без картинки): ползунок закрыт, сервер правку не сохранит
+    const schema = JSON.parse(fs.readFileSync(path.resolve('../engine/vm/schemas/timeline.json'), 'utf8'));
+    const { zoom: _z, looks: _l, transitions: _t, ...props } = schema.properties;
+    await fakeJson('/__commit', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ branch: `claude/job-${ctx.jobId}`, files: { 'engine/vm/schemas/timeline.json': JSON.stringify({ ...schema, properties: props }) }, message: 'old engine' }) });
+    await page.reload();
+    await page.locator('.ed-pic-panel').getByText('до правок картинки').waitFor({ timeout: 10_000 });
+    check(await page.getByRole('slider', { name: 'Сила зума' }).isDisabled(), 'у старой задачи зум не правится');
+    const refused = await page.request.put(`${APP}/api/jobs/${ctx.jobId}/timeline`, { data: { base: tl.rev, edits: [], zoom: 0.2 } });
+    check(refused.status() === 409, `старый движок: правка картинки не сохраняется (${refused.status()})`);
+    // задача до редактора (в её ветке схемы нет — движок timeline.json не читает): только смотреть
+    await fakeJson('/__commit', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ branch: `claude/job-${ctx.jobId}`, files: { 'engine/vm/schemas/timeline.json': null }, message: 'before the editor' }) });
+    await page.reload();
+    await page.getByText('Эта задача создана до редактора').waitFor({ timeout: 10_000 });
+    check(await page.locator('.ed-handle').count() === 0 && await page.getByRole('slider', { name: 'Сила зума' }).isDisabled(), 'у задачи до редактора ничего не правится');
+    await fakeJson('/__commit', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ branch: `claude/job-${ctx.jobId}`, files: { 'engine/vm/schemas/timeline.json': JSON.stringify(schema) }, message: 'engine back' }) });
+    // телефон: дорожка «Картинка» и панель — не шире экрана
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.reload();
+    await row.scrollIntoViewIfNeeded();
+    await shot(page, 'editor-picture-phone');
   }],
 
   ['script', async (ctx) => {

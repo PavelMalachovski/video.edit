@@ -17,19 +17,23 @@ export type MediaName = (typeof MEDIA_NAMES)[number];
 export const isMediaName = (x: string): x is MediaName => (MEDIA_NAMES as readonly string[]).includes(x);
 
 /** Что из правок руками примет движок задачи: ветка задачи создаётся из master один раз, и сессия монтирует её движком
- *  своей поры — новых полей timeline.json старый движок не примет (схема без лишних полей). По схеме в ветке: `move` —
- *  перестановка кусков (фаза 4), `text` — текст и вставки, слова субтитров (фаза 5). */
-export type Abilities = { move: boolean; text: boolean };
+ *  своей поры — новых полей timeline.json старый движок не примет (схема без лишних полей). По схеме в ветке: `edits` —
+ *  правки руками вообще (схемы нет — задача до редактора: её движок timeline.json не читает), `move` — перестановка
+ *  кусков (фаза 4), `text` — текст и вставки, слова субтитров (фаза 5), `picture` — сила зума, ч/б-куски и переходы
+ *  (фаза 5в). */
+export type Abilities = { edits: boolean; move: boolean; text: boolean; picture: boolean };
 export const ENGINE_SCHEMA = 'engine/vm/schemas/timeline.json';
-const ALL: Abilities = { move: true, text: true };
+const ALL: Abilities = { edits: true, move: true, text: true, picture: true };
+const NONE: Abilities = { edits: false, move: false, text: false, picture: false };
 
-/** Схема timeline.json из ветки задачи → что примет её движок. Схемы нет (или она нечитаема) — движок нынешний. */
+/** Схема timeline.json из ветки задачи → что примет её движок. Схемы нет — ничего (задача до редактора); есть, но не
+ *  читается — движок нынешний. */
 export function abilitiesOf(schema: string | null): Abilities {
-  if (schema === null) return ALL;
+  if (schema === null) return NONE;
   try {
     const props = (JSON.parse(schema) as { properties: Record<string, unknown> }).properties;
     const ops = ((props.edits as { items: { oneOf: { properties: { op: { const: string } } }[] } }).items.oneOf).map((o) => o.properties.op.const);
-    return { move: ops.includes('move'), text: 'text' in props && 'words' in props };
+    return { edits: true, move: ops.includes('move'), text: 'text' in props && 'words' in props, picture: ['zoom', 'looks', 'transitions'].every((k) => k in props) };
   } catch {
     return ALL;
   }
@@ -37,8 +41,12 @@ export function abilitiesOf(schema: string | null): Abilities {
 
 /** Чего из правок `hand` движок задачи не примет — текст ошибки; всё примет — null. */
 export function refusedBy(a: Abilities, hand: HandEdits): string | null {
+  if (!a.edits) return 'Эта задача создана до редактора: её движок правок руками не знает — ролик здесь правится через «Поправить»';
   if (!a.move && hand.edits.some((e) => e.op === 'move')) return 'Эта задача создана до перестановки кусков: её движок их не примет — куски переставляются в новых задачах';
   if (!a.text && (hand.text || hand.words)) return 'Эта задача создана до правок текста в редакторе: её движок их не примет — текст здесь правится через «Поправить»';
+  if (!a.picture && (hand.zoom !== undefined || hand.looks || hand.transitions)) {
+    return 'Эта задача создана до правок картинки в редакторе: её движок их не примет — зум, ч/б и переходы здесь правятся через «Поправить»';
+  }
   return null;
 }
 

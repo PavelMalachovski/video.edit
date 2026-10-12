@@ -195,3 +195,46 @@ def test_text_edits_go_through_the_schema(tmp_path):
                 {"words": [{"t0": 1, "text": "без конца"}]}, {"text": {"inserts": [{"at": [1, 2], "kind": "image"}]}}):
         with pytest.raises(ValueError):
             job.write("timeline.json", {"rev": 2, "edits": [], **bad})
+
+
+PICTURE_EDIT = {
+    "speed": 1.0, "keep": [[0.0, 8.0]], "words": [],
+    "zooms": [{"t": 1.0, "level": 1.12}, {"t": 3.0, "level": 1.0}, {"t": 4.0, "level": 1.2, "over": 0}],
+    "looks": [{"t0": 2.0, "t1": 3.0, "look": "bw"}, {"t0": 5.0, "t1": 6.0, "look": "bw"}],
+    "transitions": [{"t": 2.5, "kind": "flash", "sfx": "assets/sfx/swoosh.mp3"}, {"t": 4.5, "kind": "zoom"}],
+}
+
+
+def test_zoom_strength_bw_pieces_and_transitions_set_by_hand():
+    """Редактор: зум слабее или сильнее (доля от зума монтажа), ч/б-кусок убран, у перехода — другой вид или его нет.
+    Убранное остаётся в списке (`off`): номера звуков `transition:<n>` не сдвигаются."""
+    timeline = {"rev": 1, "edits": [], "zoom": 0.5, "looks": [{"at": [5.0, 6.0], "off": True}],
+                "transitions": [{"at": 2.5, "kind": "blur"}, {"at": 4.5, "off": True}]}
+    out = edits.apply(PICTURE_EDIT, timeline)
+    assert [z["level"] for z in out["zooms"]] == [1.06, 1.0, 1.1]
+    assert out["looks"] == [{"t0": 2.0, "t1": 3.0, "look": "bw"}, {"t0": 5.0, "t1": 6.0, "look": "bw", "off": True}]
+    assert out["transitions"] == [{"t": 2.5, "kind": "blur", "sfx": "assets/sfx/swoosh.mp3"}, {"t": 4.5, "kind": "zoom", "off": True}]
+    assert edits.apply(PICTURE_EDIT, {**timeline, "zoom": 0})["zooms"] == [{**z, "level": 1.0} for z in PICTURE_EDIT["zooms"]], "0 — без зума"
+    assert PICTURE_EDIT["looks"][1] == {"t0": 5.0, "t1": 6.0, "look": "bw"}, "edit.json сессии не меняется"
+
+
+def test_switched_off_bw_pieces_and_transitions_are_not_in_the_video():
+    from vm import transitions
+    from vm.render import look_windows
+    from vm.timeline import Timeline
+
+    out = edits.apply(PICTURE_EDIT, {"rev": 1, "edits": [], "looks": [{"at": [2.0, 3.0], "off": True}], "transitions": [{"at": 2.5, "off": True}]})
+    tl = Timeline([(0.0, 8.0)], 1.0)
+    assert look_windows(out, tl) == look_windows({"looks": [PICTURE_EDIT["looks"][1]]}, tl)
+    assert [m.source for m in transitions.marks(out, tl)] == [4.5]
+
+
+@pytest.mark.parametrize("bad", [{"zoom": 1.6}, {"zoom": -0.1}, {"looks": [{"at": [1.0, 2.0]}]}, {"transitions": [{"at": 1.0, "kind": "spin"}]},
+                                 {"transitions": [{"at": 1.0, "off": False}]}])
+def test_picture_edits_go_through_the_schema(tmp_path, bad):
+    job = Job(tmp_path / "j")
+    job.root.mkdir()
+    job.write("timeline.json", {"rev": 1, "edits": [], "zoom": 1.5, "looks": [{"at": [1.0, 2.0], "off": True}],
+                                "transitions": [{"at": 1.0, "kind": "flash"}, {"at": 2.0, "off": True}]})
+    with pytest.raises(ValueError):
+        job.write("timeline.json", {"rev": 1, "edits": [], **bad})

@@ -159,7 +159,39 @@ def apply(edit: dict, timeline: dict | None, duration: float | None = None) -> d
             out["ab"] = None
     if timeline.get("sounds"):
         out["sounds"] = {k: dict(v) for k, v in timeline["sounds"].items()}
-    return apply_text(out, timeline.get("text"), timeline.get("words"))
+    out = apply_text(out, timeline.get("text"), timeline.get("words"))
+    return apply_picture(out, timeline.get("zoom"), timeline.get("looks"), timeline.get("transitions"))
+
+
+def apply_picture(edit: dict, zoom: float | None, looks: list | None, transitions: list | None) -> dict:
+    """Картинка руками (`timeline.json` → `zoom`, `looks`, `transitions`) поверх edit: сила зума — доля от зума монтажа
+    (`1 + (уровень − 1) · zoom`, четыре знака), ч/б-кусок по месту `at` — выключен, переход по своему `t` — другого вида
+    или выключен. Выключенное остаётся в списке с `off`: номера звуков `transition:<n>` не сдвигаются. То же —
+    applyPicture в web/lib/edits.ts. Правок нет — тот же edit."""
+    if zoom is None and not looks and not transitions:
+        return edit
+    out = {**edit}
+    if zoom is not None:
+        out["zooms"] = [{**z, "level": round(1 + (float(z["level"]) - 1) * float(zoom), 4)} for z in edit.get("zooms") or []]
+    if looks:
+        out["looks"] = _anchored(edit.get("looks"), looks, "looks", lambda item, c, name: {**item, "off": True})
+    if transitions:
+        out["transitions"] = _moments(edit.get("transitions"), transitions)
+    return out
+
+
+def _moments(items: list | None, changes: list) -> list:
+    """Переходы по своему `t`: каждой правке — первый ещё не занятый переход с t == `at` (другого вида — `kind`, убран —
+    `off`); нет такого — правка не применяется."""
+    out = list(items or [])
+    used: set[int] = set()
+    for c in changes:
+        k = next((j for j, item in enumerate(out) if j not in used and float(item["t"]) == float(c["at"])), None)
+        if k is None:
+            continue
+        used.add(k)
+        out[k] = {**out[k], **({"kind": c["kind"]} if "kind" in c else {}), **({"off": True} if c.get("off") else {})}
+    return out
 
 
 def _span(item: dict) -> list[float]:

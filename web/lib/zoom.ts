@@ -17,7 +17,7 @@ export const BLUR: readonly [number, number][] = [[8, 1.0], [14, 2 / 3], [24, 1 
 const TO_CUT = 0.25; // с исходника — край ч/б-куска так близко к краю отрезка встаёт на склейку
 
 export type Zoom = { t: number; level: number; over?: number };
-export type TransitionSpec = { t: number; kind: string; sfx?: string | null };
+export type TransitionSpec = { t: number; kind: string; sfx?: string | null; off?: boolean };
 type Step = [number, number, number, number]; // начало в финале, уровень на старте, целевой, длина перехода
 
 /** Кадр финала, с которого видно то, что начинается в момент `t` (склейка, ч/б, резкая смена плана): media.cut_frame. */
@@ -97,6 +97,7 @@ export type TransitionMark = { t: number; kind: string; source: number };
 /** Переходы edit.json во времени финала по порядку; у самого начала и конца ролика их нет (transitions.marks). */
 export function transitionMarks(transitions: readonly TransitionSpec[], tl: Timeline): TransitionMark[] {
   return transitions
+    .filter((x) => !x.off) // убранный Павлом в редакторе — не в ролике
     .map((x) => ({ t: tl.toFinalSnap(Number(x.t)), kind: x.kind, source: Number(x.t) }))
     .sort((a, b) => a.t - b.t || a.source - b.source)
     .filter((m) => HALF <= m.t && m.t <= tl.duration - HALF);
@@ -145,9 +146,10 @@ const nearEdge = (x: number, lo: number, hi: number) => (x - lo <= TO_CUT ? lo :
 
 /** Ч/б-куски — кадры финала [первый, после последнего]: фраза на своём месте и её копия в тизере; край у склейки — на
  *  склейке (render.look_windows). */
-export function lookWindows(looks: readonly { t0: number; t1: number }[], tl: Timeline): [number, number][] {
+export function lookWindows(looks: readonly { t0: number; t1: number; off?: boolean }[], tl: Timeline): [number, number][] {
   const windows: [number, number][] = [];
   for (const look of looks) {
+    if (look.off) continue; // убранный Павлом в редакторе — в цвете
     const t0 = Number(look.t0);
     const t1 = Number(look.t1);
     if (t1 <= t0) continue;

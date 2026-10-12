@@ -477,7 +477,7 @@ def look_windows(edit: dict, tl: Timeline) -> list[tuple[int, int]]:
     (`Timeline.to_cut`), на её кадре (`cut_frame`), как смена камеры. Кусок без кадров (весь в вырезке, нулевой) не
     нужен."""
     windows = []
-    for look in edit.get("looks") or []:
+    for look in (x for x in edit.get("looks") or [] if not x.get("off")):  # убранный Павлом в редакторе — в цвете
         t0, t1 = float(look["t0"]), float(look["t1"])
         if t1 <= t0:
             continue

@@ -25,12 +25,11 @@ export type Picture = { zoom: number; face: { x: number; y: number }; bw: boolea
 
 const VIDEO = /\.(mp4|mov|m4v|webm|mkv)$/i;
 
-/** Модель картинки по слою черновика (зум и вставки — уже на долях музыки), лицу, переходам и ч/б-кускам edit.json. */
-export function pictureModel(layer: Layer, { face, transitions = [], looks = [] }: {
-  face?: { x: number; y: number } | null; transitions?: readonly { t: number; kind: string }[]; looks?: readonly { t0: number; t1: number }[];
-}): PictureModel {
+/** Модель картинки по слою черновика (зум и вставки — уже на долях музыки; ч/б-куски и переходы — с правками Павла:
+ *  убранные он пропускает) и лицу из edit.json. */
+export function pictureModel(layer: Layer, { face }: { face?: { x: number; y: number } | null }): PictureModel {
   const { edit, tl } = layer;
-  const marks = transitionMarks(transitions, tl);
+  const marks = transitionMarks(edit.transitions ?? [], tl);
   const video = Math.round(tl.duration * FPS);
   const covers: Cover[] = insertSpans(edit, tl).flatMap(([n, start, stop]) => {
     const ins = (edit.inserts ?? [])[n];
@@ -40,7 +39,7 @@ export function pictureModel(layer: Layer, { face, transitions = [], looks = [] 
   return {
     level: zoomLevels(edit.zooms ?? [], tl, marks.filter((m) => m.kind === 'zoom').map((m) => m.t)),
     face: { x: Math.min(1, Math.max(0, face?.x ?? 0.5)), y: Math.min(1, Math.max(0, face?.y ?? 0.5)) },
-    looks: lookWindows(looks, tl),
+    looks: lookWindows(edit.looks ?? [], tl),
     flashes: marks.filter((m) => m.kind === 'flash').map((m) => m.t),
     blurs: marks.filter((m) => m.kind === 'blur').map((m) => m.t),
     covers,

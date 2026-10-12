@@ -7,7 +7,7 @@ import { Timeline } from '../lib/timeline.ts';
 import { beatTimes, musicBeats, played, snapEdit } from '../lib/beats.ts';
 import { BW_FILTER } from '../lib/picture.ts';
 import { draftTracks, parseDraft, timelineOf, withHandEdits, type LayerStyle } from '../lib/tracks.ts';
-import type { Edit, MusicAdjust, TextEdits, WordFix } from '../lib/edits.ts';
+import { applyPicture, type Edit, type LookFix, type MusicAdjust, type TextEdits, type TransitionFix, type WordFix } from '../lib/edits.ts';
 import { blurSigma, flashAlpha, lookWindows, transitionMarks, zoomAt, zoomLevels, type TransitionSpec, type Zoom } from '../lib/zoom.ts';
 
 // Общая с движком фикстура (engine/tests/shared_events.py): события субтитров и слоя — ровно как у движка, число в число.
@@ -35,6 +35,11 @@ const FIXTURE = JSON.parse(fs.readFileSync(new URL('../../engine/tests/fixtures/
     timeline: { edits: Edit[]; music?: MusicAdjust; text?: TextEdits; words?: WordFix[] };
     beatsUsed: boolean; events: unknown[]; insertSpans: [number, number, number][];
   }[];
+  picture: (Base & {
+    edit: { zooms: Zoom[]; looks: { t0: number; t1: number; look: string; off?: boolean }[]; transitions: (TransitionSpec & { off?: boolean })[] };
+    timeline: { zoom?: number; looks?: LookFix[]; transitions?: TransitionFix[] };
+    expected: unknown; marks: { t: number; kind: string; source: number }[]; lookWindows: [number, number][]; zoom: [number, number][];
+  })[];
 };
 type RenderCase = {
   name: string; keep: [number, number][]; speed: number; teaser: { t0: number; t1: number } | null; limit: number | null;
@@ -215,4 +220,18 @@ test('the whole way of Pavel\'s edits to the layer is the engine\'s: pieces, tex
     assert.deepStrictEqual(insertSpans(edit, tl), c.insertSpans, `${c.name}: кадры вставок`);
     assert.deepStrictEqual(plain(buildOverlayEvents(edit, tl)), c.events, c.name);
   }
+});
+
+test('the picture by hand is the engine\'s: zoom strength, b/w pieces off, transitions of another kind or off (shared fixture)', () => {
+  for (const c of FIXTURE.picture) {
+    const out = applyPicture(c.edit, c.timeline.zoom, c.timeline.looks, c.timeline.transitions);
+    assert.deepStrictEqual(plain({ zooms: out.zooms, looks: out.looks, transitions: out.transitions }), c.expected, c.name);
+    const tl = new Timeline(c.keep, c.speed, c.teaser);
+    const marks = transitionMarks(out.transitions, tl);
+    assert.deepStrictEqual(marks, c.marks, `${c.name}: переходы`);
+    assert.deepStrictEqual(lookWindows(out.looks, tl), c.lookWindows, `${c.name}: ч/б`);
+    const level = zoomLevels(out.zooms, tl, marks.filter((m) => m.kind === 'zoom').map((m) => m.t));
+    for (const [t, z] of c.zoom) assert.equal(pyRound(level(t), 6), z, `${c.name}: зум на ${t} с`);
+  }
+  assert.equal(applyPicture(FIXTURE.picture[0].edit, undefined, [], []), FIXTURE.picture[0].edit, 'правок нет — тот же edit');
 });

@@ -11,6 +11,7 @@
 // Первый PUT куска source.part-00003 отвечает 502 (проверка повтора в загрузчике). Служебные адреса для e2e:
 // POST /__commit {branch, files: {путь: текст | {base64} | null}}, GET /__file?ref=&path=, GET /__fires, POST /__fail-fire {status},
 // POST /__asset {tag, name, base64}, GET /__state, а также /__dump и /__joined (проверка загрузки).
+import fs from 'node:fs';
 import crypto from 'node:crypto';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
@@ -89,7 +90,10 @@ export async function startFake({ port = 0 } = {}) {
     return false;
   };
 
-  refs.set('master', makeCommit(makeTree(null, [['README.md', '# video.edit\n'], ['assets/logos/logo.png', LOGO]]), [], 'init').sha);
+  // в master — и схема timeline.json движка: ветки задач из него знают правки руками (как после слияния редактора)
+  const schema = fs.readFileSync(new URL('../../../engine/vm/schemas/timeline.json', import.meta.url));
+  refs.set('master', makeCommit(makeTree(null, [['README.md', '# video.edit\n'], ['assets/logos/logo.png', LOGO],
+    ['engine/vm/schemas/timeline.json', schema]]), [], 'init').sha);
 
   /** @type {Fake} */
   const fake = {

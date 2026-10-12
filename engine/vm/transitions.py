@@ -44,7 +44,8 @@ def _sec(t: float) -> str:
 
 
 def _placed(edit: dict, tl: Timeline) -> list[Mark]:
-    items = [Mark(tl.to_final_snap(float(x["t"])), x["kind"], x.get("sfx") or None, float(x["t"])) for x in edit.get("transitions") or []]
+    items = [Mark(tl.to_final_snap(float(x["t"])), x["kind"], x.get("sfx") or None, float(x["t"]))
+             for x in edit.get("transitions") or [] if not x.get("off")]  # убранный Павлом в редакторе — не в ролике
     return sorted(items, key=lambda m: (m.t, m.source))
 
 

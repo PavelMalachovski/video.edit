@@ -4,7 +4,7 @@
 // transitions.marks): блок на дорожке — ровно там, где его нарисует ролик. Правки Павла руками (timeline.json) —
 // поверх черновика, как их положит движок. И файлы редактора от vm prepare (editor.json): прокси, лента кадров, волна.
 import { snapEdit } from './beats.ts';
-import { applyKeep, applyText, SLIVER, type At, type HandEdits, type TextEdits, type WordFix } from './edits.ts';
+import { applyKeep, applyPicture, applyText, SLIVER, type At, type HandEdits, type LookFix, type TextEdits, type TransitionFix, type WordFix } from './edits.ts';
 import type { StyleSpec } from './jobfiles.ts';
 import { FPS, frameOf, hookEnd, insertSpans, layerBlocks, renderTimeline, type AccentSpec, type InsertSpec, type OverlayEdit } from './overlay.ts';
 import { roundHalfEven } from './pyround.ts';
@@ -29,12 +29,12 @@ export type Draft = {
   cta: (Span & { lines: string[]; word: string }) | null;
   inserts: DraftInsert[];
   accents?: AccentSpec[];
-  looks?: (Span & { look: string })[];
+  looks?: (Span & { look: string; off?: boolean })[]; // off — Павел убрал в редакторе (applyPicture)
   zooms: { t: number; level: number; over?: number }[];
   face?: { x: number; y: number } | null; // лицо — доли кадра: зум приближает к нему
   music: { file: string; gainDb: number; at?: number; from?: number; fadeIn?: number; fadeOut?: number; beats?: boolean } | null;
   teaser?: (Span & { sfx?: string | null }) | null;
-  transitions?: { t: number; kind: string; sfx?: string | null }[];
+  transitions?: { t: number; kind: string; sfx?: string | null; off?: boolean }[];
   hold?: number;
   end?: DraftEnd | null;
   style?: StyleSpec | null; // стиль смонтированного ролика (vm style и правки текстом) — им его нарисует монтаж
@@ -74,8 +74,15 @@ export type Clip = Span & {
   // дольше (акцент держится после своих слов, вставка — не меньше 1,5 с) — этот хвост в правку не идёт
   core?: [number, number];
 };
-/** Из чего слой строит события (как его увидит монтаж) и его шкала: и кадр редактора, и дорожки — из них. */
-export type Layer = { edit: OverlayEdit & { zooms: Draft['zooms'] }; tl: Timeline };
+/** Из чего слой строит события (как его увидит монтаж) и его шкала: и кадр редактора, и дорожки — из них; ч/б-куски и
+ *  переходы (с правками Павла) — для картинки плеера. */
+export type Layer = { edit: OverlayEdit & { zooms: Draft['zooms']; looks?: Draft['looks']; transitions?: Draft['transitions'] }; tl: Timeline };
+/** Ч/б-кусок на дорожке «Картинка» (время ролика): `at` — его [t0, t1] в edit.looks (по нему правка), `off` — Павел его
+ *  убрал (тень на своём месте). У куска с копией в тизере — два окна с тем же `at`. */
+export type LookMark = Span & { at: At; off: boolean };
+/** Переход на дорожке «Картинка»: стык в ролике `t`, вид сейчас и у сессии (`was`), `at` — его t в edit.transitions (по
+ *  нему правка), `off` — Павел его убрал. */
+export type TransitionItem = { t: number; kind: string; was: string; at: number; off: boolean };
 export type Tracks = {
   duration: number; // длина ролика без хвоста (кусков), с
   tail: number; // после кусков — стоп-кадр (hold) и финальная карточка, с
@@ -86,9 +93,9 @@ export type Tracks = {
   subtitles: Clip[]; // группы субтитров, как их покажет ролик (у soft — блок до двух строк)
   text: Clip[]; // хук, акцентные фразы, титр
   inserts: Clip[];
-  looks: Clip[]; // ч/б куски
+  looks: LookMark[]; // ч/б-куски, и убранные Павлом
   music: { label: string; gainDb: number; at?: number; from?: number; fadeIn?: number; fadeOut?: number } | null;
-  transitions: { t: number; kind: string }[];
+  transitions: TransitionItem[]; // переходы, и убранные Павлом
   sounds: Clip[]; // звуки: появления вставок, стык тизера, переходы, карточка
   layer: Layer;
 };
@@ -216,17 +223,17 @@ export function layerEdit(d: Draft, style: LayerStyle, tl: Timeline, beats: read
   const timed = beats ? snapEdit({ zooms: d.zooms, inserts }, tl, beats).edit : { zooms: d.zooms, inserts };
   return {
     words: d.words, style, hook: d.hook, cta: d.cta, accents: d.accents ?? [], inserts: timed.inserts as InsertSpec[], hold: d.hold ?? 0,
-    end: d.end ?? null, zooms: timed.zooms,
+    end: d.end ?? null, zooms: timed.zooms, looks: d.looks ?? [], transitions: d.transitions ?? [],
   };
 }
 
 /** Дорожки черновика во времени ролика. `style` — режим субтитров и хука, каким его нарисует монтаж; `sourceDuration` —
  *  длина исходника: вырезанный хвост и последний кадр; `splits` — разрезы Павла (с исходника, на монтаж не влияют);
- *  `videos` — из каких видео склеен исходник; `fixes` — правки текста и слов (timeline.json): дорожки показывают блоки с
- *  ними, убранное — тенью; `beats` — доли музыки во времени ролика (вставки и зум встают на них). */
+ *  `videos` — из каких видео склеен исходник; `fixes` — правки текста, слов и картинки (timeline.json): дорожки
+ *  показывают блоки с ними, убранное — тенью; `beats` — доли музыки во времени ролика (вставки и зум встают на них). */
 export function draftTracks(d: Draft, { style = PLAIN, sourceDuration, splits = [], videos, fixes, beats = null }: {
   style?: LayerStyle; sourceDuration?: number; splits?: number[]; videos?: EditorMedia['videos'];
-  fixes?: { text?: TextEdits; words?: WordFix[] }; beats?: readonly number[] | null;
+  fixes?: { text?: TextEdits; words?: WordFix[]; zoom?: number; looks?: LookFix[]; transitions?: TransitionFix[] }; beats?: readonly number[] | null;
 } = {}): Tracks {
   const tl = timelineOf(d, sourceDuration);
   const last = sourceDuration === undefined ? null : Math.floor(sourceDuration * FPS + 0.01);
@@ -279,8 +286,10 @@ export function draftTracks(d: Draft, { style = PLAIN, sourceDuration, splits = 
   }
   if (sourceDuration !== undefined && sourceDuration > prev + 1e-6) cuts.push({ at: before ? before.t1 : tl.duration, src0: prev, src1: sourceDuration, side: 'end' });
 
-  // текст и вставки — с правками Павла; каждый блок помнит, откуда он в черновике сессии
-  const base: Draft = { ...d, accents: tagged(d.accents ?? []), inserts: tagged(d.inserts) };
+  // текст и вставки — с правками Павла; каждый блок помнит, откуда он в черновике сессии; картинка — с его силой зума,
+  // убранными ч/б-кусками и переходами (applyPicture — apply_picture движка)
+  const pic = applyPicture({ zooms: d.zooms, looks: d.looks ?? [], transitions: d.transitions ?? [] }, fixes?.zoom, fixes?.looks, fixes?.transitions);
+  const base: Draft = { ...d, accents: tagged(d.accents ?? []), inserts: tagged(d.inserts), ...pic };
   const shown = applyText(base, fixes?.text, fixes?.words);
   const layer = layerEdit(shown, style, tl, beats);
   const blocks = layerBlocks(layer, tl);
@@ -362,11 +371,13 @@ export function draftTracks(d: Draft, { style = PLAIN, sourceDuration, splits = 
   }
   inserts.sort((a, b) => a.t0 - b.t0);
 
-  // ч/б — кадры, где ролик чёрно-белый (look_windows: край у склейки — на склейке; копия в тизере)
-  const looks: Clip[] = lookWindows(d.looks ?? [], tl).map(([a, b]) => ({ kind: 'bw', label: 'bw', t0: a / FPS, t1: b / FPS }));
-  // переходы — на стыке, у самого начала и конца ролика их нет (transitions.marks)
-  const marks = transitionMarks(d.transitions ?? [], tl);
-  const transitions = marks.map((m) => ({ t: m.t, kind: m.kind }));
+  // ч/б — кадры, где ролик чёрно-белый (look_windows: край у склейки — на склейке; копия в тизере); убранные — тенью там же
+  const looks: LookMark[] = (pic.looks ?? []).flatMap((l) => lookWindows([{ ...l, off: false }], tl)
+    .map(([a, b]) => ({ t0: a / FPS, t1: b / FPS, at: [l.t0, l.t1] as At, off: Boolean(l.off) }))).sort((a, b) => a.t0 - b.t0);
+  // переходы — на стыке, у самого начала и конца ролика их нет (transitions.marks); убранные — тенью там же
+  const marks = transitionMarks(pic.transitions ?? [], tl);
+  const transitions: TransitionItem[] = (pic.transitions ?? []).flatMap((x, n) => transitionMarks([{ ...x, off: false }], tl)
+    .map((m) => ({ t: m.t, kind: x.kind, was: (d.transitions ?? [])[n]?.kind ?? x.kind, at: Number(x.t), off: Boolean(x.off) }))).sort((a, b) => a.t - b.t);
 
   // звуки — где их ставит движок (render._sounds): вставка — с её появлением, тизер — на стыке, переход — с его началом,
   // карточка — после стоп-кадра

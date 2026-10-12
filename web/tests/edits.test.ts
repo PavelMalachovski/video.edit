@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import {
   applyKeep, applyText, commit, cutSpan, EMPTY, initHistory, LIMITS, moveSpan, parseTimeline, pieces, redo, restoreSpan, setBlock, setCta, setHook,
   setMusic, setSound, setVoice, setWord, snapTo, splitAt, trimEnd, trimStart, undo, type Edit, type TextEdits, type WordFix, badSymbols, blockFix, hasEmoji,
+  setLook, setTransition, setZoom, TRANSITION_KINDS,
 } from '../lib/edits.ts';
 
 // Общая с движком фикстура: apply_keep в engine/vm/edits.py обязан давать то же самое.
@@ -219,4 +220,41 @@ test('symbols the video\'s font will not draw are refused as the engine font che
   assert.equal(badSymbols('Огонь 🔥 ✅ ❤️ 👍🏽 #️⃣'), '', 'эмодзи — картинки');
   assert.equal(badSymbols('★ без штатива ✓ и ♪ ★'), '★✓♪', 'нет ни в одном шрифте — проверка шрифтов их не пропустит');
   assert.equal(badSymbols('сердце ❤'), '❤', '❤ без U+FE0F — буква, которой нет в шрифтах');
+});
+
+test('parseTimeline takes picture edits as the schema does: zoom strength, b/w pieces off, transitions of another kind or off', () => {
+  const ok = { rev: 1, edits: [], zoom: 0.5, looks: [{ at: [1, 2.5], off: true }], transitions: [{ at: 3.2, kind: 'blur' }, { at: 5, off: true }] };
+  assert.deepEqual(parseTimeline(ok), ok);
+  for (const bad of [
+    { ...ok, zoom: 2 }, { ...ok, zoom: -0.1 }, { ...ok, zoom: '1' }, { ...ok, zoom: null },
+    { ...ok, looks: [{ at: [1, 2] }] }, { ...ok, looks: [{ at: [1, 2], off: false }] }, { ...ok, looks: [{ at: [1], off: true }] },
+    { ...ok, looks: [{ at: [1, 2], off: true, look: 'bw' }] }, { ...ok, looks: {} },
+    { ...ok, transitions: [{ at: -1 }] }, { ...ok, transitions: [{ at: 1, kind: 'wipe' }] }, { ...ok, transitions: [{ at: 1, off: false }] },
+    { ...ok, transitions: [{ kind: 'flash' }] }, { ...ok, transitions: [{ at: 1, sfx: null }] },
+    { ...ok, looks: Array(LIMITS.blocks + 1).fill({ at: [1, 2], off: true }) }, { ...ok, transitions: Array(LIMITS.blocks + 1).fill({ at: 1, off: true }) },
+  ]) assert.equal(parseTimeline(bad), null, JSON.stringify(bad).slice(0, 120));
+  const p = SCHEMA.properties;
+  assert.deepEqual([p.zoom.minimum, p.zoom.maximum, p.looks.maxItems, p.transitions.maxItems], [LIMITS.zoom.min, LIMITS.zoom.max, LIMITS.blocks, LIMITS.blocks]);
+  assert.deepEqual(p.transitions.items.properties.kind.enum, [...TRANSITION_KINDS]);
+});
+
+test('picture setters: zoom strength within the limits (as the session — no field), a b/w piece off and back, a transition of another kind or off', () => {
+  assert.equal(setZoom(EMPTY, 0.5).zoom, 0.5);
+  assert.equal(setZoom(EMPTY, 9).zoom, LIMITS.zoom.max);
+  assert.equal(setZoom(EMPTY, -1).zoom, 0, 'без зума');
+  assert.equal(setZoom(EMPTY, 0.333).zoom, 0.33, 'два знака: ползунок с шагом в процент');
+  assert.ok(!('zoom' in setZoom(setZoom(EMPTY, 0.5), 1)), 'как у монтажа — поля нет');
+  assert.ok(!('zoom' in setZoom(setZoom(EMPTY, 0.5), null)));
+  const off = setLook(EMPTY, [1, 2.5], true);
+  assert.deepEqual(off.looks, [{ at: [1, 2.5], off: true }]);
+  assert.deepEqual(setLook(off, [1, 2.5], true).looks, [{ at: [1, 2.5], off: true }], 'дважды — одна правка');
+  assert.deepEqual(setLook(off, [3, 4], true).looks, [{ at: [1, 2.5], off: true }, { at: [3, 4], off: true }]);
+  assert.ok(!('looks' in setLook(off, [1, 2.5], false)), 'вернули — правки нет');
+  const blur = setTransition(EMPTY, 3.2, { kind: 'blur' });
+  assert.deepEqual(blur.transitions, [{ at: 3.2, kind: 'blur' }]);
+  assert.deepEqual(setTransition(blur, 3.2, { kind: 'blur', off: true }).transitions, [{ at: 3.2, kind: 'blur', off: true }]);
+  assert.deepEqual(setTransition(blur, 5, { off: true }).transitions, [{ at: 3.2, kind: 'blur' }, { at: 5, off: true }]);
+  assert.ok(!('transitions' in setTransition(blur, 3.2, null)), 'как у монтажа — правки нет');
+  assert.ok(!('transitions' in setTransition(blur, 3.2, { off: false })), 'ни вида, ни «убран» — правки нет');
+  for (const h of [setZoom(off, 0.25), blur, setTransition(blur, 5, { off: true })]) assert.ok(parseTimeline({ rev: 1, ...h }), 'сеттеры пишут то, что примет схема');
 });

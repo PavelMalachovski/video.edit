@@ -11,12 +11,14 @@ import type { MusicMix } from '@/lib/sound.ts';
 import { choiceFor, clampTo, finalStyle, HOOK_Y_DEFAULT, ownAdjustments, SUB_SHADE, SWATCHES } from '@/lib/style.ts';
 import { moveTarget, type Tracks } from '@/lib/tracks.ts';
 import type { BlockSel, SubSel } from './blockpanel';
+import type { PictureSel } from './picturepanel';
 
 type TFn = (k: Key, v?: Record<string, string | number>) => string;
 
 /** Что выбрано на дорожках: кусок (номер в дорожке «Видео»), голос, музыка, звук (ключ правки громкости), блок текста или
- *  вставки, группа субтитров. */
-export type Selection = { kind: 'piece'; index: number } | { kind: 'voice' } | { kind: 'music' } | { kind: 'sound'; key: string } | BlockSel | SubSel;
+ *  вставки, группа субтитров, ч/б-кусок или переход. */
+export type Selection = { kind: 'piece'; index: number } | { kind: 'voice' } | { kind: 'music' } | { kind: 'sound'; key: string } | BlockSel | SubSel
+  | PictureSel;
 
 const db = (x: number) => `${x > 0 ? '+' : x < 0 ? '−' : ''}${Math.abs(Math.round(x))} dB`;
 
@@ -50,7 +52,7 @@ export function Inspector({ T, sel, tracks, hand, mix, editable, canMove, splitH
   onEdit: (next: HandEdits, key?: string) => void; sec: (s: number) => string;
 }) {
   if (!sel) return <p className="ed-note faint">{T('selectHint')}</p>;
-  if (sel.kind === 'block' || sel.kind === 'sub') return null;
+  if (sel.kind === 'block' || sel.kind === 'sub' || sel.kind === 'look' || sel.kind === 'transition') return null; // blockpanel.tsx, picturepanel.tsx
   if (sel.kind === 'piece') {
     const c = tracks.video[sel.index];
     if (!c || c.src0 === undefined || c.src1 === undefined) return <p className="ed-note faint">{T('selectHint')}</p>;

@@ -28,19 +28,49 @@ type Event = Omit<SubEvent, 't0' | 't1'>;
  *  `nWords` вне 1–6 для karaoke, plate и soft — Error. */
 export function buildSubEvents(words: readonly Word[], tl: Timeline, mode: string, nWords: number,
   hidden: readonly (readonly number[])[] = []): SubEvent[] {
+  const { events, shown } = layout(words, tl, mode, nWords, hidden);
+  return events.flatMap((e, k) => {
+    const s = shown[k];
+    return s ? [{ t0: s[0], t1: s[1], ...e.event }] : [];
+  });
+}
+
+/** Блок субтитров на дорожке редактора: что видно вместе (у soft — до двух строк), его время в финале (от первого показа
+ *  до последнего) и слова — с номером в `words` (по нему правят слово) и временем в финале; `lead` — копия в тизере. */
+export type SubBlock = { t0: number; t1: number; lead: boolean; opens: boolean; words: { i: number; text: string; t0: number; t1: number }[] };
+
+/** Блоки субтитров по тем же правилам, что события (пустые — без показа — не идут). */
+export function subBlocks(words: readonly Word[], tl: Timeline, mode: string, nWords: number,
+  hidden: readonly (readonly number[])[] = []): SubBlock[] {
+  const { blocks, events, shown } = layout(words, tl, mode, nWords, hidden);
+  const index = new Map(words.map((w, i) => [w, i]));
+  return blocks.flatMap((items, b): SubBlock[] => {
+    const spans = events.flatMap((e, k) => (e.block === b && shown[k] ? [shown[k] as [number, number]] : []));
+    if (!spans.length) return [];
+    return [{
+      t0: spans[0][0], t1: (spans.at(-1) as [number, number])[1], lead: items[0].lead, opens: items[0].opens,
+      words: items.map((item) => ({ i: index.get(item.word) ?? -1, text: item.word.text, t0: item.t0, t1: item.t1 })),
+    }];
+  });
+}
+
+/** Блоки (куски фраз), события по порядку (с номером блока) и время показа каждого события (null — пустое). */
+function layout(words: readonly Word[], tl: Timeline, mode: string, nWords: number, hidden: readonly (readonly number[])[]) {
   const size = groupSize(mode, nWords);
-  const events: Event[] = [];
+  const blocks: Spoken[][] = [];
+  const events: { event: Event; block: number }[] = [];
   const spans: [number, number][] = [];
   const limits: number[] = [];
   for (const phrase of phrases(spoken(words, tl, hidden))) {
     for (const block of balanced(phrase, size)) {
+      const b = blocks.push(block) - 1;
       const texts = block.map((item) => item.word.text);
       if (mode === 'soft') {
         const lines = lineCounts(block.length, nWords);
         let start = 0;
         for (const n of lines) {
           const line = block.slice(start, start + n);
-          events.push({ words: texts, active: start, visible: start + n, lines, opens: block[0].opens });
+          events.push({ event: { words: texts, active: start, visible: start + n, lines, opens: block[0].opens }, block: b });
           spans.push([line[0].t0, (line.at(-1) as Spoken).t1]);
           limits.push(line[0].lead ? tl.teaserDuration : tl.duration);
           start += n;
@@ -48,17 +78,13 @@ export function buildSubEvents(words: readonly Word[], tl: Timeline, mode: strin
         continue;
       }
       block.forEach((item, i) => {
-        events.push({ words: texts, active: i, visible: mode === 'accumulate' ? i + 1 : block.length });
+        events.push({ event: { words: texts, active: i, visible: mode === 'accumulate' ? i + 1 : block.length }, block: b });
         spans.push([item.t0, item.t1]);
         limits.push(item.lead ? tl.teaserDuration : tl.duration);
       });
     }
   }
-  const shown = shownSpans(spans, limits);
-  return events.flatMap((e, k) => {
-    const s = shown[k];
-    return s ? [{ t0: s[0], t1: s[1], ...e }] : [];
-  });
+  return { blocks, events, shown: shownSpans(spans, limits) };
 }
 
 function groupSize(mode: string, nWords: number): number {

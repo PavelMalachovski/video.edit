@@ -49,6 +49,7 @@ type AccentInfo = { frames: number[]; ends: number[]; leave: number; moving: [nu
 type Piece = {
   start: number; stop: number; key: string; value: Record<string, unknown>;
   insert?: boolean; everyFrame?: boolean; timed?: boolean; appear?: number; accent?: AccentInfo;
+  n?: number; // номер акцента или вставки в edit.json — для блоков на дорожках редактора
 };
 
 /** Кадр момента финала: round() Python — ровно половина кадра к чётному. */
@@ -87,30 +88,7 @@ export function renderTimeline(edit: { keep: readonly (readonly number[])[]; spe
 /** Промежутки финала `{t0, t1, state}` по возрастанию, встык, от 0 до конца ролика со стоп-кадром и карточкой. Вставке,
  *  которую рисует шаблон, без места на кадре — Error (как ValueError движка). */
 export function buildOverlayEvents(edit: OverlayEdit, tl: Timeline): LayerEvent[] {
-  const hold = Number(edit.hold || 0);
-  const card = edit.end || null;
-  const end = tl.duration + hold + (card ? Number(card.seconds) : 0);
-  const last = frameOf(end);
-  const still = frameOf(tl.duration + hold);
-  const video = frameOf(tl.duration);
-  // что начинается не раньше конца ролика, в ролике не видно — на стоп-кадре тоже не появляется
-  const subtitles = subtitlePieces(edit, tl);
-  const accents = accentPieces(edit, tl, subtitles.map((p) => p.start));
-  const pieces = [...subtitles, ...titlePieces(edit, tl), ...accents, ...insertPieces(edit, tl)].filter((p) => p.start < video);
-  for (const piece of pieces) {
-    if (piece.stop < video) continue; // видно в последний кадр — остаётся на стоп-кадре, но не на карточке
-    piece.stop = still;
-    if (piece.accent) { // акцент не уходит: на стоп-кадре он такой, каким был в последний кадр
-      piece.accent.leave = piece.stop;
-      piece.accent.moving = piece.accent.moving.slice(0, piece.accent.frames.length);
-    }
-  }
-  if (card) {
-    const shown: Record<string, unknown> = {};
-    for (const k of ['handle', 'logo'] as const) if (card[k]) shown[k] = card[k];
-    pieces.push({ start: still, stop: last, key: 'end', value: { lines: [...card.lines], ...shown }, timed: true });
-  }
-
+  const { pieces, last, end } = layerPieces(edit, tl);
   const borders = new Set<number>([0, last]);
   const add = (from: number, to: number) => { // range(from, to)
     for (let f = from; f < to; f++) borders.add(f);
@@ -138,6 +116,56 @@ export function buildOverlayEvents(edit: OverlayEdit, tl: Timeline): LayerEvent[
     : [{ t0: 0, t1: end, state: {} }];
   if (edit.zone === 'ads') for (const e of events) e.state.zone = 'ads'; // версия для рекламы: всё выше кнопки и подписи
   return events;
+}
+
+/** Всё видимое на кадрах ролика: субтитры, хук, титр, акценты, вставки (что видно в последний кадр — до конца стоп-кадра),
+ *  финальная карточка; `last` — кадров во всём ролике, `end` — его конец, с. */
+function layerPieces(edit: OverlayEdit, tl: Timeline): { pieces: Piece[]; last: number; end: number } {
+  const hold = Number(edit.hold || 0);
+  const card = edit.end || null;
+  const end = tl.duration + hold + (card ? Number(card.seconds) : 0);
+  const last = frameOf(end);
+  const still = frameOf(tl.duration + hold);
+  const video = frameOf(tl.duration);
+  // что начинается не раньше конца ролика, в ролике не видно — на стоп-кадре тоже не появляется
+  const subtitles = subtitlePieces(edit, tl);
+  const accents = accentPieces(edit, tl, subtitles.map((p) => p.start));
+  const pieces = [...subtitles, ...titlePieces(edit, tl), ...accents, ...insertPieces(edit, tl)].filter((p) => p.start < video);
+  for (const piece of pieces) {
+    if (piece.stop < video) continue; // видно в последний кадр — остаётся на стоп-кадре, но не на карточке
+    piece.stop = still;
+    if (piece.accent) { // акцент не уходит: на стоп-кадре он такой, каким был в последний кадр
+      piece.accent.leave = piece.stop;
+      piece.accent.moving = piece.accent.moving.slice(0, piece.accent.frames.length);
+    }
+  }
+  if (card) {
+    const shown: Record<string, unknown> = {};
+    for (const k of ['handle', 'logo'] as const) if (card[k]) shown[k] = card[k];
+    pieces.push({ start: still, stop: last, key: 'end', value: { lines: [...card.lines], ...shown }, timed: true });
+  }
+  return { pieces, last, end };
+}
+
+/** Блок на дорожке редактора — время финала, когда это видно на кадре (ровно по кадрам слоя); `n` — номер в edit.json. */
+export type LayerBlock = { t0: number; t1: number; n: number };
+/** Где на дорожках хук, титр, акценты и вставки — те же кадры, что рисует слой (вставка — не раньше конца хука и не
+ *  короче 1,5 с; что видно в последний кадр — до конца стоп-кадра). Не видно в ролике (начинается после его конца,
+ *  fullscreen — её монтирует ffmpeg) — блока нет. */
+export function layerBlocks(edit: OverlayEdit, tl: Timeline): { hook: LayerBlock | null; cta: LayerBlock | null; accents: LayerBlock[]; inserts: LayerBlock[] } {
+  const { pieces, last, end } = layerPieces(edit, tl);
+  const block = (p: Piece): LayerBlock => ({ t0: p.start / FPS, t1: p.stop === last ? end : p.stop / FPS, n: p.n ?? 0 }); // как у событий
+  const one = (key: string) => {
+    const p = pieces.find((x) => x.key === key && x.stop > x.start);
+    return p ? block(p) : null;
+  };
+  const shown = (p: Piece) => p.stop > p.start;
+  return {
+    hook: one('hook'),
+    cta: one('cta'),
+    accents: pieces.filter((p) => p.key === 'accent' && shown(p)).map(block).sort((a, b) => a.n - b.n),
+    inserts: pieces.filter((p) => p.insert && shown(p)).map(block),
+  };
 }
 
 /** Состояние слоя в момент `t` финала: событие, в котором он лежит (граница — следующему; после конца — последнее). */
@@ -225,7 +253,7 @@ function accentPieces(edit: OverlayEdit, tl: Timeline, subStarts: number[]): Pie
     const ends = moving.slice(0, lines.length).map(([, b]) => b);
     if (leave < stop) moving.push([leave, stop]);
     const value = { lines, x: accent.x, y: accent.y, anim, out };
-    return { start, stop, key: 'accent', value, accent: { frames, ends, leave, moving } };
+    return { start, stop, key: 'accent', value, accent: { frames, ends, leave, moving }, n: (edit.accents || []).indexOf(accent) };
   });
 }
 
@@ -278,7 +306,7 @@ function insertPieces(edit: OverlayEdit, tl: Timeline): Piece[] {
     const value: Record<string, unknown> = {};
     for (const k of INSERT_FIELDS) if (k in ins) value[k] = ins[k];
     value.n = i; // номер — для рамок в boxes.json и QA
-    return [{ start, stop, key: `insert${i}`, value, insert: true, everyFrame: ins.kind === 'anim' }];
+    return [{ start, stop, key: `insert${i}`, value, insert: true, everyFrame: ins.kind === 'anim', n: i }];
   });
 }
 

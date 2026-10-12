@@ -195,6 +195,16 @@
       "type": "number",
       "minimum": 0,
       "maximum": 0.8
+    },
+    "teaser": {
+      "description": "Павел убрал тизер в редакторе (false); нет поля — как у монтажа.",
+      "const": false
+    },
+    "speed": {
+      "description": "Скорость ролика, которую Павел выбрал в редакторе (как edit.json speed); нет — как у монтажа.",
+      "type": "number",
+      "minimum": 0.8,
+      "maximum": 1.5
     }
   },
   "$defs": {

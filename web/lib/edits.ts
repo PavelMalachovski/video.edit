@@ -39,6 +39,7 @@ export type HandEdits = {
   edits: Edit[]; voice?: Level; music?: MusicAdjust; sounds?: Record<string, Level>; text?: TextEdits; words?: WordFix[];
   zoom?: number; looks?: LookFix[]; transitions?: TransitionFix[]; // картинка: сила зума (доля от зума монтажа), ч/б, переходы
   dim?: number; // затемнение фона (доля, как edit.json dim; 0 — без него)
+  teaser?: false; speed?: number; // ролик: тизер убран; скорость (как edit.json speed)
 };
 /** timeline.json в ветке задачи: правки и ревизия (страница прибавляет 1 на каждое сохранение). */
 export type TimelineFile = HandEdits & { rev: number; at?: string };
@@ -57,6 +58,7 @@ export const LIMITS = {
   words: 5000, // исправленных слов
   zoom: { min: 0, max: 1.5 }, // сила зума: доля от зума монтажа
   dim: { min: 0, max: 0.8 }, // затемнение фона: доля
+  speed: { min: 0.8, max: 1.5 }, // скорость ролика
   endLines: 2, // строк финальной карточки
   handle: 60, // знаков в нике карточки
 } as const;
@@ -469,6 +471,18 @@ export function setTrack(h: HandEdits, file: string | null): HandEdits {
 
 // ---------- картинка ----------
 
+/** Тизер в начале ролика: убрать (false в timeline.json) или как у монтажа (поля нет). */
+export function setTeaser(h: HandEdits, on: boolean): HandEdits {
+  const { teaser: _old, ...rest } = h;
+  return on ? rest : { ...rest, teaser: false };
+}
+
+/** Скорость ролика (шаг — 0,05); null — как у монтажа (поля нет). */
+export function setSpeed(h: HandEdits, speed: number | null): HandEdits {
+  const { speed: _old, ...rest } = h;
+  return speed === null ? rest : { ...rest, speed: Math.round(clamp(speed, LIMITS.speed) * 100) / 100 };
+}
+
 /** Затемнение фона (доля; 0 — без него); null — как у монтажа (поля нет). */
 export function setDim(h: HandEdits, dim: number | null): HandEdits {
   const { dim: _old, ...rest } = h;
@@ -594,11 +608,13 @@ const parseWords = (x: unknown): boolean => Array.isArray(x) && x.length <= LIMI
 
 /** timeline.json → правки; не та форма (как по схеме) — null. */
 export function parseTimeline(raw: unknown): TimelineFile | null {
-  const keys = ['rev', 'at', 'edits', 'voice', 'music', 'sounds', 'text', 'words', 'zoom', 'looks', 'transitions', 'dim'];
+  const keys = ['rev', 'at', 'edits', 'voice', 'music', 'sounds', 'text', 'words', 'zoom', 'looks', 'transitions', 'dim', 'teaser', 'speed'];
   if (!isObj(raw) || Object.keys(raw).some((k) => !keys.includes(k))) return null;
   if (raw.text !== undefined && !parseText(raw.text)) return null;
   if (raw.words !== undefined && !parseWords(raw.words)) return null;
   if (!parsePicture(raw)) return null;
+  if (raw.teaser !== undefined && raw.teaser !== false) return null;
+  if (raw.speed !== undefined && !(isNum(raw.speed) && raw.speed >= LIMITS.speed.min && raw.speed <= LIMITS.speed.max)) return null;
   if (!(Number.isInteger(raw.rev) && (raw.rev as number) >= 1) || (raw.at !== undefined && typeof raw.at !== 'string')) return null;
   if (!Array.isArray(raw.edits) || raw.edits.length > LIMITS.edits || !raw.edits.every((e) => parseEdit(e))) return null;
   if (raw.voice !== undefined && !parseLevel(raw.voice, LIMITS.gain)) return null;

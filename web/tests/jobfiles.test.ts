@@ -5,7 +5,7 @@ import { isDeepStrictEqual } from 'node:util';
 import {
   abLabels, answersFile, appendFix, appendRestyle, buildJobFile, coverName, errorStatus, finalNames, isFinalName, parseAnswersBody, parseNote, parseResult, parseStatus, parseStyle, parseStyles,
   parseQuestions, QUESTION_LAYOUTS, QUESTION_TYPES, queuedStatus, STATES, wantedVersion, type Manifest, type Question,
-  AB_KINDS, CHECK_IDS, parseReview, REVIEW_IDS, SAMPLE_INSERT_KINDS, SUB_SHADE,
+  AB_KINDS, CHECK_IDS, parseReview, REVIEW_IDS, SAMPLE_INSERT_KINDS, SUB_SHADE, ADJUST, BAR_HEIGHT, BAR_POSITIONS, HOOK_MODES,
 } from '../lib/jobfiles.ts';
 import { STEPS } from '../lib/routine.ts';
 
@@ -411,4 +411,17 @@ test('the style choice takes the subtitle look and words per group, within the e
   for (const bad of [{ subMode: 'fancy' }, { subWords: 7 }, { subWords: 1 }, { subWords: 2.5 }]) {
     assert.equal(typeof parseStyle({ ...base, ...bad }), 'string', JSON.stringify(bad));
   }
+});
+
+test('the style choice takes the hook look and the bar\'s place and thickness, within the engine schema', () => {
+  const base = { variant: 'A', font: 'montserrat', hand: 'caveat', colors: { text: '#FFFFFF', accent: '#FFD400', bar: '#FFD400' } };
+  const ok = { ...base, hookMode: 'accent', barPos: 'top', barHeight: 10 };
+  assert.deepEqual(parseStyle(ok), ok);
+  for (const bad of [{ hookMode: 'neon' }, { barPos: 'left' }, { barHeight: 0 }, { barHeight: 32 }, { barHeight: 7 }, { barHeight: 9.5 }]) {
+    assert.equal(typeof parseStyle({ ...base, ...bad }), 'string', JSON.stringify(bad));
+  }
+  const style = schema('answers.json').properties.style.properties;
+  assert.deepEqual([style.barHeight.minimum, style.barHeight.maximum, style.barHeight.multipleOf], [BAR_HEIGHT.min, BAR_HEIGHT.max, ADJUST.barHeight.whole]);
+  assert.deepEqual(style.hookMode.enum, [...HOOK_MODES]);
+  assert.deepEqual(style.barPos.enum, [...BAR_POSITIONS]);
 });

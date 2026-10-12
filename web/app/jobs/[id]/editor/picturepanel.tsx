@@ -2,7 +2,7 @@
 // Картинка ролика руками (timeline.json → zoom, looks, transitions): сила зума — ползунок; ч/б-кусок и переход, выбранные
 // на дорожке «Картинка», — убрать или вернуть, у перехода — другой вид. Монтаж кладёт это поверх edit.json сессии
 // (edits.apply_picture), кадр редактора показывает сразу.
-import { setDim, setLook, setTransition, setZoom, TRANSITION_KINDS, LIMITS, type At, type HandEdits, type TransitionKind } from '@/lib/edits.ts';
+import { setDim, setLook, setSpeed, setTeaser, setTransition, setZoom, TRANSITION_KINDS, LIMITS, type At, type HandEdits, type TransitionKind } from '@/lib/edits.ts';
 import { tenths } from '@/lib/format.ts';
 import type { Key } from '@/lib/i18n.ts';
 import type { Tracks } from '@/lib/tracks.ts';
@@ -107,6 +107,37 @@ export function PicturePick({ T, sel, tracks, hand, editable, note, onEdit, sec 
         ) : null}
       </div>
       <p className="ed-note faint">{note ?? T('trHint')}</p>
+    </section>
+  );
+}
+
+/** Раздел «Ролик»: скорость (`speed` монтажа — из edit.json) и тизер в начале — есть ли он у монтажа (`teaser`). */
+export function VideoSection({ T, hand, speed, teaser, canSpeed, canTeaser, note, teaserNote, onEdit, num }: {
+  T: TFn; hand: HandEdits; speed: number; teaser: boolean; canSpeed: boolean; canTeaser: boolean; note: string | null; teaserNote: string | null;
+  onEdit: (next: HandEdits, key?: string) => void; num: (x: number) => string; // число с двумя знаками — запятой или точкой, как в языке страницы
+}) {
+  const now = hand.speed ?? speed;
+  const shown = (x: number) => `×${num(x)}`;
+  const on = teaser && hand.teaser !== false;
+  return (
+    <section className="ed-video-panel" aria-label={T('videoSection')}>
+      <h2>{T('videoSection')}</h2>
+      <div className="ed-shade">
+        <span className="ed-range-name">{T('speed')}</span>
+        <input type="range" aria-label={T('speed')} min={LIMITS.speed.min} max={LIMITS.speed.max} step={0.05} value={now} disabled={!canSpeed}
+          onChange={(e) => onEdit(setSpeed(hand, Number(e.target.value)), 'speed')} />
+        <span className="mono">{shown(now)}</span>
+      </div>
+      {hand.speed !== undefined ? (
+        <button type="button" className="ed-btn" disabled={!canSpeed} onClick={() => onEdit(setSpeed(hand, null))}>{T('speedReset')}</button>
+      ) : null}
+      {teaser ? (
+        <>
+          <button type="button" className="ed-toggle" aria-pressed={on} disabled={!canTeaser} onClick={() => onEdit(setTeaser(hand, !on))}>{T('teaserOn')}</button>
+          <p className="ed-note faint">{teaserNote ?? T('teaserNote')}</p>
+        </>
+      ) : null}
+      {note ? <p className="ed-note faint">{note}</p> : null}
     </section>
   );
 }

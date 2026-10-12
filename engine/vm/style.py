@@ -17,6 +17,9 @@ ADJUSTED = {
     "subShade": ("subtitles", "shade"),
     "subWords": ("subtitles", "words"),  # слов в группе субтитров (2–6) — Павел выбрал в редакторе
     "subMode": ("subtitles", "mode"),  # вид субтитров: караоке, плашка, по слову, копятся, мягкие
+    "hookMode": ("hook", "mode"),  # вид хука: плашка, контур, тень, лесенка эталона
+    "barPos": ("bar", "pos"),  # шкала времени — снизу или сверху
+    "barHeight": ("bar", "height"),  # её толщина, px кадра (чётная: так её ставит overlay)
 }
 
 

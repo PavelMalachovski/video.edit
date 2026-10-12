@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import {
   applyKeep, applyText, commit, cutSpan, EMPTY, initHistory, LIMITS, moveSpan, parseTimeline, pieces, redo, restoreSpan, setBlock, setCta, setHook,
   setMusic, setSound, setVoice, setWord, snapTo, splitAt, trimEnd, trimStart, undo, type Edit, type TextEdits, type WordFix, badSymbols, blockFix, hasEmoji,
-  setLook, setTransition, setZoom, TRANSITION_KINDS, setDim, setTrack, setEnd, MUSIC_FILE,
+  setLook, setTransition, setZoom, TRANSITION_KINDS, setDim, setTrack, setEnd, MUSIC_FILE, setTeaser, setSpeed,
 } from '../lib/edits.ts';
 
 // Общая с движком фикстура: apply_keep в engine/vm/edits.py обязан давать то же самое.
@@ -290,4 +290,19 @@ test('setters: the dim (as the session — no field), another track or back to t
   assert.deepEqual(setEnd(end, { off: true }).text?.end, { off: true }, 'убрать — без прочего');
   assert.ok(!setEnd(end, null).text, 'как у сессии — правки нет');
   for (const h of [setDim(EMPTY, 0.3), track, setEnd(end, { handle: '' })]) assert.ok(parseTimeline({ rev: 1, ...h }), 'сеттеры пишут то, что примет схема');
+});
+
+test('the teaser off and the speed: parsed as the schema does, set within the limits (as the session — no field)', () => {
+  const ok = { rev: 1, edits: [], teaser: false, speed: 1.25 };
+  assert.deepEqual(parseTimeline(ok), ok);
+  for (const bad of [{ ...ok, teaser: true }, { ...ok, teaser: null }, { ...ok, speed: 0.7 }, { ...ok, speed: 1.6 }, { ...ok, speed: '1.2' }]) {
+    assert.equal(parseTimeline(bad), null, JSON.stringify(bad));
+  }
+  assert.deepEqual([SCHEMA.properties.speed.minimum, SCHEMA.properties.speed.maximum], [LIMITS.speed.min, LIMITS.speed.max]);
+  assert.equal(setTeaser(EMPTY, false).teaser, false);
+  assert.ok(!('teaser' in setTeaser(setTeaser(EMPTY, false), true)), 'вернули — как у монтажа');
+  assert.equal(setSpeed(EMPTY, 1.234).speed, 1.23);
+  assert.equal(setSpeed(EMPTY, 3).speed, LIMITS.speed.max);
+  assert.ok(!('speed' in setSpeed(setSpeed(EMPTY, 1.2), null)));
+  assert.ok(parseTimeline({ rev: 1, ...setSpeed(setTeaser(EMPTY, false), 0.9) }), 'сеттеры пишут то, что примет схема');
 });

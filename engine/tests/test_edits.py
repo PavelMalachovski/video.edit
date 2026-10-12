@@ -143,7 +143,8 @@ def test_a_switched_off_insert_is_not_in_the_video_but_keeps_the_numbers():
     tl = Timeline([(0.0, 9.0)], 1.0)
     out = edits.apply(TEXT_EDIT, {"rev": 1, "edits": [], "text": {"inserts": [{"at": [2.0, 3.0], "off": True}]}}, 9)
     assert [i for i, _, _ in insert_spans(out, tl)] == [1, 2], "первой вставки нет — у остальных номера прежние"
-    assert all(not s.get("insert0") for s in (e["state"] for e in build_overlay_events({**out, "style": STYLE}, tl)))
+    drawn = {i["n"] for e in build_overlay_events({**out, "style": STYLE}, tl) for i in e["state"].get("inserts", [])}
+    assert drawn == {1, 2}, "на кадре — только включённые вставки (у них номера прежние)"
 
 
 def test_hook_and_title_switched_off_are_gone():
@@ -279,5 +280,25 @@ def test_dim_track_and_end_card_go_through_the_schema(tmp_path, bad):
     job.root.mkdir()
     job.write("timeline.json", {"rev": 1, "edits": [], "dim": 0.8, "music": {"file": "assets/music/Calm Morning.mp3"},
                                 "text": {"end": {"lines": ["Подпишись", "и пиши"], "handle": "@pavel"}}})
+    with pytest.raises(ValueError):
+        job.write("timeline.json", {"rev": 1, "edits": [], **bad})
+
+
+def test_the_teaser_off_and_the_speed_by_hand():
+    """Редактор: тизер убран (с A/B «без тизера» — второй версии нет: она вышла бы такой же); скорость ролика —
+    ползунком; нет поля — как у сессии."""
+    teased = {**EDIT, "teaser": {"t0": 1.0, "t1": 2.0, "sfx": None}, "ab": "teaser"}
+    out = edits.apply(teased, {"rev": 1, "edits": [], "teaser": False}, 5)
+    assert out["teaser"] is None and out.get("ab") is None
+    assert edits.apply({**teased, "ab": "music"}, {"rev": 1, "edits": [], "teaser": False}, 5)["ab"] == "music", "другой A/B — как был"
+    assert edits.apply(EDIT, {"rev": 1, "edits": [], "speed": 1.25}, 5)["speed"] == 1.25
+    assert edits.apply(teased, {"rev": 1, "edits": [], "speed": 1.0}, 5)["teaser"] == teased["teaser"], "тизер — как у сессии"
+
+
+@pytest.mark.parametrize("bad", [{"teaser": True}, {"teaser": None}, {"speed": 0.7}, {"speed": 1.6}, {"speed": "1.2"}])
+def test_teaser_and_speed_go_through_the_schema(tmp_path, bad):
+    job = Job(tmp_path / "j")
+    job.root.mkdir()
+    job.write("timeline.json", {"rev": 1, "edits": [], "teaser": False, "speed": 1.5})
     with pytest.raises(ValueError):
         job.write("timeline.json", {"rev": 1, "edits": [], **bad})

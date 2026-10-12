@@ -162,6 +162,12 @@ def apply(edit: dict, timeline: dict | None, duration: float | None = None) -> d
             out["ab"] = None
     if timeline.get("sounds"):
         out["sounds"] = {k: dict(v) for k, v in timeline["sounds"].items()}
+    if timeline.get("teaser") is False and edit.get("teaser"):  # тизер убран в редакторе
+        out["teaser"] = None
+        if edit.get("ab") == "teaser":  # версия B «без тизера» вышла бы такой же — её нет
+            out["ab"] = None
+    if timeline.get("speed") is not None:  # скорость ролика — ползунком в редакторе
+        out["speed"] = float(timeline["speed"])
     out = apply_text(out, timeline.get("text"), timeline.get("words"))
     return apply_picture(out, timeline.get("zoom"), timeline.get("looks"), timeline.get("transitions"), timeline.get("dim"))
 

@@ -1350,6 +1350,58 @@ const segments = [
     await shot(page, 'editor-picture-phone');
   }],
 
+  ['editor-video', async (ctx) => {
+    // фаза 5в: вид хука, место и толщина шкалы — кнопки и ползунок «Стиля»; скорость ролика — ползунок, тизер — убрать;
+    // движок по сохранённым правкам: ролик той же длины, что на странице, без тизера
+    const { page } = ctx;
+    const { edit, source } = ctx.editorEdit;
+    const teased = { ...edit, teaser: { t0: 1.7, t1: 2.7, sfx: null } }; // «новый ролик» — ещё и в начале
+    engineValidate('edit.json', teased);
+    await session(ctx, { 'edit.json': teased });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(`${APP}/jobs/${ctx.jobId}/editor`);
+    await page.locator('.ed-piece.teaser').waitFor({ timeout: 10_000 });
+    const total = async () => {
+      const text = (await page.locator('.ed-clock').textContent()) ?? '';
+      const [m, sec] = text.split('/')[1].trim().split(':');
+      return Number(m) * 60 + Number(sec);
+    };
+    const before = await total();
+    // скорость: ×1,00 (как у монтажа этой задачи) → ×1,25 (пять шагов по 0,05) — ролик короче
+    const speedSlider = page.getByRole('slider', { name: 'Скорость', exact: true });
+    check(await speedSlider.inputValue() === '1', `скорость монтажа: ${await speedSlider.inputValue()}`);
+    await speedSlider.focus();
+    for (let k = 0; k < 5; k++) await page.keyboard.press('ArrowRight');
+    await page.locator('.ed-video-panel').getByText('×1,25').waitFor({ timeout: 3000 });
+    await until(async () => (await total()) < before - 0.2, 3000, async () => `ролик короче: было ${before}, стало ${await total()}`);
+    // тизер — убрать: первым на дорожке — кусок
+    await page.locator('.ed-video-panel').getByRole('button', { name: 'Тизер в начале' }).click();
+    await until(async () => (await page.locator('.ed-piece.teaser').count()) === 0, 3000, 'тизер убран');
+    // стиль: хук — контуром, шкала — сверху и толще
+    const style = page.locator('.ed-style');
+    await style.getByRole('group', { name: 'Вид хука' }).getByRole('button', { name: 'Контур' }).click();
+    await style.getByRole('group', { name: 'Где шкала' }).getByRole('button', { name: 'Сверху' }).click();
+    const thick = page.getByRole('slider', { name: 'Шкала времени: Толщина' });
+    await thick.focus();
+    for (let k = 0; k < 3; k++) await page.keyboard.press('ArrowRight');
+    await until(async () => (await page.locator('.ed-pbar').evaluate((el) => el.style.top)) === '0px', 3000, 'шкала сверху');
+    check(await style.getByRole('group', { name: 'Вид хука' }).getByRole('button', { name: 'Контур' }).getAttribute('aria-pressed') === 'true', 'хук — контуром');
+    await shot(page, 'editor-video');
+    // сохранено; движок: ролик той же длины, без тизера
+    await page.locator('.ed-save').getByText('Сохранено').waitFor({ timeout: 8000 });
+    const tl = JSON.parse((await branchFile(ctx, 'timeline.json')) ?? '{}');
+    engineValidate('timeline.json', tl);
+    check(tl.teaser === false && tl.speed === 1.25, `тизер и скорость в timeline.json: ${JSON.stringify({ teaser: tl.teaser, speed: tl.speed })}`);
+    const engine = JSON.parse(execFileSync('python3', ['-c', [
+      'import json, sys', 'from vm.edits import apply', 'from vm.render import timeline',
+      'd = json.load(sys.stdin)', 'e = apply(d["edit"], d["timeline"], d["duration"])', 'tl = timeline(e, d["duration"])',
+      'print(json.dumps({"teaser": e.get("teaser"), "speed": e["speed"], "duration": tl.duration + float(e.get("hold") or 0) + float((e.get("end") or {}).get("seconds") or 0)}))',
+    ].join('\n')], { input: JSON.stringify({ edit: teased, timeline: tl, duration: source }), env: { ...process.env, PYTHONPATH: path.resolve('../engine') } }).toString());
+    check(engine.teaser === null && engine.speed === 1.25 && Math.abs(engine.duration - (await total())) < 0.06,
+      `движок: ${JSON.stringify(engine)}, на странице ${await total()} с`);
+    await page.setViewportSize({ width: 390, height: 844 });
+  }],
+
   ['script', async (ctx) => {
     const { page } = ctx;
     const topic = 'Как я учу чешский по 15 минут в день';

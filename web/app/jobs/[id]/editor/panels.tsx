@@ -6,7 +6,7 @@ import type { EditorMedia } from '@/lib/tracks.ts';
 import { LIMITS, setMusic, setSound, setTrack, setVoice, type HandEdits, type Level } from '@/lib/edits.ts';
 import { tenths } from '@/lib/format.ts';
 import type { Key } from '@/lib/i18n.ts';
-import { ADJUST, SUBTITLE_MODES, type Adjustable, type StyleChoice, type SubtitleMode } from '@/lib/jobfiles.ts';
+import { ADJUST, BAR_POSITIONS, HOOK_MODES, SUBTITLE_MODES, type Adjustable, type BarPos, type HookMode, type StyleChoice, type SubtitleMode } from '@/lib/jobfiles.ts';
 import type { MusicMix } from '@/lib/sound.ts';
 import { choiceFor, clampTo, finalStyle, HOOK_Y_DEFAULT, ownAdjustments, SUB_SHADE, SWATCHES } from '@/lib/style.ts';
 import { moveTarget, type Tracks } from '@/lib/tracks.ts';
@@ -171,6 +171,8 @@ type Styles = NonNullable<EditorData['styles']>;
 type Spec = ReturnType<typeof finalStyle>;
 type ColorKey = keyof StyleChoice['colors'];
 const MODE_NAMES: Record<SubtitleMode, Key> = { karaoke: 'modeKaraoke', plate: 'modePlate', word: 'modeWord', accumulate: 'modeAccumulate', soft: 'modeSoft' };
+const HOOK_NAMES: Record<HookMode, Key> = { plate: 'hookPlate', outline: 'hookOutline', shadow: 'hookShadow', accent: 'hookAccent' };
+const BAR_NAMES: Record<BarPos, Key> = { bottom: 'barBottom', top: 'barTop' };
 const COLOR_ROWS: [ColorKey, Key][] = [['accent', 'accentColor'], ['text', 'textColor'], ['bar', 'barColor']];
 
 /** Стиль ролика: вариант, шрифты, три цвета и затемнение под субтитрами — как на экране «Превью», в светлой теме.
@@ -246,10 +248,28 @@ export function StylePanel({ T, styles, choice, spec, offered, locked, note, onP
       <Range T={T} label={T('place')} name={T('subtitles')} k="subY" value={spec?.subtitles.y} locked={locked}
         onPick={(v) => onPick({ ...choice, subY: v })} />
       <h3>{T('hook')}</h3>
+      <div className="ed-modes" role="group" aria-label={T('hookMode')}>
+        {HOOK_MODES.map((m) => (
+          <button key={m} type="button" aria-pressed={spec?.hook.mode === m} disabled={locked} onClick={() => onPick({ ...choice, hookMode: m })}>
+            {T(HOOK_NAMES[m])}
+          </button>
+        ))}
+      </div>
       <Range T={T} label={T('size')} name={T('hook')} k="hookSize" value={spec?.hook.size} locked={locked}
         onPick={(v) => onPick({ ...choice, hookSize: v })} />
       <Range T={T} label={T('place')} name={T('hook')} k="hookY" value={spec ? spec.hook.y ?? HOOK_Y_DEFAULT : undefined} locked={locked}
         onPick={(v) => onPick({ ...choice, hookY: v })} />
+      {/* шкала времени: снизу или сверху и её толщина (px кадра, чётная — так её ставит монтаж) */}
+      <h3>{T('barColor')}</h3>
+      <div className="ed-modes" role="group" aria-label={T('barPlace')}>
+        {BAR_POSITIONS.map((p) => (
+          <button key={p} type="button" aria-pressed={spec?.bar.pos === p} disabled={locked} onClick={() => onPick({ ...choice, barPos: p })}>
+            {T(BAR_NAMES[p])}
+          </button>
+        ))}
+      </div>
+      <Range T={T} label={T('thickness')} name={T('barColor')} k="barHeight" value={spec?.bar.height} locked={locked}
+        onPick={(v) => onPick({ ...choice, barHeight: v })} />
     </section>
   );
 }

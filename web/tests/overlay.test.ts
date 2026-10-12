@@ -32,7 +32,7 @@ const FIXTURE = JSON.parse(fs.readFileSync(new URL('../../engine/tests/fixtures/
   })[];
   pipeline: {
     name: string; duration: number; edit: unknown; grid: { length: number; times: number[] } | null;
-    timeline: { edits: Edit[]; music?: MusicAdjust; text?: TextEdits; words?: WordFix[] };
+    timeline: { edits: Edit[]; music?: MusicAdjust; text?: TextEdits; words?: WordFix[]; teaser?: false; speed?: number };
     beatsUsed: boolean; events: unknown[]; insertSpans: [number, number, number][];
   }[];
   picture: (Base & {
@@ -94,7 +94,7 @@ test('blocks on the tracks are exactly where the layer draws hook, title, accent
       return hit.length ? [hit[0].t0, (hit.at(-1) as (typeof hit)[number]).t1] : null;
     };
     const near = (a: number[] | null, b: { t0: number; t1: number } | null, what: string) => {
-      if (!a || !b) return assert.equal(a, b === null ? null : a, `${c.name}: ${what}`);
+      if (!a || !b) return assert.equal(a === null, b === null, `${c.name}: ${what} — на дорожке и в слое: есть или нет — одинаково`);
       assert.ok(Math.abs(a[0] - b.t0) < 1e-9 && Math.abs(a[1] - b.t1) < 1e-6, `${c.name}: ${what} ${a} vs ${b.t0}–${b.t1}`);
     };
     near(seen((st) => 'hook' in st), blocks.hook, 'хук');
@@ -207,7 +207,7 @@ test('the whole way of Pavel\'s edits to the layer is the engine\'s: pieces, tex
   for (const c of FIXTURE.pipeline) {
     const draft = parseDraft(c.edit);
     assert.ok(draft, c.name);
-    const edited = withHandEdits(draft, { edits: c.timeline.edits, music: c.timeline.music }, c.duration);
+    const edited = withHandEdits(draft, { edits: c.timeline.edits, music: c.timeline.music, teaser: c.timeline.teaser, speed: c.timeline.speed }, c.duration);
     const music = c.timeline.music?.muted ? null : edited.draft.music;
     const beats = c.grid && music ? musicBeats({ file: music.file, length: c.grid.length, bpm: 120, times: c.grid.times }, music,
       timelineOf(edited.draft, c.duration).duration) : null;

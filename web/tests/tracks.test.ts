@@ -392,3 +392,14 @@ test('another track by hand plays in the preview (a video without music gets one
   assert.deepEqual(typed.layer.edit.end && { lines: typed.layer.edit.end.lines, handle: typed.layer.edit.end.handle }, { lines: ['Пиши «план»'], handle: null });
   assert.equal(parseDraft({ ...d, dim: 0.3 })?.dim, 0.3, 'затемнение фона — из edit.json');
 });
+
+test('the teaser off and another speed by hand: the video plays without the teaser, faster or slower, as the engine cuts it', () => {
+  const teased: Draft = { ...DRAFT, teaser: { t0: 3.5, t1: 4.5 } };
+  const off = withHandEdits(teased, { edits: [], teaser: false }).draft;
+  assert.equal(off.teaser, null);
+  assert.equal(draftTracks(off).video[0].kind, 'piece', 'первым — кусок, не тизер');
+  const fast = withHandEdits(DRAFT, { edits: [], speed: 1.5 }).draft;
+  assert.equal(fast.speed, 1.5);
+  assert.ok(near(draftTracks(fast).duration, 3.5 / 1.5), 'ролик короче');
+  assert.equal(withHandEdits(DRAFT, { edits: [] }).draft, DRAFT, 'правок нет — тот же черновик');
+});

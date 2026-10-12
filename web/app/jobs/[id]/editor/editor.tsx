@@ -43,7 +43,7 @@ import { BlockPanel, EndPanel, isPicked, removeBlock, sameRef, WordsPanel, type 
 import { Bar, Layer, Picture } from './frame';
 import { Mixer, type MixPlan } from './mixer';
 import { Inspector, StylePanel, type Selection } from './panels';
-import { KIND_NAMES, PicturePick, PictureSection } from './picturepanel';
+import { KIND_NAMES, PicturePick, PictureSection, VideoSection } from './picturepanel';
 
 const HEAD = 112; // px — колонка с именами дорожек
 const MAX_WIDTH = 30_000; // px — ширина дорожек
@@ -151,6 +151,9 @@ export default function Editor({ id }: { id: string }) {
   const canTrack = editable && (data?.abilities.track ?? true);
   const canCard = editable && mounted && (data?.abilities.card ?? true);
   const cardNote = !data?.draft ? null : !mounted ? T('textAfterMount') : !data.abilities.card ? T('cardOld') : null;
+  // скорость ролика — и до монтажа; тизер — после него (до него его выбирает ответ на вопрос)
+  const canSpeed = editable && (data?.abilities.video ?? true);
+  const canTeaser = canSpeed && mounted;
 
   // правки из ветки: при первой загрузке, после «Загрузить их» и когда пришла чужая ревизия (вторая вкладка), а своих
   // несохранённых нет. Своя сохранённая ревизия — уже в rev: данные с ней ничего не сбрасывают.
@@ -274,8 +277,8 @@ export default function Editor({ id }: { id: string }) {
     return Object.keys(boxes).length ? { ...d, inserts: placedInserts(d.inserts, boxes) } : d;
   }, [data?.draft, mounted, id]);
   // куски и музыка: громкость голоса и звуков их не пересчитывает (и плеер не перематывает)
-  const edited = useMemo(() => (draft ? withHandEdits(draft, { edits: hand.edits, music: hand.music }, sourceDuration) : null),
-    [draft, hand.edits, hand.music, sourceDuration]);
+  const edited = useMemo(() => (draft ? withHandEdits(draft, { edits: hand.edits, music: hand.music, teaser: hand.teaser, speed: hand.speed }, sourceDuration) : null),
+    [draft, hand.edits, hand.music, hand.teaser, hand.speed, sourceDuration]);
   // доли музыки ролика (beats.json): вставки и зум встают на них, как в render.on_beats; выключенная музыка — без долей
   const beats = useMemo(() => {
     if (!edited || !data?.beats) return null;
@@ -307,7 +310,7 @@ export default function Editor({ id }: { id: string }) {
   const duration = tracks?.duration ?? 0;
   const tail = tracks?.tail ?? 0;
   const full = duration + tail; // с хвостом: стоп-кадр и карточка после кусков
-  const speed = data?.draft?.speed ?? 1;
+  const speed = edited?.draft.speed ?? 1; // с правкой Павла: ролик быстрее или медленнее
   const tl = tracks?.layer.tl ?? null;
   const blockEdges = useMemo(() => (tl && data?.draft ? finalEdges(tl, data.draft.words) : []), [tl, data?.draft]);
   const room = useMemo(() => (tracks ? blockRoom(tracks.layer.tl, hookEnd(tracks.layer.edit, tracks.layer.tl)) : { floor: 0, max: 0 }), [tracks]);
@@ -1021,6 +1024,11 @@ export default function Editor({ id }: { id: string }) {
           ) : null}
           {tracks ? (
             <PictureSection T={T} tracks={tracks} hand={hand} dim={draft?.dim ?? 0} canZoom={canZoom} note={editable ? pictureNote : null} onEdit={edit} />
+          ) : null}
+          {tracks && draft ? (
+            <VideoSection T={T} hand={hand} speed={draft.speed} teaser={Boolean(draft.teaser)} canSpeed={canSpeed} canTeaser={canTeaser}
+              note={editable && !data?.abilities.video ? T('videoOld') : null} teaserNote={editable && !mounted ? T('teaserAfterMount') : null} onEdit={edit}
+              num={(x) => (lang === 'en' ? x.toFixed(2) : x.toFixed(2).replace('.', ','))} />
           ) : null}
           {videos && tracks ? (
             <section className="ed-media" aria-label={T('videos')}>

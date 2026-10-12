@@ -278,6 +278,9 @@ PIPELINE = [
      "duration": 9.6, "edit": _LAYER_EDIT, "grid": None, "timeline": {"edits": [], "text": {"end": {"off": True}}}},
     {"name": "an empty handle is no handle",
      "duration": 9.6, "edit": _LAYER_EDIT, "grid": None, "timeline": {"edits": [], "text": {"end": {"handle": ""}}}},
+    {"name": "the teaser removed and the speed changed by hand: the hook is back on its own words, everything moves",
+     "duration": 9.6, "edit": {**_LAYER_EDIT, "keep": [[0.3, 3.0], [3.3, 9.5]], "teaser": {"t0": 3.3, "t1": 4.8}},
+     "grid": {"length": 12.0, "times": CLICKS}, "timeline": {"edits": [], "teaser": False, "speed": 1.25}},
 ]
 
 

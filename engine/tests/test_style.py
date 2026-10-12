@@ -161,3 +161,16 @@ def test_answers_take_the_subtitle_mode_and_words_within_the_schema(tmp_path):
     for bad in ({"subMode": "fancy"}, {"subWords": 7}, {"subWords": 2.5}):
         with pytest.raises(ValueError):
             job.write("answers.json", {**FIXTURE["answers"], "style": {**style, **bad}})
+
+
+def test_answers_take_the_bar_and_the_hook_look_within_the_schema(tmp_path):
+    """Редактор: шкала времени сверху или снизу и её толщина, вид хука — кнопками и ползунком (стиль: final_style)."""
+    job = Job(tmp_path / "j")
+    job.root.mkdir()
+    style = {**FIXTURE["answers"]["style"], "barPos": "top", "barHeight": 10, "hookMode": "accent"}
+    job.write("answers.json", {**FIXTURE["answers"], "style": style})
+    spec = final_style(FIXTURE["styles"], {"style": style})
+    assert spec["bar"] == {"pos": "top", "height": 10} and spec["hook"]["mode"] == "accent"
+    for bad in ({"barPos": "left"}, {"barHeight": 0}, {"barHeight": 40}, {"barHeight": 7}, {"hookMode": "neon"}):
+        with pytest.raises(ValueError):
+            job.write("answers.json", {**FIXTURE["answers"], "style": {**style, **bad}})

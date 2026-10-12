@@ -60,8 +60,9 @@
 ## Меняются только вместе
 - Превью = финал: всё, что видно на превью, рисует `template/`.
 - Итоговый стиль: `engine/vm/style.py` (`final_style`, `ADJUSTED`) и `web/lib/style.ts` (`finalStyle`) с
-  `web/lib/jobfiles.ts` (`ADJUST` — что Павел двигает и в каких пределах; вид субтитров `subMode` — отдельно, `isSubMode`)
-  и схемой `engine/vm/schemas/answers.json`, общая фикстура `engine/tests/fixtures/style-merge.json` (раздел `choices`).
+  `web/lib/jobfiles.ts` (`ADJUST` — что Павел двигает и в каких пределах, `whole` — кратность; виды субтитров, хука и
+  место шкалы — отдельно: `isSubMode`, `isHookMode`, `isBarPos`) и схемой `engine/vm/schemas/answers.json`, общая
+  фикстура `engine/tests/fixtures/style-merge.json` (раздел `choices`).
 - Место и размер вставок Павла: `engine/vm/style.py` (`placed_inserts`) и `web/lib/style.ts` (`placedInserts`;
   рамку в безопасной зоне считают `resizeBox` и `moveBox`), общая фикстура `engine/tests/fixtures/insert-boxes.json`.
 - Группы субтитров: `engine/vm/subs.py` (`build_sub_events`, блоки и строки soft) и `web/lib/style.ts` (`sampleState`).
@@ -98,6 +99,9 @@
   `musicMix` в `web/lib/sound.ts`, библиотека и проверка трека при сохранении — `musicLibrary` в
   `web/lib/editordata.ts`; `text.end` — `apply_text` ↔ `applyText`, `setEnd` (хвост и звук карточки — `draftTracks`),
   разделы `pipeline` общей фикстуры; старая задача — `abilitiesOf` (`track`, `card`).
+- Тизер и скорость руками (`timeline.json` → `teaser: false`, `speed`): `edits.apply` ↔ `withHandEdits` в
+  `web/lib/tracks.ts` и `setTeaser`, `setSpeed`, `LIMITS.speed` в `web/lib/edits.ts`, раздел `pipeline`; старая задача —
+  `abilitiesOf` (`video`).
 - Картинки Павла в релизе — куски `<файл>.part-NNNNN` (даже один): `chunkName` в `web/lib/jobs.ts` и `fetch.PART` в
   `engine/vm/fetch.py` ↔ `uploadParts` в `web/lib/editordata.ts` (кадр редактора склеивает их так же).
 - Картинки слоя в редакторе: `render._resolve` (от папки задачи, потом от корня) ↔ `layerUrl` в `web/lib/editordata.ts`

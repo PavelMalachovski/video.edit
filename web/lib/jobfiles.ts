@@ -129,7 +129,10 @@ export type StyleChoice = {
   variant: 'A' | 'B' | 'C'; font: string; hand: string; colors: { text: string; accent: string; bar: string }; subY?: number; hookY?: number; subSize?: number; hookSize?: number;
   subShade?: number;
   subWords?: number; subMode?: SubtitleMode; // слов в группе и вид субтитров — выбор в редакторе; нет — как в варианте
+  hookMode?: HookMode; barPos?: BarPos; barHeight?: number; // вид хука, место и толщина шкалы — выбор в редакторе
 };
+export const BAR_POSITIONS = ['bottom', 'top'] as const;
+export type BarPos = (typeof BAR_POSITIONS)[number];
 /** Где могут стоять субтитры (центр блока): блок не выходит из безопасной зоны 120–1530 px. */
 export const SUB_Y = { min: 240, max: 1760 }; // ниже 1530 — под подписью Reels, но над шкалой времени: выбор Павла
 /** Где может стоять хук (центр строки капсом): его рамка — от y − 75 до y + 200 — не выходит из безопасной зоны. */
@@ -140,6 +143,8 @@ export const HOOK_SIZE = { min: 48, max: 120 };
 export const SUB_SHADE = { min: 0, max: 0.8 };
 /** Сколько слов в группе субтитров (как StyleSpec.subtitles.words). */
 export const SUB_WORDS = { min: 2, max: 6 };
+/** Толщина шкалы времени, px кадра: чётная — так её ставит overlay в yuv420p (render._layers). */
+export const BAR_HEIGHT = { min: 2, max: 30 };
 /** Что Павел настраивает на превью: поле выбора → часть и поле StyleSpec, пределы и шаг (то же — ADJUSTED в engine/vm/style.py). */
 export const ADJUST = {
   subY: { part: 'subtitles', field: 'y', range: SUB_Y, step: 10 },
@@ -147,13 +152,19 @@ export const ADJUST = {
   subSize: { part: 'subtitles', field: 'size', range: SUB_SIZE, step: 2 },
   hookSize: { part: 'hook', field: 'size', range: HOOK_SIZE, step: 2 },
   subShade: { part: 'subtitles', field: 'shade', range: SUB_SHADE, step: 0.05 },
-  subWords: { part: 'subtitles', field: 'words', range: SUB_WORDS, step: 1 },
+  subWords: { part: 'subtitles', field: 'words', range: SUB_WORDS, step: 1, whole: 1 },
+  barHeight: { part: 'bar', field: 'height', range: BAR_HEIGHT, step: 2, whole: 2 },
 } as const;
 export type Adjustable = keyof typeof ADJUST;
 export const ADJUSTABLE = Object.keys(ADJUST) as Adjustable[];
-export const inRange = (key: Adjustable, x: unknown): x is number => isNum(x) && x >= ADJUST[key].range.min && x <= ADJUST[key].range.max
-  && (ADJUST[key].step !== 1 || Number.isInteger(x)); // слов в группе — целое
+/** В пределах ключа `key`; у слов в группе и толщины шкалы — ещё и кратно (целое, чётное — как в схеме answers.json). */
+export const inRange = (key: Adjustable, x: unknown): x is number => {
+  const a: { range: { min: number; max: number }; whole?: number } = ADJUST[key];
+  return isNum(x) && x >= a.range.min && x <= a.range.max && (a.whole === undefined || Number.isInteger(x / a.whole));
+};
 export const isSubMode = (x: unknown): x is SubtitleMode => (SUBTITLE_MODES as readonly unknown[]).includes(x);
+export const isHookMode = (x: unknown): x is HookMode => (HOOK_MODES as readonly unknown[]).includes(x);
+export const isBarPos = (x: unknown): x is BarPos => (BAR_POSITIONS as readonly unknown[]).includes(x);
 
 function isSpec(s: unknown): s is StyleSpec {
   if (!isObject(s) || !isFontId(s.font) || !isFontId(s.hand) || !isObject(s.colors)) return false;
@@ -284,9 +295,12 @@ export function parseStyle(raw: unknown): StyleChoice | string {
     adjusted[key] = x;
   }
   if (raw.subMode !== undefined && !isSubMode(raw.subMode)) return `style.subMode: ${SUBTITLE_MODES.join(', ')}`;
+  if (raw.hookMode !== undefined && !isHookMode(raw.hookMode)) return `style.hookMode: ${HOOK_MODES.join(', ')}`;
+  if (raw.barPos !== undefined && !isBarPos(raw.barPos)) return `style.barPos: ${BAR_POSITIONS.join(', ')}`;
   return {
     variant, font, hand, colors: { text: colors.text as string, accent: colors.accent as string, bar: colors.bar as string },
-    ...adjusted, ...(raw.subMode !== undefined ? { subMode: raw.subMode } : {}),
+    ...adjusted, ...(raw.subMode !== undefined ? { subMode: raw.subMode } : {}), ...(raw.hookMode !== undefined ? { hookMode: raw.hookMode } : {}),
+    ...(raw.barPos !== undefined ? { barPos: raw.barPos } : {}),
   };
 }
 

@@ -415,8 +415,9 @@ export function findBlock(t: Tracks, kind: 'hook' | 'cta' | 'accent' | 'insert',
 // ---------- правки руками ----------
 
 /** Черновик с правками Павла (timeline.json): куски — как их вырежет движок (applyKeep — apply_keep), музыка — с его
- *  местом и громкостью («без звука» дорожка показывает отдельно); `splits` — его разрезы для draftTracks. Правок нет —
- *  тот же черновик. Текст и вставки сюда не входят — их кладёт draftTracks (`fixes`): правка текста не двигает плеер. */
+ *  местом, громкостью и треком («без звука» дорожка показывает отдельно), тизер (убран) и скорость ролика; `splits` —
+ *  его разрезы для draftTracks. Правок нет — тот же черновик. Текст и вставки сюда не входят — их кладёт draftTracks
+ *  (`fixes`): правка текста не двигает плеер. */
 export function withHandEdits(d: Draft, h: HandEdits, sourceDuration?: number): { draft: Draft; splits: number[] } {
   const splits = h.edits.flatMap((e) => (e.op === 'split' ? [e.t] : []));
   const keep = h.edits.length ? applyKeep(d.keep, h.edits, sourceDuration) : d.keep;
@@ -424,7 +425,11 @@ export function withHandEdits(d: Draft, h: HandEdits, sourceDuration?: number): 
   // другой трек — и в ролике без музыки: тогда он звучит с громкостью по умолчанию (edits.apply движка)
   const base = d.music ?? (place.file ? { file: place.file, gainDb: DEFAULT_MUSIC_DB } : null);
   const music = base && h.music ? { ...base, ...place } : d.music;
-  return { draft: keep === d.keep && music === d.music ? d : { ...d, keep, music }, splits };
+  // ролик: тизер убран, другая скорость (edits.apply движка)
+  const teaser = h.teaser === false ? null : d.teaser;
+  const speed = h.speed ?? d.speed;
+  const same = keep === d.keep && music === d.music && teaser === d.teaser && speed === d.speed;
+  return { draft: same ? d : { ...d, keep, music, teaser, speed }, splits };
 }
 
 /** Где разрезать по плейхеду `at` (время ролика): момент исходника внутри куска (не у самого края); в тизере, у края

@@ -36,8 +36,8 @@ const FIXTURE = JSON.parse(fs.readFileSync(new URL('../../engine/tests/fixtures/
     beatsUsed: boolean; events: unknown[]; insertSpans: [number, number, number][];
   }[];
   picture: (Base & {
-    edit: { zooms: Zoom[]; looks: { t0: number; t1: number; look: string; off?: boolean }[]; transitions: (TransitionSpec & { off?: boolean })[] };
-    timeline: { zoom?: number; looks?: LookFix[]; transitions?: TransitionFix[] };
+    edit: { zooms: Zoom[]; looks: { t0: number; t1: number; look: string; off?: boolean }[]; transitions: (TransitionSpec & { off?: boolean })[]; dim?: number | null };
+    timeline: { zoom?: number; looks?: LookFix[]; transitions?: TransitionFix[]; dim?: number };
     expected: unknown; marks: { t: number; kind: string; source: number }[]; lookWindows: [number, number][]; zoom: [number, number][];
   })[];
 };
@@ -224,8 +224,8 @@ test('the whole way of Pavel\'s edits to the layer is the engine\'s: pieces, tex
 
 test('the picture by hand is the engine\'s: zoom strength, b/w pieces off, transitions of another kind or off (shared fixture)', () => {
   for (const c of FIXTURE.picture) {
-    const out = applyPicture(c.edit, c.timeline.zoom, c.timeline.looks, c.timeline.transitions);
-    assert.deepStrictEqual(plain({ zooms: out.zooms, looks: out.looks, transitions: out.transitions }), c.expected, c.name);
+    const out = applyPicture(c.edit, c.timeline.zoom, c.timeline.looks, c.timeline.transitions, c.timeline.dim);
+    assert.deepStrictEqual(plain({ zooms: out.zooms, looks: out.looks, transitions: out.transitions, dim: out.dim ?? null }), c.expected, c.name);
     const tl = new Timeline(c.keep, c.speed, c.teaser);
     const marks = transitionMarks(out.transitions, tl);
     assert.deepStrictEqual(marks, c.marks, `${c.name}: переходы`);

@@ -3,7 +3,7 @@
 // группа субтитров — её слова (правится только текст: время и звук те же; пусто — слова нет в субтитрах). Правки — в
 // timeline.json (text, words), их кладёт движок поверх черновика (edits.apply_text); строка поля — одна правка для отмены.
 import { useEffect, useId, useState } from 'react';
-import { badSymbols, blockFix, hasEmoji, LIMITS, setBlock, setCta, setHook, setWord, type HandEdits } from '@/lib/edits.ts';
+import { badSymbols, blockFix, hasEmoji, LIMITS, setBlock, setCta, setEnd, setHook, setWord, type HandEdits } from '@/lib/edits.ts';
 import { handWord } from '@/lib/fontchars.ts';
 import { tenths } from '@/lib/format.ts';
 import type { Key } from '@/lib/i18n.ts';
@@ -136,6 +136,48 @@ export function BlockPanel({ T, sel, tracks, draft, hand, editable, note, onEdit
         ) : null}
       </div>
       {editable && !c.ghost ? <p className="ed-note faint">{T('blockHint')}</p> : null}
+    </section>
+  );
+}
+
+/** Финальная карточка (после стоп-кадра): её строки и ник — основным шрифтом; «Убрать» — карточки нет (хвост короче),
+ *  «Вернуть», «Как было». Правка — timeline.json → text.end (edits.apply_text). */
+export function EndPanel({ T, draft, hand, editable, note, onEdit, letters = NO_LETTERS }: {
+  T: TFn; draft: Draft; hand: HandEdits; editable: boolean; note: string | null; onEdit: (next: HandEdits, key?: string) => void; letters?: Letters;
+}) {
+  const card = draft.end;
+  if (!card) return <p className="ed-note faint">{T('selectHint')}</p>;
+  const fix = hand.text?.end;
+  const off = Boolean(fix?.off);
+  const lines = fix?.lines ?? card.lines;
+  const handle = fix?.handle ?? card.handle ?? '';
+  const symbols = (v: string) => (badSymbols(v) ? T('noSymbol', { s: badSymbols(v) }) : null);
+  const line = (v: string) => (!v.trim() ? T('emptyLine') : symbols(v) ?? letters('main', v));
+  return (
+    <section className="ed-insp" aria-label={T('endCard')} data-block="end">
+      <h2>{T('endCard')}{off ? ` · ${T('removed')}` : ''}</h2>
+      {note ? <p className="ed-note ed-flag">{note}</p> : null}
+      {off ? null : (
+        <>
+          {lines.map((text, i) => (
+            <TextField key={`l${i}`} label={lines.length > 1 ? `${T('endLine')} · ${T('line', { n: i + 1 })}` : T('endLine')} value={text} disabled={!editable}
+              check={line} onCommit={(v) => onEdit(setEnd(hand, { lines: lines.map((x, k) => (k === i ? v : x)) }), `end:line${i}`)} />
+          ))}
+          <TextField label={T('endHandle')} value={handle} disabled={!editable} max={LIMITS.handle} check={(v) => (v.trim() ? symbols(v) ?? letters('main', v) : null)}
+            onCommit={(v) => onEdit(setEnd(hand, { handle: v }), 'end:handle')} />
+        </>
+      )}
+      <div className="ed-btns">
+        {off ? (
+          <button type="button" className="ed-btn" disabled={!editable} onClick={() => onEdit(setEnd(hand, null))}>{T('endOn')}</button>
+        ) : (
+          <button type="button" className="ed-btn bad" disabled={!editable} onClick={() => onEdit(setEnd(hand, { off: true }))}>{T('endOff')}</button>
+        )}
+        {fix && !off ? (
+          <button type="button" className="ed-btn" disabled={!editable} title={T('asSessionT')} onClick={() => onEdit(setEnd(hand, null))}>{T('asSession')}</button>
+        ) : null}
+      </div>
+      <p className="ed-note faint">{T('endHint')}</p>
     </section>
   );
 }

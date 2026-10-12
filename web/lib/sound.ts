@@ -25,13 +25,14 @@ export const audioUrl = (id: string, head: string, file: string): string => `/ap
 export type MusicMix = { file: string; gainDb: number; muted: boolean; at: number; from: number; fadeIn: number; fadeOut: number };
 type DraftMusic = { file: string; gainDb?: number; at?: number; from?: number; fadeIn?: number; fadeOut?: number };
 
-/** Музыка черновика с правками Павла поверх (как edits.apply движка): где, с какого места трека, громкость, затухания.
- *  Музыки в черновике нет — null (правка её не добавляет). */
+/** Музыка черновика с правками Павла поверх (как edits.apply движка): трек, где, с какого места трека, громкость,
+ *  затухания. Музыки в черновике нет — null, если Павел не выбрал трек (тогда он звучит с громкостью по умолчанию). */
 export function musicMix(draft: DraftMusic | null, adjust: MusicAdjust = {}): MusicMix | null {
-  if (!draft) return null;
-  const m = { ...draft, ...adjust };
+  const base = draft ?? (adjust.file ? { file: adjust.file } : null);
+  if (!base) return null;
+  const m = { ...base, ...adjust };
   return {
-    file: draft.file, gainDb: m.gainDb ?? DEFAULT_MUSIC_DB, muted: m.muted ?? false, at: m.at ?? 0, from: m.from ?? 0,
+    file: m.file, gainDb: m.gainDb ?? DEFAULT_MUSIC_DB, muted: m.muted ?? false, at: m.at ?? 0, from: m.from ?? 0,
     fadeIn: m.fadeIn ?? FADE_IN, fadeOut: m.fadeOut ?? FADE_OUT,
   };
 }

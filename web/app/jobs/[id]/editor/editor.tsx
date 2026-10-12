@@ -39,7 +39,7 @@ import {
 import { BackIcon, PauseIcon, PlayIcon, PlusIcon, RedoIcon, ScissorsIcon, SpeakerIcon, TrashIcon, UndoIcon } from '../../../icons';
 import PreviewFrame from '../../../preview-frame';
 import { useFontChars, useTemplateFonts } from '../../../use-fonts';
-import { BlockPanel, isPicked, removeBlock, sameRef, WordsPanel, type Letters } from './blockpanel';
+import { BlockPanel, EndPanel, isPicked, removeBlock, sameRef, WordsPanel, type Letters } from './blockpanel';
 import { Bar, Layer, Picture } from './frame';
 import { Mixer, type MixPlan } from './mixer';
 import { Inspector, StylePanel, type Selection } from './panels';
@@ -147,6 +147,10 @@ export default function Editor({ id }: { id: string }) {
   const canZoom = editable && (data?.abilities.picture ?? true);
   const canMarks = canZoom && mounted;
   const pictureNote = !data?.draft ? null : !data.abilities.picture ? T('pictureOld') : !mounted ? T('pictureAfterMount') : null;
+  // трек музыки — и до монтажа (как громкость); финальная карточка — после него, как текст (её выбирает ответ на вопрос)
+  const canTrack = editable && (data?.abilities.track ?? true);
+  const canCard = editable && mounted && (data?.abilities.card ?? true);
+  const cardNote = !data?.draft ? null : !mounted ? T('textAfterMount') : !data.abilities.card ? T('cardOld') : null;
 
   // правки из ветки: при первой загрузке, после «Загрузить их» и когда пришла чужая ревизия (вторая вкладка), а своих
   // несохранённых нет. Своя сохранённая ревизия — уже в rev: данные с ней ничего не сбрасывают.
@@ -657,13 +661,16 @@ export default function Editor({ id }: { id: string }) {
     ro.observe(el);
     return () => ro.disconnect();
   }, [data]);
-  const fitPps = full > 0 ? laneW / full : 40;
-  const maxPps = full > 0 ? Math.min(400, MAX_WIDTH / full) : 400;
+  // шкала дорожек — до конца ролика, а если Павел убрал финальную карточку — и под её тенью (её можно вернуть)
+  const cardShown = Boolean(draft?.end && !hand.text?.end?.off);
+  const span = full + (draft?.end && !cardShown ? draft.end.seconds : 0);
+  const fitPps = span > 0 ? laneW / span : 40;
+  const maxPps = span > 0 ? Math.min(400, MAX_WIDTH / span) : 400;
   const px = Math.min(maxPps, Math.max(Math.min(fitPps, 4), pps ?? fitPps));
   scale.current = px;
   useEffect(() => show(now.current), [px, show]);
   const X = (s: number) => s * px;
-  const width = Math.ceil(X(full));
+  const width = Math.ceil(X(span));
   const videoW = Math.ceil(X(duration)); // куски — волна голоса только под ними
   const tick = TICKS.find((s) => s * px >= 64) ?? 120;
 
@@ -994,12 +1001,17 @@ export default function Editor({ id }: { id: string }) {
             <WordsPanel T={T} sel={sel} tracks={tracks} draft={draft} hand={hand} editable={canText} note={editable ? textNote : null} onEdit={edit} sec={sec}
               letters={letters} />
           ) : null}
+          {tracks && draft && sel?.kind === 'end' ? (
+            <EndPanel T={T} draft={draft} hand={hand} editable={canCard} note={editable ? cardNote : null} onEdit={edit} letters={letters} />
+          ) : null}
           {tracks && (sel?.kind === 'look' || sel?.kind === 'transition') ? (
             <PicturePick T={T} sel={sel} tracks={tracks} hand={hand} editable={canMarks} note={editable ? pictureNote : null} onEdit={edit} sec={sec} />
           ) : null}
           {tracks ? (
             <Inspector T={T} sel={sel} tracks={tracks} hand={hand} mix={mix} editable={editable} canMove={canMove} splitHere={splitHere} videos={videos}
-              onSplit={doSplit} onDelete={doDelete} onMove={doMove} onEdit={edit} sec={sec} />
+              onSplit={doSplit} onDelete={doDelete} onMove={doMove} onEdit={edit} sec={sec}
+              music={{ library: data?.library ?? [], session: data?.draft?.music?.file ?? null, beats: data?.beats?.file ?? null, canTrack,
+                note: editable && data?.draft && !data.abilities.track ? T('trackOld') : null }} />
           ) : null}
           {hint ? <p className="ed-note ed-flag bad" role="status">{hint}</p> : null}
           {data?.draft && editable && !data.abilities.move ? <p className="ed-note faint">{T('moveOld')}</p> : null}
@@ -1007,7 +1019,9 @@ export default function Editor({ id }: { id: string }) {
           {styles && choice ? (
             <StylePanel T={T} styles={styles} choice={choice} spec={spec} offered={offered} locked={styleLocked} note={styleNote} onPick={pick} />
           ) : null}
-          {tracks ? <PictureSection T={T} tracks={tracks} hand={hand} canZoom={canZoom} note={editable ? pictureNote : null} onEdit={edit} /> : null}
+          {tracks ? (
+            <PictureSection T={T} tracks={tracks} hand={hand} dim={draft?.dim ?? 0} canZoom={canZoom} note={editable ? pictureNote : null} onEdit={edit} />
+          ) : null}
           {videos && tracks ? (
             <section className="ed-media" aria-label={T('videos')}>
               <h2>{T('videos')}</h2>
@@ -1077,7 +1091,7 @@ export default function Editor({ id }: { id: string }) {
           {tracks && subRow && textRow && insRow ? (
             <div className="ed-inner" style={{ width: HEAD + width + 24 }}>
               <div className="ed-ruler" style={{ marginLeft: HEAD, width }} onPointerDown={onLanes}>
-                {Array.from({ length: Math.floor(full / tick) + 1 }, (_, k) => (
+                {Array.from({ length: Math.floor(span / tick) + 1 }, (_, k) => (
                   <span key={k} style={{ left: X(k * tick) }}>{tenths(k * tick).replace(/\.0$/, '')}</span>
                 ))}
               </div>
@@ -1118,9 +1132,18 @@ export default function Editor({ id }: { id: string }) {
                 ))}
                 {ghost !== null ? <span className="ed-ghost" style={{ left: X(ghost) }} /> : null}
                 {dropAt !== null ? <span className="ed-drop" style={{ left: X(dropAt) }} aria-hidden="true" /> : null}
-                {tracks.tail > 0 ? (
-                  <div className="ed-tail" style={{ left: X(duration), width: Math.max(2, X(tracks.tail)) }} title={`${T('tail')} · ${sec(tracks.tail)}`}>
-                    <span>{T('tail')}</span>
+                {tracks.tail > 0 ? ( // стоп-кадр и карточка: щелчок — панель карточки (убранная — тенью дальше)
+                  <div className={`ed-tail${cardShown ? ' card' : ''}${cardShown && sel?.kind === 'end' ? ' sel' : ''}`}
+                    style={{ left: X(duration), width: Math.max(2, X(tracks.tail)) }} title={`${T(cardShown ? 'tail' : 'still')} · ${sec(tracks.tail)}`}
+                    onClick={() => { if (cardShown && clicks.click()) setSel({ kind: 'end' }); }}>
+                    <span>{T(cardShown ? 'tail' : 'still')}</span>
+                  </div>
+                ) : null}
+                {draft?.end && hand.text?.end?.off ? ( // убранная карточка — тенью после стоп-кадра: её можно вернуть
+                  <div className={`ed-tail card ghost${sel?.kind === 'end' ? ' sel' : ''}`} data-kind="end"
+                    style={{ left: X(duration + tracks.tail), width: Math.max(8, X(draft.end.seconds)) }} title={`${T('endCard')} · ${T('removed')}`}
+                    onClick={() => { if (clicks.click()) setSel({ kind: 'end' }); }}>
+                    <span>{T('endCard')}</span>
                   </div>
                 ) : null}
               </Row>
@@ -1170,6 +1193,8 @@ export default function Editor({ id }: { id: string }) {
                     ) : null}
                     <span>{`${tracks.music.label} · ${mix.gainDb} dB`}</span>
                   </div>
+                ) : canTrack && data?.library.length ? (
+                  <button type="button" className="ed-add" onPointerDown={(e) => e.stopPropagation()} onClick={() => setSel({ kind: 'music' })}>{T('addMusic')}</button>
                 ) : <span className="ed-empty">{T('noMusic')}</span>}
               </Row>
               {tracks.sounds.length ? (

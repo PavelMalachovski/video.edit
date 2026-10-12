@@ -130,6 +130,16 @@
               "off": { "const": true }
             }
           }
+        },
+        "end": {
+          "description": "Финальная карточка: строки (1–2) и ник; пустой ник — без ника; off — карточки нет.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "lines": { "type": "array", "minItems": 1, "maxItems": 2, "items": { "$ref": "#/$defs/Line" } },
+            "handle": { "type": "string", "maxLength": 60 },
+            "off": { "const": true }
+          }
         }
       }
     },
@@ -179,6 +189,12 @@
           "off": { "const": true }
         }
       }
+    },
+    "dim": {
+      "description": "Затемнение фона, которое Павел выбрал в редакторе: насколько темнее фон за человеком (доля, как edit.json dim); 0 — без затемнения. Нет — как у монтажа.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 0.8
     }
   },
   "$defs": {
@@ -193,10 +209,11 @@
       }
     },
     "Music": {
-      "description": "Музыка: громкость (gainDb — дБ от громкости голоса, как в edit.json), без звука, где начинается в ролике (at, с ролика) и с какого места трека (from, с трека), нарастание и затухание (с).",
+      "description": "Музыка: другой трек из библиотеки (file — assets/music/…; в ролике без музыки он появится с громкостью −14 дБ), громкость (gainDb — дБ от громкости голоса, как в edit.json), без звука, где начинается в ролике (at, с ролика) и с какого места трека (from, с трека), нарастание и затухание (с).",
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "file": { "type": "string", "pattern": "^assets/music/[^/]+\\.(mp3|wav|m4a|aac|ogg|flac)$" },
         "gainDb": { "type": "number", "minimum": -40, "maximum": 0 },
         "muted": { "type": "boolean" },
         "at": { "type": "number", "minimum": 0 },

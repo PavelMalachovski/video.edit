@@ -34,7 +34,8 @@ NOTE = (
     "что на них встаёт (web/lib/beats.ts); text — текст и вставки руками (edits.apply_text ↔ web/lib/edits.ts); "
     "pipeline — весь путь правок Павла до слоя, как у монтажа (edits.apply → render.timeline → render.music_beats и "
     "beats.snap_edit → build_overlay_events ↔ withHandEdits, musicBeats, draftTracks, buildOverlayEvents); picture — "
-    "картинка руками (edits.apply_picture: сила зума, убранные ч/б-куски, вид и «убрать» переходов ↔ applyPicture) и что "
+    "картинка руками (edits.apply_picture: сила зума, убранные ч/б-куски, вид и «убрать» переходов, затемнение фона ↔ "
+    "applyPicture) и что "
     "выходит в ролике: зум, переходы, кадры ч/б; letters — каких букв текста (и его капса) нет в каждом шрифте каталога "
     "(fonts.missing: таблица символов — getBestCmap fontTools, эмодзи — картинки ↔ web/lib/fontchars.ts). "
     "Времена слов и edit — по исходнику, событий — секунды финала; keep — в порядке финала. Пишет "
@@ -270,6 +271,13 @@ PIPELINE = [
      "duration": 9.6, "edit": {**_LAYER_EDIT, "keep": [[0.3, 3.0], [3.3, 9.5]], "teaser": {"t0": 3.3, "t1": 4.8}, "style": _style("karaoke", 3, "plate")},
      "grid": {"length": 0.4, "times": [0.1]},
      "timeline": {"edits": [{"op": "cut", "t0": 0.3, "t1": 0.7}], "words": [{"t0": 3.42, "t1": 3.74, "text": "как,"}]}},
+    {"name": "the end card's lines and handle by hand",
+     "duration": 9.6, "edit": _LAYER_EDIT, "grid": None,
+     "timeline": {"edits": [], "text": {"end": {"lines": ["Пиши «план»", "в комментариях"], "handle": "@pavel.edit"}}}},
+    {"name": "the end card removed by hand",
+     "duration": 9.6, "edit": _LAYER_EDIT, "grid": None, "timeline": {"edits": [], "text": {"end": {"off": True}}}},
+    {"name": "an empty handle is no handle",
+     "duration": 9.6, "edit": _LAYER_EDIT, "grid": None, "timeline": {"edits": [], "text": {"end": {"handle": ""}}}},
 ]
 
 
@@ -295,10 +303,10 @@ PICTURE = [
     {"name": "zoom weaker, a b/w piece off (the second of two at one place), a transition of another kind and one off",
      "keep": [[0.0, 8.5]], "speed": 1.0, "teaser": None, "edit": _PICTURE,
      "timeline": {"zoom": 0.5, "looks": [{"at": [5.0, 6.0], "off": True}, {"at": [5.0, 6.0], "off": True}],
-                  "transitions": [{"at": 2.5, "kind": "blur"}, {"at": 4.5, "off": True}]}},
+                  "transitions": [{"at": 2.5, "kind": "blur"}, {"at": 4.5, "off": True}], "dim": 0.45}},
     {"name": "zoom stronger is capped by the rules; no zoom at all; an edit for a moment that is not there",
      "keep": [[0.0, 4.0], [4.6, 8.5]], "speed": 1.1, "teaser": None, "edit": _PICTURE,
-     "timeline": {"zoom": 1.5, "transitions": [{"at": 3.3, "off": True}, {"at": 7.0, "kind": "flash"}]}},
+     "timeline": {"zoom": 1.5, "transitions": [{"at": 3.3, "off": True}, {"at": 7.0, "kind": "flash"}], "dim": 0}},
     {"name": "zoom off",
      "keep": [[0.0, 8.5]], "speed": 1.0, "teaser": [5.2, 6.5], "edit": _PICTURE, "timeline": {"zoom": 0, "looks": [{"at": [2.0, 3.0], "off": True}]}},
 ]
@@ -306,12 +314,12 @@ PICTURE = [
 
 def picture_case(case: dict) -> dict:
     t = case["timeline"]
-    out = edits.apply_picture(case["edit"], t.get("zoom"), t.get("looks"), t.get("transitions"))
+    out = edits.apply_picture(case["edit"], t.get("zoom"), t.get("looks"), t.get("transitions"), t.get("dim"))
     tl = _timeline(case)
     marks = transitions.marks(out, tl)
     zoom = [[round(k * 0.1, 4), round(zoom_at(out["zooms"], tl, k * 0.1, TRANS, [m.t for m in marks if m.kind == "zoom"]), 6)]
             for k in range(math.ceil(tl.duration * 10) + 1)]
-    return {"expected": {k: out[k] for k in ("zooms", "looks", "transitions")},
+    return {"expected": {k: out.get(k) for k in ("zooms", "looks", "transitions", "dim")},
             "marks": [{"t": m.t, "kind": m.kind, "source": m.source} for m in marks], "lookWindows": [list(w) for w in look_windows(out, tl)],
             "zoom": zoom}
 

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import {
   applyKeep, applyText, commit, cutSpan, EMPTY, initHistory, LIMITS, moveSpan, parseTimeline, pieces, redo, restoreSpan, setBlock, setCta, setHook,
   setMusic, setSound, setVoice, setWord, snapTo, splitAt, trimEnd, trimStart, undo, type Edit, type TextEdits, type WordFix, badSymbols, blockFix, hasEmoji,
-  setLook, setTransition, setZoom, TRANSITION_KINDS,
+  setLook, setTransition, setZoom, TRANSITION_KINDS, setDim, setTrack, setEnd, MUSIC_FILE,
 } from '../lib/edits.ts';
 
 // Общая с движком фикстура: apply_keep в engine/vm/edits.py обязан давать то же самое.
@@ -257,4 +257,37 @@ test('picture setters: zoom strength within the limits (as the session — no fi
   assert.ok(!('transitions' in setTransition(blur, 3.2, null)), 'как у монтажа — правки нет');
   assert.ok(!('transitions' in setTransition(blur, 3.2, { off: false })), 'ни вида, ни «убран» — правки нет');
   for (const h of [setZoom(off, 0.25), blur, setTransition(blur, 5, { off: true })]) assert.ok(parseTimeline({ rev: 1, ...h }), 'сеттеры пишут то, что примет схема');
+});
+
+test('parseTimeline takes the background dim, another music track and the end card text as the schema does', () => {
+  const ok = { rev: 1, edits: [], dim: 0.5, music: { file: 'assets/music/Calm Morning.mp3', gainDb: -16 }, text: { end: { lines: ['Подпишись', 'и пиши'], handle: '@pavel' } } };
+  assert.deepEqual(parseTimeline(ok), ok);
+  assert.ok(parseTimeline({ rev: 1, edits: [], text: { end: { off: true } } }) && parseTimeline({ rev: 1, edits: [], text: { end: { handle: '' } } }));
+  for (const bad of [
+    { ...ok, dim: 0.9 }, { ...ok, dim: -0.1 }, { ...ok, dim: '0.3' },
+    { ...ok, music: { file: '../secret.mp3' } }, { ...ok, music: { file: 'assets/sfx/a.mp3' } }, { ...ok, music: { file: 'assets/music/a.txt' } },
+    { ...ok, text: { end: { lines: [] } } }, { ...ok, text: { end: { lines: ['a', 'b', 'c'] } } }, { ...ok, text: { end: { off: false } } },
+    { ...ok, text: { end: { handle: 'x'.repeat(61) } } }, { ...ok, text: { end: { logo: 'x.png' } } }, { ...ok, text: { end: { lines: [''] } } },
+  ]) assert.equal(parseTimeline(bad), null, JSON.stringify(bad).slice(0, 120));
+  const p = SCHEMA.properties;
+  assert.deepEqual([p.dim.minimum, p.dim.maximum, p.text.properties.end.properties.lines.maxItems, p.text.properties.end.properties.handle.maxLength],
+    [LIMITS.dim.min, LIMITS.dim.max, LIMITS.endLines, LIMITS.handle]);
+  assert.equal(SCHEMA.$defs.Music.properties.file.pattern, MUSIC_FILE.source.replace(/\\\//g, '/'), 'тот же образец пути трека');
+});
+
+test('setters: the dim (as the session — no field), another track or back to the session\'s, the end card lines, handle or off', () => {
+  assert.equal(setDim(EMPTY, 0.456).dim, 0.46);
+  assert.equal(setDim(EMPTY, 2).dim, LIMITS.dim.max);
+  assert.equal(setDim(EMPTY, 0).dim, 0, '0 — без затемнения (а не как у сессии)');
+  assert.ok(!('dim' in setDim(setDim(EMPTY, 0.3), null)), 'как у монтажа — поля нет');
+  const track = setTrack(setMusic(EMPTY, { gainDb: -10 }), 'assets/music/b.mp3');
+  assert.deepEqual(track.music, { gainDb: -10, file: 'assets/music/b.mp3' });
+  assert.deepEqual(setTrack(track, null).music, { gainDb: -10 }, 'трек сессии — без поля, громкость Павла остаётся');
+  assert.ok(!('music' in setTrack(setTrack(EMPTY, 'assets/music/b.mp3'), null)), 'ничего не осталось — поля нет');
+  const end = setEnd(EMPTY, { lines: ['Пиши «план»'] });
+  assert.deepEqual(end.text, { end: { lines: ['Пиши «план»'] } });
+  assert.deepEqual(setEnd(end, { handle: '@me' }).text?.end, { lines: ['Пиши «план»'], handle: '@me' }, 'правка поверх прежней');
+  assert.deepEqual(setEnd(end, { off: true }).text?.end, { off: true }, 'убрать — без прочего');
+  assert.ok(!setEnd(end, null).text, 'как у сессии — правки нет');
+  for (const h of [setDim(EMPTY, 0.3), track, setEnd(end, { handle: '' })]) assert.ok(parseTimeline({ rev: 1, ...h }), 'сеттеры пишут то, что примет схема');
 });

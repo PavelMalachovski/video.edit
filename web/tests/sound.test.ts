@@ -27,6 +27,9 @@ test('music: the session\'s choice with Pavel\'s edits on top', () => {
   assert.deepEqual(musicMix(draft, { gainDb: -20, muted: true, from: 5, fadeOut: 3 }),
     { file: 'assets/music/a.mp3', gainDb: -20, muted: true, at: 1, from: 5, fadeIn: FADE_IN, fadeOut: 3 });
   assert.equal(musicMix(null, { muted: false }), null, 'музыки нет — правка её не добавит (как edits.apply)');
+  assert.deepEqual(musicMix(draft, { file: 'assets/music/b.mp3' })?.file, 'assets/music/b.mp3', 'другой трек');
+  assert.deepEqual(musicMix(null, { file: 'assets/music/b.mp3', at: 2 }),
+    { file: 'assets/music/b.mp3', gainDb: DEFAULT_MUSIC_DB, muted: false, at: 2, from: 0, fadeIn: FADE_IN, fadeOut: FADE_OUT }, 'трек в ролике без музыки');
 });
 
 test('music offset: silent before it starts; the first pass from `from`, then the whole track again', () => {

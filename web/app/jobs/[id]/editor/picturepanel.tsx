@@ -2,7 +2,7 @@
 // Картинка ролика руками (timeline.json → zoom, looks, transitions): сила зума — ползунок; ч/б-кусок и переход, выбранные
 // на дорожке «Картинка», — убрать или вернуть, у перехода — другой вид. Монтаж кладёт это поверх edit.json сессии
 // (edits.apply_picture), кадр редактора показывает сразу.
-import { setLook, setTransition, setZoom, TRANSITION_KINDS, LIMITS, type At, type HandEdits, type TransitionKind } from '@/lib/edits.ts';
+import { setDim, setLook, setTransition, setZoom, TRANSITION_KINDS, LIMITS, type At, type HandEdits, type TransitionKind } from '@/lib/edits.ts';
 import { tenths } from '@/lib/format.ts';
 import type { Key } from '@/lib/i18n.ts';
 import type { Tracks } from '@/lib/tracks.ts';
@@ -16,11 +16,13 @@ export const KIND_NAMES: Record<TransitionKind, Key> = { flash: 'trFlash', zoom:
 const sameAt = (a: At, b: At) => a[0] === b[0] && a[1] === b[1];
 const percent = (z: number) => `${Math.round(z * 100)} %`;
 
-/** Раздел «Картинка» справа: сила зума и сколько ч/б-кусков и переходов в ролике. `note` — почему править нельзя. */
-export function PictureSection({ T, tracks, hand, canZoom, note, onEdit }: {
-  T: TFn; tracks: Tracks; hand: HandEdits; canZoom: boolean; note: string | null; onEdit: (next: HandEdits, key?: string) => void;
+/** Раздел «Картинка» справа: сила зума, затемнение фона (`dim` монтажа — из edit.json) и сколько ч/б-кусков и переходов в
+ *  ролике. `note` — почему править нельзя. */
+export function PictureSection({ T, tracks, hand, dim, canZoom, note, onEdit }: {
+  T: TFn; tracks: Tracks; hand: HandEdits; dim: number; canZoom: boolean; note: string | null; onEdit: (next: HandEdits, key?: string) => void;
 }) {
   const zoom = hand.zoom ?? 1;
+  const shade = hand.dim ?? dim;
   const looks = new Map(tracks.looks.map((l) => [`${l.at[0]}|${l.at[1]}`, l.off])); // копия в тизере — тот же кусок
   const bw = [...looks.values()];
   const tr = tracks.transitions;
@@ -36,6 +38,16 @@ export function PictureSection({ T, tracks, hand, canZoom, note, onEdit }: {
       <p className="ed-note faint">{zoom === 0 ? T('zoomNone') : zoom === 1 ? T('zoomAsMontage') : T('zoomShare', { p: percent(zoom) })}</p>
       {hand.zoom !== undefined ? (
         <button type="button" className="ed-btn" disabled={!canZoom} onClick={() => onEdit(setZoom(hand, null))}>{T('zoomReset')}</button>
+      ) : null}
+      <div className="ed-shade">
+        <span className="ed-range-name">{T('dimStrength')}</span>
+        <input type="range" aria-label={T('dimStrength')} min={LIMITS.dim.min} max={LIMITS.dim.max} step={0.05} value={shade} disabled={!canZoom}
+          onChange={(e) => onEdit(setDim(hand, Number(e.target.value)), 'dim')} />
+        <span className="mono">{shade > 0 ? percent(shade) : T('dimNone').toLowerCase()}</span>
+      </div>
+      <p className="ed-note faint">{T('dimNote')}</p>
+      {hand.dim !== undefined ? (
+        <button type="button" className="ed-btn" disabled={!canZoom} onClick={() => onEdit(setDim(hand, null))}>{T('dimReset')}</button>
       ) : null}
       <dl className="ed-facts">
         <dt>{T('bw')}</dt><dd className="mono">{T('ofTotal', { n: bw.filter((off) => !off).length, m: bw.length })}</dd>

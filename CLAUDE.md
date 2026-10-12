@@ -88,11 +88,16 @@
 - Знаки, которых шрифт ролика не нарисует (★, ✓, ♪ — не эмодзи): `fonts.symbols` и `lacking_symbols` в
   `engine/vm/fonts.py` (`check`) ↔ `badSymbols` и `SYMBOLS_OK` в `web/lib/edits.ts` (их не пропускают панели блоков и
   `parseSave` в `web/lib/editordata.ts`).
-- Картинка руками (`timeline.json` → `zoom`, `looks`, `transitions`): `engine/vm/edits.py` (`apply_picture`, `_moments`)
-  и схема `engine/vm/schemas/timeline.json` (выключенное — `off` в схеме `edit.json`) ↔ `web/lib/edits.ts`
-  (`applyPicture`, `setZoom`, `setLook`, `setTransition`, `TRANSITION_KINDS`, `LIMITS.zoom`, `parseTimeline`), раздел
-  `picture` общей фикстуры; выключенное пропускают `look_windows`, `transitions._placed` (и свуш перехода),
+- Картинка руками (`timeline.json` → `zoom`, `looks`, `transitions`, `dim`): `engine/vm/edits.py` (`apply_picture`,
+  `_moments`) и схема `engine/vm/schemas/timeline.json` (выключенное — `off` в схеме `edit.json`) ↔ `web/lib/edits.ts`
+  (`applyPicture`, `setZoom`, `setLook`, `setTransition`, `setDim`, `TRANSITION_KINDS`, `LIMITS`, `parseTimeline`),
+  раздел `picture` общей фикстуры; выключенное пропускают `look_windows`, `transitions._placed` (и свуш перехода),
   `snap_edit` ↔ `lookWindows`, `transitionMarks`, `snapEdit`, `draftTracks`; старая задача — `abilitiesOf` (`picture`).
+- Трек и карточка руками: `music.file` — `edits.apply` (`MUSIC_FIELDS`, `MUSIC_DB` — трек в ролике без музыки) и образец
+  `$defs.Music.file` схемы ↔ `MUSIC_FILE`, `setTrack` в `web/lib/edits.ts`, `withHandEdits` в `web/lib/tracks.ts`,
+  `musicMix` в `web/lib/sound.ts`, библиотека и проверка трека при сохранении — `musicLibrary` в
+  `web/lib/editordata.ts`; `text.end` — `apply_text` ↔ `applyText`, `setEnd` (хвост и звук карточки — `draftTracks`),
+  разделы `pipeline` общей фикстуры; старая задача — `abilitiesOf` (`track`, `card`).
 - Картинки Павла в релизе — куски `<файл>.part-NNNNN` (даже один): `chunkName` в `web/lib/jobs.ts` и `fetch.PART` в
   `engine/vm/fetch.py` ↔ `uploadParts` в `web/lib/editordata.ts` (кадр редактора склеивает их так же).
 - Картинки слоя в редакторе: `render._resolve` (от папки задачи, потом от корня) ↔ `layerUrl` в `web/lib/editordata.ts`

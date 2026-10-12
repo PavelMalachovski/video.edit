@@ -376,3 +376,19 @@ test('the picture by hand on the tracks: zoom strength in the layer, a b/w piece
   assert.deepEqual(t.layer.edit.looks?.map((l) => l.off ?? false), [false, true], 'картинка плеера читает правки из слоя');
   assert.deepEqual(t.layer.edit.transitions?.map((x) => [x.kind, x.off ?? false]), [['flash', true], ['blur', false]]);
 });
+
+test('another track by hand plays in the preview (a video without music gets one at the default level); the end card removed — no tail card, no card sound', () => {
+  const d: Draft = { ...DRAFT, hold: 0.4, end: { seconds: 1.5, lines: ['Подпишись'], handle: '@pavel', sfx: 'assets/sfx/pop.mp3' } };
+  const other = withHandEdits(d, { edits: [], music: { file: 'assets/music/b.mp3', at: 1 } }).draft;
+  assert.deepEqual(other.music, { file: 'assets/music/b.mp3', gainDb: -14, at: 1 });
+  const added = withHandEdits({ ...d, music: null }, { edits: [], music: { file: 'assets/music/b.mp3' } }).draft;
+  assert.deepEqual(added.music, { file: 'assets/music/b.mp3', gainDb: -14 }, 'ролик без музыки — трек с громкостью по умолчанию');
+  assert.equal(withHandEdits({ ...d, music: null }, { edits: [], music: { gainDb: -8 } }).draft.music, null, 'без трека — нечему звучать');
+  assert.equal(draftTracks(d).tail, 1.9);
+  const off = draftTracks(d, { fixes: { text: { end: { off: true } } } });
+  assert.equal(off.tail, 0.4, 'карточки нет — только стоп-кадр');
+  assert.ok(!off.sounds.some((s) => s.key === 'end'), 'и её звука нет');
+  const typed = draftTracks(d, { fixes: { text: { end: { lines: ['Пиши «план»'], handle: '' } } } });
+  assert.deepEqual(typed.layer.edit.end && { lines: typed.layer.edit.end.lines, handle: typed.layer.edit.end.handle }, { lines: ['Пиши «план»'], handle: null });
+  assert.equal(parseDraft({ ...d, dim: 0.3 })?.dim, 0.3, 'затемнение фона — из edit.json');
+});

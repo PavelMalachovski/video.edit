@@ -1268,22 +1268,63 @@ const segments = [
     await page.keyboard.press('Control+Shift+z');
     await until(async () => (await tr.getAttribute('class')).includes('ghost'), 3000, 'повтор снова убрал');
 
+    // затемнение фона — ползунок (в превью маски человека нет — о нём сказано под ползунком)
+    const dimSlider = page.getByRole('slider', { name: 'Затемнение фона' });
+    await dimSlider.focus();
+    for (let k = 0; k < 10; k++) await page.keyboard.press('ArrowRight');
+    await until(async () => (await dimSlider.inputValue()) === '0.5', 3000, async () => `затемнение: ${await dimSlider.inputValue()}`);
+    // финальная карточка: щелчок по хвосту — её панель; убрать — хвост короче, карточка — тенью после стоп-кадра;
+    // щелчок по тени — вернуть (как у монтажа)
+    await page.locator('.ed-row.video .ed-tail.card').first().click();
+    const endPanel = page.locator('.ed-insp[data-block=end]');
+    await endPanel.getByRole('button', { name: 'Убрать карточку' }).click();
+    const ghostCard = page.locator('.ed-row.video .ed-tail.ghost[data-kind=end]');
+    await ghostCard.waitFor({ timeout: 3000 });
+    await shot(page, 'editor-card-off');
+    await ghostCard.click();
+    await endPanel.getByRole('button', { name: 'Вернуть карточку' }).click();
+    await until(async () => (await ghostCard.count()) === 0, 3000, 'карточка вернулась');
+    // её строка и ник — на карточке новый текст
+    await endPanel.getByLabel('Строка карточки').fill('Пиши «план»');
+    await endPanel.getByLabel('Ник').fill('@pavel.edit');
+    await seekTo(full - 0.3);
+    await until(async () => (await editorKit(page, full).layerState()).end?.lines?.[0] === 'Пиши «план»', 3000,
+      async () => `карточка на кадре: ${JSON.stringify((await editorKit(page, full).layerState()).end)}`);
+
     // сохранено — по схеме движка; движок по тем же правкам: зум, кадры ч/б и переходы — как на странице
+    await page.locator('.ed-save').getByText('Сохранено').waitFor({ timeout: 8000 });
+    // другой трек — из библиотеки ветки задачи (в ней появился calm.wav): звучит на прослушивании, доли — после монтажа
+    await fakeJson('/__commit', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ branch: `claude/job-${ctx.jobId}`, files: { 'assets/music/calm.wav': { base64: wav(3, 330).toString('base64') } }, message: 'library' }) });
+    await page.reload();
+    const musicClip = page.locator('.ed-row.music .ed-clip');
+    await musicClip.waitFor({ timeout: 10_000 });
+    await musicClip.click();
+    const musicPanel = page.locator('.ed-insp[aria-label="Музыка"]');
+    await musicPanel.getByRole('combobox', { name: 'Трек', exact: true }).selectOption('assets/music/calm.wav');
+    await until(async () => (await musicClip.textContent()).includes('calm'), 3000, async () => `трек на дорожке: ${await musicClip.textContent()}`);
+    await musicPanel.getByText('Доли этого трека').waitFor({ timeout: 3000 });
+    await shot(page, 'editor-track');
     await page.locator('.ed-save').getByText('Сохранено').waitFor({ timeout: 8000 });
     const tl = JSON.parse((await branchFile(ctx, 'timeline.json')) ?? '{}');
     engineValidate('timeline.json', tl);
     check(tl.zoom === 0.5 && isDeepStrictEqual(tl.looks, [{ at: [1.6, 2.0], off: true }]) && isDeepStrictEqual(tl.transitions, [{ at: 1.6, kind: 'blur', off: true }]),
       `картинка в timeline.json: ${JSON.stringify({ zoom: tl.zoom, looks: tl.looks, transitions: tl.transitions })}`);
+    check(tl.dim === 0.5 && tl.music?.file === 'assets/music/calm.wav' && isDeepStrictEqual(tl.text?.end, { lines: ['Пиши «план»'], handle: '@pavel.edit' }),
+      `фон, трек и карточка в timeline.json: ${JSON.stringify({ dim: tl.dim, music: tl.music, end: tl.text?.end })}`);
     const engine = JSON.parse(execFileSync('python3', ['-c', [
       'import json, sys', 'from vm import transitions', 'from vm.edits import apply', 'from vm.render import look_windows, timeline',
       'from vm.zoom import TRANS, zoom_at',
       'd = json.load(sys.stdin)', 'e = apply(d["edit"], d["timeline"], d["duration"])', 'tl = timeline(e, d["duration"])',
       'marks = transitions.marks(e, tl)',
       'print(json.dumps({"windows": look_windows(e, tl), "marks": [[m.t, m.kind] for m in marks],',
-      '  "zoom": zoom_at(e["zooms"], tl, 1.6, TRANS, [m.t for m in marks if m.kind == "zoom"])}))',
+      '  "zoom": zoom_at(e["zooms"], tl, 1.6, TRANS, [m.t for m in marks if m.kind == "zoom"]),',
+      '  "dim": e.get("dim"), "music": e["music"]["file"], "end": [e["end"]["lines"], e["end"].get("handle")]}))',
     ].join('\n')], { input: JSON.stringify({ edit, timeline: tl, duration: source }), env: { ...process.env, PYTHONPATH: path.resolve('../engine') } }).toString());
     check(isDeepStrictEqual(engine.windows, []) && isDeepStrictEqual(engine.marks, []), `движок: ч/б и переход убраны — ${JSON.stringify(engine)}`);
     check(Math.abs(engine.zoom - z1) < 1e-4, `зум движка на 1,6 с ${engine.zoom}, на странице ${z1}`);
+    check(engine.dim === 0.5 && engine.music === 'assets/music/calm.wav' && isDeepStrictEqual(engine.end, [['Пиши «план»'], '@pavel.edit']),
+      `движок: фон, трек и карточка — ${JSON.stringify(engine)}`);
     // задача старого движка (схема без картинки): ползунок закрыт, сервер правку не сохранит
     const schema = JSON.parse(fs.readFileSync(path.resolve('../engine/vm/schemas/timeline.json'), 'utf8'));
     const { zoom: _z, looks: _l, transitions: _t, ...props } = schema.properties;

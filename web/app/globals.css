@@ -382,6 +382,7 @@ ul.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:
 .ed-clip.bw.ghost { color: var(--e-ink); }
 .ed-clip.tr { cursor: pointer; justify-content: center; padding: 0 2px; font-weight: 700; z-index: 3; border: 1px solid var(--e-ink); } /* поверх ч/б-куска, и выбранного */
 .ed-clip.tr.sel { z-index: 4; }
+.ed-clip.tr.ghost { text-decoration: none; } /* зачёркнутая «С» похожа на «€» — убранный переход и так пунктиром */
 .ed-clip.tr.flash { background: #FFF6C9; }
 .ed-clip.tr.zoom { background: color-mix(in srgb, var(--e-select) 22%, white); }
 .ed-clip.tr.blur { background: color-mix(in srgb, var(--e-music) 22%, white); }
@@ -449,6 +450,12 @@ ul.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:
   color: var(--e-muted); overflow: hidden; white-space: nowrap; pointer-events: none;
   background: repeating-linear-gradient(135deg, var(--e-sunk) 0 6px, var(--e-hover) 6px 12px); border: 1px dashed var(--e-line-strong); }
 .ed-tail > span { overflow: hidden; text-overflow: ellipsis; }
+.ed-tail.card { cursor: pointer; pointer-events: auto; } /* у карточки — её панель по щелчку */
+.ed-tail.card:hover { border-color: var(--e-select); }
+.ed-tail.sel { box-shadow: 0 0 0 2px var(--e-select); z-index: 2; }
+.ed-tail.ghost { background: transparent; border-style: dashed; opacity: .65; text-decoration: line-through; }
+.ed-add { margin: 3px 8px; height: 24px; padding: 0 10px; border-radius: 6px; border: 1px dashed var(--e-music); background: transparent;
+  color: var(--e-ink); font-size: 12px; cursor: pointer; }
 .ed-ghost { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px solid var(--e-select); z-index: 4; pointer-events: none; }
 .ed-cut { z-index: 4; } /* «＋» на стыке — поверх кусков; ручки краёв — выше него (у кусков — в верхней части) */
 .ed-piece .ed-handle { bottom: 24px; }

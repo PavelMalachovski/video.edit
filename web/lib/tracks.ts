@@ -8,6 +8,7 @@ import { applyKeep, applyPicture, applyText, SLIVER, type At, type HandEdits, ty
 import type { StyleSpec } from './jobfiles.ts';
 import { FPS, frameOf, hookEnd, insertSpans, layerBlocks, renderTimeline, type AccentSpec, type InsertSpec, type OverlayEdit } from './overlay.ts';
 import { roundHalfEven } from './pyround.ts';
+import { DEFAULT_MUSIC_DB } from './sound.ts';
 import { subBlocks } from './subs.ts';
 import type { Timeline } from './timeline.ts';
 import { HALF, lookWindows, transitionMarks } from './zoom.ts';
@@ -38,6 +39,7 @@ export type Draft = {
   hold?: number;
   end?: DraftEnd | null;
   style?: StyleSpec | null; // стиль смонтированного ролика (vm style и правки текстом) — им его нарисует монтаж
+  dim?: number | null; // затемнение фона (доля) — в превью не видно: маску человека считает монтаж
 };
 
 /** editor.json: длина исходника, прокси (из релиза), лента кадров и волна (base64 байтов 0–255, perS в секунду). */
@@ -137,6 +139,7 @@ export function parseDraft(raw: unknown): Draft | null {
     end: isObj(raw.end) && isNum(raw.end.seconds) && Array.isArray(raw.end.lines) && raw.end.lines.every(isStr)
       ? { ...(raw.end as DraftEnd), sfx: sfx(raw.end.sfx) } : null,
     style: isStyle(raw.style) ? raw.style : null,
+    dim: isNum(raw.dim) && raw.dim > 0 ? raw.dim : null,
   };
   try {
     timelineOf(draft);
@@ -393,11 +396,11 @@ export function draftTracks(d: Draft, { style = PLAIN, sourceDuration, splits = 
     const sfx = (d.transitions ?? [])[sources.indexOf(m.source)]?.sfx;
     if (sfx) sound(`transition:${sources.indexOf(m.source)}`, Math.max(0, m.t - HALF), sfx);
   }
-  if (d.end?.sfx) sound('end', tl.duration + (d.hold ?? 0), d.end.sfx);
+  if (shown.end?.sfx) sound('end', tl.duration + (d.hold ?? 0), shown.end.sfx); // карточку Павел мог убрать
   sounds.sort((a, b) => a.t0 - b.t0);
 
   return {
-    duration: tl.duration, tail: (d.hold ?? 0) + (d.end?.seconds ?? 0), video, cuts, subtitles, text, inserts, looks, transitions, sounds,
+    duration: tl.duration, tail: (d.hold ?? 0) + (shown.end?.seconds ?? 0), video, cuts, subtitles, text, inserts, looks, transitions, sounds,
     music: d.music ? { label: stem(d.music.file), gainDb: d.music.gainDb, ...Object.fromEntries(MUSIC_PLACE.filter((m) => d.music?.[m] !== undefined).map((m) => [m, d.music?.[m]])) } : null,
     layer: { edit: layer, tl },
   };
@@ -418,7 +421,9 @@ export function withHandEdits(d: Draft, h: HandEdits, sourceDuration?: number): 
   const splits = h.edits.flatMap((e) => (e.op === 'split' ? [e.t] : []));
   const keep = h.edits.length ? applyKeep(d.keep, h.edits, sourceDuration) : d.keep;
   const { muted: _muted, ...place } = h.music ?? {};
-  const music = d.music && h.music ? { ...d.music, ...place } : d.music;
+  // другой трек — и в ролике без музыки: тогда он звучит с громкостью по умолчанию (edits.apply движка)
+  const base = d.music ?? (place.file ? { file: place.file, gainDb: DEFAULT_MUSIC_DB } : null);
+  const music = base && h.music ? { ...base, ...place } : d.music;
   return { draft: keep === d.keep && music === d.music ? d : { ...d, keep, music }, splits };
 }
 

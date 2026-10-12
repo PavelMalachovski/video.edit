@@ -3,7 +3,7 @@
 // вставок, слова субтитров — blockpanel.tsx.
 import type { EditorData } from '@/lib/editordata.ts';
 import type { EditorMedia } from '@/lib/tracks.ts';
-import { LIMITS, setMusic, setSound, setVoice, type HandEdits, type Level } from '@/lib/edits.ts';
+import { LIMITS, setMusic, setSound, setTrack, setVoice, type HandEdits, type Level } from '@/lib/edits.ts';
 import { tenths } from '@/lib/format.ts';
 import type { Key } from '@/lib/i18n.ts';
 import { ADJUST, SUBTITLE_MODES, type Adjustable, type StyleChoice, type SubtitleMode } from '@/lib/jobfiles.ts';
@@ -16,9 +16,9 @@ import type { PictureSel } from './picturepanel';
 type TFn = (k: Key, v?: Record<string, string | number>) => string;
 
 /** Что выбрано на дорожках: кусок (номер в дорожке «Видео»), голос, музыка, звук (ключ правки громкости), блок текста или
- *  вставки, группа субтитров, ч/б-кусок или переход. */
+ *  вставки, группа субтитров, ч/б-кусок или переход, финальная карточка. */
 export type Selection = { kind: 'piece'; index: number } | { kind: 'voice' } | { kind: 'music' } | { kind: 'sound'; key: string } | BlockSel | SubSel
-  | PictureSel;
+  | PictureSel | { kind: 'end' };
 
 const db = (x: number) => `${x > 0 ? '+' : x < 0 ? '−' : ''}${Math.abs(Math.round(x))} dB`;
 
@@ -43,16 +43,18 @@ function LevelControls({ T, label, level, base, range, disabled, onLevel }: {
   );
 }
 
-export function Inspector({ T, sel, tracks, hand, mix, editable, canMove, splitHere, videos, onSplit, onDelete, onMove, onEdit, sec }: {
+export function Inspector({ T, sel, tracks, hand, mix, editable, canMove, splitHere, videos, onSplit, onDelete, onMove, onEdit, sec, music }: {
   T: TFn; sel: Selection | null; tracks: Tracks; hand: HandEdits; mix: MusicMix | null; editable: boolean;
   canMove: boolean; // движок задачи примет перестановку кусков
+  // треки библиотеки, трек сессии, чьи доли знает страница (beats.json), можно ли менять трек и почему нельзя
+  music: { library: string[]; session: string | null; beats: string | null; canTrack: boolean; note: string | null };
   videos: EditorMedia['videos'] | null; // несколько видео задачи — кусок показывает, из какого он и где в файле
   splitHere: boolean; // плейхед внутри выбранного куска
   onSplit: () => void; onDelete: () => void; onMove: (index: number, slot: number) => void;
   onEdit: (next: HandEdits, key?: string) => void; sec: (s: number) => string;
 }) {
   if (!sel) return <p className="ed-note faint">{T('selectHint')}</p>;
-  if (sel.kind === 'block' || sel.kind === 'sub' || sel.kind === 'look' || sel.kind === 'transition') return null; // blockpanel.tsx, picturepanel.tsx
+  if (sel.kind === 'block' || sel.kind === 'sub' || sel.kind === 'look' || sel.kind === 'transition' || sel.kind === 'end') return null; // blockpanel.tsx, picturepanel.tsx
   if (sel.kind === 'piece') {
     const c = tracks.video[sel.index];
     if (!c || c.src0 === undefined || c.src1 === undefined) return <p className="ed-note faint">{T('selectHint')}</p>;
@@ -96,12 +98,38 @@ export function Inspector({ T, sel, tracks, hand, mix, editable, canMove, splitH
     );
   }
   if (sel.kind === 'music') {
-    if (!mix) return <p className="ed-note faint">{T('noMusic')}</p>;
+    // трек — из библиотеки ветки задачи (и трек сессии, даже если его там уже нет); тот же, что у сессии, — без правки
+    const options = [...new Set([...(music.session ? [music.session] : []), ...music.library])];
+    const name = (f: string) => f.split('/').at(-1)?.replace(/\.[^.]+$/, '') ?? f;
+    const pick = (
+      <label className="ed-field">
+        <span>{T('track')}</span>
+        <select aria-label={T('track')} value={mix?.file ?? ''} disabled={!music.canTrack || !options.length}
+          onChange={(e) => e.target.value && onEdit(setTrack(hand, e.target.value === music.session ? null : e.target.value))}>
+          {!mix ? <option value="">{options.length ? T('addMusic') : T('noLibrary')}</option> : null}
+          {options.map((f) => <option key={f} value={f}>{f === music.session ? T('trackSession', { name: name(f) }) : name(f)}</option>)}
+        </select>
+      </label>
+    );
+    const changed = hand.music?.file !== undefined && mix !== null && mix.file !== music.beats;
+    if (!mix) {
+      return (
+        <section className="ed-insp" aria-label={T('music')}>
+          <h2>{T('music')}</h2>
+          <p className="ed-note faint">{T('noMusic')}</p>
+          {pick}
+          {music.note ? <p className="ed-note faint">{music.note}</p> : null}
+        </section>
+      );
+    }
     const set = (m: Parameters<typeof setMusic>[1], key?: string) => onEdit(setMusic(hand, m), key);
     const num = (v: string) => (v.trim() === '' ? null : Number(v.replace(',', '.')));
     return (
       <section className="ed-insp" aria-label={T('music')}>
         <h2>{T('music')} · {tracks.music?.label}</h2>
+        {pick}
+        {changed ? <p className="ed-note faint">{T('trackBeats')}</p> : null}
+        {music.note ? <p className="ed-note faint">{music.note}</p> : null}
         <LevelControls T={T} label={T('music')} level={{ gainDb: mix.gainDb, muted: mix.muted }} base={mix.gainDb} range={LIMITS.musicGain}
           disabled={!editable} onLevel={(l, key) => set(l, key)} />
         <p className="ed-note faint">{T('musicHint', { db: db(mix.gainDb) })}</p>

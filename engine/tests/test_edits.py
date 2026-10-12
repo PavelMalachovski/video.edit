@@ -238,3 +238,46 @@ def test_picture_edits_go_through_the_schema(tmp_path, bad):
                                 "transitions": [{"at": 1.0, "kind": "flash"}, {"at": 2.0, "off": True}]})
     with pytest.raises(ValueError):
         job.write("timeline.json", {"rev": 1, "edits": [], **bad})
+
+
+def test_background_dim_set_by_hand():
+    """Редактор: затемнение фона ползунком — поверх ответа на вопрос; 0 — без затемнения."""
+    assert edits.apply({**PICTURE_EDIT, "dim": 0.3}, {"rev": 1, "edits": [], "dim": 0.5})["dim"] == 0.5
+    assert edits.apply(PICTURE_EDIT, {"rev": 1, "edits": [], "dim": 0.4})["dim"] == 0.4, "и там, где вопроса не было"
+    assert edits.apply({**PICTURE_EDIT, "dim": 0.3}, {"rev": 1, "edits": [], "dim": 0})["dim"] is None, "0 — как есть"
+    assert edits.apply({**PICTURE_EDIT, "dim": 0.3}, {"rev": 1, "edits": [], "zoom": 1})["dim"] == 0.3, "нет поля — как у сессии"
+
+
+def test_another_music_track_by_hand():
+    """Редактор: другой трек из библиотеки — громкость та же (трек движок сам выравнивает к голосу), место и нарастание —
+    как правил Павел; без музыки у сессии — трек появляется с громкостью по умолчанию; «без звука» сильнее трека."""
+    out = edits.apply(EDIT, {"rev": 1, "edits": [], "music": {"file": "assets/music/b.mp3", "at": 2}}, 5)
+    assert out["music"] == {"file": "assets/music/b.mp3", "gainDb": -14, "at": 2}
+    added = edits.apply({**EDIT, "music": None}, {"rev": 1, "edits": [], "music": {"file": "assets/music/b.mp3", "gainDb": -18}}, 5)
+    assert added["music"] == {"file": "assets/music/b.mp3", "gainDb": -18}
+    assert edits.apply({**EDIT, "music": None}, {"rev": 1, "edits": [], "music": {"file": "assets/music/b.mp3"}}, 5)["music"]["gainDb"] == -14
+    assert edits.apply(EDIT, {"rev": 1, "edits": [], "music": {"file": "assets/music/b.mp3", "muted": True}}, 5)["music"] is None
+
+
+END_EDIT = {**PICTURE_EDIT, "end": {"seconds": 2, "lines": ["Подпишись"], "handle": "@pavel", "logo": None, "sfx": None}}
+
+
+def test_end_card_text_by_hand():
+    """Редактор: строки и ник финальной карточки; «убрать» — карточки нет; пустой ник — без ника."""
+    out = edits.apply(END_EDIT, {"rev": 1, "edits": [], "text": {"end": {"lines": ["Пиши «план»", "в комментариях"], "handle": "@pavel.edit"}}})
+    assert out["end"] == {"seconds": 2, "lines": ["Пиши «план»", "в комментариях"], "handle": "@pavel.edit", "logo": None, "sfx": None}
+    assert edits.apply(END_EDIT, {"rev": 1, "edits": [], "text": {"end": {"off": True}}})["end"] is None
+    assert edits.apply(END_EDIT, {"rev": 1, "edits": [], "text": {"end": {"handle": ""}}})["end"]["handle"] is None
+    assert edits.apply(PICTURE_EDIT, {"rev": 1, "edits": [], "text": {"end": {"lines": ["Новая"]}}}).get("end") is None, "карточки нет — нечего править"
+    assert END_EDIT["end"]["lines"] == ["Подпишись"], "edit.json сессии не меняется"
+
+
+@pytest.mark.parametrize("bad", [{"dim": 0.9}, {"dim": -0.1}, {"music": {"file": "../secret.mp3"}}, {"music": {"file": "assets/sfx/a.mp3"}},
+                                 {"text": {"end": {"lines": []}}}, {"text": {"end": {"lines": ["a", "b", "c"]}}}, {"text": {"end": {"off": False}}}])
+def test_dim_track_and_end_card_go_through_the_schema(tmp_path, bad):
+    job = Job(tmp_path / "j")
+    job.root.mkdir()
+    job.write("timeline.json", {"rev": 1, "edits": [], "dim": 0.8, "music": {"file": "assets/music/Calm Morning.mp3"},
+                                "text": {"end": {"lines": ["Подпишись", "и пиши"], "handle": "@pavel"}}})
+    with pytest.raises(ValueError):
+        job.write("timeline.json", {"rev": 1, "edits": [], **bad})

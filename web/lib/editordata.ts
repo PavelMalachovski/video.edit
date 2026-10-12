@@ -1,8 +1,8 @@
 // Данные редактора (бета): черновик монтажа (edit.json), файлы редактора от vm prepare (editor.json), ссылки на прокси
 // (ассет черновика релиза — через /media) и ленту кадров (картинка ветки — через /file), стили и выбор Павла. Правки
 // руками — timeline.json: сохранение с ревизией (без force, гонка вкладок — конфликт) и «Монтировать» из редактора.
-import { commitFiles, readText } from './branch.ts';
-import { badSymbols, hasEmoji, parseTimeline, typedTexts, type HandEdits, type TimelineFile } from './edits.ts';
+import { commitFiles, listDir, readText } from './branch.ts';
+import { badSymbols, hasEmoji, MUSIC_FILE, parseTimeline, typedTexts, type HandEdits, type TimelineFile } from './edits.ts';
 import { sameJson } from './equal.ts';
 import type { GH } from './github.ts';
 import { appendFix, parseStyle, type AnswersFile, type FixFile, type Released, type Styles } from './jobfiles.ts';
@@ -19,21 +19,26 @@ export const isMediaName = (x: string): x is MediaName => (MEDIA_NAMES as readon
 /** Что из правок руками примет движок задачи: ветка задачи создаётся из master один раз, и сессия монтирует её движком
  *  своей поры — новых полей timeline.json старый движок не примет (схема без лишних полей). По схеме в ветке: `edits` —
  *  правки руками вообще (схемы нет — задача до редактора: её движок timeline.json не читает), `move` — перестановка
- *  кусков (фаза 4), `text` — текст и вставки, слова субтитров (фаза 5), `picture` — сила зума, ч/б-куски и переходы
- *  (фаза 5в). */
-export type Abilities = { edits: boolean; move: boolean; text: boolean; picture: boolean };
+ *  кусков (фаза 4), `text` — текст и вставки, слова субтитров (фаза 5), `picture` — сила зума, ч/б-куски, переходы и
+ *  затемнение фона, `track` — другой трек музыки, `card` — текст финальной карточки (фаза 5в). */
+export type Abilities = { edits: boolean; move: boolean; text: boolean; picture: boolean; track: boolean; card: boolean };
 export const ENGINE_SCHEMA = 'engine/vm/schemas/timeline.json';
-const ALL: Abilities = { edits: true, move: true, text: true, picture: true };
-const NONE: Abilities = { edits: false, move: false, text: false, picture: false };
+const ALL: Abilities = { edits: true, move: true, text: true, picture: true, track: true, card: true };
+const NONE: Abilities = { edits: false, move: false, text: false, picture: false, track: false, card: false };
 
 /** Схема timeline.json из ветки задачи → что примет её движок. Схемы нет — ничего (задача до редактора); есть, но не
  *  читается — движок нынешний. */
 export function abilitiesOf(schema: string | null): Abilities {
   if (schema === null) return NONE;
   try {
-    const props = (JSON.parse(schema) as { properties: Record<string, unknown> }).properties;
+    const parsed = JSON.parse(schema) as { properties: Record<string, unknown>; $defs?: { Music?: { properties?: object } } };
+    const props = parsed.properties;
+    const text = (props.text as { properties?: object } | undefined)?.properties ?? {};
     const ops = ((props.edits as { items: { oneOf: { properties: { op: { const: string } } }[] } }).items.oneOf).map((o) => o.properties.op.const);
-    return { edits: true, move: ops.includes('move'), text: 'text' in props && 'words' in props, picture: ['zoom', 'looks', 'transitions'].every((k) => k in props) };
+    return {
+      edits: true, move: ops.includes('move'), text: 'text' in props && 'words' in props, picture: ['zoom', 'looks', 'transitions', 'dim'].every((k) => k in props),
+      track: 'file' in (parsed.$defs?.Music?.properties ?? {}), card: 'end' in text,
+    };
   } catch {
     return ALL;
   }
@@ -44,9 +49,11 @@ export function refusedBy(a: Abilities, hand: HandEdits): string | null {
   if (!a.edits) return 'Эта задача создана до редактора: её движок правок руками не знает — ролик здесь правится через «Поправить»';
   if (!a.move && hand.edits.some((e) => e.op === 'move')) return 'Эта задача создана до перестановки кусков: её движок их не примет — куски переставляются в новых задачах';
   if (!a.text && (hand.text || hand.words)) return 'Эта задача создана до правок текста в редакторе: её движок их не примет — текст здесь правится через «Поправить»';
-  if (!a.picture && (hand.zoom !== undefined || hand.looks || hand.transitions)) {
-    return 'Эта задача создана до правок картинки в редакторе: её движок их не примет — зум, ч/б и переходы здесь правятся через «Поправить»';
+  if (!a.picture && (hand.zoom !== undefined || hand.looks || hand.transitions || hand.dim !== undefined)) {
+    return 'Эта задача создана до правок картинки в редакторе: её движок их не примет — зум, ч/б, переходы и фон здесь правятся через «Поправить»';
   }
+  if (!a.track && hand.music?.file !== undefined) return 'Эта задача создана до выбора трека в редакторе: её движок его не примет — трек здесь меняется через «Поправить»';
+  if (!a.card && hand.text?.end) return 'Эта задача создана до правок финальной карточки в редакторе: её движок их не примет — карточка здесь правится через «Поправить»';
   return null;
 }
 
@@ -64,8 +71,16 @@ export type EditorData = {
   answers: AnswersFile | null;
   timeline: TimelineFile | null; // правки руками (нет или кривой файл — null)
   beats: BeatsFile | null; // доли музыки (beats.json от vm render): вставки и зум встают на них, как в ролике
+  library: string[]; // треки библиотеки в ветке задачи (assets/music/…): другой трек — из них
   rev: number; // ревизия timeline.json в ветке (нет — 0): от неё сохраняется следующая
 };
+
+const MUSIC_DIR = 'assets/music';
+/** Треки библиотеки в ветке задачи на `head` (пути от корня, по алфавиту); папки нет — пусто. */
+async function musicLibrary(gh: GH, head: string): Promise<string[]> {
+  const entries = (await listDir(gh, head, MUSIC_DIR)) ?? [];
+  return entries.filter((e) => e.type === 'file').map((e) => `${MUSIC_DIR}/${e.name}`).filter((p) => MUSIC_FILE.test(p)).sort();
+}
 
 /** Картинка загрузки Павла (вставка к ролику `upload-i<n>`, картинка к ответу `upload-q-…`) — её отдаёт /upload. */
 export const isUploadPicture = (name: string): boolean => /^upload-(i\d{1,3}|q-[a-z0-9_-]{1,41})\.(png|jpe?g|webp|gif)$/.test(name);
@@ -125,6 +140,7 @@ export async function loadEditor(gh: GH, id: string): Promise<EditorData | null>
   const [edit, editor, timeline, beats, schema] = head
     ? await Promise.all([...['edit.json', 'editor.json', TIMELINE, 'beats.json'].map((name) => readJobText(gh, id, head, name)), readText(gh, head, ENGINE_SCHEMA)])
     : [null, null, null, null, null];
+  const library = head ? await musicLibrary(gh, head) : [];
   const media = parseMedia(json(editor));
   return {
     id,
@@ -139,6 +155,7 @@ export async function loadEditor(gh: GH, id: string): Promise<EditorData | null>
     styles: f?.styles ?? null,
     answers: f?.answers ?? null,
     beats: parseBeats(json(beats)),
+    library,
     ...timelineOf(timeline),
   };
 }
@@ -214,6 +231,8 @@ export async function saveTimeline(gh: GH, id: string, body: unknown, now: Date)
     await commitFiles(gh, jobBranch(id), async (head) => {
       const refused = refusedBy(abilitiesOf(await readText(gh, head, ENGINE_SCHEMA)), parsed.hand);
       if (refused) throw new Refused(refused);
+      const track = parsed.hand.music?.file;
+      if (track && !(await musicLibrary(gh, head)).includes(track)) throw new Refused(`Трека ${track.slice(MUSIC_DIR.length + 1)} нет в библиотеке`);
       const current = timelineOf(await readJobText(gh, id, head, TIMELINE));
       if (current.rev !== parsed.base) throw new Stale(current);
       return { [`${jobDir(id)}/${TIMELINE}`]: `${JSON.stringify(file, null, 2)}\n` };

@@ -13,7 +13,8 @@ export type Edit =
   | { op: 'move'; t0: number; t1: number; before: number | null }
   | { op: 'split'; t: number };
 export type Level = { gainDb?: number; muted?: boolean };
-export type MusicAdjust = Level & { at?: number; from?: number; fadeIn?: number; fadeOut?: number };
+/** Музыка руками: где звучит, с какого места трека, нарастание и затухание; `file` — другой трек библиотеки. */
+export type MusicAdjust = Level & { file?: string; at?: number; from?: number; fadeIn?: number; fadeOut?: number };
 /** Место блока в речи — `[t0, t1]`, как его записала сессия: правка держится за блок по нему, а не по номеру. */
 export type At = [number, number];
 /** Хук: конец (по исходнику) и текст; off — хука нет. */
@@ -21,8 +22,10 @@ export type HookFix = { until?: number; text?: string; off?: true };
 export type CtaFix = { at: At; t0?: number; t1?: number; lines?: string[]; word?: string; off?: true };
 export type AccentFix = { at: At; t0?: number; t1?: number; lines?: string[]; off?: true };
 export type InsertFix = { at: At; t0?: number; t1?: number; text?: string; off?: true };
-/** Текст и вставки (фаза 5): хук, титр, акценты, вставки. */
-export type TextEdits = { hook?: HookFix; cta?: CtaFix; accents?: AccentFix[]; inserts?: InsertFix[] };
+/** Финальная карточка: строки (1–2) и ник ('' — без ника); off — карточки нет. */
+export type EndFix = { lines?: string[]; handle?: string; off?: true };
+/** Текст и вставки (фаза 5): хук, титр, акценты, вставки, финальная карточка. */
+export type TextEdits = { hook?: HookFix; cta?: CtaFix; accents?: AccentFix[]; inserts?: InsertFix[]; end?: EndFix };
 /** Слово субтитров с ровно этими t0, t1 получает текст Павла; пустой — слова нет в субтитрах. */
 export type WordFix = { t0: number; t1: number; text: string };
 /** Ч/б-кусок по месту `at` — убран; переход по своему `t` (`at`) — другого вида или убран. */
@@ -35,6 +38,7 @@ export type TransitionFix = { at: number; kind?: TransitionKind; off?: true };
 export type HandEdits = {
   edits: Edit[]; voice?: Level; music?: MusicAdjust; sounds?: Record<string, Level>; text?: TextEdits; words?: WordFix[];
   zoom?: number; looks?: LookFix[]; transitions?: TransitionFix[]; // картинка: сила зума (доля от зума монтажа), ч/б, переходы
+  dim?: number; // затемнение фона (доля, как edit.json dim; 0 — без него)
 };
 /** timeline.json в ветке задачи: правки и ревизия (страница прибавляет 1 на каждое сохранение). */
 export type TimelineFile = HandEdits & { rev: number; at?: string };
@@ -52,7 +56,12 @@ export const LIMITS = {
   word: 60, // знаков в слове субтитров
   words: 5000, // исправленных слов
   zoom: { min: 0, max: 1.5 }, // сила зума: доля от зума монтажа
+  dim: { min: 0, max: 0.8 }, // затемнение фона: доля
+  endLines: 2, // строк финальной карточки
+  handle: 60, // знаков в нике карточки
 } as const;
+/** Трек музыки из библиотеки (как Music.file в схеме timeline.json). */
+export const MUSIC_FILE = /^assets\/music\/[^/]+\.(mp3|wav|m4a|aac|ogg|flac)$/;
 export const EMPTY: HandEdits = { edits: [] };
 const SOUND_KEY = /^(insert:\d+|transition:\d+|teaser|end)$/;
 
@@ -210,6 +219,7 @@ const pick = <T extends object, K extends string>(from: T, keys: readonly K[]) =
   Object.fromEntries(keys.filter((k) => k in from).map((k) => [k, (from as Record<string, unknown>)[k]]));
 
 type TextBase = {
+  end?: { lines: string[]; handle?: string | null } | null;
   hook?: { text: string; until: number } | null;
   cta?: (Span2 & { lines: string[]; word: string }) | null;
   accents?: (Span2 & { lines: { text: string }[] })[] | null;
@@ -243,6 +253,11 @@ export function applyText<T extends TextBase>(edit: T, text?: TextEdits, words?:
       return timed(name, changed);
     }) as T['inserts'];
   }
+  if (t.end && edit.end) { // финальная карточка: строки и ник; пустой ник — без ника
+    const card = { ...edit.end, ...(t.end.lines ? { lines: [...t.end.lines] } : {}) };
+    if (t.end.handle !== undefined) card.handle = t.end.handle || null;
+    out.end = t.end.off ? null : card;
+  }
   if (words?.length && edit.words?.length) {
     const fixed = new Map(words.map((w) => [`${Number(w.t0)}|${Number(w.t1)}`, w.text]));
     out.words = edit.words.flatMap((w) => {
@@ -255,6 +270,7 @@ export function applyText<T extends TextBase>(edit: T, text?: TextEdits, words?:
 }
 
 type PictureBase = {
+  dim?: number | null;
   zooms?: readonly { t: number; level: number; over?: number }[] | null;
   looks?: readonly (Span2 & { look: string; off?: boolean })[] | null;
   transitions?: readonly { t: number; kind: string; sfx?: string | null; off?: boolean }[] | null;
@@ -262,10 +278,12 @@ type PictureBase = {
 
 /** Картинка руками поверх edit — как apply_picture движка: сила зума — доля от зума монтажа (1 + (уровень − 1) · zoom,
  *  четыре знака), ч/б-кусок по месту `at` — выключен, переход по своему `t` — другого вида или выключен; выключенное
- *  остаётся в списке (номера звуков переходов те же). Правок нет — тот же edit. */
-export function applyPicture<T extends PictureBase>(edit: T, zoom?: number, looks?: readonly LookFix[], transitions?: readonly TransitionFix[]): T {
-  if (zoom === undefined && !looks?.length && !transitions?.length) return edit;
+ *  остаётся в списке (номера звуков переходов те же); затемнение фона — своё (0 — без него). Правок нет — тот же edit. */
+export function applyPicture<T extends PictureBase>(edit: T, zoom?: number, looks?: readonly LookFix[], transitions?: readonly TransitionFix[],
+  dim?: number): T {
+  if (zoom === undefined && !looks?.length && !transitions?.length && dim === undefined) return edit;
   const out: T = { ...edit };
+  if (dim !== undefined) out.dim = dim > 0 ? dim : null;
   if (zoom !== undefined) out.zooms = (edit.zooms ?? []).map((z) => ({ ...z, level: pyRound(1 + (Number(z.level) - 1) * zoom, 4) }));
   if (looks?.length) out.looks = anchored(edit.looks ?? [], looks, 'looks', (item) => ({ ...item, off: true })) as T['looks'];
   if (transitions?.length) {
@@ -366,6 +384,12 @@ export function setHook(h: HandEdits, fix: HookFix | null): HandEdits {
   return withText(h, { ...h.text, hook: next && Object.keys(next).length ? next : undefined });
 }
 
+/** Финальная карточка: правка поверх прежней (строки, ник); `off` — без прочего; null — как у сессии. */
+export function setEnd(h: HandEdits, fix: EndFix | null): HandEdits {
+  const next = fix === null ? undefined : { ...(fix.off ? {} : h.text?.end), ...fix };
+  return withText(h, { ...h.text, end: next && Object.keys(next).length ? next : undefined });
+}
+
 /** Титр по месту `at`: правка поверх прежней; null — как у сессии. */
 export function setCta(h: HandEdits, at: At, fix: Omit<CtaFix, 'at'> | null): HandEdits {
   const old = h.text?.cta && sameAt(h.text.cta.at, at) ? h.text.cta : { at };
@@ -435,7 +459,21 @@ export function typedTexts(h: HandEdits): string[] {
     .filter((x): x is string => typeof x === 'string');
 }
 
+/** Трек музыки из библиотеки (`assets/music/…`); null — трек сессии (громкость и место Павла остаются). */
+export function setTrack(h: HandEdits, file: string | null): HandEdits {
+  const { music, ...rest } = h;
+  const { file: _old, ...place } = music ?? {};
+  const next: MusicAdjust = file === null ? place : { ...place, file };
+  return Object.keys(next).length ? { ...rest, music: next } : rest;
+}
+
 // ---------- картинка ----------
+
+/** Затемнение фона (доля; 0 — без него); null — как у монтажа (поля нет). */
+export function setDim(h: HandEdits, dim: number | null): HandEdits {
+  const { dim: _old, ...rest } = h;
+  return dim === null ? rest : { ...rest, dim: Math.round(clamp(dim, LIMITS.dim) * 100) / 100 };
+}
 
 /** Сила зума — доля от зума монтажа (ползунок: шаг — процент); 1 или null — как у монтажа (поля нет). */
 export function setZoom(h: HandEdits, zoom: number | null): HandEdits {
@@ -524,8 +562,11 @@ const okOff = (o: Record<string, unknown>) => o.off === undefined || o.off === t
 const okLines = (x: unknown) => x === undefined || (Array.isArray(x) && x.length >= 1 && x.length <= LIMITS.lines && x.every(isLine));
 
 function parseText(x: unknown): TextEdits | null {
-  if (!isObj(x) || !onlyKeys(x, ['hook', 'cta', 'accents', 'inserts'])) return null;
-  const { hook, cta, accents, inserts } = x;
+  if (!isObj(x) || !onlyKeys(x, ['hook', 'cta', 'accents', 'inserts', 'end'])) return null;
+  const { hook, cta, accents, inserts, end } = x;
+  if (end !== undefined && !(isObj(end) && onlyKeys(end, ['lines', 'handle', 'off']) && okOff(end)
+    && (end.lines === undefined || (Array.isArray(end.lines) && end.lines.length >= 1 && end.lines.length <= LIMITS.endLines && end.lines.every(isLine)))
+    && (end.handle === undefined || (typeof end.handle === 'string' && chars(end.handle) <= LIMITS.handle)))) return null;
   if (hook !== undefined && !(isObj(hook) && onlyKeys(hook, ['until', 'text', 'off']) && okOff(hook)
     && (hook.until === undefined || (isNum(hook.until) && hook.until > 0)) && (hook.text === undefined || isLine(hook.text)))) return null;
   if (cta !== undefined && !(isObj(cta) && onlyKeys(cta, ['at', 't0', 't1', 'lines', 'word', 'off']) && isAt(cta.at) && okTime(cta)
@@ -537,9 +578,10 @@ function parseText(x: unknown): TextEdits | null {
   return x as TextEdits;
 }
 
-/** Картинка руками (zoom, looks, transitions), как по схеме. */
-function parsePicture({ zoom, looks, transitions }: Record<string, unknown>): boolean {
+/** Картинка руками (zoom, looks, transitions, dim), как по схеме. */
+function parsePicture({ zoom, looks, transitions, dim }: Record<string, unknown>): boolean {
   if (zoom !== undefined && !(isNum(zoom) && zoom >= LIMITS.zoom.min && zoom <= LIMITS.zoom.max)) return false;
+  if (dim !== undefined && !(isNum(dim) && dim >= LIMITS.dim.min && dim <= LIMITS.dim.max)) return false;
   const list = (v: unknown, ok: (o: Record<string, unknown>) => boolean) => v === undefined
     || (Array.isArray(v) && v.length <= LIMITS.blocks && v.every((o) => isObj(o) && ok(o)));
   if (!list(looks, (o) => onlyKeys(o, ['at', 'off']) && isAt(o.at) && o.off === true)) return false;
@@ -552,7 +594,7 @@ const parseWords = (x: unknown): boolean => Array.isArray(x) && x.length <= LIMI
 
 /** timeline.json → правки; не та форма (как по схеме) — null. */
 export function parseTimeline(raw: unknown): TimelineFile | null {
-  const keys = ['rev', 'at', 'edits', 'voice', 'music', 'sounds', 'text', 'words', 'zoom', 'looks', 'transitions'];
+  const keys = ['rev', 'at', 'edits', 'voice', 'music', 'sounds', 'text', 'words', 'zoom', 'looks', 'transitions', 'dim'];
   if (!isObj(raw) || Object.keys(raw).some((k) => !keys.includes(k))) return null;
   if (raw.text !== undefined && !parseText(raw.text)) return null;
   if (raw.words !== undefined && !parseWords(raw.words)) return null;
@@ -562,8 +604,9 @@ export function parseTimeline(raw: unknown): TimelineFile | null {
   if (raw.voice !== undefined && !parseLevel(raw.voice, LIMITS.gain)) return null;
   if (raw.music !== undefined) {
     const m = raw.music;
-    if (!isObj(m) || Object.keys(m).some((k) => !['gainDb', 'muted', 'at', 'from', 'fadeIn', 'fadeOut'].includes(k))) return null;
-    const { gainDb, muted, ...place } = m;
+    if (!isObj(m) || Object.keys(m).some((k) => !['file', 'gainDb', 'muted', 'at', 'from', 'fadeIn', 'fadeOut'].includes(k))) return null;
+    const { gainDb, muted, file, ...place } = m;
+    if (file !== undefined && !(typeof file === 'string' && MUSIC_FILE.test(file))) return null;
     if (!parseLevel({ ...(gainDb !== undefined ? { gainDb } : {}), ...(muted !== undefined ? { muted } : {}) }, LIMITS.musicGain)) return null;
     for (const [k, v] of Object.entries(place)) {
       const max = k === 'fadeIn' || k === 'fadeOut' ? LIMITS.fade.max : Infinity;

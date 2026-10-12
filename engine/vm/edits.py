@@ -20,7 +20,8 @@ tests/fixtures/edits.json (куски) и overlay-events.json (текст: пи�
 from .job import Job, validate
 
 SLIVER = 0.04  # с — кусок короче (около кадра) после вырезки не остаётся
-MUSIC_FIELDS = ("gainDb", "at", "from", "fadeIn", "fadeOut")
+MUSIC_FIELDS = ("file", "gainDb", "at", "from", "fadeIn", "fadeOut")
+MUSIC_DB = -14  # громкость трека, который Павел добавил в редакторе к ролику без музыки, — как у сессии (SKILL.md)
 
 
 EPS = 1e-9
@@ -153,24 +154,28 @@ def apply(edit: dict, timeline: dict | None, duration: float | None = None) -> d
     if timeline.get("voice"):
         out["voice"] = dict(timeline["voice"])
     music = timeline.get("music")
-    if music and edit.get("music"):
-        out["music"] = None if music.get("muted") else {**edit["music"], **{k: music[k] for k in MUSIC_FIELDS if k in music}}
+    # другой трек (`file`) — и в ролике без музыки: тогда он звучит с громкостью по умолчанию
+    base = edit.get("music") or ({"file": music["file"], "gainDb": MUSIC_DB} if music and music.get("file") else None)
+    if music and base:
+        out["music"] = None if music.get("muted") else {**base, **{k: music[k] for k in MUSIC_FIELDS if k in music}}
         if out["music"] is None and edit.get("ab") == "music":  # версия B «без музыки» вышла бы такой же — её нет
             out["ab"] = None
     if timeline.get("sounds"):
         out["sounds"] = {k: dict(v) for k, v in timeline["sounds"].items()}
     out = apply_text(out, timeline.get("text"), timeline.get("words"))
-    return apply_picture(out, timeline.get("zoom"), timeline.get("looks"), timeline.get("transitions"))
+    return apply_picture(out, timeline.get("zoom"), timeline.get("looks"), timeline.get("transitions"), timeline.get("dim"))
 
 
-def apply_picture(edit: dict, zoom: float | None, looks: list | None, transitions: list | None) -> dict:
-    """Картинка руками (`timeline.json` → `zoom`, `looks`, `transitions`) поверх edit: сила зума — доля от зума монтажа
-    (`1 + (уровень − 1) · zoom`, четыре знака), ч/б-кусок по месту `at` — выключен, переход по своему `t` — другого вида
-    или выключен. Выключенное остаётся в списке с `off`: номера звуков `transition:<n>` не сдвигаются. То же —
-    applyPicture в web/lib/edits.ts. Правок нет — тот же edit."""
-    if zoom is None and not looks and not transitions:
+def apply_picture(edit: dict, zoom: float | None, looks: list | None, transitions: list | None, dim: float | None = None) -> dict:
+    """Картинка руками (`timeline.json` → `zoom`, `looks`, `transitions`, `dim`) поверх edit: сила зума — доля от зума
+    монтажа (`1 + (уровень − 1) · zoom`, четыре знака), ч/б-кусок по месту `at` — выключен, переход по своему `t` —
+    другого вида или выключен; затемнение фона — своё (0 — без него). Выключенное остаётся в списке с `off`: номера
+    звуков `transition:<n>` не сдвигаются. То же — applyPicture в web/lib/edits.ts. Правок нет — тот же edit."""
+    if zoom is None and not looks and not transitions and dim is None:
         return edit
     out = {**edit}
+    if dim is not None:
+        out["dim"] = float(dim) if dim > 0 else None
     if zoom is not None:
         out["zooms"] = [{**z, "level": round(1 + (float(z["level"]) - 1) * float(zoom), 4)} for z in edit.get("zooms") or []]
     if looks:
@@ -257,6 +262,12 @@ def apply_text(edit: dict, text: dict | None, words: list | None = None) -> dict
         out["accents"] = [a for a in _anchored(edit["accents"], text["accents"], "text.accents", accent) if a is not None]
     if text.get("inserts") and edit.get("inserts"):
         out["inserts"] = _anchored(edit["inserts"], text["inserts"], "text.inserts", insert)
+    end = text.get("end")
+    if end and edit.get("end"):  # финальная карточка: строки и ник; пустой ник — без ника
+        card = {**edit["end"], **({"lines": list(end["lines"])} if "lines" in end else {})}
+        if "handle" in end:
+            card["handle"] = end["handle"] or None
+        out["end"] = None if end.get("off") else card
     if words and edit.get("words"):
         fixed = {(float(w["t0"]), float(w["t1"])): w["text"] for w in words}
         kept = []

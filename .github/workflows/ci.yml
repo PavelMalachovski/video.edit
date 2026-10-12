@@ -7,7 +7,7 @@
 name: ci
 on:
   push:
-    branches-ignore: ['claude/job-*']
+    branches-ignore: ['claude/job-*', 'ci-screens/**']
   pull_request:
     branches: [master]
   schedule:
@@ -161,6 +161,29 @@ jobs:
           name: e2e-screens-${{ matrix.browser }}
           path: ${{ runner.temp }}/e2e-shots
           if-no-files-found: ignore
+
+  # скриншоты e2e обоих браузеров — в ветки ci-screens/<браузер>/<ветка>: их смотрит Claude после каждого пуша (и на
+  # сбое — тоже); право записи — только здесь, где не запускается ничего, кроме git
+  screens:
+    name: screenshots — branches ci-screens/<browser>/<branch>
+    needs: e2e
+    if: always() && github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: e2e-screens-*
+          path: ${{ runner.temp }}/screens
+      - run: |
+          for browser in chromium webkit; do
+            bash .github/scripts/publish-screens.sh "$RUNNER_TEMP/screens/e2e-screens-$browser" "ci-screens/$browser/$GITHUB_REF_NAME"
+          done
 
   lint:
     name: scripts and workflows — shellcheck, actionlint

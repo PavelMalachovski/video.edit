@@ -36,7 +36,8 @@
   рендер» (`template/tests/safari.test.mjs`, без WebKit локально пропускается); shellcheck и actionlint; поиск
   уязвимостей — CodeQL (`.github/workflows/codeql.yml`; проверенные ложные срабатывания — `.github/codeql/accepted.json`
   с причиной); секреты во всей истории — gitleaks; уязвимости зависимостей страницы — `npm audit`. Скриншоты e2e —
-  артефакты прогона.
+  артефакты прогона и ветки `ci-screens/<chromium|webkit>/<ветка>` (одним коммитом, каждый пуш заново): смотреть —
+  `git fetch origin ci-screens/webkit/<ветка> && git archive FETCH_HEAD | tar -x -C <папка>`.
 
 ## Как работаем
 - Без процессов superpowers (так попросил Павел): без отдельных планов, ревьюеров дизайна и журналов. Делаю сам,

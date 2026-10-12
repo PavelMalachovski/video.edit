@@ -1185,9 +1185,13 @@ if (WEBKIT && code === 0) {
     await new Promise((ok) => setTimeout(ok, 3000));
     await p.reload();
     await p.getByText('не закончена').first().waitFor({ timeout: 15_000 });
+    // та же загрузка дальше: тот же файл → «Продолжить загрузку» → страница задачи → переход
+    await p.setInputFiles('#source', big);
+    await p.getByRole('button', { name: 'Продолжить загрузку' }).click({ timeout: 15_000 });
+    await p.waitForURL(/\/jobs\/\d{6}-\d{6}-[0-9a-z]{4}$/, { timeout: 120_000 });
     const t = Date.now();
     const r = await p.goto(`${APP}/script`, { timeout: 20_000 }).then(() => 'открылась', (e) => e.message.split('\n')[0]);
-    console.log(`опыт «перезагрузка посреди загрузки»: переход на /script — ${r} за ${Date.now() - t} мс`);
+    console.log(`опыт «перезагрузка посреди загрузки и продолжение»: переход на /script — ${r} за ${Date.now() - t} мс`);
   } catch (e) {
     console.log(`опыт «перезагрузка посреди загрузки»: не вышло — ${e instanceof Error ? e.message.split('\n')[0] : e}`);
   }

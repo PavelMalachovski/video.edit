@@ -544,13 +544,17 @@ button.ed-primary { border: 0; font: inherit; font-weight: 700; cursor: pointer;
 .ed-word > .ed-text { flex: 1; min-width: 0; }
 .ed-word > .ed-btn { flex: none; }
 @media (max-width: 860px) {
-  .ed { grid-template-rows: auto auto auto; position: static; min-height: 100vh; }
+  /* на телефоне — как в мобильных редакторах: кадр, сразу под ним дорожки (видно без прокрутки), панели — ниже (панель
+     выбранного блока — первой) */
+  .ed { grid-template-rows: none; position: static; min-height: 100vh; }
   .ed-bar { flex-wrap: wrap; }
   .ed-tool { padding: 0 9px; }
   .ed-tool > span { display: none; } /* на телефоне — только значки (подписи — в aria-label и title) */
-  .ed-main { grid-template-columns: 1fr; }
-  .ed-stage { height: 62vh; }
-  .ed-side { border-left: 0; border-top: 1px solid var(--e-line); }
+  .ed-main { display: contents; }
+  .ed-top { order: 0; }
+  .ed-stage { order: 1; height: 50vh; }
+  .ed-tl { order: 2; }
+  .ed-side { order: 3; border-left: 0; border-top: 1px solid var(--e-line); }
   .ed-primary { padding: 0 10px; font-size: 13px; }
   .ed-top { flex-wrap: wrap; }
   .ed-title { flex: 1 1 calc(100% - 50px); }

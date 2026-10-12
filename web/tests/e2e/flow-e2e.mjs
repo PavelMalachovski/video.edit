@@ -897,6 +897,10 @@ const segments = [
     // перемотка: тап по дорожке субтитров — часы и слой кадра (слово, которое звучит)
     const clock = page.locator('.ed-clock');
     const lane = page.locator('.ed-row.sub .ed-lane');
+    // на телефоне — как в мобильных редакторах: кадр, сразу под ним дорожки (видно без прокрутки), панели — ниже
+    const [tlTop, sideTop, frameTop] = await page.evaluate(() => ['.ed-tl', '.ed-side', '.ed-frame']
+      .map((q) => document.querySelector(q).getBoundingClientRect().top + window.scrollY));
+    check(frameTop < tlTop && tlTop < 844 && sideTop > tlTop, `на телефоне дорожки — под кадром, панели — ниже: кадр ${Math.round(frameTop)}, дорожки ${Math.round(tlTop)}, панели ${Math.round(sideTop)} px`);
     await lane.scrollIntoViewIfNeeded(); // на телефоне таймлайн — под кадром
     const box = await lane.boundingBox();
     const second = await page.locator('.ed-clip.sub').nth(1).boundingBox();

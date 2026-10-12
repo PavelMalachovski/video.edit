@@ -43,9 +43,9 @@ export function PictureSection({ T, tracks, hand, dim, canZoom, note, onEdit }: 
         <span className="ed-range-name">{T('dimStrength')}</span>
         <input type="range" aria-label={T('dimStrength')} min={LIMITS.dim.min} max={LIMITS.dim.max} step={0.05} value={shade} disabled={!canZoom}
           onChange={(e) => onEdit(setDim(hand, Number(e.target.value)), 'dim')} />
-        <span className="mono">{shade > 0 ? percent(shade) : T('dimNone').toLowerCase()}</span>
+        <span className="mono">{percent(shade)}</span>
       </div>
-      <p className="ed-note faint">{T('dimNote')}</p>
+      <p className="ed-note faint">{shade > 0 ? T('dimNote') : T('dimNone')}</p>
       {hand.dim !== undefined ? (
         <button type="button" className="ed-btn" disabled={!canZoom} onClick={() => onEdit(setDim(hand, null))}>{T('dimReset')}</button>
       ) : null}

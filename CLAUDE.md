@@ -71,9 +71,11 @@
   `render.timeline` ↔ `renderTimeline`. Общая фикстура `engine/tests/fixtures/overlay-events.json` — её пишет движок:
   `cd engine && python3 -m tests.shared_events` (устарела — падает быстрый тест движка).
 - Картинка ролика в редакторе: `engine/vm/zoom.py` (`zoom_at`, `cut_frame`), `engine/vm/transitions.py` (`marks`, `HALF`,
-  `PUNCH`, `BLUR`), `look_windows` в `engine/vm/render.py` ↔ `web/lib/zoom.ts` и `web/lib/picture.ts` (`pictureAt`,
-  `BW_FILTER` — ч/б с цветокором на прокси без него), раздел `look` той же фикстуры; шкала времени ролика —
-  `render._layers` ↔ `Bar` в `web/app/jobs/[id]/editor/frame.tsx`.
+  `PUNCH`, `BLUR`; вспышка и смаз по кадру — `flash_alpha`, `blur_sigma`: так их рисует `picture_chains`, проверено по
+  пикселям ffmpeg), `look_windows` и `BW_CSS_BRIGHTNESS`, `BW_CSS_CONTRAST` в `engine/vm/render.py` ↔ `web/lib/zoom.ts`
+  (`flashAlpha`, `blurSigma`) и `web/lib/picture.ts` (`pictureAt`, `BW_FILTER` — ч/б с цветокором на прокси без него),
+  разделы `look` и `bwFilter` той же фикстуры; шкала времени ролика — `render._layers` ↔ `Bar` в
+  `web/app/jobs/[id]/editor/frame.tsx`.
 - Доли музыки: `engine/vm/beats.py` (`beat_times`, `snap_edit`, `played`) и `beats.json` (пишет `render.on_beats`) ↔
   `web/lib/beats.ts` (`beatTimes`, `snapEdit`, `musicBeats`) и `parseBeats` в `web/lib/editordata.ts`, раздел `beats`.
 - Текст и вставки руками (`timeline.json` → `text`, `words`): `engine/vm/edits.py` (`apply_text`) и схема

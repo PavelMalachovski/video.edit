@@ -395,6 +395,22 @@ def test_prepare_in_a_later_session_only_restores_the_source(tmp_path, monkeypat
 
 
 @needs_ffmpeg
+def test_prepare_makes_the_editor_files_once(tmp_path, monkeypatch, capsys):
+    no_models(monkeypatch, tmp_path)
+    job = Job(tmp_path / "jobs" / "abc")
+    make_source(job.path("in/source.mp4"), 2)
+    for name, text in SPEECH_WORK.items():
+        job.path(name).write_text(text, encoding="utf-8")
+    assert main(["prepare", str(job.root)]) == 0
+    assert job.path("out/proxy.mp4").is_file() and job.path("film.jpg").is_file()
+    assert job.read("editor.json")["proxy"]["file"] == "out/proxy.mp4"
+    assert "Редактор" in capsys.readouterr().out
+    job.path("out/proxy.mp4").unlink()  # Action перенёс прокси в релиз, editor.json остался в ветке
+    assert main(["prepare", str(job.root)]) == 0
+    assert not job.path("out/proxy.mp4").exists(), "второй раз прокси не делается"
+
+
+@needs_ffmpeg
 def test_prepare_redo_recognises_again(tmp_path, monkeypatch, capsys):
     no_models(monkeypatch, tmp_path)
     job = Job(tmp_path / "jobs" / "abc")

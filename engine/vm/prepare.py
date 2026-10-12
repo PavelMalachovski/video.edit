@@ -21,7 +21,7 @@ import re
 from collections.abc import Callable
 from pathlib import Path
 
-from . import asr, lang
+from . import asr, editor, lang
 from .cuts import SOFT, plan_keep
 from .job import Job, _atomic_write
 from .media import (
@@ -259,6 +259,12 @@ def prepare(
         kept = sum(b - a for a, b in keep)
     if recognise:
         contact_sheet(source, job.path("sheet.png"), fps=min(1.0, SHEET_THUMBS / info.duration))
+    if redo or not job.path("editor.json").is_file():  # для редактора на странице (бета); прокси уйдёт в релиз с push
+        step("Готовлю редактор", "Прокси-видео, волна и лента кадров для редактора")
+        made = editor.make(job)
+        size = job.path("out/proxy.mp4").stat().st_size / editor.MB
+        notes.append(f"Редактор (бета): out/proxy.mp4 ({size:.1f} МБ), film.jpg ({made['film']['n']} кадров), editor.json — "
+                     "уйдут с vm push")
 
     cut_line = f"Слов: {len(words)}; плотная резка: {max(0, len(keep) - 1)} пауз, вырезано {cuts['cut_seconds']:.1f} с"
     speech_spans = json.loads(speech_path.read_text(encoding="utf-8")) if speech_path.is_file() else []

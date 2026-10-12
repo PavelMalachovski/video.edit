@@ -1,5 +1,6 @@
-# Поиск уязвимостей в коде (CodeQL от GitHub): страница (TypeScript), движок (Python) и сами workflow. Находки — во
-# вкладке Security репозитория. На пуши (кроме веток задач), PR в master и раз в неделю — новые правила CodeQL.
+# Поиск уязвимостей в коде (CodeQL от GitHub): страница (TypeScript), движок (Python) и сами workflow. Находки — в логе
+# задания, и оно на них падает (загрузке во вкладку Security нужен включённый в настройках code scanning — не нужно).
+# На пуши (кроме веток задач), PR в master и раз в неделю — новые правила CodeQL.
 name: codeql
 on:
   push:
@@ -22,7 +23,6 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-      security-events: write
       actions: read
     strategy:
       fail-fast: false
@@ -37,3 +37,6 @@ jobs:
       - uses: github/codeql-action/analyze@v3
         with:
           category: /language:${{ matrix.language }}
+          upload: never
+          output: ${{ runner.temp }}/codeql
+      - run: python3 .github/scripts/codeql-results.py "$RUNNER_TEMP/codeql"

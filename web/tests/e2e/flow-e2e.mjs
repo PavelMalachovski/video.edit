@@ -984,6 +984,12 @@ if (WEBKIT) {
 }
 const page = await context.newPage();
 console.log(`браузер: ${BROWSER}`);
+// запросы, что ещё идут: при сбое видно, чего ждала страница (например, `load` так и не наступил)
+const inflight = new Map();
+page.on('request', (r) => inflight.set(r, Date.now()));
+page.on('requestfinished', (r) => inflight.delete(r));
+page.on('requestfailed', (r) => inflight.delete(r));
+page.on('pageerror', (e) => console.log(`ошибка на странице: ${e.message}`));
 const ctx = { page, browser, tmp: fs.mkdtempSync(path.join(os.tmpdir(), 'vm-e2e-')), jobId: null, fires, state, branchFile, session, until, check };
 let code = 0;
 for (const [name, run] of segments) {
@@ -992,6 +998,10 @@ for (const [name, run] of segments) {
     console.log(`ok ${name}`);
   } catch (e) {
     console.log(`FAIL ${name}: ${e instanceof Error ? e.stack : e}`);
+    const doc = await page.evaluate(() => ({ url: location.href, ready: document.readyState })).catch(() => null);
+    console.log(`страница: ${JSON.stringify(doc)}`);
+    for (const [r, t] of inflight) console.log(`  ещё идёт ${Math.round((Date.now() - t) / 1000)} с: ${r.method()} ${r.resourceType()} ${r.url()}`);
+    if (process.env.E2E_SHOTS) await page.screenshot({ path: path.join(process.env.E2E_SHOTS, `FAIL-${name}.png`), fullPage: true }).catch(() => {});
     code = 1;
     break;
   }

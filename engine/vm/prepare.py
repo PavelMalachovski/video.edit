@@ -210,6 +210,11 @@ def prepare(
         parts = source_parts(job.path("in"))
         if not parts:
             raise ValueError(f"{job.path('in')}: нет видео — сначала python -m vm fetch {job.root}")
+        meta = job.read("job.json") if job.path("job.json").is_file() else {}
+        present = {p.name for p in parts}
+        if lost := [v.get("name") or v.get("file") for v in meta.get("videos") or []
+                    if isinstance(v, dict) and Path(str(v.get("file", ""))).name not in present]:
+            raise ValueError(f"нет видео задачи: {', '.join(map(str, lost))} — сначала python -m vm fetch {job.root}")
         voice = _voice(job)
         step("Готовлю видео", "Привожу к 1080×1920, 30 к/с, SDR" + (" и ставлю озвучку" if voice else ""))
         if voice:

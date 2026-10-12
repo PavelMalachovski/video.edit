@@ -169,3 +169,11 @@ def test_a_short_track_from_its_middle_loops_from_its_start(tmp_path):
     tl = Timeline([(0.0, 10.0)], 1.0)
     snapped, _ = on_beats(job, edit_with(music=music, zooms=[{"t": 3.3, "level": 1.05}]), tl)
     assert snapped["zooms"][0]["t"] == pytest.approx(3.4, abs=0.02)
+
+
+def test_an_insert_does_not_jump_to_a_beat_across_a_join_into_another_piece():
+    """Кусок 5–8 Павел поставил перед 0–3: доля на 3,05 с ролика — уже в куске 0–3. Вставка с 7,9 (2,9 с ролика) к ней
+    не прыгает: на 0,05 с исходника она оказалась бы в другом месте записи (ревью фазы 4)."""
+    edit = {"zooms": [], "inserts": [{"kind": "image", "t0": 7.9, "t1": 8.0}, {"kind": "image", "t0": 5.9, "t1": 7.0}]}
+    out, moved = beats.snap_edit(edit, Timeline([(5.0, 8.0), (0.0, 3.0)], 1.0), [1.0, 3.05])
+    assert [i["t0"] for i in out["inserts"]] == [7.9, 6.0] and moved == 1, out["inserts"]

@@ -158,6 +158,8 @@ def snap_edit(edit: dict, tl: Timeline, times: list[float], limit: float = SNAP)
         back = tl.to_source(beat)
         if beat < tl.teaser_duration or abs(tl.to_final_snap(back) - beat) > 1e-6:
             return t
+        if tl.run_of(back) != tl.run_of(t):  # доля — за стыком с куском из другого места записи (переставлен руками)
+            return t
         if until is not None and back > t and until - back < MIN_SHOWN:
             return t
         moved += 1

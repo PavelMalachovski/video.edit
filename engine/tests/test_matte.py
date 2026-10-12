@@ -51,7 +51,7 @@ def test_matte_frames_are_the_frames_the_cut_takes():
     tl = Timeline([(0.0, 1.0), (1.5, 2.2)], 1.1, teaser=(1.6, 2.0))
     frames = segment_frames(tl)
     assert frames == [(48, 60), (0, 30), (45, 66)]
-    trims = [chain for chain in _cut(tl, False) if "trim=start_frame" in chain]
+    trims = [chain for chain in _cut(tl, False, [0, 2]) if "trim=start_frame" in chain]
     assert [chain.split("trim=start_frame=")[1].split(",")[0] for chain in trims] == [
         f"{a}:end_frame={b}" for a, b in frames
     ]
@@ -59,15 +59,17 @@ def test_matte_frames_are_the_frames_the_cut_takes():
 
 def test_the_teaser_is_read_by_its_own_decoder():
     """Тизер идёт первым, а лежит в исходнике дальше: из общего декодера его кадры пришлось бы ждать, держа в памяти
-    все кадры до него. У тизера свой вход — тот же файл ещё раз."""
+    все кадры до него. У тизера и у отрезков по порядку — разные входы (тот же файл ещё раз), каждый читает свои
+    отрезки по возрастанию исходника."""
     tl = Timeline([(0.0, 1.0), (1.5, 2.2)], 1.1, teaser=(1.6, 2.0))
-    chains = _cut(tl, True, teaser_input=2)
-    assert chains[0].startswith("[0:v]split=2[") and chains[1].startswith("[0:a]asplit=2[")
-    assert any(c.startswith("[2:v]trim=start_frame=48:end_frame=60,") for c in chains)
-    assert any(c.startswith("[2:a]atrim=start_sample=76800:end_sample=96000,") for c in chains)
-    assert not any(c.startswith("[2:") for c in _cut(Timeline([(0.0, 1.0)], 1.0), True, teaser_input=2))
-    only = _cut(Timeline([], 1.0, teaser=(1.0, 2.0)), True, teaser_input=2)  # отрезки keep выпали — ролик из тизера
-    assert not any("split=0" in c or c.startswith("[0:") for c in only), only
+    chains = _cut(tl, True, [0, 2])
+    assert chains[:4] == ["[0:v]split=1[sv0]", "[0:a]asplit=1[sa0]", "[2:v]split=2[sv1][sv2]", "[2:a]asplit=2[sa1][sa2]"]
+    assert "[sv0]trim=start_frame=48:end_frame=60,setpts=PTS-STARTPTS[v0]" in chains
+    assert any(c.startswith("[sa0]atrim=start_sample=76800:end_sample=96000,") for c in chains)
+    plain = _cut(Timeline([(0.0, 1.0)], 1.0), True)  # без тизера — один вход, как всегда
+    assert not any(c.startswith("[2:") for c in plain) and plain[0] == "[0:v]split=1[sv0]"
+    only = _cut(Timeline([], 1.0, teaser=(1.0, 2.0)), True)  # отрезки keep выпали — ролик из тизера
+    assert not any("split=0" in c for c in only), only
 
 
 def count_video(path, seconds: float = 3.0):

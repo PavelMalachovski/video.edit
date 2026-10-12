@@ -116,7 +116,7 @@ def close(pixel, rgb, tol=12) -> bool:
     return all(abs(int(a) - b) <= tol for a, b in zip(pixel, rgb, strict=True))
 
 
-def test_render_end_to_end(tmp_path, sources):
+def test_render_end_to_end(tmp_path, sources, render_shot):
     job = make_job(
         tmp_path,
         sources["vertical"],
@@ -131,6 +131,7 @@ def test_render_end_to_end(tmp_path, sources):
     out = job.path("out")
     result = render(job, out, preset="ultrafast")
     final = out / "final.mp4"
+    render_shot("end-to-end", final)
     info = probe(final)
     video = next(s for s in info["streams"] if s["codec_type"] == "video")
     audio = next(s for s in info["streams"] if s["codec_type"] == "audio")
@@ -225,11 +226,13 @@ def test_teaser_plays_its_phrase_first_then_the_video_from_the_start(tmp_path, s
     assert np.abs(frame(final, 0.1).astype(int)[300:1200] - source[300:1200]).mean() < 12, "первый кадр — из тизера"
 
 
-def test_version_b_is_rendered_without_the_teaser_beside_version_a(tmp_path, sources):
+def test_version_b_is_rendered_without_the_teaser_beside_version_a(tmp_path, sources, render_shot):
     """A/B-тест: версия B — тот же монтаж без тизера, со своим слоем (work/render-b); слой и ролик A остаются."""
     job = make_job(tmp_path, sources["short"], keep=[[0.0, 4.0]], teaser={"t0": 2.0, "t1": 3.0, "sfx": None}, ab="teaser")
     a = render(job, job.path("out"), preset="ultrafast")
     b = render(job, job.path("out"), name="final-b", preset="ultrafast", edit=variant_b(job.read("edit.json")), work="work/render-b")
+    render_shot("ab-teaser-a", job.path("out/final.mp4"))
+    render_shot("ab-teaser-b", job.path("out/final-b.mp4"))
     assert a["durations"]["final"] == pytest.approx(5.0, abs=0.01) and b["durations"]["final"] == pytest.approx(4.0, abs=0.01)
     assert float(probe(job.path("out/final.mp4"))["format"]["duration"]) == pytest.approx(5.0, abs=0.05)
     assert float(probe(job.path("out/final-b.mp4"))["format"]["duration"]) == pytest.approx(4.0, abs=0.05)
@@ -297,10 +300,11 @@ def test_render_version_name(tmp_path, sources):
     assert (job.path("out") / "final-v2.mp4").is_file() and (job.path("out") / "final-v2.srt").is_file()
 
 
-def test_render_landscape_source_gets_blurred_background(tmp_path, sources):
+def test_render_landscape_source_gets_blurred_background(tmp_path, sources, render_shot):
     job = make_job(tmp_path, sources["landscape"], keep=[[0.0, 3.0]])
     result = render(job, job.path("out"), preset="ultrafast")
     final = job.path("out") / "final.mp4"
+    render_shot("landscape", final)
     video = next(s for s in probe(final)["streams"] if s["codec_type"] == "video")
     assert (video["width"], video["height"]) == (1080, 1920)
     top = frame(final, 1.0)[200:400]
@@ -308,7 +312,7 @@ def test_render_landscape_source_gets_blurred_background(tmp_path, sources):
     assert any("размыт" in w for w in result["warnings"])
 
 
-def test_render_fullscreen_insert_covers_the_frame(tmp_path, sources):
+def test_render_fullscreen_insert_covers_the_frame(tmp_path, sources, render_shot):
     job = make_job(
         tmp_path,
         sources["short"],
@@ -318,6 +322,7 @@ def test_render_fullscreen_insert_covers_the_frame(tmp_path, sources):
     )
     render(job, job.path("out"), preset="ultrafast")
     final = job.path("out") / "final.mp4"
+    render_shot("fullscreen-insert", final)
     inside, outside = frame(final, 3.5), frame(final, 5.0)
     assert close(inside[300, 540], (255, 0, 0), tol=25), inside[300, 540]
     assert not close(outside[300, 540], (255, 0, 0), tol=60)
@@ -376,6 +381,22 @@ def test_a_late_teaser_does_not_pile_up_frames_in_memory(tmp_path):
     source = make_source(tmp_path / "long.mp4", 40)
     keep = [[i * 3.3, i * 3.3 + 2.5] for i in range(12)]
     job = make_job(tmp_path, source, keep=keep, teaser={"t0": 36.4, "t1": 38.2, "sfx": None})
+    code = (
+        f"import resource, sys; sys.path.insert(0, {str(Path(__file__).parents[1])!r});"
+        "from vm.job import Job; from vm.render import render;"
+        f"job = Job({str(job.root)!r}); render(job, job.path('out'), preset='ultrafast');"
+        "print(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss)"
+    )
+    peak_kb = int(subprocess.run([sys.executable, "-c", code], check=True, capture_output=True, text=True).stdout.split()[-1])
+    assert peak_kb < 1_500_000, f"peak child memory {peak_kb / 1024:.0f} MB"
+
+
+def test_a_piece_moved_to_the_front_does_not_pile_up_frames_in_memory(tmp_path):
+    """Кусок из конца исходника поставлен в начало (редактор, «Раньше»): кадры кусков до него не копятся в памяти, пока
+    склейка ждёт его (ревью фазы 4: 16 с исходника — 1,1 ГБ, двухминутный ролик — 10–17 ГБ)."""
+    source = make_source(tmp_path / "long.mp4", 40)
+    keep = [[36.3, 38.8]] + [[i * 3.3, i * 3.3 + 2.5] for i in range(11)]
+    job = make_job(tmp_path, source, keep=keep)
     code = (
         f"import resource, sys; sys.path.insert(0, {str(Path(__file__).parents[1])!r});"
         "from vm.job import Job; from vm.render import render;"
@@ -773,13 +794,14 @@ def test_sounds_take_pavels_gains_mutes_and_the_music_place(tmp_path):
     assert notes == []
 
 
-def test_a_piece_moved_in_the_editor_plays_where_pavel_put_it(tmp_path, sources):
+def test_a_piece_moved_in_the_editor_plays_where_pavel_put_it(tmp_path, sources, render_shot):
     """timeline.json: секунда 4–5 исходника поставлена в начало — ролик той же длины начинается с её кадров, а за ней —
     0–4 и 5–6 по порядку."""
     job = make_job(tmp_path, sources["short"])
     job.write("timeline.json", {"rev": 1, "edits": [{"op": "move", "t0": 4.0, "t1": 5.0, "before": 0.0}]})
     result = render(job, job.path("out"), preset="ultrafast")
     final = job.path("out/final.mp4")
+    render_shot("moved-piece", final)
     assert result["durations"]["final"] == pytest.approx(6.0, abs=0.04)
 
     def source_at(t):

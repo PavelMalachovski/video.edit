@@ -513,10 +513,11 @@ def test_the_videos_of_a_job_go_in_their_order_not_by_name(tmp_path):
 
     folder = tmp_path / "in"
     folder.mkdir()
-    for name in ("source-10.mp4", "source-2.mov", "source.mp4", "old.mp4", "source-3.txt"):
+    for name in ("source-10.mp4", "source-2.mov", "source.mp4", "old.mp4", "source-3.MTS", "source.mov.part"):
         (folder / name).write_bytes(b"x")
-    assert [p.name for p in source_parts(folder)] == ["source.mp4", "source-2.mov", "source-10.mp4"]
-    for name in ("source-10.mp4", "source-2.mov", "source.mp4"):
+    # расширение — какое было у Павла (.MTS и т. п. тоже): видео задачи не выпадает молча (ревью фазы 4)
+    assert [p.name for p in source_parts(folder)] == ["source.mp4", "source-2.mov", "source-3.MTS", "source-10.mp4"]
+    for name in ("source-10.mp4", "source-2.mov", "source.mp4", "source-3.MTS"):
         (folder / name).unlink()
     assert [p.name for p in source_parts(folder)] == ["old.mp4"], "не через fetch — все видео папки по имени"
 
@@ -1503,3 +1504,16 @@ def test_render_checks_the_hook_against_the_face_as_big_as_the_strongest_zoom_ma
         assert main(["render", str(job.root)]) == 0
         problems = job.read("result.json")["qa"]["problems"]
         assert any("хук на лице" in p for p in problems) == flagged, (level, problems)
+
+
+def test_prepare_stops_when_a_video_of_the_job_is_missing(tmp_path, monkeypatch, capsys):
+    no_models(monkeypatch, tmp_path)
+    job = Job(tmp_path / "jobs" / "abc")
+    job.path("in").mkdir(parents=True)
+    job.path("in/source.mov").write_bytes(b"x")
+    videos = [{"file": "in/source.mov", "name": "IMG_1.MOV"}, {"file": "in/source-2.mp4", "name": "IMG_2.mp4"}]
+    job.path("job.json").write_text(json.dumps({"brief": "", "videos": videos}), encoding="utf-8")
+    job.path("words.json").write_text("[]\n", encoding="utf-8")  # речь уже разобрана — моделей не нужно
+    assert main(["prepare", str(job.root)]) == 1
+    err = capsys.readouterr().err
+    assert "IMG_2.mp4" in err and "vm fetch" in err, err

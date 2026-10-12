@@ -645,3 +645,27 @@ def test_words_of_a_moved_piece_are_shown_where_the_piece_stands_and_start_their
     assert events[0]["t0"] == pytest.approx(0.0) and events[2]["t0"] == pytest.approx(2.0)
     in_order = build_sub_events(words, Timeline([(0, 2), (6, 8)], 1.0), "karaoke", 3)
     assert in_order[0]["words"] == ["раз", "два"], "по порядку — как всегда"
+
+
+def test_a_word_whose_end_is_cut_ends_with_its_piece_even_when_pieces_are_moved():
+    """Слово 1,8–2,2, кусок 0–2 кончается на 2,0, а за ним Павел поставил 5–8: конец слова — конец его куска, а не
+    начало куска 2,5–4 далеко в ролике (ревью фазы 4: слово висело на экране 1,8–5,1 с)."""
+    words = speech((0.2, 0.6, "ну"), (1.8, 2.2, "привет"), (5.2, 5.6, "пять"), (5.8, 6.2, "шесть."))
+    events = build_sub_events(words, Timeline([(0, 2), (5, 8), (2.5, 4)], 1.0), "karaoke", 3)
+    hello = [e for e in events if "привет" in e["words"]]
+    # слово кончается с куском (2,0); показ держится до следующей фразы — «пять» с 2,2 (меньше HOLD_WITHIN), как всегда
+    assert hello and max(e["t1"] for e in hello) == pytest.approx(2.2, abs=1e-6), [(e["words"], e["t0"], e["t1"]) for e in hello]
+    five = next(e for e in events if "пять" in e["words"])
+    assert five["t0"] == pytest.approx(2.2, abs=1e-6)
+
+
+def test_accent_words_said_in_a_moved_piece_stay_in_the_subtitles_there():
+    """Акцент 1–3,2 с; кусок 2–5 Павел поставил в конец: «очень важное.» звучит там — и там видно субтитрами (акцент
+    стоит только в своей серии, до 2 с), а не пропадает (ревью фазы 4)."""
+    words = speech((1.2, 1.6, "это"), (2.2, 2.6, "очень"), (2.7, 3.1, "важное."), (6.0, 6.4, "дальше"))
+    tl = Timeline([(0, 2), (5.5, 7), (2, 5)], 1.0)
+    events = build_sub_events(words, tl, "karaoke", 3, hidden=[(1.0, 3.2)])
+    shown = {w for e in events for w in e["words"]}
+    assert {"очень", "важное."} <= shown and "это" not in shown
+    late = [e for e in events if "очень" in e["words"]]
+    assert min(e["t0"] for e in late) >= 3.5 - 1e-6, "там, где сказано: кусок 2–5 стоит с 3,5 с"

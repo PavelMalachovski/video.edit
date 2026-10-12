@@ -223,11 +223,11 @@ def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium",
         missing.append("нет речи — ролик без субтитров")
 
     inputs = ["-i", str(source), "-f", "concat", "-safe", "0", "-i", str(layer)]
-    teaser_input = None
-    if tl.teaser:  # тизер — своим декодером того же файла (см. `_cut`)
-        teaser_input = _count(inputs)
+    readers = [0]  # входы исходника: куски не по порядку исходника (тизер, переставленные) — своими (см. `_cut`)
+    for _ in range(1, max(decoders(segment_frames(tl))) + 1):
+        readers.append(_count(inputs))
         inputs += ["-i", str(source)]
-    chains = _cut(tl, info.has_audio, teaser_input)
+    chains = _cut(tl, info.has_audio, readers)
     video = "[vc]"
     if float(edit.get("dim") or 0) > 0:  # фон темнее по маске человека — сразу после склейки, кадр в кадр с ней
         mask, note = _matte(job, tl)
@@ -398,25 +398,47 @@ def segment_frames(tl: Timeline) -> list[tuple[int, int]]:
     return [(round(start * FPS), round(end * FPS)) for start, end, _ in tl.segments]
 
 
-def _cut(tl: Timeline, has_audio: bool, teaser_input: int | None = None) -> list[str]:
+def decoders(plan: list[tuple[int, int]]) -> list[int]:
+    """Какой вход исходника (декодер) читает каждый отрезок финала `plan` (кадры, в порядке склейки): номер с 0. Внутри
+    одного входа отрезки идут только по возрастанию исходника — иначе кадры до отрезка, которого склейка ещё не ждёт,
+    копились бы в памяти. Входов — сколько нужно, не больше: отрезок берёт вход, что прочёл больше всех, но не дальше
+    его начала (раскладка пасьянса); по порядку исходника — один вход, как всегда."""
+    ends: list[int] = []
+    out = []
+    for f0, f1 in plan:
+        ready = [k for k, end in enumerate(ends) if end <= f0]
+        if ready:
+            k = max(ready, key=lambda j: ends[j])
+            ends[k] = f1
+        else:
+            k = len(ends)
+            ends.append(f1)
+        out.append(k)
+    return out
+
+
+def _cut(tl: Timeline, has_audio: bool, readers: list[int] | None = None) -> list[str]:
     """Отрезки keep встык: картинка — по целым кадрам, звук — те же границы в отсчётах, с фейдами 10 мс.
 
-    Исходник читается один раз и раздаётся отрезкам через split/asplit: каждый trim отбрасывает чужие кадры сразу.
-    Если бы каждый trim брал `[0:v]` сам, ffmpeg держал бы в памяти кадры для отрезков, до которых concat ещё
-    не дошёл (≈3 МБ на кадр 1080×1920 — гигабайты на минутном ролике). Тизер по той же причине читается своим входом
-    `teaser_input` (тот же файл ещё раз): он звучит первым, а лежит дальше в исходнике — из общего декодера concat
-    ждал бы его, держа в памяти все кадры до него (тизер на 2:39 — 14 ГБ)."""
+    Каждый вход исходника `readers[k]` (тот же файл, свой декодер) раздаёт свои отрезки через split/asplit: каждый trim
+    отбрасывает чужие кадры сразу. Если бы каждый trim брал `[0:v]` сам, ffmpeg держал бы в памяти кадры для отрезков,
+    до которых concat ещё не дошёл (≈3 МБ на кадр 1080×1920 — гигабайты на минутном ролике). По той же причине отрезки
+    не по порядку исходника — тизер (звучит первым, а лежит дальше; тизер на 2:39 — 14 ГБ) и куски, переставленные
+    Павлом, — читают свои входы: внутри входа — только по возрастанию (`decoders`)."""
     plan = segment_frames(tl)
-    own = teaser_input is not None and tl.teaser is not None  # первый отрезок — тизер со своим входом
-    shared = [i for i in range(len(plan)) if not (own and i == 0)]
+    which = decoders(plan)
+    readers = [0] if readers is None else readers
+    if which and max(which) >= len(readers):
+        raise ValueError(f"_cut: отрезкам нужно входов исходника {max(which) + 1}, а дано {len(readers)}")
     chains = []
-    if shared:  # отрезки keep могли все выпасть (за концом исходника) — тогда ролик из одного тизера
-        chains.append(f"[0:v]split={len(shared)}" + "".join(f"[sv{i}]" for i in shared))
+    for k in sorted(set(which)):
+        mine = [i for i, w in enumerate(which) if w == k]
+        chains.append(f"[{readers[k]}:v]split={len(mine)}" + "".join(f"[sv{i}]" for i in mine))
         if has_audio:
-            chains.append(f"[0:a]asplit={len(shared)}" + "".join(f"[sa{i}]" for i in shared))
+            chains.append(f"[{readers[k]}:a]asplit={len(mine)}" + "".join(f"[sa{i}]" for i in mine))
     pads = []
     for i, (f0, f1) in enumerate(plan):
-        video, audio = (f"[{teaser_input}:v]", f"[{teaser_input}:a]") if i not in shared else (f"[sv{i}]", f"[sa{i}]")
+        video, audio = f"[sv{i}]", f"[sa{i}]"
         length = (f1 - f0) / FPS
         chains.append(f"{video}trim=start_frame={f0}:end_frame={f1},setpts=PTS-STARTPTS[v{i}]")
         if has_audio:

@@ -135,7 +135,8 @@ def _line_counts(total: int, per: int) -> list[int]:
 
 def _spoken(words: list[Word], tl: Timeline, hidden: list[tuple[float, float]] = ()) -> list[_Spoken]:
     """Слова, оставшиеся в финале, по началу в исходнике (при равном — как в `words`); слова тизера — копиями впереди.
-    Слова в промежутках `hidden` на своём месте пропускаются, следующее за ними начинает фразу."""
+    Слова в промежутках `hidden` на своём месте пропускаются, следующее за ними начинает фразу; промежуток — только в
+    серии кусков, где он начинается (там стоит акцент): слова, переставленные в другое место, видны субтитрами."""
     spoken, lead = [], []
     teaser = tl.teaser
     gap = False
@@ -148,13 +149,13 @@ def _spoken(words: list[Word], tl: Timeline, hidden: list[tuple[float, float]] =
             t0 = tl.teaser_final(max(word.t0, teaser[0]))
             t1 = max(t0, tl.teaser_final(min(max(word.t1, word.t0), teaser[1])))
             lead.append(_Spoken(word, t0, t1, lead=True, opens=not lead or after_end))
-        if any(a <= middle <= b for a, b in hidden):
+        if any(a <= middle <= b and tl.run_of(middle) == tl.run_of(a) for a, b in hidden):
             gap = True
             continue
         if tl.to_final(middle) is None:
             continue  # середина вырезана или лежит за концом ролика
-        t0 = tl.to_final_snap(word.t0)
-        item = _Spoken(word, t0, max(t0, tl.to_final_snap(word.t1)), fresh=gap, opens=not spoken or after_end)
+        t0, t1 = tl.span(word.t0, max(word.t1, word.t0))  # конец в вырезанном — конец своего куска, а не чужого
+        item = _Spoken(word, t0, max(t0, t1), fresh=gap, opens=not spoken or after_end)
         spoken.append((tl.run_of(middle), item))
         gap = False
     # по месту в ролике: куски могут стоять не по порядку исходника (переставлены руками); на стыке серий кусков —

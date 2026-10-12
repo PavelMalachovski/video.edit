@@ -465,3 +465,15 @@ def test_an_insert_stays_with_its_piece_when_the_next_piece_is_moved_away():
     moved = insert_spans(edit, Timeline([(0, 2), (6, 8), (2.5, 4)], 1.0))
     assert in_order == [(0, 6, 75)], "по порядку — до 3 с исходника (2,5 с ролика), как всегда"
     assert moved == [(0, 6, 60)]
+
+
+def test_a_piece_moved_to_the_front_does_not_stretch_the_hook_or_push_its_insert_away():
+    """Хук до 2,5 с исходника; Павел поставил кусок 5–10 первым. Хук держится столько же, сколько по порядку
+    исходника (2,5 с), а не до места 2,5 с в ролике (7,5 с); вставка 6–8 из переставленного куска (её место —
+    1–3 с ролика) — сразу после хука, а не на 7,5–9,0 поверх чужого куска (ревью фазы 4)."""
+    edit = {"hook": {"text": "Хук", "until": 2.5}, "inserts": [{"kind": "image", "t0": 6.0, "t1": 8.0}]}
+    moved = Timeline([(5, 10), (0, 4)], 1.0)
+    assert insert_spans(edit, moved) == [(0, 75, 120)]
+    events = build_overlay_events({**edit, "words": [], "cta": None, "inserts": [], "style": STYLE}, moved)
+    hooked = [e["t1"] for e in events if e["state"].get("hook")]
+    assert max(hooked) == pytest.approx(2.5, abs=1 / FPS)

@@ -239,3 +239,15 @@ def test_zoom_keeps_face_point_fixed(tmp_path):
     # точка вдали от лица уезжает от него на ~8 % расстояния — зум правда есть
     moved = centroid(after, (far[0] + (far[0] - fx) * 0.08, far[1] + (far[1] - fy) * 0.08))
     assert moved[0] - far[0] > 30 and moved[1] - far[1] > 80, moved
+
+
+def test_a_moved_piece_keeps_the_shot_it_has_in_the_recording():
+    """Смены крупности: с 0 — общий (1,0), с 3 — крупный (1,3), с 6,5 — общий. Павел поставил кусок 3,1–5 первым: момент
+    6,2 исходника (крупный по порядку исходника) — тоже крупный, а не общий от куска перед ним (ревью фазы 4)."""
+    zooms = [{"t": 0.0, "level": 1.0, "over": 0}, {"t": 3.0, "level": 1.3, "over": 0}, {"t": 6.5, "level": 1.0, "over": 0}]
+    in_order = Timeline([(0, 2.9), (3.1, 5), (5.1, 8)], 1.0)
+    moved = Timeline([(3.1, 5), (0, 2.9), (5.1, 8)], 1.0)
+    for tl in (in_order, moved):
+        for source, level in ((6.2, 1.3), (1.0, 1.0), (4.0, 1.3), (7.0, 1.0)):
+            assert zoom_at(zooms, tl, tl.to_final(source)) == pytest.approx(level), (tl.segments, source)
+    assert zoom_filter(zooms, in_order, {"x": 0.5, "y": 0.4}) == zoom_filter(zooms, Timeline([(0, 2.9), (3.1, 5), (5.1, 8)], 1.0), {"x": 0.5, "y": 0.4})

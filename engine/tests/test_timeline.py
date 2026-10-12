@@ -273,3 +273,12 @@ def test_timeline_matches_the_shared_fixture(case):
 def test_timeline_refuses_what_the_shared_fixture_refuses(bad):
     with pytest.raises(ValueError):
         Timeline(bad["keep"], bad["speed"], bad.get("teaser"))
+
+
+def test_the_same_pieces_in_source_order():
+    """Та же шкала, но по порядку исходника: так длится хук и так считаются ступени зума у переставленных кусков."""
+    tl = Timeline([(6, 8), (0, 2), (3, 5)], 1.25, teaser=(3.5, 4.5))
+    plain = tl.in_source_order()
+    assert [(s, e) for s, e, _ in plain.segments] == [(3.5, 4.5), (0, 2), (3, 5), (6, 8)]
+    assert plain.duration == pytest.approx(tl.duration) and plain.teaser == tl.teaser
+    assert plain.to_final(6.5) == pytest.approx((1 + 4 + 0.5) / 1.25)

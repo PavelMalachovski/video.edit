@@ -139,6 +139,11 @@ class Timeline:
                 return self._final(k, self._starts[k] if head <= tail else self._ends[k])
         return self.to_final_snap(t)
 
+    def in_source_order(self) -> "Timeline":
+        """Те же отрезки (и тизер, и скорость), но по порядку исходника — каким ролик был до перестановок руками: так
+        длится хук и так зум считает крупность переставленного куска."""
+        return Timeline(sorted(zip(self._starts, self._ends, strict=True)), self._speed, teaser=self._teaser)
+
     def run_of(self, t: float) -> int | None:
         """Серия отрезка, где момент исходника `t` (вырезанный — отрезка, что идёт за ним в исходнике); после всего
         исходника — None."""

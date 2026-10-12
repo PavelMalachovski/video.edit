@@ -62,12 +62,14 @@
 - Место и размер вставок Павла: `engine/vm/style.py` (`placed_inserts`) и `web/lib/style.ts` (`placedInserts`;
   рамку в безопасной зоне считают `resizeBox` и `moveBox`), общая фикстура `engine/tests/fixtures/insert-boxes.json`.
 - Группы субтитров: `engine/vm/subs.py` (`build_sub_events`, блоки и строки soft) и `web/lib/style.ts` (`sampleState`).
-- Шкала времени исходник ↔ финал: `engine/vm/timeline.py` (`Timeline`) и `web/lib/timeline.ts`, общая фикстура
-  `engine/tests/fixtures/timeline-map.json`.
+- Шкала времени исходник ↔ финал: `engine/vm/timeline.py` (`Timeline`; `keep` — в порядке финала, серии кусков —
+  `span`, `run_of`) и `web/lib/timeline.ts` (`span`, `runOf`), общая фикстура `engine/tests/fixtures/timeline-map.json`;
+  события по сериям — `overlay.py`, `subs.py` (`_spoken`), `render.py` (`look_windows`) и `draftTracks` в `web/lib/tracks.ts`.
 - Файлы редактора (бета): `engine/vm/editor.py` и схема `engine/vm/schemas/editor.json` ↔ `web/lib/tracks.ts`
   (`parseMedia`, `parseDraft`) и `web/lib/editordata.ts` (`MEDIA_NAMES` — что плеер берёт из релиза).
-- Правки руками из редактора (`timeline.json`): `engine/vm/edits.py` (`apply_keep`, `apply`) и `web/lib/edits.ts`
-  (`applyKeep`, `parseTimeline`, `LIMITS` — пределы схемы `engine/vm/schemas/timeline.json`), общая фикстура
+- Правки руками из редактора (`timeline.json`): `engine/vm/edits.py` (`apply_keep` — cut, restore с `next`, move,
+  split; `apply`) и `web/lib/edits.ts` (`applyKeep`, `parseTimeline`, `LIMITS` — пределы схемы
+  `engine/vm/schemas/timeline.json`), общая фикстура
   `engine/tests/fixtures/edits.json`; ключи громкости звуков — `_sounds` в `engine/vm/render.py` и `draftTracks` в
   `web/lib/tracks.ts`; запись в `fix.json` из редактора (`timeline`, `style`, `styleFrom`) — `web/lib/jobfiles.ts`,
   SKILL.md (шаг fix) и `vm style --onto` (`merge_style` в `engine/vm/style.py`).

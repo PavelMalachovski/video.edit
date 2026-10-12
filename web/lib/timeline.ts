@@ -96,6 +96,11 @@ export class Timeline {
     return this.#duration;
   }
 
+  /** Во сколько раз финал быстрее исходника. */
+  get speed(): number {
+    return this.#speed;
+  }
+
   /** Тизер — `[начало, конец]` в исходнике; нет — null. */
   get teaser(): readonly [number, number] | null {
     return this.#teaser;

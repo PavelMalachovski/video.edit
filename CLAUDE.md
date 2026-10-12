@@ -65,6 +65,26 @@
 - Место и размер вставок Павла: `engine/vm/style.py` (`placed_inserts`) и `web/lib/style.ts` (`placedInserts`;
   рамку в безопасной зоне считают `resizeBox` и `moveBox`), общая фикстура `engine/tests/fixtures/insert-boxes.json`.
 - Группы субтитров: `engine/vm/subs.py` (`build_sub_events`, блоки и строки soft) и `web/lib/style.ts` (`sampleState`).
+- Слой ролика (кадр редактора = финал): `engine/vm/subs.py` (`build_sub_events`) и `engine/vm/overlay.py`
+  (`build_overlay_events`, `insert_spans`, `_hook_end`) ↔ `web/lib/subs.ts` (`buildSubEvents`, `subBlocks`) и
+  `web/lib/overlay.ts` (`buildOverlayEvents`, `layerBlocks`, `insertSpans`, `hookEnd`); шкала монтажа на целых кадрах —
+  `render.timeline` ↔ `renderTimeline`. Общая фикстура `engine/tests/fixtures/overlay-events.json` — её пишет движок:
+  `cd engine && python3 -m tests.shared_events` (устарела — падает быстрый тест движка).
+- Картинка ролика в редакторе: `engine/vm/zoom.py` (`zoom_at`, `cut_frame`), `engine/vm/transitions.py` (`marks`, `HALF`,
+  `PUNCH`, `BLUR`), `look_windows` в `engine/vm/render.py` ↔ `web/lib/zoom.ts` и `web/lib/picture.ts` (`pictureAt`,
+  `BW_FILTER` — ч/б с цветокором на прокси без него), раздел `look` той же фикстуры; шкала времени ролика —
+  `render._layers` ↔ `Bar` в `web/app/jobs/[id]/editor/frame.tsx`.
+- Доли музыки: `engine/vm/beats.py` (`beat_times`, `snap_edit`, `played`) и `beats.json` (пишет `render.on_beats`) ↔
+  `web/lib/beats.ts` (`beatTimes`, `snapEdit`, `musicBeats`) и `parseBeats` в `web/lib/editordata.ts`, раздел `beats`.
+- Текст и вставки руками (`timeline.json` → `text`, `words`): `engine/vm/edits.py` (`apply_text`) и схема
+  `engine/vm/schemas/timeline.json` ↔ `web/lib/edits.ts` (`applyText`, `setHook`, `setCta`, `setBlock`, `setWord`,
+  `blockFix`, `parseTimeline`, `LIMITS`), раздел `text`; выключенные вставки (`off`) — `insert_spans`, `snap_edit`,
+  `_sounds`, `fonts.texts` ↔ `insertSpans`, `snapEdit`, `draftTracks`; эмодзи в словах субтитров — `fonts.check` ↔
+  `hasEmoji` (правило `mayHaveEmoji` из `template/emoji.js`); что примет движок старой задачи — `abilitiesOf` и
+  `refusedBy` в `web/lib/editordata.ts` (по схеме в её ветке). Блоки на дорожках ↔ время исходника — `web/lib/blocks.ts`
+  (`sourceSpan`, `hookUntil`: как `Timeline.span` и `_hook_end`).
+- Картинки слоя в редакторе: `render._resolve` (от папки задачи, потом от корня) ↔ `layerUrl` в `web/lib/editordata.ts`
+  и маршруты `/api/jobs/[id]/file` и `/api/jobs/[id]/upload`.
 - Шкала времени исходник ↔ финал: `engine/vm/timeline.py` (`Timeline`; `keep` — в порядке финала, серии кусков —
   `span`, `run_of`; `in_source_order` — та же шкала до перестановок) и `web/lib/timeline.ts` (`span`, `runOf`,
   `inSourceOrder`), общая фикстура `engine/tests/fixtures/timeline-map.json`; события по сериям — `overlay.py` (хук —
@@ -82,11 +102,13 @@
   `engine/vm/schemas/timeline.json`), общая фикстура
   `engine/tests/fixtures/edits.json`; ключи громкости звуков — `_sounds` в `engine/vm/render.py` и `draftTracks` в
   `web/lib/tracks.ts`; запись в `fix.json` из редактора (`timeline`, `style`, `styleFrom`) — `web/lib/jobfiles.ts`,
-  SKILL.md (шаг fix) и `vm style --onto` (`merge_style` в `engine/vm/style.py`).
+  SKILL.md (шаг fix) и `vm style --onto` (`merge_style` в `engine/vm/style.py` ↔ `mergeStyle` в `web/lib/style.ts`, раздел
+  `merge` фикстуры `style-merge.json`).
 - Звук на прослушивании в редакторе: `engine/vm/audio.py` (`VOICE_LUFS`, `MUSIC_BOOST`, `SFX_GAIN_DB`, `FADE_IN`,
   `FADE_OUT`, `MIN_MUSIC`, повтор музыки, громкость трека — с места `from`) и `web/lib/sound.ts`; голос прокси — на `VOICE_LUFS` (`engine/vm/editor.py`); какие звуки
   страница отдаёт — `SOUNDS` и `_resolve` в `engine/vm/render.py` ↔ `audioType` и `audioPaths` в `web/lib/jobs.ts`.
-- Анимации стиля эталона: `template/overlay.js` (`SOFT`, `ACC` — сколько длится появление) и `engine/vm/overlay.py`
+- Анимации стиля эталона: `template/overlay.js` (`SOFT`, `ACC` — сколько длится появление), `engine/vm/overlay.py` и
+  `web/lib/overlay.ts`
   (`SUB_APPEAR`, `HOOK_APPEAR`, `ACCENT_ANIM`, `TYPE_CPS` — сколько кадров давать им время, с запасом).
 - Файлы задачи: схемы `engine/vm/schemas/*.json` и типы `web/lib/jobfiles.ts`; кто какой файл пишет — SKILL.md,
   часть 2 («Файлы задачи», «Страница»).

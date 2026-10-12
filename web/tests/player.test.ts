@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { advance, locate } from '../lib/player.ts';
+import { advance, locate, stillSource, tailAt } from '../lib/player.ts';
 import { draftTracks, type Draft } from '../lib/tracks.ts';
 
 const near = (a: number, b: number) => Math.abs(a - b) < 1e-6;
@@ -39,4 +39,13 @@ test('playing: from a piece to the next one right after it in the source (Pavel\
   assert.ok(on.index === 1 && on.seek === undefined && near(on.t, split[1].t0), JSON.stringify(on));
   const gap = advance(split, 1.25, 1, 2.0);
   assert.ok(gap.index === 2 && gap.seek === 3, 'через вырезанное — как раньше, с перемоткой');
+});
+
+test('the tail plays after the pieces: the clock runs by itself to the end of the card, the picture holds the last frame', () => {
+  assert.deepEqual(tailAt(4, 6.5, 1000, 1000), { t: 4, end: false });
+  const mid = tailAt(4, 6.5, 1000, 2200);
+  assert.ok(near(mid.t, 5.2) && !mid.end);
+  assert.deepEqual(tailAt(4, 6.5, 1000, 9000), { t: 6.5, end: true });
+  assert.ok(near(stillSource(video), 5 - 1 / 60), 'последний кадр — чуть раньше конца куска');
+  assert.equal(stillSource([]), 0);
 });

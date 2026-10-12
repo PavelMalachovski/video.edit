@@ -3,13 +3,18 @@
 // (timeline.json) — поверх черновика, как их положит движок. И файлы редактора от vm prepare (editor.json): прокси,
 // лента кадров, волна.
 import { applyKeep, SLIVER, type HandEdits } from './edits.ts';
+import type { StyleSpec } from './jobfiles.ts';
+import type { AccentSpec } from './overlay.ts';
 import { Timeline } from './timeline.ts';
 
 type Span = { t0: number; t1: number };
 export type DraftWord = Span & { text: string };
 export type DraftInsert = Partial<Span> & {
-  kind: string; src?: string; question?: string; id?: string; text?: string; x?: number; y?: number; w?: number; sfx?: string | null;
+  kind: string; src?: string; question?: string; id?: string; text?: string; title?: string; x?: number; y?: number; w?: number; sfx?: string | null;
+  params?: Record<string, unknown>;
 };
+/** Финальная карточка: сколько длится, звук появления, призыв, ник и логотип (путь от папки задачи). */
+export type DraftEnd = { seconds: number; sfx?: string | null; lines?: string[]; handle?: string | null; logo?: string | null };
 /** То из edit.json, что показывает редактор. */
 export type Draft = {
   speed: number;
@@ -18,14 +23,15 @@ export type Draft = {
   hook: { text: string; until: number } | null;
   cta: (Span & { lines: string[]; word: string }) | null;
   inserts: DraftInsert[];
-  accents?: (Span & { lines: { text: string }[] })[];
+  accents?: AccentSpec[];
   looks?: (Span & { look: string })[];
   zooms: { t: number; level: number; over?: number }[];
   music: { file: string; gainDb: number; at?: number; from?: number; fadeIn?: number; fadeOut?: number } | null;
   teaser?: (Span & { sfx?: string | null }) | null;
   transitions?: { t: number; kind: string; sfx?: string | null }[];
   hold?: number;
-  end?: { seconds: number; sfx?: string | null } | null;
+  end?: DraftEnd | null;
+  style?: StyleSpec | null; // стиль смонтированного ролика (vm style и правки текстом) — им его нарисует монтаж
 };
 
 /** editor.json: длина исходника, прокси (из релиза), лента кадров и волна (base64 байтов 0–255, perS в секунду). */
@@ -72,7 +78,8 @@ export function parseDraft(raw: unknown): Draft | null {
   if (!raw.keep.every((k) => Array.isArray(k) && k.length === 2 && isNum(k[0]) && isNum(k[1]))) return null;
   if (!raw.words.every((w) => isSpan(w) && isStr(w.text))) return null;
   const list = <T>(x: unknown, ok: (y: unknown) => boolean): T[] => (Array.isArray(x) ? (x.filter(ok) as T[]) : []);
-  const hook = isObj(raw.hook) && isStr(raw.hook.text) && isNum(raw.hook.until) ? { text: raw.hook.text, until: raw.hook.until } : null;
+  // хук, титр, акценты, вставки, карточка — как в edit.json (правки руками сверяют их с тем, что было)
+  const hook = isObj(raw.hook) && isStr(raw.hook.text) && isNum(raw.hook.until) ? (raw.hook as Draft['hook']) : null;
   const cta = isSpan(raw.cta) && Array.isArray(raw.cta.lines) && isStr(raw.cta.word) ? (raw.cta as Draft['cta']) : null;
   const place = (m: Record<string, unknown>) => Object.fromEntries(MUSIC_PLACE.filter((k) => isNum(m[k])).map((k) => [k, m[k] as number]));
   const music = isObj(raw.music) && isStr(raw.music.file) && isNum(raw.music.gainDb)
@@ -85,14 +92,15 @@ export function parseDraft(raw: unknown): Draft | null {
     hook,
     cta,
     inserts: list(raw.inserts, (i) => isObj(i) && isStr(i.kind)),
-    accents: list(raw.accents, (a) => isSpan(a) && Array.isArray(a.lines)),
+    accents: list(raw.accents, (a) => isSpan(a) && Array.isArray(a.lines) && a.lines.every((l) => isObj(l) && isStr(l.text)) && isNum(a.x) && isNum(a.y)),
     looks: list(raw.looks, (l) => isSpan(l) && isStr(l.look)),
     zooms: list(raw.zooms, (z) => isObj(z) && isNum(z.t) && isNum(z.level)),
     music,
     teaser: isSpan(raw.teaser) ? { t0: raw.teaser.t0, t1: raw.teaser.t1, sfx: sfx(raw.teaser.sfx) } : null,
     transitions: list(raw.transitions, (x) => isObj(x) && isNum(x.t) && isStr(x.kind)),
     hold: isNum(raw.hold) ? raw.hold : 0,
-    end: isObj(raw.end) && isNum(raw.end.seconds) ? { seconds: raw.end.seconds, sfx: sfx(raw.end.sfx) } : null,
+    end: isObj(raw.end) && isNum(raw.end.seconds) ? { ...(raw.end as DraftEnd), sfx: sfx(raw.end.sfx) } : null,
+    style: isStyle(raw.style) ? raw.style : null,
   };
   try {
     timelineOf(draft);
@@ -100,6 +108,11 @@ export function parseDraft(raw: unknown): Draft | null {
     return null;
   }
   return draft;
+}
+
+/** Стиль из edit.json, по которому слой строит события: режим и число слов субтитров, вид хука (остальное читает шаблон). */
+function isStyle(x: unknown): x is StyleSpec {
+  return isObj(x) && isObj(x.subtitles) && isStr(x.subtitles.mode) && isNum(x.subtitles.words) && isObj(x.hook) && isStr(x.hook.mode);
 }
 
 /** editor.json → данные; не та форма — null. */

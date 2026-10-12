@@ -28,3 +28,17 @@ export function advance(video: Clip[], speed: number, index: number, current: nu
   }
   return { index, t: Math.min(c.t1, c.t0 + Math.max(0, current - (c.src0 as number)) / speed) };
 }
+
+/** Хвост ролика — стоп-кадр и финальная карточка после кусков (`duration` — конец кусков, `full` — конец ролика): видео
+ *  стоит на последнем кадре, часы идут сами от `startedMs` (когда хвост начался бы, мс `performance.now`). */
+export function tailAt(duration: number, full: number, startedMs: number, nowMs: number): { t: number; end: boolean } {
+  const t = duration + Math.max(0, nowMs - startedMs) / 1000;
+  return t >= full ? { t: full, end: true } : { t, end: false };
+}
+
+/** Время исходника последнего кадра ролика — его держит стоп-кадр (сам конец куска — уже следующий кадр исходника). */
+export function stillSource(video: Clip[]): number {
+  const c = video.at(-1);
+  if (!c) return 0;
+  return Math.max(c.src0 as number, (c.src1 as number) - EDGE);
+}

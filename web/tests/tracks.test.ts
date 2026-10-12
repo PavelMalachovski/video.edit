@@ -21,7 +21,7 @@ const DRAFT: Draft = {
   hook: { text: 'Как я снимаю', until: 3.2 },
   cta: null,
   inserts: [{ kind: 'image', question: 'insert-1', t0: 3.0, t1: 4.0, x: 70, y: 500, w: 250 }, { kind: 'text', id: 's1', text: '3 ошибки', t0: 1.0, t1: 1.5 }],
-  accents: [{ t0: 3.45, t1: 3.95, lines: [{ text: 'на' }] }],
+  accents: [{ t0: 3.45, t1: 3.95, lines: [{ text: 'на' }], x: 540, y: 900 }],
   looks: [{ t0: 0.5, t1: 1.0, look: 'bw' }],
   zooms: [],
   music: { file: 'assets/music/Calm Morning.mp3', gainDb: -14 },
@@ -284,7 +284,7 @@ test('a word whose end is cut ends with its piece, and accent words said in a mo
   assert.ok(hello && near(hello.t1, 2), `конец — с куском, а не у далёкого 2,5–4: ${JSON.stringify(hello)}`);
 
   const accent: Draft = { ...DRAFT, speed: 1, keep: [[0, 2], [5.5, 7], [2, 5]], looks: [], transitions: [], inserts: [],
-    accents: [{ t0: 1, t1: 3.2, lines: [{ text: 'это очень важное' }] }],
+    accents: [{ t0: 1, t1: 3.2, lines: [{ text: 'это очень важное' }], x: 540, y: 900 }],
     words: [{ t0: 1.2, t1: 1.6, text: 'это' }, { t0: 2.2, t1: 2.6, text: 'очень' }, { t0: 2.7, t1: 3.1, text: 'важное.' }, { t0: 6, t1: 6.4, text: 'дальше' }] };
   const shown = draftTracks(accent).subtitles.flatMap((c) => c.words?.map((w) => w.text) ?? []);
   assert.ok(shown.includes('очень') && shown.includes('важное.') && !shown.includes('это'), JSON.stringify(shown));

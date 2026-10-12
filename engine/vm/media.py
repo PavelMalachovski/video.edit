@@ -419,6 +419,11 @@ def _frame(src, t: float, out: Path, vf: str | None = None) -> Path:
     return out
 
 
+# время кадра — по его номеру, в мкс: так его считают и маска, и склейка перед maskedmerge — пары совпадают до единицы
+# (в мс контейнера маски 1/30 с не записать, а после concat время «дрожит» на тысячные кадра)
+FRAME_TIME = f"settb=AVTB,setpts=N/{FPS}/TB"
+
+
 def dim_filter(video: str, mask: str, amount: float, width: int, height: int, out: str) -> str:
     """Граф ffmpeg затемнения фона: где маска 0 (фон) — яркость и цвет × (1 − `amount`), где 255 (человек) — кадр как
     был, между ними — смесь. Всё в YUV 4:2:0 исходника (диапазон tv): без перевода в RGB и обратно цвет человека не
@@ -427,7 +432,7 @@ def dim_filter(video: str, mask: str, amount: float, width: int, height: int, ou
     k = f"{1 - amount:.4f}"
     cw, ch = (width + 1) // 2, (height + 1) // 2
     return (
-        f"{mask}format=gray,split=3[dimy0][dimu0][dimv0];[dimy0]scale={width}:{height}:flags=bicubic[dimy];"
+        f"{mask}{FRAME_TIME},format=gray,split=3[dimy0][dimu0][dimv0];[dimy0]scale={width}:{height}:flags=bicubic[dimy];"
         f"[dimu0]scale={cw}:{ch}:flags=bicubic[dimu];[dimv0]scale={cw}:{ch}:flags=bicubic[dimv];"
         f"[dimy][dimu][dimv]mergeplanes=0x001020:yuv420p[dimmask];"
         f"{video}format=yuv420p,split[dima][dimb];"

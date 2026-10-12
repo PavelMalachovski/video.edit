@@ -16,6 +16,21 @@ export type Drag =
   // тизер), max — позже не кончается (конец ролика)
   | { kind: 'block'; ref: BlockRef; mode: 'move' | 'start' | 'end'; x0: number; t0: number; t1: number; a: number; b: number; floor: number; max: number; moved: boolean };
 
+/** Щелчок, которым кончилось перетаскивание, — не выбор (кусок уже на другом месте). Но пальцем после перетаскивания
+ *  браузер щелчка не шлёт — и запрет съел бы следующий щелчок; поэтому любое новое нажатие (`down`) — новый жест. */
+export function clickGuard(): { down(): void; dragged(): void; click(): boolean } {
+  let swallow = false;
+  return {
+    down: () => { swallow = false; },
+    dragged: () => { swallow = true; },
+    click: () => {
+      const ok = !swallow;
+      swallow = false;
+      return ok;
+    },
+  };
+}
+
 /** Блок не короче этого, с ролика. */
 export const MIN_BLOCK = 0.2;
 
@@ -39,7 +54,7 @@ export function dragTo(d: Drag, clientX: number, v: DragView): Drag {
   if (d.kind === 'block') {
     const dt = dx / v.px;
     const near = (t: number) => snapTo(t, v.finalEdges ?? [], v.snapPx / v.px);
-    const len = d.t1 - d.t0;
+    const len = Math.max(MIN_BLOCK, d.t1 - d.t0); // места в речи ещё нет (вставка под хуком) — двигаем короткий блок
     if (d.mode === 'move') {
       const a = Math.min(Math.max(d.floor, near(d.t0 + dt)), Math.max(d.floor, d.max - len));
       return { ...d, a, b: a + len, moved };

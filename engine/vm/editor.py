@@ -161,7 +161,7 @@ def make(job: Job) -> dict:
     film = _film(source, job.path("film.jpg"), duration)
     peaks = _peaks(source, job.path("work"), duration) if info.has_audio else bytes(max(1, math.ceil(duration * PEAKS_PER_S)))
     data = {
-        "duration": round(duration, 3),
+        "duration": round(duration, 6),  # как у ffprobe: последний кадр исходника страница считает как render.timeline
         "proxy": proxy,
         "film": film,
         "peaks": {"perS": PEAKS_PER_S, "data": base64.b64encode(peaks).decode("ascii")},

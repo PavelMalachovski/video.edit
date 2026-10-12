@@ -1018,7 +1018,8 @@ const segments = [
       accents: [{ t0: 1.0, t1: 1.15, x: 540, y: 900, lines: [{ text: 'мой' }] }],
       inserts: [
         { kind: 'sticker', text: '3 ошибки', t0: 0.9, t1: 1.3, x: 120, y: 1100, w: 400 },
-        { kind: 'image', src: 'in/logo.png', t0: 1.7, t1: 2.2, x: 600, y: 300, w: 300, sfx: 'assets/music/lofi.wav' },
+        // картинка, которую Павел загрузил с видео (сегмент upload): в релизе она кусками upload-i1.png.part-NNNNN
+        { kind: 'image', src: 'in/uploads/upload-i1.png', t0: 1.7, t1: 2.2, x: 600, y: 300, w: 300, sfx: 'assets/music/lofi.wav' },
       ],
       looks: [{ t0: 1.6, t1: 2.0, look: 'bw' }], zooms: [{ t: 0.9, level: 1.12 }], face: { x: 0.5, y: 0.4 },
       transitions: [{ t: 1.6, kind: 'flash' }],
@@ -1026,7 +1027,7 @@ const segments = [
     };
     engineValidate('edit.json', edit);
     await session(ctx, {
-      'edit.json': edit, 'in/logo.png': PNG, 'timeline.json': null, // правки прошлого сегмента — к другим кускам
+      'edit.json': edit, 'timeline.json': null, // правки прошлого сегмента — к другим кускам
       'status.json': { state: 'rendered', phase: 'Загружаю', message: 'Правка 3 собрана', at: iso() },
       'out/released.json': { ...released, assets: [...released.assets, { name: 'final-v3.mp4', id: v3.id, size: v3.size }], at: iso() },
     });
@@ -1063,6 +1064,13 @@ const segments = [
     await until(async () => Boolean((await layerState()).accent), 3000, 'на кадре — акцент');
     check(!(await layerState()).sub, 'пока акцент — субтитров нет (слова акцента и есть субтитры)');
     await shot(page, 'editor-text');
+    // картинка Павла — на кадре (страница отдаёт её из кусков загрузки), слой нарисован без ошибки
+    await seekTo(1.6);
+    await until(async () => ((await layerState()).inserts ?? []).some((i) => i.n === 1), 3000, 'картинка Павла в слое');
+    await page.waitForTimeout(1500); // шаблон грузит картинку — сбой показал бы ошибку слоя
+    check(await page.locator('.preview-error').count() === 0, `слой не нарисовался: ${await page.locator('.preview-error').allTextContents()}`);
+    check(await page.frameLocator('.ed-layer iframe').locator('img').evaluateAll((els) => els.some((el) => el.complete && el.naturalWidth > 0)),
+      'картинка Павла загрузилась в кадр');
 
     /** Тянуть (мышью) точку `x` блока на `dx` px. */
     const drag = async (x, y, dx) => {
@@ -1140,8 +1148,11 @@ const segments = [
       'import json, sys', 'from vm.edits import apply', 'from vm.overlay import build_overlay_events', 'from vm.render import timeline',
       'd = json.load(sys.stdin)', 'e = apply(d["edit"], d["timeline"], d["duration"])', 'print(json.dumps(build_overlay_events(e, timeline(e, d["duration"]))))',
     ].join('\n')], { input: JSON.stringify({ edit, timeline: tl, duration: SOURCE }), env: { ...process.env, PYTHONPATH: path.resolve('../engine') } }).toString());
-    const plain = (state) => JSON.parse(JSON.stringify(state, (k, v) => (k === 'src' && typeof v === 'string' && v.startsWith('/api/')
-      ? new URL(v, APP).searchParams.get('path') : v)));
+    const plain = (state) => JSON.parse(JSON.stringify(state, (k, v) => {
+      if (k !== 'src' || typeof v !== 'string' || !v.startsWith('/api/')) return v;
+      const q = new URL(v, APP).searchParams; // адрес страницы → путь, как в edit.json
+      return q.get('path') ?? `in/uploads/${q.get('name')}`;
+    }));
     for (const at of [0.3, 0.6, 1.0, 1.55, 2.0, 2.5, 3.3]) {
       await seekTo(at);
       const shown = await layerState();

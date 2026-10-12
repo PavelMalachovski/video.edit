@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { advance, locate, stillSource, tailAt } from '../lib/player.ts';
+import { advance, afterEnded, locate, stillSource, tailAt } from '../lib/player.ts';
 import { draftTracks, type Draft } from '../lib/tracks.ts';
 
 const near = (a: number, b: number) => Math.abs(a - b) < 1e-6;
@@ -48,4 +48,26 @@ test('the tail plays after the pieces: the clock runs by itself to the end of th
   assert.deepEqual(tailAt(4, 6.5, 1000, 9000), { t: 6.5, end: true });
   assert.ok(near(stillSource(video), 5 - 1 / 60), 'последний кадр — чуть раньше конца куска');
   assert.equal(stillSource([]), 0);
+});
+
+test('the player plays the pieces from their edges on whole frames, as the render cuts them, not from keep as written', () => {
+  // keep 0,325 — кадр 9,75 → 10 (половина — к чётному): ролик начинается с кадра 10 исходника (0,3333 с)
+  const t = draftTracks({ speed: 1, keep: [[0.325, 2.917], [3.55, 5.0]], words: [], hook: null, cta: null, inserts: [], zooms: [], music: null }, { sourceDuration: 6 });
+  const [a, b] = t.video;
+  assert.equal(a.src0, 0.325, 'по краям keep — правки');
+  assert.ok(Math.abs((a.play0 as number) - 10 / 30) < 1e-9 && Math.abs((a.play1 as number) - 88 / 30) < 1e-9, `${a.play0} ${a.play1}`);
+  assert.ok(Math.abs(locate(t.video, 1, 0).src - 10 / 30) < 1e-9, 'начало ролика — кадр 10 исходника');
+  assert.ok(Math.abs(locate(t.video, 1, 0.5).src - (10 / 30 + 0.5)) < 1e-9);
+  const step = advance(t.video, 1, 0, 88 / 30 - 0.001);
+  assert.equal(step.index, 1, 'кусок кончается на своём целом кадре');
+  assert.ok(Math.abs((step.seek as number) - (b.play0 as number)) < 1e-9);
+  assert.ok(Math.abs(stillSource(t.video) - (150 / 30 - 1 / 60)) < 1e-9, 'стоп-кадр — последний кадр по монтажу');
+});
+
+test('the file ends before the video does (the last piece of the recording moved earlier): the next piece plays on from its start', () => {
+  // кусок 3–5 (конец записи) переставлен в начало: файл кончается на нём, а дальше — 0,5–2
+  const moved = draftTracks({ ...DRAFT, teaser: null, keep: [[3, 5], [0.5, 2]] }, { sourceDuration: 5 }).video;
+  const next = afterEnded(moved, 0);
+  assert.ok(next && next.index === 1 && near(next.src, 0.5) && near(next.t, moved[1].t0), JSON.stringify(next));
+  assert.equal(afterEnded(moved, 1), null, 'на последнем куске — конец ролика');
 });

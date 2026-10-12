@@ -49,3 +49,11 @@ test('where a text block may go: not before the hook ends (or the teaser), not p
   assert.deepEqual(blockRoom(new Timeline([[0, 6]], 1), 45), { floor: 1.5, max: 6 }, 'без тизера — с конца хука');
   assert.deepEqual(blockRoom(new Timeline([[0, 6]], 1), 0), { floor: 0, max: 6 }, 'хука нет — с начала');
 });
+
+test('a block snapped to the first word after a moved piece starts in that piece, not at the end of the one before', () => {
+  // кусок 10–13 переставлен в начало, ×1,3: стык — 2,3076923… с; край слова 0,4 — ровно на стыке
+  const tl = new Timeline([[10, 13], [0.4, 5]], 1.3);
+  const [edge] = finalEdges(tl, [{ t0: 0.4, t1: 0.8 }]);
+  assert.equal(edge, 3 / 1.3, 'край слова — точный, без округления');
+  assert.deepEqual(sourceSpan(tl, 2.307692, 2.7), { t0: 0.4, t1: 0.91 }, 'и чуть раньше стыка (округлённый край) — уже следующий кусок');
+});

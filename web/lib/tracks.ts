@@ -68,6 +68,7 @@ export type Clip = Span & {
   kind: string; label: string; src0?: number; src1?: number; words?: DraftWord[]; piece?: number; edgeStart?: boolean; edgeEnd?: boolean; key?: string;
   file?: string; // у звуков — файл (как в edit.json)
   videoNo?: number; // у кусков — из какого видео задачи (номер в EditorMedia.videos), если их список есть
+  play0?: number; play1?: number; // у кусков — края в исходнике на целых кадрах, как их режет монтаж: по ним играет плеер
   ref?: BlockRef; ghost?: boolean; drawn?: boolean;
   // у блока текста и вставки — его место в речи (время ролика): ручки и перенос двигают его; на кадре блок бывает
   // дольше (акцент держится после своих слов, вставка — не меньше 1,5 с) — этот хвост в правку не идёт
@@ -234,11 +235,11 @@ export function draftTracks(d: Draft, { style = PLAIN, sourceDuration, splits = 
   // куски: время исходника — как в keep (по нему правки), время ролика — по шкале монтажа (края на целых кадрах)
   const segs = tl.segments;
   let k = d.teaser ? 1 : 0;
-  const placed: { src0: number; src1: number; t0: number; t1: number; keep: number }[] = [];
+  const placed: { src0: number; src1: number; play0: number; play1: number; t0: number; t1: number; keep: number }[] = [];
   d.keep.forEach(([a, b], i) => {
     if (!kept(a, b)) return; // короче кадра — в ролике его нет
     const [s0, s1, f0] = segs[k++];
-    placed.push({ src0: a, src1: b, t0: f0, t1: f0 + (s1 - s0) / d.speed, keep: i });
+    placed.push({ src0: a, src1: b, play0: s0, play1: s1, t0: f0, t1: f0 + (s1 - s0) / d.speed, keep: i });
   });
 
   // на экране куски делятся разрезами Павла и стыками видео задачи (несколько видео склеены в один исходник)
@@ -249,13 +250,20 @@ export function draftTracks(d: Draft, { style = PLAIN, sourceDuration, splits = 
     return n < 0 ? videos.length - 1 : n;
   };
   const video: Clip[] = [];
-  if (d.teaser) video.push({ kind: 'teaser', label: '', src0: d.teaser.t0, src1: d.teaser.t1, t0: 0, t1: tl.teaserDuration, videoNo: videoOf(d.teaser.t0, d.teaser.t1) });
+  const teaser = tl.teaser;
+  if (d.teaser && teaser) {
+    video.push({
+      kind: 'teaser', label: '', src0: d.teaser.t0, src1: d.teaser.t1, play0: teaser[0], play1: teaser[1], t0: 0, t1: tl.teaserDuration,
+      videoNo: videoOf(d.teaser.t0, d.teaser.t1),
+    });
+  }
   for (const p of placed) {
     const edges = [p.src0, ...cutsAt.filter((t) => t > p.src0 + SLIVER && t < p.src1 - SLIVER), p.src1];
-    const at = (e: number) => (e === p.src1 ? p.t1 : p.t0 + (e - p.src0) / d.speed);
+    const at = (e: number) => (e === p.src1 ? p.t1 : e === p.src0 ? p.t0 : p.t0 + (e - p.play0) / d.speed);
+    const last = edges.length - 2;
     edges.slice(1).forEach((b, j) => video.push({
-      kind: 'piece', label: '', src0: edges[j], src1: b, t0: at(edges[j]), t1: at(b), piece: p.keep, edgeStart: j === 0, edgeEnd: j === edges.length - 2,
-      videoNo: videoOf(edges[j], b),
+      kind: 'piece', label: '', src0: edges[j], src1: b, t0: at(edges[j]), t1: at(b), piece: p.keep, edgeStart: j === 0, edgeEnd: j === last,
+      play0: j === 0 ? p.play0 : edges[j], play1: j === last ? p.play1 : b, videoNo: videoOf(edges[j], b),
     }));
   }
   // вырезанное — по исходнику: «＋» стоит в конце куска, что перед ним в исходнике (где бы тот ни стоял), а вырезанное до

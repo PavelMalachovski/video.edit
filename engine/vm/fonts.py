@@ -59,7 +59,9 @@ def _cmap(path: Path) -> frozenset[int]:
 
 
 def _drawn(c: str) -> bool:
-    """Нужен ли символу глиф шрифта: буквы, знаки, цифры, препинание, валюты — да; невидимые и эмодзи — нет."""
+    """Нужен ли символу глиф шрифта: буквы, знаки, цифры, препинание, валюты — да; невидимые и эмодзи — нет; знаки-символы
+    (№, °, ★) — отдельно: `symbols` и `lacking_symbols` (в сырых словах бывает мусор вроде ♪ — шрифты из-за него не
+    отбрасываем)."""
     category = unicodedata.category(c)
     return ord(c) not in INVISIBLE and (category[0] in "LMNP" or category in ("Sc", "Sm", "Sk"))
 
@@ -71,9 +73,22 @@ def missing(font: Font, text: str) -> str:
     return "".join(sorted(c for c in set(text) | set(text.upper()) if _drawn(c) and ord(c) not in have))
 
 
-def symbols(text: str) -> str:
-    """Картинки-символы текста, которых нет среди эмодзи-картинок (♪, ❤ без U+FE0F): их не рисует никто."""
-    return "".join(sorted({c for c in emoji.text_only(text) if unicodedata.category(c) == "So"}))
+def _symbols(text: str) -> set[str]:
+    return {c for c in emoji.text_only(text) if unicodedata.category(c) == "So"}
+
+
+def symbols(text: str, fonts: list[Font] | None = None) -> str:
+    """Знаки-символы текста, которых нет ни среди эмодзи-картинок, ни в одном шрифте (♪, ★, ❤ без U+FE0F): их не рисует
+    никто. «№», «°», «©» в шрифтах есть — их проверяет `lacking_symbols`."""
+    have = set().union(*(_cmap(f.path) for f in (fonts if fonts is not None else catalog())))
+    return "".join(sorted(c for c in _symbols(text) if ord(c) not in have))
+
+
+def lacking_symbols(font: Font, text: str, nowhere: str = "") -> str:
+    """Знаки-символы текста, которые есть в других шрифтах, но не в `font` (™ у рукописного marck-script); `nowhere` —
+    тех, что не рисует никто (о них — отдельно)."""
+    have = _cmap(font.path)
+    return "".join(sorted(c for c in _symbols(text) if c not in nowhere and ord(c) not in have))
 
 
 def _hand_word(title: str) -> str:
@@ -120,7 +135,7 @@ def check(edit: dict, custom: Path | None = None) -> list[str]:
     style = edit.get("style") or {}
     main_text, hand_text = texts(edit)
     problems = []
-    if odd := symbols(f"{main_text}{hand_text}"):
+    if odd := symbols(f"{main_text}{hand_text}", list(fonts.values())):
         plain = [c for c in odd if emoji.text_default(c)]
         hint = f" ({', '.join(plain)} — эмодзи только с U+FE0F после знака: {', '.join(c + chr(0xFE0F) for c in plain)})" if plain else ""
         problems.append(f"символы {odd} не рисует ни шрифт ролика, ни эмодзи-картинки — убери их или замени эмодзи{hint}; "
@@ -129,9 +144,9 @@ def check(edit: dict, custom: Path | None = None) -> list[str]:
         problems.append(f"эмодзи {' '.join(dict.fromkeys(said))} в субтитрах — субтитры только слова, как сказаны: убери их из words")
     for kind, text in (("main", main_text), ("hand", hand_text)):
         font = fonts.get(style.get("font" if kind == "main" else "hand") or "")
-        if font is None or not (lack := missing(font, text)):
+        if font is None or not (lack := missing(font, text) + lacking_symbols(font, text, odd)):
             continue
-        fits = coverage(main_text, hand_text, custom)[kind]
+        fits = [i for i in coverage(main_text, hand_text, custom)[kind] if not lacking_symbols(fonts[i], text, odd)]  # и знаки
         role = "основном" if kind == "main" else "рукописном"
         problems.append(f"в {role} шрифте {font.id} нет букв {lack} — возьми тот, где они есть: {', '.join(fits) or 'таких нет'}")
     return problems

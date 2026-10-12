@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
   applyKeep, applyText, commit, cutSpan, EMPTY, initHistory, LIMITS, moveSpan, parseTimeline, pieces, redo, restoreSpan, setBlock, setCta, setHook,
-  setMusic, setSound, setVoice, setWord, snapTo, splitAt, trimEnd, trimStart, undo, type Edit, type TextEdits, type WordFix, blockFix, hasEmoji,
+  setMusic, setSound, setVoice, setWord, snapTo, splitAt, trimEnd, trimStart, undo, type Edit, type TextEdits, type WordFix, badSymbols, blockFix, hasEmoji,
 } from '../lib/edits.ts';
 
 // Общая с движком фикстура: apply_keep в engine/vm/edits.py обязан давать то же самое.
@@ -212,4 +212,11 @@ test('the hand fix of a block: the hook, the title by its place, the k-th accent
   assert.deepEqual(blockFix(h, 'accent', [3, 4], 1), { at: [3, 4], t0: 3.5 });
   assert.deepEqual(blockFix(h, 'insert', [2, 3], 0), { at: [2, 3], off: true });
   assert.equal(blockFix(EMPTY, 'hook'), null);
+});
+
+test('symbols the video\'s font will not draw are refused as the engine font check refuses them; №, °, ©, ®, ™ and emoji are fine', () => {
+  assert.equal(badSymbols('№5 и +25° в тени © ® ™'), '', 'их рисует каждый шрифт шаблона (test_fonts.py)');
+  assert.equal(badSymbols('Огонь 🔥 ✅ ❤️ 👍🏽 #️⃣'), '', 'эмодзи — картинки');
+  assert.equal(badSymbols('★ без штатива ✓ и ♪ ★'), '★✓♪', 'нет ни в одном шрифте — проверка шрифтов их не пропустит');
+  assert.equal(badSymbols('сердце ❤'), '❤', '❤ без U+FE0F — буква, которой нет в шрифтах');
 });

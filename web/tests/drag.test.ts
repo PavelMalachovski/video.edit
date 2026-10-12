@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dragTo, type Drag, type DragView } from '../lib/drag.ts';
+import { clickGuard, dragTo, MIN_BLOCK, type Drag, type DragView } from '../lib/drag.ts';
 import { draftTracks, wordEdges, type Draft } from '../lib/tracks.ts';
 
 const near = (a: number, b: number) => Math.abs(a - b) < 1e-6;
@@ -65,4 +65,25 @@ test('a text or insert block: moved whole or by an edge, its edges stick to word
   assert.ok(short.kind === 'block' && near(short.b, 1.2), 'не короче 0,2 с');
   const start = dragTo({ ...block, mode: 'start' }, 100 - 80, v);
   assert.ok(start.kind === 'block' && near(start.a, 0.5) && near(start.b, 2.0), 'начало — не раньше floor');
+});
+
+test('a block with no room in speech yet (an insert under the hook) is moved at least the shortest block long', () => {
+  const v = { ...view, finalEdges: [] };
+  const flat: Drag = { kind: 'block', ref: { kind: 'insert', n: 0, at: [0.2, 0.4], occurrence: 0 }, mode: 'move', x0: 100, t0: 0.5, t1: 0.5, a: 0.5, b: 0.5, floor: 0.5, max: 3.5, moved: false };
+  const moved = dragTo(flat, 100 + 100, v);
+  assert.ok(moved.kind === 'block' && near(moved.a, 1.5) && near(moved.b, 1.5 + MIN_BLOCK), JSON.stringify(moved));
+  const late = dragTo(flat, 100 + 10_000, v);
+  assert.ok(late.kind === 'block' && near(late.b, 3.5) && near(late.a, 3.5 - MIN_BLOCK), 'и у конца ролика — не короче');
+});
+
+test('the click that ends a drag does not select; the next press is a new gesture even when no click came after the drag (a finger)', () => {
+  const g = clickGuard();
+  g.down();
+  g.dragged();
+  assert.equal(g.click(), false, 'щелчок после перетаскивания мышью — не выбор');
+  assert.equal(g.click(), true, 'следующий — выбор');
+  g.down();
+  g.dragged(); // пальцем: после перетаскивания браузер щелчка не шлёт
+  g.down(); // касание группы субтитров (её не тянут)
+  assert.equal(g.click(), true, 'новое нажатие — новый жест: его щелчок — выбор');
 });

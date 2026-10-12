@@ -3,7 +3,7 @@
 // группа субтитров — её слова (правится только текст: время и звук те же; пусто — слова нет в субтитрах). Правки — в
 // timeline.json (text, words), их кладёт движок поверх черновика (edits.apply_text); строка поля — одна правка для отмены.
 import { useEffect, useId, useState } from 'react';
-import { blockFix, hasEmoji, LIMITS, setBlock, setCta, setHook, setWord, type HandEdits } from '@/lib/edits.ts';
+import { badSymbols, blockFix, hasEmoji, LIMITS, setBlock, setCta, setHook, setWord, type HandEdits } from '@/lib/edits.ts';
 import { tenths } from '@/lib/format.ts';
 import type { Key } from '@/lib/i18n.ts';
 import { findBlock, type BlockRef, type Clip, type Draft, type Tracks } from '@/lib/tracks.ts';
@@ -71,7 +71,8 @@ export function BlockPanel({ T, sel, tracks, draft, hand, editable, note, onEdit
   if (!c || !ref || ref.kind === 'sub') return <p className="ed-note faint">{T('selectHint')}</p>;
   const at = ref.kind === 'hook' ? undefined : ref.at;
   const fix = blockFix(hand, ref.kind, at, 'occurrence' in ref ? ref.occurrence : 0) as Record<string, unknown> | null;
-  const nonEmpty = (v: string) => (v.trim() ? null : T('emptyLine'));
+  // пусто нельзя; знаки, которых шрифт ролика не нарисует, — тоже (монтаж на них встал бы)
+  const nonEmpty = (v: string) => (!v.trim() ? T('emptyLine') : badSymbols(v) ? T('noSymbol', { s: badSymbols(v) }) : null);
   const keyOf = (field: string) => `${ref.kind}${'n' in ref ? ref.n : ''}:${field}`;
   const commit = (patch: Record<string, unknown>, field: string) => onEdit(setFix(hand, ref, patch), keyOf(field));
   const fields: React.ReactNode[] = [];
@@ -154,7 +155,7 @@ export function WordsPanel({ T, sel, tracks, draft, hand, editable, note, onEdit
           return (
             <div key={key} className="ed-word">
               <TextField label={value === '' ? `${w.text} · ${T('wordRemoved')}` : w.text} value={value} disabled={!editable} struck={value === ''}
-                max={LIMITS.word} check={(v) => (hasEmoji(v) ? T('noEmoji') : null)}
+                max={LIMITS.word} check={(v) => (hasEmoji(v) ? T('noEmoji') : badSymbols(v) ? T('noSymbol', { s: badSymbols(v) }) : null)}
                 onCommit={(v) => onEdit(setWord(hand, w.t0, w.t1, v === w.text ? null : v), `word:${key}`)} />
               {now !== undefined ? (
                 <button type="button" className="ed-btn" disabled={!editable} title={T('asSessionT')} onClick={() => onEdit(setWord(hand, w.t0, w.t1, null))}>

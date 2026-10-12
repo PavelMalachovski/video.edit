@@ -4,6 +4,8 @@
 import type { Timeline } from './timeline.ts';
 
 const EPS = 1e-9;
+// момент ближе этого к стыку отрезков — на стыке (края слов и блоков приходят округлёнными до миллионных): стык — следующему
+const JOIN = 1e-6;
 
 /** Отрезок финала, где лежит момент `t` финала: номер в `tl.segments`, начало и конец в финале (стык — следующему). */
 function segmentAt(tl: Timeline, t: number): { k: number; f0: number; f1: number } | null {
@@ -12,7 +14,7 @@ function segmentAt(tl: Timeline, t: number): { k: number; f0: number; f1: number
   for (let k = 0; k < segs.length; k++) {
     const [s0, s1, f0] = segs[k];
     const f1 = f0 + (s1 - s0) / speed;
-    if (t >= f0 - EPS && (t < f1 - EPS || k === segs.length - 1)) return { k, f0, f1 };
+    if (t >= f0 - JOIN && (t < f1 - JOIN || k === segs.length - 1)) return { k, f0, f1 };
   }
   return null;
 }
@@ -38,7 +40,7 @@ export function sourceSpan(tl: Timeline, a: number, b: number): { t0: number; t1
   const t0 = at(start.k, Math.max(a, start.f0));
   let k = start.k;
   // конец: по отрезкам той же серии вправо, пока он не попадёт внутрь (конец отрезка — его конец, а не начало следующего)
-  while (k + 1 < segs.length && sameRun(tl, k, k + 1) && b > segs[k + 1][2] + EPS) k++;
+  while (k + 1 < segs.length && sameRun(tl, k, k + 1) && b > segs[k + 1][2] + JOIN) k++;
   const f1 = segs[k][2] + (segs[k][1] - segs[k][0]) / speed;
   const t1 = at(k, Math.min(b, f1));
   return { t0: round3(t0), t1: round3(Math.max(t0, t1)) };
@@ -68,15 +70,19 @@ export function stackRows(clips: readonly { t0: number; t1: number }[]): { row: 
 }
 
 /** Границы слов во времени ролика — к ним липнут края блоков: начало и конец каждого слова, что есть в ролике (середина
- *  не вырезана — как его берёт build_sub_events), по шкале монтажа (не дальше своей серии кусков). */
+ *  не вырезана — как его берёт build_sub_events), по шкале монтажа (не дальше своей серии кусков). Значения — точные
+ *  (край на стыке переставленного куска — ровно стык, и блок начнётся в следующем куске), повторы — один раз. */
 export function finalEdges(tl: Timeline, words: readonly { t0: number; t1: number }[]): number[] {
-  const out = new Set<number>();
+  const out = new Map<number, number>();
   for (const w of words) {
     const t1 = Math.max(w.t0, w.t1);
     if (tl.toFinal((w.t0 + t1) / 2) === null) continue;
-    for (const x of tl.span(w.t0, t1)) out.add(Math.round(x * 1e6) / 1e6);
+    for (const x of tl.span(w.t0, t1)) {
+      const key = Math.round(x * 1e6);
+      if (!out.has(key)) out.set(key, x);
+    }
   }
-  return [...out].sort((a, b) => a - b);
+  return [...out.values()].sort((a, b) => a - b);
 }
 
 /** Куда можно поставить блок текста или вставку (время ролика): не раньше конца хука (`hookFrame` — его кадр, hookEnd) и

@@ -2,7 +2,7 @@
 // (ассет черновика релиза — через /media) и ленту кадров (картинка ветки — через /file), стили и выбор Павла. Правки
 // руками — timeline.json: сохранение с ревизией (без force, гонка вкладок — конфликт) и «Монтировать» из редактора.
 import { commitFiles, readText } from './branch.ts';
-import { hasEmoji, parseTimeline, type HandEdits, type TimelineFile } from './edits.ts';
+import { badSymbols, hasEmoji, parseTimeline, typedTexts, type HandEdits, type TimelineFile } from './edits.ts';
 import { sameJson } from './equal.ts';
 import type { GH } from './github.ts';
 import { appendFix, parseStyle, type AnswersFile, type FixFile, type Released, type Styles } from './jobfiles.ts';
@@ -61,6 +61,30 @@ export type EditorData = {
 
 /** Картинка загрузки Павла (вставка к ролику `upload-i<n>`, картинка к ответу `upload-q-…`) — её отдаёт /upload. */
 export const isUploadPicture = (name: string): boolean => /^upload-(i\d{1,3}|q-[a-z0-9_-]{1,41})\.(png|jpe?g|webp|gif)$/.test(name);
+
+/** Ассеты картинки загрузки `name` по порядку: целый ассет или куски `<name>.part-NNNNN` (так их кладёт загрузка — и из
+ *  одного куска); нет первого куска или пропуск в середине — null. */
+export function uploadParts<T extends { name: string }>(assets: readonly T[], name: string): T[] | null {
+  const whole = assets.find((a) => a.name === name);
+  if (whole) return [whole];
+  const parts = new Map<number, T>();
+  for (const a of assets) {
+    const m = a.name.startsWith(`${name}.part-`) ? /\.part-(\d{5})$/.exec(a.name) : null;
+    if (m) parts.set(Number(m[1]), a);
+  }
+  if (!parts.size) return null;
+  const out: T[] = [];
+  for (let i = 0; i < parts.size; i++) {
+    const p = parts.get(i);
+    if (!p) return null;
+    out.push(p);
+  }
+  return out;
+}
+
+const PICTURE_TYPES: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' };
+/** Тип картинки загрузки по расширению — для склеенных кусков (у ассета GitHub его нет). */
+export const pictureType = (name: string): string => PICTURE_TYPES[/\.([a-z]+)$/.exec(name)?.[1] ?? ''] ?? 'application/octet-stream';
 
 /** Адрес картинки слоя (вставка, логотип карточки — путь от папки задачи или от корня репозитория, как в edit.json) для
  *  шаблона в редакторе: загрузки Павла (in/uploads/…) — из черновика релиза, остальное — из ветки (как render._resolve). */
@@ -157,6 +181,9 @@ function parseSave(body: unknown): { base: number; hand: HandEdits } | string {
   const parsed = parseTimeline({ rev: 1, ...hand });
   if (!parsed || 'rev' in hand || 'at' in hand) return 'правки не той формы';
   if (parsed.words?.some((w) => hasEmoji(w.text))) return 'в субтитрах эмодзи нельзя — только слова, как сказаны';
+  // знаки, которых шрифт ролика не нарисует, — проверка шрифтов движка не пустила бы монтаж (сессия правки Павла не меняет)
+  const odd = [...(parsed.words ?? []).map((w) => w.text), ...typedTexts(parsed)].map(badSymbols).join('');
+  if (odd) return `знаки ${[...new Set(odd)].join(' ')} шрифт ролика не нарисует — уберите их или замените эмодзи`;
   const { rev: _rev, ...edits } = parsed;
   return { base: base as number, hand: edits };
 }

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { abilitiesOf, editorFix, ENGINE_SCHEMA, isUploadPicture, layerUrl, loadEditor, MEDIA_NAMES, mediaAsset, refusedBy, saveTimeline, timelineOf } from '../lib/editordata.ts';
+import { abilitiesOf, editorFix, ENGINE_SCHEMA, isUploadPicture, layerUrl, loadEditor, MEDIA_NAMES, mediaAsset, pictureType, refusedBy, saveTimeline, timelineOf, uploadParts } from '../lib/editordata.ts';
 import type { AnswersFile } from '../lib/jobfiles.ts';
 import { withFake } from './helpers.ts';
 
@@ -110,7 +110,8 @@ test('saving hand edits: another tab saving in between is a conflict too (checke
 test('saving hand edits: a bad body, a job Claude is mounting right now, a job not found', () => withFake(async ({ fake, gh }) => {
   start(fake, { ...STATUS, state: 'rendering', phase: 'Монтирую', needs: undefined } as unknown as typeof STATUS);
   for (const bad of [null, { base: 0 }, { base: -1, edits: [] }, { base: 0, edits: [{ op: 'jump', t: 1 }] }, { base: 0, edits: [], voice: { gainDb: 99 } }, { base: 0, edits: [], rev: 5 },
-    { base: 0, edits: [], words: [{ t0: 1, t1: 1.3, text: 'огонь🔥' }] }]) { // эмодзи в субтитрах не пропустит проверка шрифтов
+    { base: 0, edits: [], words: [{ t0: 1, t1: 1.3, text: 'огонь🔥' }] }, // эмодзи в субтитрах не пропустит проверка шрифтов
+    { base: 0, edits: [], text: { hook: { text: 'Лучший ★ кофе' } } }, { base: 0, edits: [], words: [{ t0: 1, t1: 1.3, text: '✓' }] }]) { // и ★, ✓
     const r = await saveTimeline(gh, ID, bad, NOW);
     assert.ok(!r.ok && r.status === 400, JSON.stringify(bad));
   }
@@ -189,4 +190,17 @@ test('pictures of the layer in the editor: Pavel\'s uploads from the release, th
   assert.equal(layerUrl(ID, null, 'in/brand/logo.png'), `/api/jobs/${ID}/file?path=in%2Fbrand%2Flogo.png`);
   assert.ok(isUploadPicture('upload-i12.webp') && isUploadPicture('upload-q-x1a2b3c4d.png'));
   for (const bad of ['upload-i2.mov', 'source.mp4', '../upload-i2.png', 'upload-voice.m4a', 'upload-i2.png.part-00001']) assert.ok(!isUploadPicture(bad), bad);
+});
+
+test('a picture Pavel uploaded is found whole or by its parts, in order (uploads are stored as <file>.part-NNNNN)', () => {
+  const a = (name: string, id: number) => ({ name, id, size: 10 });
+  const assets = [a('upload-i1.png.part-00001', 2), a('upload-i1.png.part-00000', 1), a('upload-i2.jpg.part-00000', 3), a('upload-q-logo.png', 4),
+    a('upload-i3.png.part-00001', 5)];
+  assert.deepEqual(uploadParts(assets, 'upload-i1.png')?.map((x) => x.id), [1, 2], 'куски — по порядку');
+  assert.deepEqual(uploadParts(assets, 'upload-i2.jpg')?.map((x) => x.id), [3], 'один кусок');
+  assert.deepEqual(uploadParts(assets, 'upload-q-logo.png')?.map((x) => x.id), [4], 'целый ассет');
+  assert.equal(uploadParts(assets, 'upload-i3.png'), null, 'нет первого куска — картинки нет');
+  assert.equal(uploadParts(assets, 'upload-i9.png'), null);
+  assert.equal(pictureType('upload-i1.png'), 'image/png');
+  assert.equal(pictureType('upload-q-x.jpeg'), 'image/jpeg');
 });

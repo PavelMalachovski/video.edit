@@ -26,9 +26,9 @@ import { loadLang, saveLang, tr, type Key, type Lang } from '@/lib/i18n.ts';
 import type { StyleChoice, StyleSpec } from '@/lib/jobfiles.ts';
 import { buildOverlayEvents, hookEnd, type LayerEvent } from '@/lib/overlay.ts';
 import { pictureModel } from '@/lib/picture.ts';
-import { advance, locate, stillSource, tailAt } from '@/lib/player.ts';
+import { advance, afterEnded, locate, stillSource, tailAt } from '@/lib/player.ts';
 import { allowedFonts, finalStyle, loadChoice, loadInsertBoxes, mergeStyle, placedInserts, sampleState, saveChoice } from '@/lib/style.ts';
-import { dragTo, type Drag, type DragView } from '@/lib/drag.ts';
+import { clickGuard, dragTo, type Drag, type DragView } from '@/lib/drag.ts';
 import { Saver, type PutResult } from '@/lib/saver.ts';
 import { audioUrl, levelsOf, musicMix } from '@/lib/sound.ts';
 import {
@@ -487,9 +487,19 @@ export default function Editor({ id }: { id: string }) {
       if (was) void play();
     }, { once: true });
   };
-  // видео кончилось раньше, чем это заметил кадр плеера: дальше — хвост; его нет — плейхед в конце кусков
+  // видео кончилось раньше, чем это заметил кадр плеера: файл кончился не на последнем куске (конец записи переставлен
+  // раньше) — дальше следующий кусок; на последнем — хвост; его нет — плейхед в конце кусков
   const onEnded = () => {
-    if (tailFrom.current !== null) return;
+    const v = video.current;
+    if (tailFrom.current !== null || !v?.ended) return; // кадр плеера уже перемотал дальше — видео играет
+    const next = playingRef.current && tracks ? afterEnded(tracks.video, piece.current) : null;
+    if (next) {
+      piece.current = next.index;
+      v.currentTime = next.src;
+      show(next.t);
+      void v.play().catch(() => pause());
+      return;
+    }
     if (playingRef.current && toTail(performance.now())) return;
     pause();
     if (tracks?.video.length) piece.current = tracks.video.length - 1;
@@ -629,7 +639,7 @@ export default function Editor({ id }: { id: string }) {
 
   // края кусков, куски, музыка, блоки текста и вставок — мышью или пальцем: тянем, отпустили — правка
   const [drag, setDrag] = useState<Drag | null>(null);
-  const noClick = useRef(false);
+  const [clicks] = useState(clickGuard); // щелчок после перетаскивания — не выбор; новое нажатие — новый жест
   const grab = (e: React.PointerEvent, d: Drag) => {
     e.stopPropagation();
     e.preventDefault();
@@ -656,7 +666,10 @@ export default function Editor({ id }: { id: string }) {
       setHint(T('inTeaser'));
       return;
     }
-    if (span.t1 <= span.t0) return; // в самом конце своей серии кусков места нет — такую правку движок не примет
+    if (span.t1 <= span.t0) { // в самом конце своей серии кусков места нет — такую правку движок не примет
+      setHint(T('noRoom'));
+      return;
+    }
     if (ref.kind === 'cta') edit(setCta(hand, ref.at, span));
     else if (ref.kind === 'accent') edit(setBlock(hand, 'accents', ref.at, ref.occurrence, span));
     else if (ref.kind === 'insert') edit(setBlock(hand, 'inserts', ref.at, ref.occurrence, span));
@@ -677,11 +690,11 @@ export default function Editor({ id }: { id: string }) {
         seek(released.tf0);
         return;
       }
-      noClick.current = true; // щелчок после перетаскивания — не выбор (номер куска уже другой)
+      clicks.dragged(); // щелчок после перетаскивания — не выбор (номер куска уже другой)
       if (released.slot !== null) doMove(released.index, released.slot);
     } else if (released.kind === 'block') {
       if (!released.moved) return; // щелчок — выбор (onClick блока)
-      noClick.current = true;
+      clicks.dragged();
       commitBlock(released);
     } else if (!released.moved) { // щелчок по музыке — выбрать и встать туда
       setSel({ kind: 'music' });
@@ -694,7 +707,6 @@ export default function Editor({ id }: { id: string }) {
   const dragProps = { onPointerMove: onDragMove, onPointerUp: onDragEnd, onPointerCancel: () => setDrag(null) };
   // кусок тянут целиком: мышью — сразу, пальцем — выбранный (иначе палец листает дорожки)
   const grabPiece = (e: React.PointerEvent<HTMLDivElement>, index: number, picked: boolean) => {
-    noClick.current = false;
     if (!canMove || e.button !== 0 || (e.pointerType === 'touch' && !picked)) return;
     const lane = e.currentTarget.parentElement?.getBoundingClientRect();
     if (!lane) return;
@@ -703,7 +715,6 @@ export default function Editor({ id }: { id: string }) {
   // блок тянут так же: целиком (хук — только за конец), за край — растянуть; не раньше конца хука и тизера. Тянут его
   // место в речи — хвост (акцент держится после слов, вставка — не меньше 1,5 с) движок добавит сам
   const grabBlock = (e: React.PointerEvent<HTMLElement>, c: Clip, mode: BlockDrag['mode'], picked: boolean) => {
-    noClick.current = false;
     if (!c.ref || c.ref.kind === 'sub' || e.button !== 0 || (mode === 'move' && e.pointerType === 'touch' && !picked)) return;
     const [t0, t1] = c.core ?? [c.t0, c.t1];
     grab(e, {
@@ -713,10 +724,7 @@ export default function Editor({ id }: { id: string }) {
   };
   // щелчок по блоку или группе субтитров — выбрать и встать на её начало (кадр её покажет)
   const pickClip = (c: Clip) => {
-    if (noClick.current) {
-      noClick.current = false;
-      return;
-    }
+    if (!clicks.click()) return;
     const ref = c.ref;
     if (!ref) return;
     if (ref.kind === 'sub') setSel({ kind: 'sub', from: ref.words[0]?.t0 ?? 0, to: ref.words.at(-1)?.t1 ?? 0 });
@@ -749,7 +757,7 @@ export default function Editor({ id }: { id: string }) {
       while (k + 1 < tracks.video.length && tf >= tracks.video[k].t1) k++;
       const clip = tracks.video[k];
       if (!clip) break;
-      const src = (clip.src0 as number) + (tf - clip.t0) * speed;
+      const src = (clip.play0 ?? clip.src0 as number) + (tf - clip.t0) * speed; // с края, откуда кусок играет
       const a = peakAt(peaks, perS, src);
       const bar = Math.max(1, a * (h - 6));
       g.fillRect(x, (h - bar) / 2, 1, bar);
@@ -764,7 +772,7 @@ export default function Editor({ id }: { id: string }) {
     const n = Math.max(1, Math.ceil(w / thumbW));
     return Array.from({ length: n }, (_, k) => {
       const tf = c.t0 + ((k + 0.5) * thumbW) / px;
-      const src = (c.src0 as number) + (tf - c.t0) * speed;
+      const src = (c.play0 ?? c.src0 as number) + (tf - c.t0) * speed;
       const fi = Math.min(film.n - 1, Math.max(0, Math.round(src / film.step)));
       const style: CSSProperties = {
         width: thumbW, backgroundImage: `url(${data.filmUrl})`, backgroundSize: `${film.n * thumbW}px ${THUMB_H}px`, backgroundPosition: `${-fi * thumbW}px 0`,
@@ -996,7 +1004,7 @@ export default function Editor({ id }: { id: string }) {
           <button type="button" className="ed-icon" aria-label={T('zoomOut')} onClick={() => setPps(px / ZOOM)} disabled={px <= Math.min(fitPps, 4) + 1e-6}>−</button>
           <button type="button" className="ed-icon" aria-label={T('zoomIn')} onClick={() => setPps(px * ZOOM)} disabled={px >= maxPps - 1e-6}>+</button>
         </div>
-        <div className="ed-scroll" ref={lanes}>
+        <div className="ed-scroll" ref={lanes} onPointerDownCapture={clicks.down}>
           {tracks && subRow && textRow && insRow ? (
             <div className="ed-inner" style={{ width: HEAD + width + 24 }}>
               <div className="ed-ruler" style={{ marginLeft: HEAD, width }} onPointerDown={onLanes}>
@@ -1013,10 +1021,7 @@ export default function Editor({ id }: { id: string }) {
                     <div key={`${c.src0}-${c.src1}`}
                       className={`ed-clip ed-piece${c.kind === 'teaser' ? ' teaser' : ''}${picked ? ' sel' : ''}${movable ? ' movable' : ''}${dragging ? ' dragging' : ''}`}
                       style={{ left: X(c.t0), width: Math.max(2, X(c.t1 - c.t0)), ...(dragging ? { transform: `translateX(${drag.dx}px)` } : {}) }}
-                      onClick={() => {
-                        if (noClick.current) noClick.current = false;
-                        else setSel({ kind: 'piece', index: i });
-                      }}
+                      onClick={() => clicks.click() && setSel({ kind: 'piece', index: i })}
                       {...(movable ? { onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => grabPiece(e, i, picked), ...dragProps } : {})}
                       title={`${c.kind === 'teaser' ? T('teaser') : T('piece')} · ${tenths(c.src0 as number)}–${tenths(c.src1 as number)}`}>
                       <div className="ed-thumbs">{thumbs(c)}</div>

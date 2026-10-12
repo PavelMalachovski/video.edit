@@ -143,6 +143,24 @@ def test_symbols_and_emoji_are_not_letters_of_a_font():
     assert fonts.missing(by_id("montserrat"), "♪ ahoj 🔥") == ""
 
 
+def test_a_symbol_some_fonts_draw_is_checked_against_the_chosen_one():
+    assert fonts.lacking_symbols(by_id("marck-script"), "Кофе™ №1") == "™"
+    assert fonts.lacking_symbols(by_id("montserrat"), "Кофе™ №1 ♪", nowhere="♪") == ""
+    (problem,) = fonts.check(edit(["ahoj"], hand="marck-script", hook={"text": "Лучший кофе™", "until": 2.0}))
+    assert "marck-script" in problem and "™" in problem, problem
+
+
+def test_numero_degree_and_copyright_are_drawn_by_every_font_so_they_are_fine():
+    """«№», «°», «©», «®», «™» есть во всех шрифтах шаблона (™ — кроме рукописного marck-script): Павел пишет «№5» и
+    «+25°» в редакторе — проверка их не отвергает. Страница пускает только эти знаки (SYMBOLS_OK в web/lib/edits.ts)."""
+    for f in fonts.catalog():
+        if not f.path.is_relative_to(fonts.TEMPLATE):
+            continue
+        assert fonts.missing(f, "№°©®") == "", f.id
+    e = edit(["№5", "градусов"], hook={"text": "+25° в тени", "until": 2.0}, cta={"lines": ["Кофе №1"], "word": "КОФЕ", "t0": 1.0, "t1": 2.0})
+    assert fonts.check(e) == []
+
+
 def test_emoji_of_the_set_are_fine_in_the_hook_the_cta_and_inserts():
     e = edit(
         ["ahoj"],
@@ -154,8 +172,8 @@ def test_emoji_of_the_set_are_fine_in_the_hook_the_cta_and_inserts():
 
 
 def test_a_symbol_without_a_picture_is_a_problem_with_the_way_out():
-    (problem,) = fonts.check(edit(["ahoj"], hook={"text": "Zpívám ♪ a srdce ❤", "until": 2.0}))
-    assert "♪" in problem and "❤" in problem and "убери" in problem
+    (problem,) = fonts.check(edit(["ahoj"], hook={"text": "Zpívám ★ a srdce ❤", "until": 2.0}))
+    assert "★" in problem and "❤" in problem and "убери" in problem
     assert "U+FE0F" in problem  # ❤ без селектора — буква, а не эмодзи: подсказка, как сделать эмодзи
 
 
@@ -318,3 +336,10 @@ def test_vm_check_and_render_see_the_words_pavel_typed_in_the_editor(tmp_path):
     job.write("timeline.json", {"rev": 1, "edits": [], "words": [{"t0": 1.5, "t1": 1.9, "text": "světe🔥"}]})
     with pytest.raises(ValueError, match="эмодзи"):
         cli._fonts_ok(job)
+
+
+def test_a_symbol_only_some_fonts_draw_names_those_fonts():
+    problem = next(p for p in fonts.check(edit(["ahoj"], hook={"text": "Zpívám ♪", "until": 2.0})) if "основном" in p)
+    fits = problem.split("возьми тот, где они есть: ")[1].split(", ")
+    assert "♪" in problem and "montserrat" not in fits, problem
+    assert all(by_id(f) and "♪" not in fonts.lacking_symbols(by_id(f), "♪") for f in fits if f != "таких нет"), fits

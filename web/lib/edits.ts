@@ -372,6 +372,31 @@ export function blockFix(h: HandEdits, kind: 'hook' | 'cta' | 'accent' | 'insert
  *  кейкап — есть в любой последовательности эмодзи; «№», «€», «→», «♪» — буквы. */
 export const hasEmoji = (text: string): boolean => /\p{Emoji_Presentation}|[\u200D\uFE0F\u20E3]/u.test(text);
 
+/** Знаки-символы, которые рисует каждый шрифт шаблона (engine/tests/test_fonts.py): их можно писать в любом тексте. */
+export const SYMBOLS_OK = '№°©®™';
+
+/** Знаки-символы текста (категория So), которых шрифт ролика не нарисует (★, ✓, ♪, ❤ без U+FE0F) — их не пропустит
+ *  проверка шрифтов движка (fonts.symbols, lacking_symbols); эмодзи — картинки, их можно. → эти знаки по порядку, без
+ *  повторов; всё рисуется — ''. */
+export function badSymbols(text: string): string {
+  const cps = [...text];
+  const out = new Set<string>();
+  cps.forEach((c, i) => {
+    if (!/\p{So}/u.test(c) || SYMBOLS_OK.includes(c)) return;
+    const next = cps[i + 1];
+    if (/\p{Emoji_Presentation}/u.test(c) || next === '\uFE0F' || next === '\u200D' || cps[i - 1] === '\u200D') return; // эмодзи
+    out.add(c);
+  });
+  return [...out].join('');
+}
+
+/** Весь текст, что Павел набрал в правках блоков: хук, строки и слово титра, строки акцентов, текст вставок. */
+export function typedTexts(h: HandEdits): string[] {
+  const t = h.text ?? {};
+  return [t.hook?.text, ...(t.cta?.lines ?? []), t.cta?.word, ...(t.accents ?? []).flatMap((a) => a.lines ?? []), ...(t.inserts ?? []).map((i) => i.text)]
+    .filter((x): x is string => typeof x === 'string');
+}
+
 /** Слово субтитров (t0, t1 — как в edit.json): текст Павла; '' — слова нет в субтитрах; null — как у сессии. */
 export function setWord(h: HandEdits, t0: number, t1: number, text: string | null): HandEdits {
   const rest = (h.words ?? []).filter((w) => !(w.t0 === t0 && w.t1 === t1));

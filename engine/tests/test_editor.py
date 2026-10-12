@@ -59,6 +59,9 @@ def test_editor_json_has_the_peaks_and_the_film_strip_and_passes_its_schema(job)
     data = job.read("editor.json")  # схема — engine/vm/schemas/editor.json
     duration = probe(job.path("source.mp4")).duration
     assert data["duration"] == pytest.approx(duration, abs=0.05)
+    # с точностью ffprobe: страница берёт последний кадр как движок — floor(длина · 30 + 0,01); до миллисекунд
+    # у исходника из 142 кадров (4,733333 с) вышло бы 141
+    assert data["duration"] == round(duration, 6)
     peaks = base64.b64decode(data["peaks"]["data"])
     assert data["peaks"]["perS"] == editor.PEAKS_PER_S
     assert abs(len(peaks) - duration * editor.PEAKS_PER_S) <= 2

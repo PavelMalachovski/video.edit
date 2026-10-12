@@ -9,7 +9,8 @@
 готовый ролик и «Поправить». Монтирует облачная рутина Claude Code (по подписке, без API-ключа) движком `vm` по
 правилам SKILL.md.
 - Дизайн (главный документ): `docs/superpowers/specs/2026-10-10-video-edit-service-design.md`; другие языки —
-  `docs/superpowers/specs/2026-10-10-multilingual-design.md`
+  `docs/superpowers/specs/2026-10-10-multilingual-design.md`; редактор с дорожками (как veed), план по фазам и путь к
+  SaaS — `docs/superpowers/specs/2026-10-12-editor-and-saas-design.md`
 - Планы и решения по ним: `docs/superpowers/plans/`; макеты: `docs/mockups/`; настройка аккаунтов: `docs/setup.md`
 
 ## Где что

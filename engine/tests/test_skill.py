@@ -318,3 +318,14 @@ def test_hand_edits_from_the_editor_are_known_and_left_alone():
     # правка текстом не спорит с правками руками: вырезанное Павлом возвращает он сам, в редакторе
     assert "вырезал в редакторе" in fix and "unsure" in fix
     assert "style: true" in files
+
+
+def test_text_edits_from_the_editor_are_known_and_left_alone():
+    """Фаза 5: в timeline.json — и текст с вставками (хук, титр, акценты, вставки, слова субтитров); сессия их не
+    переносит в edit.json и не «чинит»: что мешает только из-за правки Павла — оставь и скажи в unsure."""
+    files = section("Файлы задачи")
+    assert "`text`" in files and "`words`" in files and "beats.json" in files
+    fix = section("Шаг fix")
+    assert "поправил в редакторе" in fix
+    render = section("Шаг render")
+    assert "правки Павла в редакторе" in render and "не двигай" in render

@@ -17,7 +17,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   try {
     const { id } = await params;
     const d = (await request.json()) as Done;
-    if (!isJobId(id) || !Number.isInteger(d.releaseId)) return NextResponse.json({ error: 'bad request' }, { status: 400 });
+    const releaseId = typeof d.releaseId === 'number' ? Number(d.releaseId) : NaN; // в адрес GitHub — только число
+    if (!isJobId(id) || !Number.isInteger(releaseId)) return NextResponse.json({ error: 'bad request' }, { status: 400 });
     const brief = typeof d.brief === 'string' ? d.brief.trim() : '';
     if (brief.length > MAX_BRIEF) return NextResponse.json({ error: `ТЗ длиннее ${MAX_BRIEF} знаков` }, { status: 413 });
     const uploads = Array.isArray(d.uploads) ? d.uploads : [];
@@ -37,7 +38,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (total) return NextResponse.json({ error: total }, { status: 413 });
 
     const g = gh();
-    const assets = await listAllAssets(g, d.releaseId);
+    const assets = await listAllAssets(g, releaseId);
     const source = verifyParts(assets, 'source', d.parts, d.size);
     if (source.missing.length || source.total !== d.size) {
       return NextResponse.json({ ok: false, file: 'source', missing: source.missing, total: source.total, expected: d.size }, { status: 409 });
@@ -53,7 +54,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       chunkSize: CHUNK_SIZE, userAgent: d.userAgent ?? '', startedAt: d.startedAt, finishedAt: d.finishedAt, retries: d.retries ?? 0,
       completedAt: new Date().toISOString(), brief, duration,
       uploads: uploads.map((u) => ({ asset: u.asset, name: u.name, size: u.size, type: u.type, parts: u.parts })) };
-    await uploadAsset(g, d.releaseId, 'manifest.json', new TextEncoder().encode(JSON.stringify(manifest, null, 1)), 'application/json');
+    await uploadAsset(g, releaseId, 'manifest.json', new TextEncoder().encode(JSON.stringify(manifest, null, 1)), 'application/json');
     return NextResponse.json({ ok: true, total: source.total });
   } catch (e) {
     return errorResponse(e);

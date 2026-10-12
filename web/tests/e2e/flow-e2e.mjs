@@ -146,6 +146,25 @@ async function shot(page, name) {
 
 // ---------- сегменты ----------
 
+/** Видео как с телефона: настоящий MOV (картинка и звук, заголовок в начале) длиной `seconds`, дополненный до `bytes`
+ *  пустым боксом `free` — браузер читает длительность (WebKit на Linux застревал на случайных байтах вместо видео), а
+ *  кусков загрузки — сколько нужно. Без ffmpeg — случайные байты. */
+function sampleVideo(file, seconds, bytes) {
+  try {
+    execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `testsrc2=s=540x960:r=30:d=${seconds}`, '-f', 'lavfi', '-i', `sine=frequency=330:duration=${seconds}`,
+      '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', '-movflags', '+faststart', '-f', 'mov', file]);
+  } catch {
+    fs.writeFileSync(file, crypto.randomBytes(bytes));
+    return;
+  }
+  const pad = bytes - fs.statSync(file).size;
+  if (pad <= 8) return;
+  const head = Buffer.alloc(8);
+  head.writeUInt32BE(pad);
+  head.write('free', 4, 'ascii');
+  fs.appendFileSync(file, Buffer.concat([head, crypto.randomBytes(pad - 8)]));
+}
+
 const segments = [
   ['login', async ({ page }) => {
     await page.goto(`${APP}/`);
@@ -190,7 +209,7 @@ const segments = [
   ['upload', async (ctx) => {
     const { page, tmp } = ctx;
     const source = path.join(tmp, 'clip.mov');
-    fs.writeFileSync(source, crypto.randomBytes(30 * 1024 * 1024));
+    sampleVideo(source, 2, 30 * 1024 * 1024);
     const insert = path.join(tmp, 'logo.png');
     fs.writeFileSync(insert, PNG);
     // озвучка: своя запись голоса, два куска; буфером — путь с кириллицей Playwright молча не ставит в поле

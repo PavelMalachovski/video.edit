@@ -1,13 +1,15 @@
 # Каждая фича — на настоящем ролике: 30 секунд говорящей головы с iPhone монтируются движком с настройками Павла (стиль,
 # места текста, вставка и акцент на кадре, затемнение, зум, ч/б, переход, скорость, тизер, музыка, карточка, обложка);
 # проверки — по кадрам, звуку и раскладке слоя (engine/tests/test_realclip.py), листы кадров — артефактом прогона
-# (видео Павла в git не кладём). На PR в master, каждую ночь и вручную: прогон — около 15 минут.
+# (видео Павла в git не кладём). На PR в master, если менялись движок, шаблон или их окружение, раз в неделю и вручную:
+# прогон — около 7–15 минут (минуты Actions).
 name: realclip
 on:
   pull_request:
     branches: [master]
+    paths: ['engine/**', 'template/**', 'assets/**', 'setup/**', '.github/workflows/realclip.yml', '.github/scripts/realclip-clip.sh', '.github/scripts/ci-playwright.sh']
   schedule:
-    - cron: '47 3 * * *'
+    - cron: '47 3 * * 1'
   workflow_dispatch:
 permissions:
   contents: write  # черновик realclip-30s с роликом создаётся один раз

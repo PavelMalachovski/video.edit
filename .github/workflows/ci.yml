@@ -2,16 +2,20 @@
 # слоя (и что Safari рисует его так же, как рендер), движок (быстрые тесты и ruff; медленные — с моделями распознавания,
 # поставленными тем же setup/cloud-setup.sh, что и облако), скрипты и сами workflow (shellcheck, actionlint), секреты
 # во всей истории (gitleaks: токены — только на сервере) и известные уязвимости зависимостей страницы (npm audit).
-# На каждый пуш, кроме веток задач claude/job-* (их пушат сессии монтажа), на PR в master (слитый с master код), каждую
-# ночь на master (что сломалось снаружи: зеркала apt, модели, браузеры) и вручную.
+# Минуты Actions (тариф Free — 2 000 в месяц, полный прогон — ~33 мин): на пуш в рабочую ветку — только быстрое
+# (страница, скрипты и workflow, секреты: ~3 мин); на PR в master — тяжёлое по тому, что затронуто (ci-changes.sh:
+# движок, шаблон, e2e); master после слияния не перепроверяется (это код PR); раз в неделю (что сломалось снаружи:
+# зеркала apt, модели, браузеры) и вручную — всё. Правки только документации не проверяются.
 name: ci
 on:
   push:
-    branches-ignore: ['claude/job-*', 'ci-screens/**']
+    branches-ignore: ['master', 'claude/job-*', 'ci-screens/**']
+    paths-ignore: ['docs/**', 'CLAUDE.md', 'legacy/**']
   pull_request:
     branches: [master]
+    paths-ignore: ['docs/**', 'CLAUDE.md', 'legacy/**']
   schedule:
-    - cron: '17 3 * * *'
+    - cron: '17 3 * * 1'
   workflow_dispatch:
 permissions:
   contents: read
@@ -25,6 +29,23 @@ env:
   PY_PACKAGES: sherpa-onnx soundfile numpy jsonschema fonttools pytest onnxruntime pillow ruff==0.16.8
 
 jobs:
+  # что затронул PR (на пуше, по расписанию и вручную не нужно: там тяжёлое не идёт или идёт всё)
+  changes:
+    name: what the PR touches
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      engine: ${{ steps.diff.outputs.engine }}
+      template: ${{ steps.diff.outputs.template }}
+      web: ${{ steps.diff.outputs.web }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        run: bash .github/scripts/ci-changes.sh "origin/$GITHUB_BASE_REF" >> "$GITHUB_OUTPUT"
+
   web:
     name: page — tests and types
     runs-on: ubuntu-24.04
@@ -45,6 +66,8 @@ jobs:
 
   template:
     name: template — layer in Chromium
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.template == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -66,6 +89,8 @@ jobs:
 
   engine:
     name: engine — fast tests and ruff
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.engine == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -95,6 +120,8 @@ jobs:
 
   engine-slow:
     name: engine — slow tests with the speech models
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.engine == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -131,9 +158,12 @@ jobs:
           name: render-sheets
           path: ${{ runner.temp }}/render-shots
           if-no-files-found: ignore
+          retention-days: 3
 
   e2e:
     name: page — end to end in ${{ matrix.browser == 'webkit' && 'Safari (WebKit, iPhone)' || 'Chromium' }}
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.web == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
@@ -171,15 +201,18 @@ jobs:
           name: e2e-screens-${{ matrix.browser }}
           path: ${{ runner.temp }}/e2e-shots
           if-no-files-found: ignore
+          retention-days: 3
 
   # скриншоты e2e обоих браузеров и листы кадров готовых роликов (медленные тесты движка) — в ветки
-  # ci-screens/<chromium|webkit|render>/<ветка>: их смотрит Claude после каждого пуша (и на сбое — тоже); право записи —
-  # только здесь, где не запускается ничего, кроме git
+  # ci-screens/<chromium|webkit|render>/<ветка>: их смотрит Claude после прогона PR или ручного (и на сбое — тоже);
+  # право записи — только здесь, где не запускается ничего, кроме git
   screens:
     name: screenshots — branches ci-screens/<chromium|webkit|render>/<branch>
     needs: [e2e, engine-slow]
-    # и на сбое (видно, где упало), но не в отменённом прогоне: его скриншоты старее следующего
-    if: ${{ !cancelled() && github.event_name == 'push' }}
+    # и на сбое (видно, где упало), но не в отменённом прогоне (его скриншоты старее следующего) и не в недельном
+    if: >-
+      ${{ !cancelled() && github.event_name != 'schedule' &&
+      (contains(fromJSON('["success","failure"]'), needs.e2e.result) || contains(fromJSON('["success","failure"]'), needs.engine-slow.result)) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -191,11 +224,13 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: ${{ runner.temp }}/screens
-      - run: |
+      - env:
+          BRANCH: ${{ github.head_ref || github.ref_name }} # в PR ref_name — «N/merge»
+        run: |
           for browser in chromium webkit; do
-            bash .github/scripts/publish-screens.sh "$RUNNER_TEMP/screens/e2e-screens-$browser" "ci-screens/$browser/$GITHUB_REF_NAME"
+            bash .github/scripts/publish-screens.sh "$RUNNER_TEMP/screens/e2e-screens-$browser" "ci-screens/$browser/$BRANCH"
           done
-          bash .github/scripts/publish-screens.sh "$RUNNER_TEMP/screens/render-sheets" "ci-screens/render/$GITHUB_REF_NAME"
+          bash .github/scripts/publish-screens.sh "$RUNNER_TEMP/screens/render-sheets" "ci-screens/render/$BRANCH"
 
   lint:
     name: scripts and workflows — shellcheck, actionlint
@@ -227,7 +262,7 @@ jobs:
           echo "5bc41815076e6ed6ef8fbecc9d9b75bcae31f39029ceb55da08086315316e3ba  gitleaks.tgz" | sha256sum -c -
           tar -xzf gitleaks.tgz gitleaks
           ./gitleaks git --redact --no-banner -v .
-      # уязвимости зависимостей — по ночам и вручную: новая находка в next не должна красить каждый пуш
+      # уязвимости зависимостей — раз в неделю и вручную: новая находка в next не должна красить каждый пуш
       - name: npm audit (page, high and critical)
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         working-directory: web

@@ -33,14 +33,20 @@
 - Шаблон: `cd template && npm test`.
 - Настоящий ролик (30 с говорящей головы): `REALCLIP_JOB=<папка задачи> python -m pytest -m realclip tests/test_realclip.py`
   из `engine/` — каждая фича, настроенная руками, видна в смонтированном ролике; папку готовит
-  `python -m tests.realclip_prepare <задача с source.mp4> <папка>`. На GitHub — workflow `realclip` (PR в `master`,
-  ночь, вручную): ролик — архивом в черновике `realclip-30s`, листы кадров — артефактом (видео Павла в git не кладём).
-- CI на GitHub (`.github/workflows/ci.yml`) гоняет всё это сам: на каждый пуш, на PR в `master` и каждую ночь на
-  `master`. e2e — в Chromium и в Safari (WebKit, iPhone 13: `E2E_BROWSER=webkit`); шаблон — ещё «Safari рисует как
+  `python -m tests.realclip_prepare <задача с source.mp4> <папка>`. На GitHub — workflow `realclip` (PR в `master`, если
+  менялись движок, шаблон или их окружение; раз в неделю; вручную): ролик — архивом в черновике `realclip-30s`, листы
+  кадров — артефактом (видео Павла в git не кладём).
+- CI на GitHub (`.github/workflows/ci.yml`) гоняет всё это сам, но минуты Actions считаны (тариф Free — 2 000 в месяц,
+  полный прогон — ~33 мин; за 12–13.10 ушло 1 900): на пуш в рабочую ветку — только быстрое (тесты и типы страницы,
+  shellcheck и actionlint, gitleaks), движок и e2e перед пушем — локально; на PR в `master` — тяжёлое по затронутому
+  (`.github/scripts/ci-changes.sh`: движок, шаблон, e2e), CodeQL и realclip — тоже по путям; master после слияния не
+  перепроверяется; раз в неделю и вручную (workflow_dispatch) — всё. Пушить готовыми кусками: отменённый следующим
+  пушем прогон всё равно оплачен. e2e — в Chromium и в Safari (WebKit, iPhone 13: `E2E_BROWSER=webkit`); шаблон — ещё «Safari рисует как
   рендер» (`template/tests/safari.test.mjs`, без WebKit локально пропускается); shellcheck и actionlint; поиск
   уязвимостей — CodeQL (`.github/workflows/codeql.yml`; проверенные ложные срабатывания — `.github/codeql/accepted.json`
   с причиной); секреты во всей истории — gitleaks; уязвимости зависимостей страницы — `npm audit`. Скриншоты e2e —
-  артефакты прогона и ветки `ci-screens/<chromium|webkit>/<ветка>` (одним коммитом, каждый пуш заново): смотреть —
+  артефакты прогона (3 дня) и ветки `ci-screens/<chromium|webkit>/<ветка>` (одним коммитом, после прогона PR или
+  ручного): смотреть —
   `git fetch origin ci-screens/webkit/<ветка> && git archive FETCH_HEAD | tar -x -C <папка>`.
 
 ## Как работаем

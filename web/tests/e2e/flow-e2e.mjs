@@ -1,5 +1,6 @@
 // Сквозная проверка страницы по сегментам: вход → загрузка (с продолжением после перезагрузки) → список → ….
-// Нужны запущенные next start (порт 3000) и fake-github.mjs (порт 4010) — их поднимает run.sh.
+// Нужны запущенные next start (порт 3000) и fake-github.mjs (порт 4010) — их поднимает run.sh (другие порты —
+// E2E_APP_PORT и E2E_FAKE_PORT).
 // Каждый сегмент печатает `ok <имя>`; первый сбой — `FAIL <имя>` и код 1.
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
@@ -20,8 +21,8 @@ const playwright = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const BROWSER = process.env.E2E_BROWSER || 'chromium';
 const WEBKIT = BROWSER === 'webkit';
 
-const APP = 'http://127.0.0.1:3000';
-const FAKE = 'http://127.0.0.1:4010';
+const APP = `http://127.0.0.1:${process.env.E2E_APP_PORT || 3000}`;
+const FAKE = `http://127.0.0.1:${process.env.E2E_FAKE_PORT || 4010}`;
 // 1×1 PNG — вставка к ролику
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 /** Однотонный PNG `w×h` (RGB) без библиотек: кадры к вопросу «Фон» — по ним страница считает кадр с любым затемнением. */

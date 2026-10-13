@@ -98,6 +98,15 @@ export function choiceFor(styles: Styles, variant: Variant): StyleChoice {
   return { variant, font: spec.font, hand: spec.hand, colors: { text: spec.colors.text, accent: spec.colors.accent, bar: spec.colors.bar } };
 }
 
+/** «Мой стиль» бренда на этой задаче: его вариант (нет такого — A), шрифты — если в них есть все буквы ролика
+ *  (`styles.fonts`), иначе — шрифты варианта; цвета, места, размеры и вид — его. */
+export function brandChoice(styles: Styles, mine: StyleChoice): StyleChoice {
+  const variant = styles.variants.some((v) => v.id === mine.variant) ? mine.variant : 'A';
+  const base = choiceFor(styles, variant);
+  const fits = (id: string, kind: 'main' | 'hand') => !styles.fonts?.[kind]?.length || styles.fonts[kind].includes(id);
+  return { ...mine, variant, font: fits(mine.font, 'main') ? mine.font : base.font, hand: fits(mine.hand, 'hand') ? mine.hand : base.hand };
+}
+
 /** Шрифты, которые можно предложить Павлу: те, где есть все буквы ролика (`styles.fonts`); поля нет или список
  *  пуст — все этого вида (без кнопок Павлу нечего выбрать). */
 export function allowedFonts<T extends { id: string; kind: 'main' | 'hand' }>(list: T[], styles: Styles): T[] {
@@ -299,12 +308,15 @@ export const SPEEDS = [1, 1.1, 1.2, 1.3, 1.4, 1.5];
 export const DEFAULT_SPEED = 1.1;
 const speedKey = (jobId: string): string => `vm:speed:${jobId}`;
 
-export function loadSpeed(storage: Storage | null, jobId: string): number {
+/** Скорость с превью; не выбирал — `fallback` («Мой стиль» бренда), иначе ×1,1. */
+export function loadSpeed(storage: Storage | null, jobId: string, fallback?: number): number {
+  const start = fallback !== undefined && SPEEDS.includes(fallback) ? fallback : DEFAULT_SPEED;
   try {
-    const value = Number(storage?.getItem(speedKey(jobId)));
-    return SPEEDS.includes(value) ? value : DEFAULT_SPEED;
+    const raw = storage?.getItem(speedKey(jobId));
+    const value = Number(raw);
+    return raw && SPEEDS.includes(value) ? value : start;
   } catch {
-    return DEFAULT_SPEED;
+    return start;
   }
 }
 
@@ -430,8 +442,9 @@ export function saveChoice(storage: Storage | null, jobId: string, styles: Style
 }
 
 /** Выбор для этих вариантов; варианты другие («Ещё три варианта»), выбора нет или он битый — вариант A как есть. */
-export function loadChoice(storage: Storage | null, jobId: string, styles: Styles): StyleChoice {
-  const fallback = choiceFor(styles, 'A');
+export function loadChoice(storage: Storage | null, jobId: string, styles: Styles, mine?: StyleChoice | null): StyleChoice {
+  const own = mine ? brandChoice(styles, mine) : null; // «Мой стиль» бренда — с него и начинать
+  const fallback = own && isChoice(own, styles) ? own : choiceFor(styles, 'A');
   try {
     const raw = JSON.parse(storage?.getItem(choiceKey(jobId)) ?? 'null') as { sig?: unknown; choice?: unknown } | null;
     return raw?.sig === signature(styles) && isChoice(raw.choice, styles) ? raw.choice : fallback;

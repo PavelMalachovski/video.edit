@@ -877,6 +877,70 @@ const segments = [
     check((await fires()).filter((f) => f.step === 'fix').length === 2, '«Вернуть» ничего не запускает');
   }],
 
+  // «Мой стиль»: как смонтирован ролик — в «Мой бренд» одной кнопкой; следующий ролик начинается с него — превью тем же
+  // стилем и скоростью, «Фон» и «Музыка» — теми же ответами
+  ['my-look', async (ctx) => {
+    const { page, tmp } = ctx;
+    await page.goto(`${APP}/jobs/${ctx.jobId}`);
+    const save = page.locator('[data-save-look]');
+    await save.waitFor({ timeout: 10_000 });
+    await save.getByRole('button', { name: 'Сохранить стиль ролика в «Мой бренд»' }).click();
+    await save.getByRole('button', { name: 'Сохранено в «Мой бренд»' }).waitFor({ timeout: 10_000 });
+    const answers = JSON.parse((await branchFile(ctx, 'answers.json')) ?? '{}');
+    const brand = JSON.parse(await (await fetch(`${FAKE}/__file?ref=claude%2Fbrand&path=brand%2Fbrand.json`)).text());
+    check(isDeepStrictEqual(brand.look?.style, answers.style) && brand.look?.from?.job === ctx.jobId && brand.look?.dim === 35,
+      `«Мой стиль» — как ответы ролика: ${JSON.stringify({ look: brand.look, style: answers.style })}`);
+    check(brand.handle === '@pavel.malakhouski' && brand.logo, `остальной бренд остался: ${JSON.stringify(brand)}`);
+    await page.goto(`${APP}/brand`);
+    const mine = page.locator('[data-my-look]');
+    await mine.getByText(`Вариант ${answers.style.variant}: шрифт Rubik`).waitFor({ timeout: 10_000 }); // имя шрифта, а не его id
+    check((await mine.textContent()).includes('Фон темнее на 35 %'), `«Мой бренд» показывает «Мой стиль»: ${await mine.textContent()}`);
+    await shot(page, 'brand-look');
+
+    // новый ролик: задача берёт «Мой стиль» с копией бренда
+    const clip = path.join(tmp, 'next.mov');
+    sampleVideo(clip, 1, 1024 * 1024);
+    await page.goto(`${APP}/`);
+    await page.setInputFiles('#source', clip);
+    await page.getByRole('button', { name: 'Загрузить', exact: true }).click();
+    await page.waitForURL((u) => /\/jobs\/\d{6}-\d{6}-[0-9a-z]{4}$/.test(u.pathname) && !u.pathname.endsWith(ctx.jobId), { timeout: 120_000 });
+    const first = ctx.jobId;
+    ctx.jobId = page.url().split('/').pop();
+    try {
+      const job = JSON.parse((await branchFile(ctx, 'job.json')) ?? '{}');
+      check(isDeepStrictEqual(job.brand?.look, brand.look), `job.json.brand.look: ${JSON.stringify(job.brand?.look)}`);
+      const questions = { questions: [
+        QUESTIONS.questions.find((q) => q.id === 'dim'),
+        { id: 'music', type: 'choice', title: 'Музыка', default: 'calm.m4a', options: [{ id: 'calm.m4a', label: 'Спокойная' }, { id: 'none', label: 'Без музыки' }] },
+      ] };
+      await session(ctx, { 'questions.json': questions, 'styles.json': STYLES, 'frame.png': PNG, 'cover-1.jpg': PNG, 'cover-2.jpg': PNG, 'cover-3.jpg': PNG,
+        'q-dim-none.jpg': solidPng(18, 32, [200, 200, 200]), 'q-dim-30.jpg': PNG, 'q-dim-50.jpg': solidPng(18, 32, [100, 100, 100]),
+        'status.json': { state: 'waiting_answers', phase: 'Ждёт ответов', message: 'Ответь на вопросы', at: new Date().toISOString(), needs: 'answers' } });
+      const dim = page.getByRole('slider', { name: 'Насколько темнее фон' });
+      await dim.waitFor({ timeout: 10_000 });
+      check(await dim.inputValue() === '35', `«Фон» — как в «Моём стиле»: ${await dim.inputValue()}`);
+      check(await page.locator('[data-question="music"]').getByRole('button', { name: 'Без музыки' }).getAttribute('aria-pressed') === 'true',
+        '«Музыка» — как в «Моём стиле» (без музыки)');
+      await page.getByRole('button', { name: 'Показать превью' }).click();
+      await page.getByText('Выбери стиль').waitFor();
+      const spec = async () => JSON.parse((await page.locator('iframe[data-big]').getAttribute('data-spec')) ?? '{}');
+      await until(async () => (await spec()).colors?.accent === answers.style.colors.accent, 10_000,
+        async () => `превью — «Моим стилем»: ${JSON.stringify((await spec()).colors)} вместо ${JSON.stringify(answers.style.colors)}`);
+      check((await spec()).font === answers.style.font, `шрифт превью: ${(await spec()).font}`);
+      const mineButton = page.getByRole('button', { name: 'Мой стиль', exact: true });
+      check(await mineButton.getAttribute('aria-pressed') === 'true', 'кнопка «Мой стиль» нажата');
+      await page.getByRole('button', { name: /^A · / }).click();
+      check(await mineButton.getAttribute('aria-pressed') === 'false', 'выбран вариант Claude — «Мой стиль» отжат');
+      await mineButton.click();
+      await until(async () => (await spec()).colors?.accent === answers.style.colors.accent, 5000, '«Мой стиль» вернулся одним нажатием');
+      await shot(page, 'previews-my-look');
+    } finally {
+      ctx.jobId = first;
+    }
+    await page.goto(`${APP}/jobs/${ctx.jobId}`); // дальше — снова первый ролик, с экрана «Готово»
+    await page.locator('[data-save-look]').waitFor({ timeout: 10_000 });
+  }],
+
   ['editor', async (ctx) => {
     const { page } = ctx;
     const tag = `job-${ctx.jobId}`;

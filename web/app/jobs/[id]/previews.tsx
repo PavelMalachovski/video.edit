@@ -5,13 +5,14 @@
 // куда угодно; размер у всех — щипком двумя пальцами или уголком ⤢. «Ещё три варианта» — шаг restyle; «Монтировать» —
 // ответы, стиль и шаг render.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { sameJson } from '@/lib/equal.ts';
 import { abOptions, buildAnswers, previewEnd, previewHook, type Draft } from '@/lib/answers.ts';
 import { storage } from '@/lib/client.ts';
 import { mmss } from '@/lib/format.ts';
 import { editorTabs, mountSummary, nextTab, STAGE, stageFit, type TabId } from '@/lib/editor.ts';
 import { COVER, type AbKind, type Adjustable, type Question, type StyleChoice, type Styles } from '@/lib/jobfiles.ts';
 import { MAX_NOTE } from '@/lib/jobs.ts';
-import { allowedFonts, choiceFor, clampTo, coverOf, ownAdjustments, finalStyle, HOOK_SIZE, HOOK_Y, HOOK_Y_DEFAULT, INSERT_W, insertKey, loadAb, loadAd, loadChoice, loadCover, loadInsertBoxes, loadSpeed, moveBox, resizeBox, resolveInserts, sampleState, saveAb, saveAd, saveChoice, saveCover, saveInsertBoxes, saveSpeed, SPEEDS, SUB_SHADE, SUB_SIZE, SUB_Y, SWATCHES, type CoverPick, type InsertBox, underCaption } from '@/lib/style.ts';
+import { allowedFonts, brandChoice, choiceFor, clampTo, coverOf, ownAdjustments, finalStyle, HOOK_SIZE, HOOK_Y, HOOK_Y_DEFAULT, INSERT_W, insertKey, loadAb, loadAd, loadChoice, loadCover, loadInsertBoxes, loadSpeed, moveBox, resizeBox, resolveInserts, sampleState, saveAb, saveAd, saveChoice, saveCover, saveInsertBoxes, saveSpeed, SPEEDS, SUB_SHADE, SUB_SIZE, SUB_Y, SWATCHES, type CoverPick, type InsertBox, underCaption } from '@/lib/style.ts';
 import {
   FrameIcon, GaugeIcon, LayersIcon, MoveIcon, PaletteIcon, RefreshIcon, ScissorsIcon, SplitIcon, TypeIcon,
 } from '../../icons';
@@ -19,6 +20,7 @@ import { BoxHandle, DragHandle, STEP, type Box } from '../../handles';
 import PreviewFrame from '../../preview-frame';
 import { useTemplateFonts } from '../../use-fonts';
 import { TopBar } from '../../top-bar';
+import type { BrandLook } from '@/lib/brand.ts';
 import type { Act } from './job';
 
 type ColorKey = keyof StyleChoice['colors'];
@@ -34,6 +36,7 @@ type Props = {
   localUrl: (qid: string) => string | null;
   onBack: () => void;
   onAct: Act;
+  look?: BrandLook | null; // «Мой стиль» бренда: с него начинаются стиль и скорость, кнопка возвращает его
 };
 
 // крупное превью — до 270 px экрана, на невысоком экране — уже (lib/editor.ts, stageFit); scale — px экрана на px кадра
@@ -55,9 +58,10 @@ const ROWS: { key: ColorKey; title: string; own: string }[] = [
   { key: 'bar', title: 'Шкала времени', own: 'Свой цвет шкалы' },
 ];
 
-export default function Previews({ jobId, styles, questions, draft, brief, duration, fileUrl, localUrl, onBack, onAct }: Props) {
-  const [choice, setChoiceState] = useState<StyleChoice>(() => loadChoice(storage(), jobId, styles));
-  useEffect(() => setChoiceState(loadChoice(storage(), jobId, styles)), [jobId, styles]); // новые варианты — выбор заново
+export default function Previews({ jobId, styles, questions, draft, brief, duration, fileUrl, localUrl, onBack, onAct, look = null }: Props) {
+  const mine = look?.style ?? null;
+  const [choice, setChoiceState] = useState<StyleChoice>(() => loadChoice(storage(), jobId, styles, mine));
+  useEffect(() => setChoiceState(loadChoice(storage(), jobId, styles, mine)), [jobId, styles, mine]); // новые варианты — выбор заново
   const setChoice = (c: StyleChoice) => {
     setChoiceState(c);
     saveChoice(storage(), jobId, styles, c);
@@ -108,7 +112,7 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
   const [tab, setTab] = useState<TabId>('style');
   const tabRefs = useRef(new Map<TabId, HTMLButtonElement>());
 
-  const [speed, setSpeedState] = useState<number>(() => loadSpeed(storage(), jobId));
+  const [speed, setSpeedState] = useState<number>(() => loadSpeed(storage(), jobId, look?.speed));
   const setSpeed = (s: number) => {
     setSpeedState(s);
     saveSpeed(storage(), jobId, s);
@@ -295,6 +299,13 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
         <div role="tabpanel" id="tab-panel" aria-labelledby={`tab-${current}`} className="tab-panel">
           {current === 'style' ? (
             <>
+              {mine ? (
+                <div className="my-look">
+                  <span className="grow small">{sameJson(choice, brandChoice(styles, mine)) ? 'Сейчас — «Мой стиль» из бренда' : '«Мой стиль» из бренда — одним нажатием'}</span>
+                  <button type="button" className="btn ghost small-btn" aria-pressed={sameJson(choice, brandChoice(styles, mine))}
+                    onClick={() => { setChoice(brandChoice(styles, mine)); if (look?.speed) setSpeed(look.speed); }}>Мой стиль</button>
+                </div>
+              ) : null}
               <div className="muted small">Один кадр с {mmss(styles.frameTime)} в трёх вариантах. Шрифт и цвета меняются сразу, без ожидания.</div>
               <div className="variants">
                 {thumbs.map(({ v, state: s }) => (

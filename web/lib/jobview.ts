@@ -1,5 +1,6 @@
 // Состояние задачи для страницы: файлы ветки claude/job-<id> на коммите (содержимое коммита неизменно — ответы
 // запоминаются по `head:path`), из них — экран задачи, «завис» и какие действия сейчас можно.
+import type { BrandLook } from './brand.ts';
 import { getHead, listDir, readText } from './branch.ts';
 import { findReleaseByTag, getRelease, listAllAssets, type GH, type Release } from './github.ts';
 import {
@@ -68,6 +69,8 @@ export type JobData = {
   uploads: UploadRef[];
   repo: string;
   head: string | null;
+  /** «Мой стиль» бренда, скопированный в задачу при старте (job.json.brand.look): с него — превью и ответы по умолчанию. */
+  brandLook: BrandLook | null;
 };
 
 /** Сколько состояние может не меняться, пока страница не скажет «завис». */

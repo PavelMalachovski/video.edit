@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { initialDraft, pick } from '../lib/answers.ts';
 import type { Question, StyleChoice, Styles } from '../lib/jobfiles.ts';
-import { loadAb, saveAb, loadAd, saveAd, loadCover, saveCover, coverOf, underCaption, allowedFonts, choiceFor, clampHookSize, insertKey, INSERT_W, loadInsertBoxes, moveBox, moveCentre, placedInserts, resizeBox, saveInsertBoxes, clampHookY, clampSubShade, clampSubSize, clampSubY, finalStyle, mergeStyle, HOOK_SIZE, HOOK_Y, SUB_SHADE, SUB_SIZE, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES } from '../lib/style.ts';
+import { brandChoice, loadAb, saveAb, loadAd, saveAd, loadCover, saveCover, coverOf, underCaption, allowedFonts, choiceFor, clampHookSize, insertKey, INSERT_W, loadInsertBoxes, moveBox, moveCentre, placedInserts, resizeBox, saveInsertBoxes, clampHookY, clampSubShade, clampSubSize, clampSubY, finalStyle, mergeStyle, HOOK_SIZE, HOOK_Y, SUB_SHADE, SUB_SIZE, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES } from '../lib/style.ts';
 import { blockedStorage, memoryStorage } from './helpers.ts';
 
 // Общая с движком фикстура: final_style в engine/vm/style.py обязан давать то же самое.
@@ -336,4 +336,23 @@ test('Pavel\'s choice lands in the final style as the engine builds it — the s
   const choices = (FIXTURE as unknown as { choices: { name: string; choice: StyleChoice; expected: unknown }[] }).choices;
   assert.ok(choices.length >= 3);
   for (const c of choices) assert.deepStrictEqual(finalStyle(FIXTURE.styles as Styles, c.choice), c.expected, c.name);
+});
+
+test('«Мой стиль» of the brand: a new job starts from it — its variant, fonts the video can show, its speed', () => {
+  const mine: StyleChoice = {
+    variant: 'B', font: 'rubik', hand: 'caveat', colors: { text: '#FFFFFF', accent: '#FF5C8A', bar: '#FFD23F' }, subY: 1300, subSize: 70, subMode: 'soft', barPos: 'top',
+  };
+  assert.deepEqual(brandChoice(STYLES, mine), mine);
+  assert.equal(brandChoice(STYLES, { ...mine, variant: 'C' as const }).variant, 'C');
+  const latin = { ...STYLES, fonts: { main: ['montserrat'], hand: ['caveat'] } }; // в Rubik нет букв этого ролика
+  assert.deepEqual(brandChoice(latin, mine), { ...mine, font: STYLES.variants[1].spec.font }, 'шрифт без букв ролика — шрифт варианта');
+  const store = memoryStorage();
+  assert.deepEqual(loadChoice(store, 'j', STYLES, mine), mine, 'Павел ещё не выбирал — «Мой стиль»');
+  assert.deepEqual(loadChoice(store, 'j', STYLES, { ...mine, subSize: 999 }), choiceFor(STYLES, 'A'), 'испорченный — вариант A');
+  saveChoice(store, 'j', STYLES, choiceFor(STYLES, 'C'));
+  assert.deepEqual(loadChoice(store, 'j', STYLES, mine), choiceFor(STYLES, 'C'), 'выбор Павла на этом ролике важнее');
+  assert.equal(loadSpeed(store, 'k', 1.3), 1.3);
+  assert.equal(loadSpeed(store, 'k', 2), 1.1, 'не из списка — по умолчанию');
+  saveSpeed(store, 'k', 1.2);
+  assert.equal(loadSpeed(store, 'k', 1.3), 1.2);
 });

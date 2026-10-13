@@ -70,7 +70,7 @@ button { font: inherit; }
 .btn.ghost { min-height: 44px; background: var(--panel-2); color: var(--text); font-size: 14px; font-weight: 600; }
 .btn.ghost:hover { background: var(--line); }
 .small-btn { min-height: 36px; padding: 0 14px; font-size: 13px; }
-.small-btn[aria-pressed=true] { background: var(--accent); color: var(--ink); }
+.btn.small-btn[aria-pressed=true], .btn.small-btn[aria-pressed=true]:hover { background: var(--accent); color: var(--ink); }
 /* «Мой стиль» бренда на превью: что сейчас и кнопка вернуть его */
 .my-look { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--panel-2); margin-bottom: 10px; }
 .btn.outline { min-height: 44px; background: transparent; box-shadow: inset 0 0 0 1px var(--accent); color: var(--accent); font-size: 14px; }

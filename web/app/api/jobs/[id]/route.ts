@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { parseLook } from '@/lib/brand.ts';
 import { errorResponse } from '@/lib/http.ts';
 import { isJobId } from '@/lib/jobs.ts';
 import { canRun, loadJob, type JobData } from '@/lib/jobview.ts';
@@ -30,6 +31,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       uploads: f?.job?.uploads ?? [],
       repo: g.repo,
       head: f?.head ?? null,
+      brandLook: parseLook(f?.job?.brand?.look),
     };
     return NextResponse.json(data);
   } catch (e) {

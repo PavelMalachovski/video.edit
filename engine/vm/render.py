@@ -210,7 +210,7 @@ def draw_layer(job: Job, edit: dict | None = None, work: str = "work/render") ->
     return Layer(edit, info, tl, frames, boxes, warnings, beat)
 
 
-def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium", edit: dict | None = None,
+def render(job: Job, out_dir: Path, name: str = "final", preset: str = "veryfast", edit: dict | None = None,
            work: str = "work/render") -> dict:
     """Пишет `out_dir/<name>.mp4` и `out_dir/<name>.srt` (без речи `.srt` нет: пустой ассет GitHub не примет и не
     отдаст ролик). → `{durations, missing, warnings, music, voice}`; `missing` Павел читает на странице — по-русски;
@@ -389,14 +389,12 @@ def _matte(job: Job, tl: Timeline) -> tuple[Path | None, str | None]:
     folder = job.path("work/matte")
     folder.mkdir(parents=True, exist_ok=True)
     parts = [folder / f"{key.hexdigest()[:12]}-{a}-{b}.mkv" for a, b in plan]
-    if todo := [(a, b) for (a, b), part in zip(plan, parts, strict=True) if not part.is_file()]:
-        frames = sum(b - a for a, b in todo)
-        print(f"затемнение фона: маска на {frames} кадров (~{max(1, round(frames * 0.09 / 60))} мин)", flush=True)
+    if todo := [(unit, part) for unit, part in zip(plan, parts, strict=True) if not part.is_file()]:
+        frames = sum(b - a for (a, b), _ in todo)
+        print(f"затемнение фона: маска на {frames} кадров (~{max(1, round(frames * 0.06 / 60))} мин)", flush=True)
     whole = folder / f"{key.hexdigest()[:12]}-{hashlib.sha1(json.dumps(plan).encode()).hexdigest()[:12]}.mkv"
     try:
-        for (a, b), part in zip(plan, parts, strict=True):
-            if not part.is_file():
-                matte.write_mattes(source, [(a, b)], part)
+        matte.write_parts(source, todo)
         if not whole.is_file():
             matte.join(parts, whole)
     except Exception as err:  # noqa: BLE001 — и исключения onnxruntime: ролик без затемнения лучше, чем никакого

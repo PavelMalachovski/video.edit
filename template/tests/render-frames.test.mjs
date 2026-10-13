@@ -167,6 +167,32 @@ test('identical states reuse one png', async () => {
   assert.equal(pngs.length, 2);
 });
 
+test('several pages draw the very same files as one page', async () => {
+  // разные состояния: субтитры, хук, вставка, титр — страницы рисуют их параллельно, а файлы те же байт в байт
+  const pic = { kind: 'image', src: 'in/pic.png', x: 100, y: 600, w: 200, anim: 1, t: 0 };
+  const events = [
+    { t0: 0, t1: 0.5, state: {} },
+    { t0: 0.5, t1: 1, state: SUB_A },
+    { t0: 1, t1: 1.5, state: SUB_B },
+    { t0: 1.5, t1: 2, state: { hook: { text: 'Хук на кадре' }, sub: { words: ['три', 'четыре'], active: 0, visible: 2 } } },
+    { t0: 2, t1: 2.5, state: SUB_A },
+    { t0: 2.5, t1: 3, state: { inserts: [pic], sub: { words: ['пять'], active: 0, visible: 1 } } },
+    { t0: 3, t1: 3.5, state: { hook: { text: 'Хук на кадре' } } },
+  ];
+  const homes = [];
+  for (const pages of [1, 3]) {
+    const home = await job(`pages-${pages}`, events);
+    await mkdir(path.join(home, 'in'));
+    await writeFile(path.join(home, 'in', 'pic.png'), png(4, 4, [0, 128, 255, 255]));
+    assert.equal((await render(home, '--root', home, '--pages', String(pages))).frames, 6);
+    homes.push(home);
+  }
+  const read = (home, name) => readFile(path.join(home, 'frames', name));
+  const names = (await readdir(path.join(homes[0], 'frames'))).sort();
+  assert.deepEqual((await readdir(path.join(homes[1], 'frames'))).sort(), names);
+  for (const name of names) assert.ok((await read(homes[0], name)).equals(await read(homes[1], name)), `${name} differs`);
+});
+
 test('boxes.json lists the layout of every interval', async () => {
   const home = await job('boxes', [
     { t0: 0, t1: 1, state: {} },
@@ -207,6 +233,24 @@ test('a bad state stops with a readable error', async () => {
     assert.match(err.stderr, /промежуток 0/);
     return true;
   });
+});
+
+test('with several pages the first bad interval is the one reported', async () => {
+  // карточка без логотипа в двух промежутках; страницы рисуют их одновременно, а в ошибке — первый по времени
+  const card = (t) => ({ end: { lines: ['Подпишись'], logo: 'in/нет-такого.png', t } });
+  const home = await job('bad-pages', [
+    { t0: 0, t1: 1, state: SUB_A },
+    { t0: 1, t1: 2, state: SUB_B },
+    { t0: 2, t1: 3, state: card(0) },
+    { t0: 3, t1: 4, state: card(1) },
+  ]);
+  for (let round = 0; round < 3; round++) {
+    await assert.rejects(render(home, '--root', home, '--pages', '4'), (err) => {
+      assert.equal(err.code, 1);
+      assert.match(err.stderr, /промежуток 2 \(2–3 с\): логотип карточки не загрузился/);
+      return true;
+    });
+  }
 });
 
 test('custom font files become fonts.json entries; built-in ids win', () => {

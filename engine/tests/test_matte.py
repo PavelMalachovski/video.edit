@@ -3,8 +3,10 @@
 Модель маски в большинстве тестов подменена: «маска» кадра — его средняя яркость, так по маске видно, какой кадр
 исходника в неё попал. С настоящей моделью (RobustVideoMatting, ставит setup/cloud-setup.sh) — отдельный тест.
 """
+import os
 import shutil
 import subprocess
+import threading
 
 import numpy as np
 import pytest
@@ -86,16 +88,19 @@ def count_video(path, seconds: float = 3.0):
 
 
 class Mean:
-    """Подмена модели: маска — средняя яркость кадра; `resets` — сколько раз память модели начиналась заново."""
+    """Подмена модели: маска — средняя яркость кадра; `resets` — сколько раз память модели начиналась заново.
+    Счётчики — под замком: рендер зовёт модель из нескольких потоков."""
 
     def __init__(self):
         self.resets = 0
         self.frames = 0
+        self.lock = threading.Lock()
 
     def __call__(self, rgb: np.ndarray, state):
-        if state is None:
-            self.resets += 1
-        self.frames += 1
+        with self.lock:
+            if state is None:
+                self.resets += 1
+            self.frames += 1
         return np.full(rgb.shape[:2], round(float(rgb.mean())), np.uint8), "state"
 
 
@@ -116,7 +121,26 @@ def test_mattes_follow_the_cut_order_with_a_warm_up_before_each_piece(tmp_path):
     shown = [round(v / 2) for v in read_gray(out, 32, 56).mean(axis=(1, 2))]
     assert shown == [*range(48, 60), *range(30), *range(45, 66)], "кадр маски = кадр склейки"
     assert model.resets == 3, "у каждого отрезка память модели с нуля — стыки бывают между разными планами"
-    assert model.frames == len(shown) + 2 * matte.WARMUP, "разгон — кадры до отрезка (у начала файла их нет)"
+    seen = sum(len(range(0, b - a, matte.STRIDE)) + ((b - a - 1) % matte.STRIDE != 0) for a, b in plan)
+    assert model.frames == seen + 2 * matte.WARMUP, "разгон — кадры до отрезка (у начала файла их нет); модель видит каждый второй"
+
+
+@needs_ffmpeg
+def test_the_model_sees_every_other_frame_and_the_ones_between_are_blended(tmp_path):
+    """Модель смотрит каждый второй кадр отрезка и его последний: маска между ними — среднее соседних (на настоящем
+    ролике так отличается от полной у 0,8 % точек больше чем на 16 уровней из 255 — края на движении; при затемнении
+    на 30 % это меньше 2 % яркости), а маска вдвое быстрее."""
+    source = count_video(tmp_path / "count.mp4")
+    calls = []
+
+    def model(rgb, state):
+        calls.append(round(float(rgb.mean()) / 2))
+        return np.full(rgb.shape[:2], 10 * len(calls) % 250, np.uint8), "state"
+
+    out = matte.write_mattes(source, [(20, 26)], tmp_path / "m.mkv", predict=model)
+    assert calls == [*range(12, 20), 20, 22, 24, 25], "разгон — подряд; дальше 20, 22, 24 и последний 25"
+    masks = [round(v) for v in read_gray(out, 32, 56).mean(axis=(1, 2))]
+    assert masks == [90, 95, 100, 105, 110, 120], "кадры 21 и 23 — среднее соседних, 25 — посчитан"
 
 
 @needs_ffmpeg
@@ -152,7 +176,7 @@ def test_pieces_already_matted_are_not_matted_again(tmp_path, monkeypatch):
     count_video(job.path("source.mp4"))
     model = Mean()
     monkeypatch.setattr(matte, "unavailable", lambda: None)
-    monkeypatch.setattr(matte, "_rvm", lambda: model)
+    monkeypatch.setattr(matte, "_rvm", lambda threads=None: model)
     with_teaser = Timeline([(0.0, 1.0), (1.5, 2.2)], 1.0, teaser=(1.6, 2.0))
     path_a, note = _matte(job, with_teaser)
     assert note is None
@@ -162,6 +186,27 @@ def test_pieces_already_matted_are_not_matted_again(tmp_path, monkeypatch):
     assert path_a != path_b
     assert [round(v / 2) for v in read_gray(path_b, 32, 56).mean(axis=(1, 2))] == [*range(30), *range(45, 66)]
     assert [round(v / 2) for v in read_gray(path_a, 32, 56).mean(axis=(1, 2))] == [*range(48, 60), *range(30), *range(45, 66)]
+
+
+@needs_ffmpeg
+def test_pieces_are_matted_by_several_workers_each_with_its_own_model(tmp_path):
+    """Отрезки считаются параллельно: у каждого потока — своя модель (своя сессия onnxruntime на свои ядра), а файл
+    каждого отрезка — тот же, что посчитал бы один поток."""
+    source = count_video(tmp_path / "count.mp4")
+    units = [(0, 20), (20, 41), (45, 66), (70, 85)]
+    made = []
+
+    def models(threads):
+        made.append(threads)
+        return Mean()
+
+    parts = [tmp_path / f"p{i}.mkv" for i in range(len(units))]
+    matte.write_parts(source, list(zip(units, parts, strict=True)), workers=2, models=models)
+    workers = min(2, os.cpu_count() or 1)
+    assert made == [max(1, (os.cpu_count() or 1) // workers)] * workers, "по модели на поток, ядра — поровну"
+    for (a, b), part in zip(units, parts, strict=True):
+        alone = matte.write_mattes(source, [(a, b)], tmp_path / f"alone-{a}.mkv", predict=Mean())
+        assert np.array_equal(read_gray(part, 32, 56), read_gray(alone, 32, 56)), f"кусок {a}–{b}"
 
 
 def test_the_model_path_comes_from_matte_model_or_the_cache(monkeypatch, tmp_path):

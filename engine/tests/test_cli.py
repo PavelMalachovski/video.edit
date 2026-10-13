@@ -889,7 +889,7 @@ def test_preview_shows_the_background_dimmed_for_the_question(tmp_path, monkeypa
         return mask, state
 
     monkeypatch.setattr("vm.matte.unavailable", lambda: None)
-    monkeypatch.setattr("vm.matte._rvm", lambda: left_person)
+    monkeypatch.setattr("vm.matte._rvm", lambda threads=None: left_person)
     job = Job(tmp_path / "jobs" / "abc")
     make_source(job.path("source.mp4"), 3)
     assert main(["preview", str(job.root), "--at", "1.0", "--out", "q-dim-none.png"]) == 0
@@ -1517,3 +1517,34 @@ def test_prepare_stops_when_a_video_of_the_job_is_missing(tmp_path, monkeypatch,
     assert main(["prepare", str(job.root)]) == 1
     err = capsys.readouterr().err
     assert "IMG_2.mp4" in err and "vm fetch" in err, err
+
+
+def test_render_encodes_with_veryfast_by_default(tmp_path, monkeypatch):
+    """Финал — x264 veryfast, crf 18: втрое быстрее medium на настоящем ролике (34 → 11 с на 20 с), SSIM к
+    исходнику не ниже (0,978 против 0,975), файл больше на ~18 %. `--preset` — для проверок (ultrafast)."""
+    import vm.__main__ as cli
+
+    job = Job(tmp_path / "jobs" / "abc")
+    job.write("edit.json", {"speed": 1.0, "keep": [[0.0, 4.0]], "words": [], "hook": None, "cta": None, "inserts": [], "zooms": [],
+                            "face": {"x": 0.5, "y": 0.3}, "music": None, "hold": 0.0, "style": STYLE})
+    presets = []
+
+    def fake_render(job_, out_dir, name="final", preset="medium", edit=None, work="work/render"):
+        presets.append(preset)
+        (job_.path(work) / "frames").mkdir(parents=True, exist_ok=True)
+        (job_.path(work) / "frames" / "boxes.json").write_text("[]", encoding="utf-8")
+        job_.path("out").mkdir(exist_ok=True)
+        job_.path(f"out/{name}.mp4").write_bytes(b"video")
+        return {"durations": {"source": 4.0, "final": 4.0}, "missing": [], "warnings": [], "voice": {}}
+
+    monkeypatch.setattr(cli, "render", fake_render)
+    monkeypatch.setattr(cli, "_fonts_ok", lambda job: None)
+    monkeypatch.setattr(cli, "check_render", lambda final, edit, boxes, report: [])
+    monkeypatch.setattr(cli, "control_frames", lambda *a, **k: {"sheet": job.path("qa/qa.png")})
+    monkeypatch.setattr(cli, "checklist", lambda final, boxes, report: CHECKS)
+    assert main(["render", str(job.root)]) == 0
+    assert presets == ["veryfast"]
+    import inspect
+
+    from vm.render import render as real_render
+    assert inspect.signature(real_render).parameters["preset"].default == "veryfast"

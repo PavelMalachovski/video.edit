@@ -550,7 +550,7 @@ def _parser() -> argparse.ArgumentParser:
 
     render_ = command("render", _render, "финал по edit.json → out/, qa/, result.json")
     render_.add_argument("--version", type=_version, help="номер версии: 1 — final, 2 и дальше → final-vN (правки)")
-    render_.add_argument("--preset", default="medium", help="пресет x264 (для проверок — ultrafast)")
+    render_.add_argument("--preset", default="veryfast", help="пресет x264: veryfast (crf 18 — втрое быстрее medium, не хуже по SSIM); для проверок — ultrafast")
     render_.add_argument("--status", action="store_true", help="писать фазы в status.json и пушить")
 
     push_ = command("push", _push, "коммит и пуш папки задачи")

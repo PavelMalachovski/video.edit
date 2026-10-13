@@ -656,7 +656,7 @@ def left_person(rgb, state):
 @pytest.fixture
 def fake_matte(monkeypatch):
     monkeypatch.setattr("vm.matte.unavailable", lambda: None)
-    monkeypatch.setattr("vm.matte._rvm", lambda: left_person)
+    monkeypatch.setattr("vm.matte._rvm", lambda threads=None: left_person)
 
 
 def halves(picture: np.ndarray) -> tuple[float, float]:

@@ -35,6 +35,10 @@ function useGestures(scale: number, size: number, onSize: (size: number) => void
   };
   return {
     onPointerDown: (e: React.PointerEvent<HTMLElement>) => {
+      // без выделения текста и своего перетаскивания браузера: Safari, начав тащить выделенный значок ⤢, забирает мышь
+      // себе — странице не приходят ни движения, ни отпускание (жест обрывался после первого шага). Фокус — ручке (стрелки)
+      e.preventDefault();
+      e.currentTarget.focus({ preventScroll: true });
       try {
         e.currentTarget.setPointerCapture(e.pointerId);
       } catch {

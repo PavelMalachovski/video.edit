@@ -172,10 +172,19 @@ function editorKit(page, full) {
     return { r, pps: r.width / full, X: (t) => r.x + (t * r.width) / full };
   };
   const layerState = async () => JSON.parse((await page.locator('.ed-layer iframe').getAttribute('data-state')) ?? '{}');
-  /** Встать на момент ролика `t` (щелчок по линейке) и дождаться события слоя, в котором он лежит. */
+  /** Где плейхед по часам редактора (десятые секунды). */
+  const clockAt = async () => {
+    const [m, s] = ((await page.locator('.ed-clock span').first().textContent()) ?? '').split(':');
+    return Number(m) * 60 + Number(s);
+  };
+  /** Встать на момент ролика `t` (щелчок по линейке; часы не дошли — щелчок мимо, ещё раз: WebKit на CI, бывает, щёлкает
+   *  раньше, чем вёрстка встала) и дождаться события слоя, в котором он лежит. */
   const seekTo = async (t) => {
-    const { r, X } = await geo();
-    await page.mouse.click(X(t), r.y + r.height / 2);
+    await until(async () => {
+      const { r, X } = await geo();
+      await page.mouse.click(X(t), r.y + r.height / 2);
+      return Math.abs((await clockAt()) - t) < 0.15;
+    }, 3000, async () => `часы на ${t} с, а не ${await clockAt()}`);
     await until(async () => {
       const t0 = Number(await page.locator('.ed-layer').getAttribute('data-t0'));
       return Number.isFinite(t0) && t0 <= t + 0.02;
@@ -1756,7 +1765,9 @@ const segments = [
     await fakeJson('/__commit', { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ branch: `claude/job-${ctx.jobId}`, files: { 'engine/vm/schemas/timeline.json': null }, message: 'before the editor' }) });
     await page.reload();
-    await page.getByText('Эта задача создана до редактора').waitFor({ timeout: 10_000 });
+    await page.locator('.ed-flag').getByText('Эта задача создана до редактора').waitFor({ timeout: 10_000 });
+    check(await page.getByText('Эта задача создана до редактора').count() === 1, 'про задачу до редактора — один раз');
+    await page.getByText('Стиль этой задачи меняется через «Поправить».').waitFor({ timeout: 3000 });
     check(await page.locator('.ed-handle').count() === 0 && await page.getByRole('slider', { name: 'Сила зума' }).isDisabled(), 'у задачи до редактора ничего не правится');
     await fakeJson('/__commit', { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ branch: `claude/job-${ctx.jobId}`, files: { 'engine/vm/schemas/timeline.json': JSON.stringify(schema) }, message: 'engine back' }) });

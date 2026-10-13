@@ -1117,7 +1117,7 @@ export default function Editor({ id }: { id: string }) {
   const cutTotal = tracks?.cuts.reduce((s, c) => s + c.src1 - c.src0, 0) ?? 0;
   const saveText = save.state === 'saving' ? T('saving') : save.state === 'error' ? T('saveFailed', { e: save.error ?? '' })
     : save.state === 'conflict' ? T('conflict') : dirty ? '' : save.state === 'saved' ? T('saved') : '';
-  const styleNote = styleLocked ? T('styleLocked') : !styleOpen && data?.draft && !data.abilities.edits ? T('editsOld')
+  const styleNote = styleLocked ? T('styleLocked') : !styleOpen && data?.draft && !data.abilities.edits ? T('styleOld')
     : mounted ? T('styleMounted') : T('styleShared');
   const frameH = Math.round((frameW * 16) / 9);
   const subRow = tracks ? blockRow(tracks.subtitles, 'sub', (c) => c.label) : null;

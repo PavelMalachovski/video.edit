@@ -1438,20 +1438,17 @@ const segments = [
     const tr = row.locator('.ed-clip[data-kind=transition]');
     await until(async () => (await look.count()) === 1 && (await tr.count()) === 1, 10_000, 'на дорожке «Картинка» — ч/б-кусок и переход');
     const v = page.locator('video[data-editor-video]');
-    const zoomAt = async (t) => {
-      await seekTo(t);
-      await page.waitForTimeout(150); // картинка — по кадру часов
-      return Number(await v.getAttribute('data-zoom'));
-    };
-    const z0 = await zoomAt(1.6);
-    check(z0 > 1.1, `зум монтажа: ${z0}`);
+    // картинку кадр рисует после перемотки видео (seeked), а WebKit на CI перематывает и дольше 150 мс — ждём её саму
+    const zoom = async () => Number(await v.getAttribute('data-zoom'));
+    await seekTo(1.6);
+    const z0 = await until(async () => { const z = await zoom(); return z > 1.1 && z; }, 3000, async () => `зум монтажа: ${await zoom()}`);
     // сила зума — ползунок с клавиатуры: 100 % → 50 % (шаг — 5 %)
     const slider = page.getByRole('slider', { name: 'Сила зума' });
     await slider.focus();
     for (let k = 0; k < 10; k++) await page.keyboard.press('ArrowLeft');
     await page.locator('.ed-pic-panel').getByText('50 %').first().waitFor({ timeout: 3000 });
-    const z1 = await zoomAt(1.6);
-    check(Math.abs(z1 - (1 + (z0 - 1) / 2)) < 0.002, `зум вполовину: было ${z0}, стало ${z1}`);
+    await seekTo(1.6);
+    await until(async () => Math.abs((await zoom()) - (1 + (z0 - 1) / 2)) < 0.002, 3000, async () => `зум вполовину: было ${z0}, стало ${await zoom()}`);
 
     // ч/б-кусок: выбрать на дорожке — убрать; кадр в цвете, на дорожке — тень
     await look.click();

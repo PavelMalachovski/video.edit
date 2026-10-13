@@ -1,9 +1,26 @@
 // Очередь загрузки кусков: несколько параллельных запросов, пауза между стартами
 // (вторичные лимиты GitHub на создание ассетов), повторы с нарастающей паузой,
-// минута ожидания после ответа «лимит», продолжение с уже загруженных кусков.
+// минута ожидания после ответа «лимит», продолжение с уже загруженных кусков; ответ, который повтор не исправит
+// (сайт на паузе, вход истёк, кусок неверный), останавливает загрузку сразу.
+import { PAUSED, statusText } from './client.ts';
 import { CHUNK_SIZE, chunkName, isJobId, isSourceFile, isUploadFile, isVoiceFile, videoAsset } from './jobs.ts';
 
 export type PutResult = { ok: true } | { ok: false; status: number };
+
+/** Ответы, которые повтор не исправит: неверный запрос (400), вход истёк (401), Vercel поставил сайт на паузу (402),
+ *  маршрута нет (404), кусок больше лимита (413). Шесть повторов каждого куска только тратили бы трафик Vercel. */
+export const FATAL: ReadonlySet<number> = new Set([400, 401, 402, 404, 413]);
+
+/** Загрузка остановилась на ответе из FATAL: загруженные куски остались, «Продолжить загрузку» пойдёт с них. */
+export class UploadStopped extends Error {
+  readonly status: number;
+  constructor(status: number) {
+    super(status === 401 ? 'Вход истёк — войдите снова (можно в другой вкладке) и повторите: загруженное не пропадёт'
+      : status === 402 ? PAUSED : statusText(status, 'Загрузка остановилась'));
+    this.name = 'UploadStopped';
+    this.status = status;
+  }
+}
 
 export type UploadOptions = {
   parts: number;
@@ -27,6 +44,7 @@ export async function runUpload(o: UploadOptions): Promise<{ retries: number }> 
   const gap = o.minGapMs ?? 700;
   let nextStart = now();
   let retries = 0;
+  let stopped: number | null = null; // ответ из FATAL: новые куски не начинаем
   const failed: number[] = [];
 
   async function slot(): Promise<void> {  // занять ближайшее окно старта
@@ -36,12 +54,14 @@ export async function runUpload(o: UploadOptions): Promise<{ retries: number }> 
   }
 
   async function worker(): Promise<void> {
-    for (let i = queue.shift(); i !== undefined; i = queue.shift()) {
+    for (let i = queue.shift(); i !== undefined && stopped === null; i = queue.shift()) {
       for (let attempt = 0; ; attempt++) {
         await slot();
+        if (stopped !== null) return;
         let r: PutResult;
         try { r = await o.put(i); } catch { r = { ok: false, status: 0 }; }
         if (r.ok) { done.add(i); o.onProgress?.(done.size); break; }
+        if (FATAL.has(r.status)) { stopped ??= r.status; return; }
         if (attempt >= maxRetries - 1) { failed.push(i); break; }
         retries += 1;
         await sleep(r.status === 429 ? (o.rateLimitWaitMs ?? 60_000) : 1000 * 2 ** attempt);
@@ -50,6 +70,7 @@ export async function runUpload(o: UploadOptions): Promise<{ retries: number }> 
   }
 
   await Promise.all(Array.from({ length: Math.max(1, o.concurrency ?? 2) }, worker));
+  if (stopped !== null) throw new UploadStopped(stopped);
   if (failed.length) throw new Error(`upload failed for part ${failed.sort((a, b) => a - b).join(', ')}`);
   return { retries };
 }

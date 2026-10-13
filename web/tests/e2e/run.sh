@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # Сквозная проверка страницы: поддельный GitHub и API рутины (порт 4010), собранная страница (порт 3000),
-# Playwright по сегментам flow-e2e.mjs. Логи серверов — в папке, которую печатает при сбое.
+# Playwright по сегментам flow-e2e.mjs. Логи серверов — в папке, которую печатает при сбое. Другие порты (второй прогон
+# рядом, из другой копии ветки) — E2E_APP_PORT и E2E_FAKE_PORT.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+
+export E2E_APP_PORT="${E2E_APP_PORT:-3000}" E2E_FAKE_PORT="${E2E_FAKE_PORT:-4010}"
+app="http://127.0.0.1:$E2E_APP_PORT" fake="http://127.0.0.1:$E2E_FAKE_PORT"
 
 logs=$(mktemp -d)
 pids=()
@@ -12,7 +16,7 @@ cleanup() {  # серверы — в своих группах процессо�
 }
 trap cleanup EXIT
 
-for port in 3000 4010; do
+for port in "$E2E_APP_PORT" "$E2E_FAKE_PORT"; do
   if curl -s -o /dev/null "http://127.0.0.1:$port/"; then
     echo "порт $port занят — остался сервер от прошлого прогона? (pgrep -af 'next start|fake-github')" >&2
     exit 1
@@ -29,16 +33,16 @@ wait_port() {  # wait_port <url> <что>
   return 1
 }
 
-export GITHUB_TOKEN=t GITHUB_REPO=o/r GITHUB_API_URL=http://127.0.0.1:4010/api GITHUB_UPLOADS_URL=http://127.0.0.1:4010/up \
-  ROUTINE_ID=trig_e2e ROUTINE_TOKEN=rt ROUTINE_API_URL=http://127.0.0.1:4010 APP_PASSWORD=pw SESSION_SECRET=e2e
+export GITHUB_TOKEN=t GITHUB_REPO=o/r GITHUB_API_URL="$fake/api" GITHUB_UPLOADS_URL="$fake/up" \
+  ROUTINE_ID=trig_e2e ROUTINE_TOKEN=rt ROUTINE_API_URL="$fake" APP_PASSWORD=pw SESSION_SECRET=e2e
 
-setsid node tests/e2e/fake-github.mjs 4010 >"$logs/fake.log" 2>&1 &
+setsid node tests/e2e/fake-github.mjs "$E2E_FAKE_PORT" >"$logs/fake.log" 2>&1 &
 pids+=($!)
 npm run build >"$logs/build.log" 2>&1 || { tail -n 60 "$logs/build.log" >&2; exit 1; }
-setsid npx next start -p 3000 >"$logs/next.log" 2>&1 &
+setsid npx next start -p "$E2E_APP_PORT" >"$logs/next.log" 2>&1 &
 pids+=($!)
-wait_port http://127.0.0.1:4010/__state 'поддельный GitHub'
-wait_port http://127.0.0.1:3000/login 'страница'
+wait_port "$fake/__state" 'поддельный GitHub'
+wait_port "$app/login" 'страница'
 
 if ! PLAYWRIGHT_MODULE="$(npm root -g)/playwright" PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers \
   node --experimental-strip-types --no-warnings tests/e2e/flow-e2e.mjs; then

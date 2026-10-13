@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  decodePeaks, draftTracks, findBlock, moveTarget, parseDraft, parseMedia, peakAt, slotAt, splitTarget, videoKey, withHandEdits, wordEdges, type Draft,
+  clipAt, decodePeaks, draftTracks, findBlock, moveTarget, parseDraft, parseMedia, peakAt, slotAt, splitTarget, videoKey, withHandEdits, wordEdges, type Clip, type Draft,
 } from '../lib/tracks.ts';
 import { setSound, setVoice } from '../lib/edits.ts';
 import { cutSpan, EMPTY, moveSpan, setMusic, splitAt } from '../lib/edits.ts';
@@ -103,6 +103,36 @@ test('the frame at a moment is what the engine draws there: the subtitle group b
   assert.equal(at(1.5).hook, undefined, 'хук ушёл');
   assert.ok(at(1.7).accent && at(1.7).sub === undefined, 'акцент — вместо субтитров');
   assert.equal(at(t.duration - 0.05).sub, undefined, 'после последнего слова — пусто');
+});
+
+test('a tap on the frame finds what is drawn there: the subtitle group and the accent of the layer event', () => {
+  assert.equal(clipAt([], 0, 1), null);
+  // края событий — на целых кадрах, края групп — нет: по тому, что дольше идёт в промежутке события
+  const two = [{ kind: 'sub', label: 'a', t0: 0, t1: 1.02 }, { kind: 'sub', label: 'b', t0: 1.0, t1: 2 }] as Clip[];
+  assert.equal(clipAt(two, 1.0, 1.5)?.label, 'b');
+  assert.equal(clipAt(two, 0.5, 1.01)?.label, 'a');
+  let subs = 0;
+  let accents = 0;
+  for (const mode of ['karaoke', 'plate', 'soft', 'accumulate', 'word']) {
+    for (const teaser of [null, { t0: 3.0, t1: 4.5 }]) {
+      const t = draftTracks({ ...DRAFT, teaser }, { style: { subtitles: { mode, words: 3 }, hook: { mode: 'plate' } } });
+      const shownAccents = t.text.filter((c) => c.kind === 'accent' && !c.ghost);
+      for (const e of buildOverlayEvents(t.layer.edit, t.layer.tl)) {
+        const where = `${mode}${teaser ? ', с тизером' : ''}, ${e.t0}`;
+        const sub = e.state.sub as { words: string[] } | undefined;
+        if (sub) {
+          subs++;
+          assert.equal(clipAt(t.subtitles, e.t0, e.t1)?.label, sub.words.join(' '), where);
+        }
+        const accent = e.state.accent as { lines: { text: string }[] } | undefined;
+        if (accent) {
+          accents++;
+          assert.equal(clipAt(shownAccents, e.t0, e.t1)?.label, accent.lines.map((l) => l.text).join(' '), where);
+        }
+      }
+    }
+  }
+  assert.ok(subs > 50 && accents > 20, `событий: субтитров ${subs}, акцентов ${accents}`);
 });
 
 test('with a teaser the hook stands on the whole teaser, as the engine has it', () => {

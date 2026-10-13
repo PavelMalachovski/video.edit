@@ -1,8 +1,9 @@
 'use client';
-// Экран «4 · Готово»: ролик на чёрной сцене, скачивание видео и субтитров, итоги Claude и «Поправить» (шаг fix, новая
+// Экран «4 · Готово»: ролик на светлой сцене, скачивание видео и субтитров, итоги Claude и «Поправить» (шаг fix, новая
 // версия ролика).
 import { useState, type ReactNode } from 'react';
 import { captionCopy, captionFold, parseCaption, type Caption } from '@/lib/caption.ts';
+import { errorText } from '@/lib/client.ts';
 import { mmss } from '@/lib/format.ts';
 import { abLabels, type AnswersFile, type Check, type FixFile, type ResultFile } from '@/lib/jobfiles.ts';
 import { MAX_NOTE } from '@/lib/jobs.ts';
@@ -59,8 +60,7 @@ function SaveLook({ jobId }: { jobId: string }) {
     setState({ kind: 'busy' });
     try {
       const r = await fetch('/api/brand/look', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job: jobId }) });
-      const body = (await r.json().catch(() => null)) as { error?: string } | null;
-      setState(r.ok ? { kind: 'done' } : { kind: 'error', text: body?.error ?? 'Не получилось сохранить' });
+      setState(r.ok ? { kind: 'done' } : { kind: 'error', text: await errorText(r, 'Не получилось сохранить') });
     } catch {
       setState({ kind: 'error', text: 'Нет связи — попробуйте ещё раз' });
     }

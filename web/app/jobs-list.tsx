@@ -2,7 +2,7 @@
 // «Мои видео»: задачи со значком состояния, ссылка на страницу задачи, «Удалить». Пока кто-то в работе и вкладка
 // видна — обновление раз в 15 с.
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { errorText, message } from '@/lib/client.ts';
 import { mmss } from '@/lib/format.ts';
 import type { JobView, Screen } from '@/lib/jobview.ts';
@@ -32,10 +32,16 @@ export default function JobsList() {
   const [rowError, setRowError] = useState<Record<string, string>>({});
   const [deleting, setDeleting] = useState<string | null>(null);
 
+  const etag = useRef<string | null>(null); // тот же список — 304 без тела (трафик Vercel)
   const refresh = useCallback(async () => {
     try {
-      const r = await fetch('/api/jobs', { cache: 'no-store' });
+      const r = await fetch('/api/jobs', { cache: 'no-store', headers: etag.current ? { 'If-None-Match': etag.current } : {} });
+      if (r.status === 304) {
+        setError('');
+        return;
+      }
       if (!r.ok) throw new Error(await errorText(r, 'Список не загрузился'));
+      etag.current = r.headers.get('ETag');
       setRows((await r.json()) as Row[]);
       setError('');
     } catch (e) {

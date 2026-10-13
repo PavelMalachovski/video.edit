@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { authorized } from '@/lib/auth.ts';
 import { uploadAsset } from '@/lib/github.ts';
 import { errorResponse } from '@/lib/http.ts';
 import { CHUNK_SIZE, chunkName, isJobId, isSourceFile, isUploadFile, MAX_ANSWER_IMAGE_BYTES, partsOf } from '@/lib/jobs.ts';
@@ -8,6 +9,9 @@ export const maxDuration = 60;
 
 // Один кусок (≤ 4 МБ) видео или вставки → ассет <file>.part-NNNNN черновика job-<id> (file — source, source-2… или upload-*).
 export async function PUT(request: Request, { params }: { params: Promise<{ id: string; index: string }> }) {
+  // proxy.ts этот маршрут пропускает (тело куска иначе считалось бы в трафик Vercel дважды) — вход проверяем здесь,
+  // до чтения тела
+  if (!(await authorized(request))) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   const { id, index } = await params;
   const query = new URL(request.url).searchParams;
   const releaseId = Number(query.get('release'));

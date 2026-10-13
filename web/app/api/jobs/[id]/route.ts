@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server';
 import { parseLook } from '@/lib/brand.ts';
-import { errorResponse } from '@/lib/http.ts';
+import { errorResponse, jsonWithEtag } from '@/lib/http.ts';
 import { isJobId } from '@/lib/jobs.ts';
 import { canRun, loadJob, type JobData } from '@/lib/jobview.ts';
 import { deleteJob } from '@/lib/steps.ts';
 import { gh } from '@/lib/env.ts';
 
-// Экран задачи: состояние и файлы сессии на голове ветки (страница опрашивает раз в ~5 с).
-export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+// Экран задачи: состояние и файлы сессии на голове ветки (страница опрашивает раз в 5–30 с; то же содержимое — 304).
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
     if (!isJobId(id)) return NextResponse.json({ error: 'bad job id' }, { status: 400 });
@@ -33,7 +33,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       head: f?.head ?? null,
       brandLook: parseLook(f?.job?.brand?.look),
     };
-    return NextResponse.json(data);
+    return jsonWithEtag(data, request);
   } catch (e) {
     return errorResponse(e);
   }

@@ -91,8 +91,9 @@
   `refusedBy` в `web/lib/editordata.ts` (по схеме в её ветке). Блоки на дорожках ↔ время исходника — `web/lib/blocks.ts`
   (`sourceSpan`, `hookUntil`: как `Timeline.span` и `_hook_end`).
 - Знаки, которых шрифт ролика не нарисует (★, ✓, ♪ — не эмодзи): `fonts.symbols` и `lacking_symbols` в
-  `engine/vm/fonts.py` (`check`) ↔ `badSymbols` и `SYMBOLS_OK` в `web/lib/edits.ts` (их не пропускают панели блоков и
-  `parseSave` в `web/lib/editordata.ts`).
+  `engine/vm/fonts.py` (`check`) ↔ `badSymbols` и `SYMBOLS_OK` в `web/lib/edits.ts` (их не пропускают `fieldProblem` в
+  `web/lib/blocktext.ts` — одна проверка у полей панелей блоков и у поля текста на кадре — и `parseSave` в
+  `web/lib/editordata.ts`).
 - Картинка руками (`timeline.json` → `zoom`, `looks`, `transitions`, `dim`): `engine/vm/edits.py` (`apply_picture`,
   `_moments`) и схема `engine/vm/schemas/timeline.json` (выключенное — `off` в схеме `edit.json`) ↔ `web/lib/edits.ts`
   (`applyPicture`, `setZoom`, `setLook`, `setTransition`, `setDim`, `TRANSITION_KINDS`, `LIMITS`, `parseTimeline`),
@@ -140,6 +141,9 @@
 - Анимации стиля эталона: `template/overlay.js` (`SOFT`, `ACC` — сколько длится появление), `engine/vm/overlay.py` и
   `web/lib/overlay.ts`
   (`SUB_APPEAR`, `HOOK_APPEAR`, `ACCENT_ANIM`, `TYPE_CPS` — сколько кадров давать им время, с запасом).
+- Светлая тема: палитра `:root` в `web/app/globals.css` ↔ `.ed` (`--e-*` берут её) ↔ `themeColor` в `web/app/layout.tsx`;
+  `color-scheme` у iframe слоя (`.preview > iframe`) — как у шаблона (`template/`), иначе под слоем белая подложка
+  (`web/tests/theme.test.ts`).
 - Файлы задачи: схемы `engine/vm/schemas/*.json` и типы `web/lib/jobfiles.ts`; кто какой файл пишет — SKILL.md,
   часть 2 («Файлы задачи», «Страница»).
 - Свои шрифты Павла: правило `template/fonts.mjs` — общее для рендера и страницы; его же повторяет каталог

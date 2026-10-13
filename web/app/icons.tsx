@@ -25,6 +25,8 @@ export const ScissorsIcon = ({ size = 17 }: P) => <Stroke size={size} width={2.4
 export const DownloadIcon = ({ size = 18 }: P) => <Stroke size={size} width={2.4}><path d="M12 4v12" /><path d="M6 10l6 6 6-6" /><path d="M4 20h16" /></Stroke>;
 export const CopyIcon = ({ size = 16 }: P) => <Stroke size={size}><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></Stroke>;
 export const RefreshIcon = ({ size = 16 }: P) => <Stroke size={size} width={2.4}><path d="M20 11a8 8 0 1 0-2.3 5.7" /><path d="M20 4v7h-7" /></Stroke>;
+export const PencilIcon = ({ size = 16 }: P) => <Stroke size={size} width={2.2}><path d="M4 20h4L19 9l-4-4L4 16z" /><path d="M13 7l4 4" /></Stroke>;
+export const CheckIcon = ({ size = 16 }: P) => <Stroke size={size} width={2.4}><path d="M5 12l5 5L20 7" /></Stroke>;
 
 export function PlayIcon({ size = 16 }: P) {
   return (

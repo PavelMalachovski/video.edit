@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { initialDraft, pick } from '../lib/answers.ts';
 import type { Question, StyleChoice, Styles } from '../lib/jobfiles.ts';
-import { brandChoice, loadAb, saveAb, loadAd, saveAd, loadCover, saveCover, coverOf, underCaption, allowedFonts, choiceFor, clampHookSize, insertKey, INSERT_W, loadInsertBoxes, moveBox, moveCentre, placedInserts, resizeBox, saveInsertBoxes, clampHookY, clampSubShade, clampSubSize, clampSubY, finalStyle, mergeStyle, HOOK_SIZE, HOOK_Y, SUB_SHADE, SUB_SIZE, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES } from '../lib/style.ts';
+import { brandChoice, loadAb, saveAb, loadAd, saveAd, loadCover, saveCover, coverOf, underCaption, allowedFonts, choiceFor, clampHookSize, insertKey, INSERT_W, loadInsertBoxes, moveBox, moveCentre, placedInserts, placeText, resizeBox, saveInsertBoxes, clampHookY, clampSubShade, clampSubSize, clampSubY, finalStyle, mergeStyle, HOOK_SIZE, HOOK_Y, HOOK_Y_DEFAULT, SUB_SHADE, SUB_SIZE, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES, textPlace } from '../lib/style.ts';
 import { blockedStorage, memoryStorage } from './helpers.ts';
 
 // Общая с движком фикстура: final_style в engine/vm/style.py обязан давать то же самое.
@@ -179,6 +179,22 @@ test('sizes: Pavel makes the hook and subtitles bigger or smaller, within limits
   assert.deepEqual([loadChoice(store, id, STYLES).subSize, loadChoice(store, id, STYLES).hookSize], [80, 100]);
   saveChoice(store, id, STYLES, { ...plain, hookSize: 300 });
   assert.deepEqual(loadChoice(store, id, STYLES), choiceFor(STYLES, 'A'), 'a size out of range is not taken back');
+});
+
+test('hook and subtitles dragged on the editor frame: from the drawn place, within ADJUST, by its step', () => {
+  const plain = choiceFor(STYLES, 'B');
+  const b = finalStyle(STYLES, plain);
+  assert.deepEqual(textPlace(b, 'sub'), { y: b.subtitles.y, size: b.subtitles.size, range: SUB_Y, sizes: SUB_SIZE });
+  assert.deepEqual(textPlace(b, 'hook'), { y: b.hook.y, size: b.hook.size, range: HOOK_Y, sizes: HOOK_SIZE });
+  const { y: _y, ...noY } = b.hook;
+  assert.equal(textPlace({ ...b, hook: noY }, 'hook').y, HOOK_Y_DEFAULT, 'хук без места в стиле — где его ставит шаблон');
+  assert.equal(placeText(plain, 'sub', { y: 1234.4 }).subY, 1230);
+  assert.equal(placeText(plain, 'sub', { size: 71 }).subSize, 72);
+  assert.deepEqual(placeText(plain, 'sub', { y: 900 }), { ...plain, subY: 900 }, 'размер не трогает');
+  const hook = placeText(plain, 'hook', { y: 5000, size: 10 });
+  assert.deepEqual([hook.hookY, hook.hookSize], [HOOK_Y.max, HOOK_SIZE.min]);
+  assert.equal(hook.subY, undefined, 'субтитры не трогает');
+  assert.equal(finalStyle(STYLES, placeText(plain, 'hook', { y: 747 })).hook.y, 750);
 });
 
 test('shade under the subtitles: off unless Pavel turns it on, from none to 80 % by 5 %', () => {

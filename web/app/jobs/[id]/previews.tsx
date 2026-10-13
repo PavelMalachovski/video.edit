@@ -1,5 +1,5 @@
 'use client';
-// Экран «3 · Три превью» — редактор «Монтажки»: тулбар с «Монтировать» и чёрная сцена с крупным превью выбора Павла
+// Экран «3 · Три превью» — редактор «Монтажки»: тулбар с «Монтировать» и сцена с крупным превью выбора Павла
 // прилипают к верху, под ними — вкладки настроек (вариант, шрифт, цвет, место, скорость, обложка, реклама, A/B). Всё на
 // превью рисует шаблон слоя; шрифт и цвета меняются сразу, хук и субтитры двигаются по крупному превью выше-ниже, вставки —
 // куда угодно; размер у всех — щипком двумя пальцами или уголком ⤢. «Ещё три варианта» — шаг restyle; «Монтировать» —
@@ -12,7 +12,7 @@ import { mmss } from '@/lib/format.ts';
 import { editorTabs, mountSummary, nextTab, STAGE, stageFit, type TabId } from '@/lib/editor.ts';
 import { COVER, type AbKind, type Adjustable, type Question, type StyleChoice, type Styles } from '@/lib/jobfiles.ts';
 import { MAX_NOTE } from '@/lib/jobs.ts';
-import { allowedFonts, brandChoice, choiceFor, clampTo, coverOf, ownAdjustments, finalStyle, HOOK_SIZE, HOOK_Y, HOOK_Y_DEFAULT, INSERT_W, insertKey, loadAb, loadAd, loadChoice, loadCover, loadInsertBoxes, loadSpeed, moveBox, resizeBox, resolveInserts, sampleState, saveAb, saveAd, saveChoice, saveCover, saveInsertBoxes, saveSpeed, SPEEDS, SUB_SHADE, SUB_SIZE, SUB_Y, SWATCHES, type CoverPick, type InsertBox, underCaption } from '@/lib/style.ts';
+import { allowedFonts, brandChoice, choiceFor, clampTo, coverOf, ownAdjustments, finalStyle, INSERT_W, insertKey, loadAb, loadAd, loadChoice, loadCover, loadInsertBoxes, loadSpeed, moveBox, placeText, resizeBox, resolveInserts, sampleState, saveAb, saveAd, saveChoice, saveCover, saveInsertBoxes, saveSpeed, SPEEDS, SUB_SHADE, SWATCHES, textPlace, type CoverPick, type InsertBox, type TextPart, underCaption } from '@/lib/style.ts';
 import {
   FrameIcon, GaugeIcon, LayersIcon, MoveIcon, PaletteIcon, RefreshIcon, ScissorsIcon, SplitIcon, TypeIcon,
 } from '../../icons';
@@ -201,14 +201,20 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
   const set = (key: Adjustable) => (x: number) => setChoice({ ...choice, [key]: clampTo(key, x) });
   const reset = (...keys: Adjustable[]) => () =>
     setChoice(Object.fromEntries(Object.entries(choice).filter(([k]) => !keys.includes(k as Adjustable))) as StyleChoice);
+  // место и размер субтитров и хука — как их тянут и на кадре редактора (textPlace, placeText): с шагом и в пределах ADJUST
+  const part = (p: TextPart) => {
+    const at = textPlace(spec, p);
+    return {
+      y: at.y, range: at.range, move: (y: number) => setChoice(placeText(choice, p, { y })),
+      size: at.size, sizes: at.sizes, resize: (size: number) => setChoice(placeText(choice, p, { size })),
+    };
+  };
   const subs = {
-    name: 'Субтитры', label: 'Высота субтитров', y: spec.subtitles.y, range: SUB_Y, move: set('subY'),
-    size: spec.subtitles.size, sizes: SUB_SIZE, resize: set('subSize'),
+    name: 'Субтитры', label: 'Высота субтитров', ...part('sub'),
     changed: choice.subY !== undefined || choice.subSize !== undefined, reset: reset('subY', 'subSize'),
   };
   const hookPart = {
-    name: 'Хук', label: 'Высота хука', y: spec.hook.y ?? HOOK_Y_DEFAULT, range: HOOK_Y, move: set('hookY'),
-    size: spec.hook.size, sizes: HOOK_SIZE, resize: set('hookSize'),
+    name: 'Хук', label: 'Высота хука', ...part('hook'),
     changed: choice.hookY !== undefined || choice.hookSize !== undefined, reset: reset('hookY', 'hookSize'),
   };
   const movable = ending ? [] : state.hook ? [hookPart, subs] : [subs]; // хук настраивается, когда он есть на превью

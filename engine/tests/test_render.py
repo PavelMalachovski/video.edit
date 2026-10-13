@@ -116,7 +116,7 @@ def close(pixel, rgb, tol=12) -> bool:
     return all(abs(int(a) - b) <= tol for a, b in zip(pixel, rgb, strict=True))
 
 
-def test_render_end_to_end(tmp_path, sources):
+def test_render_end_to_end(tmp_path, sources, render_shot):
     job = make_job(
         tmp_path,
         sources["vertical"],
@@ -131,6 +131,7 @@ def test_render_end_to_end(tmp_path, sources):
     out = job.path("out")
     result = render(job, out, preset="ultrafast")
     final = out / "final.mp4"
+    render_shot("end-to-end", final)
     info = probe(final)
     video = next(s for s in info["streams"] if s["codec_type"] == "video")
     audio = next(s for s in info["streams"] if s["codec_type"] == "audio")
@@ -225,11 +226,13 @@ def test_teaser_plays_its_phrase_first_then_the_video_from_the_start(tmp_path, s
     assert np.abs(frame(final, 0.1).astype(int)[300:1200] - source[300:1200]).mean() < 12, "первый кадр — из тизера"
 
 
-def test_version_b_is_rendered_without_the_teaser_beside_version_a(tmp_path, sources):
+def test_version_b_is_rendered_without_the_teaser_beside_version_a(tmp_path, sources, render_shot):
     """A/B-тест: версия B — тот же монтаж без тизера, со своим слоем (work/render-b); слой и ролик A остаются."""
     job = make_job(tmp_path, sources["short"], keep=[[0.0, 4.0]], teaser={"t0": 2.0, "t1": 3.0, "sfx": None}, ab="teaser")
     a = render(job, job.path("out"), preset="ultrafast")
     b = render(job, job.path("out"), name="final-b", preset="ultrafast", edit=variant_b(job.read("edit.json")), work="work/render-b")
+    render_shot("ab-teaser-a", job.path("out/final.mp4"))
+    render_shot("ab-teaser-b", job.path("out/final-b.mp4"))
     assert a["durations"]["final"] == pytest.approx(5.0, abs=0.01) and b["durations"]["final"] == pytest.approx(4.0, abs=0.01)
     assert float(probe(job.path("out/final.mp4"))["format"]["duration"]) == pytest.approx(5.0, abs=0.05)
     assert float(probe(job.path("out/final-b.mp4"))["format"]["duration"]) == pytest.approx(4.0, abs=0.05)
@@ -297,10 +300,11 @@ def test_render_version_name(tmp_path, sources):
     assert (job.path("out") / "final-v2.mp4").is_file() and (job.path("out") / "final-v2.srt").is_file()
 
 
-def test_render_landscape_source_gets_blurred_background(tmp_path, sources):
+def test_render_landscape_source_gets_blurred_background(tmp_path, sources, render_shot):
     job = make_job(tmp_path, sources["landscape"], keep=[[0.0, 3.0]])
     result = render(job, job.path("out"), preset="ultrafast")
     final = job.path("out") / "final.mp4"
+    render_shot("landscape", final)
     video = next(s for s in probe(final)["streams"] if s["codec_type"] == "video")
     assert (video["width"], video["height"]) == (1080, 1920)
     top = frame(final, 1.0)[200:400]
@@ -308,7 +312,7 @@ def test_render_landscape_source_gets_blurred_background(tmp_path, sources):
     assert any("размыт" in w for w in result["warnings"])
 
 
-def test_render_fullscreen_insert_covers_the_frame(tmp_path, sources):
+def test_render_fullscreen_insert_covers_the_frame(tmp_path, sources, render_shot):
     job = make_job(
         tmp_path,
         sources["short"],
@@ -318,6 +322,7 @@ def test_render_fullscreen_insert_covers_the_frame(tmp_path, sources):
     )
     render(job, job.path("out"), preset="ultrafast")
     final = job.path("out") / "final.mp4"
+    render_shot("fullscreen-insert", final)
     inside, outside = frame(final, 3.5), frame(final, 5.0)
     assert close(inside[300, 540], (255, 0, 0), tol=25), inside[300, 540]
     assert not close(outside[300, 540], (255, 0, 0), tol=60)
@@ -376,6 +381,22 @@ def test_a_late_teaser_does_not_pile_up_frames_in_memory(tmp_path):
     source = make_source(tmp_path / "long.mp4", 40)
     keep = [[i * 3.3, i * 3.3 + 2.5] for i in range(12)]
     job = make_job(tmp_path, source, keep=keep, teaser={"t0": 36.4, "t1": 38.2, "sfx": None})
+    code = (
+        f"import resource, sys; sys.path.insert(0, {str(Path(__file__).parents[1])!r});"
+        "from vm.job import Job; from vm.render import render;"
+        f"job = Job({str(job.root)!r}); render(job, job.path('out'), preset='ultrafast');"
+        "print(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss)"
+    )
+    peak_kb = int(subprocess.run([sys.executable, "-c", code], check=True, capture_output=True, text=True).stdout.split()[-1])
+    assert peak_kb < 1_500_000, f"peak child memory {peak_kb / 1024:.0f} MB"
+
+
+def test_a_piece_moved_to_the_front_does_not_pile_up_frames_in_memory(tmp_path):
+    """Кусок из конца исходника поставлен в начало (редактор, «Раньше»): кадры кусков до него не копятся в памяти, пока
+    склейка ждёт его (ревью фазы 4: 16 с исходника — 1,1 ГБ, двухминутный ролик — 10–17 ГБ)."""
+    source = make_source(tmp_path / "long.mp4", 40)
+    keep = [[36.3, 38.8]] + [[i * 3.3, i * 3.3 + 2.5] for i in range(11)]
+    job = make_job(tmp_path, source, keep=keep)
     code = (
         f"import resource, sys; sys.path.insert(0, {str(Path(__file__).parents[1])!r});"
         "from vm.job import Job; from vm.render import render;"
@@ -635,7 +656,7 @@ def left_person(rgb, state):
 @pytest.fixture
 def fake_matte(monkeypatch):
     monkeypatch.setattr("vm.matte.unavailable", lambda: None)
-    monkeypatch.setattr("vm.matte._rvm", lambda: left_person)
+    monkeypatch.setattr("vm.matte._rvm", lambda threads=None: left_person)
 
 
 def halves(picture: np.ndarray) -> tuple[float, float]:
@@ -751,3 +772,141 @@ def test_transitions_flash_punch_and_smear_the_picture_only_at_their_seams(tmp_p
     assert np.abs(zoomed - expected).mean() < 0.5 * np.abs(zoomed - flat[:1800]).mean(), "толчок: кадр ×1,25 у лица"
     sharp = lambda f: float((np.diff(f[300:1200].mean(axis=2), axis=1) ** 2).mean())  # размытие гасит перепады по x
     assert sharp(a(4.5)) < 0.5 * sharp(b(4.5)), "смаз на стыке"
+
+
+def test_sounds_take_pavels_gains_mutes_and_the_music_place(tmp_path):
+    from vm.render import _sounds, timeline
+
+    job = Job(tmp_path / "jobs" / "abc")
+    job.path("in/uploads").mkdir(parents=True)
+    for name in ("swoosh.wav", "pop.wav", "music.wav"):
+        ffmpeg("-f", "lavfi", "-i", "sine=f=900:d=0.3", job.path(f"in/uploads/{name}"))
+    edit = {"speed": 1.0, "keep": [[0.0, 6.0]], "hook": None, "hold": 0.0,
+            "music": {"file": "in/uploads/music.wav", "gainDb": -18, "at": 1.0, "from": 2.0, "fadeOut": 2.0},
+            "inserts": [{"kind": "image", "src": "in/uploads/a.png", "t0": 1.0, "t1": 2.5, "sfx": "in/uploads/swoosh.wav"},
+                        {"kind": "image", "src": "in/uploads/a.png", "t0": 3.0, "t1": 4.5, "sfx": "in/uploads/swoosh.wav"}],
+            "end": {"seconds": 1.0, "lines": ["Подпишись"], "sfx": "in/uploads/pop.wav"},
+            "sounds": {"insert:0": {"gainDb": 5}, "insert:1": {"muted": True}, "end": {"gainDb": -4, "muted": False}}}
+    sfx, music, notes = _sounds(job, edit, timeline(edit), skip=set())
+    swoosh, pop = job.path("in/uploads/swoosh.wav").resolve(), job.path("in/uploads/pop.wav").resolve()
+    assert sfx == [(1.0, swoosh, 5.0), (6.0, pop, -4.0)], "вторая вставка — без звука, у остальных — своя громкость"
+    assert music == {"file": str(job.path("in/uploads/music.wav").resolve()), "gainDb": -18, "at": 1.0, "from": 2.0, "fadeOut": 2.0}
+    assert notes == []
+
+
+def test_a_piece_moved_in_the_editor_plays_where_pavel_put_it(tmp_path, sources, render_shot):
+    """timeline.json: секунда 4–5 исходника поставлена в начало — ролик той же длины начинается с её кадров, а за ней —
+    0–4 и 5–6 по порядку."""
+    job = make_job(tmp_path, sources["short"])
+    job.write("timeline.json", {"rev": 1, "edits": [{"op": "move", "t0": 4.0, "t1": 5.0, "before": 0.0}]})
+    result = render(job, job.path("out"), preset="ultrafast")
+    final = job.path("out/final.mp4")
+    render_shot("moved-piece", final)
+    assert result["durations"]["final"] == pytest.approx(6.0, abs=0.04)
+
+    def source_at(t):
+        raw = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", str(t), "-i", str(sources["short"]), "-frames:v", "1",
+                              "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], check=True, capture_output=True).stdout
+        return np.frombuffer(raw, np.uint8).reshape(1920, 1080, 3).astype(int)
+
+    near = lambda a, b: np.abs(a[300:1200] - b[300:1200]).mean() < 12
+    assert near(frame(final, 0.1).astype(int), source_at(4.1)), "первый кадр — из куска 4–5"
+    assert near(frame(final, 1.1).astype(int), source_at(0.1)), "дальше — начало исходника"
+    assert near(frame(final, 5.1).astype(int), source_at(5.1)), "а последним — 5–6"
+
+
+def test_pavels_hand_edits_from_the_editor_reach_the_video(tmp_path, sources):
+    """timeline.json страницы: вырезан кусок 2–3 с исходника, голос без звука — ролик короче на секунду и без голоса."""
+    job = make_job(tmp_path, sources["short"])
+    job.write("timeline.json", {"rev": 1, "edits": [{"op": "split", "t": 1.0}, {"op": "cut", "t0": 2.0, "t1": 3.0}],
+                                "voice": {"muted": True}})
+    result = render(job, job.path("out"), preset="ultrafast")
+    assert result["durations"]["final"] == pytest.approx(5.0, abs=0.04)
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", str(job.path("out/final.mp4")), "-ac", "1", "-f", "f32le", "-"],
+                         check=True, capture_output=True).stdout
+    assert float(np.sqrt(np.mean(np.square(np.frombuffer(raw, np.float32))))) < 1e-3, "голос без звука"
+    assert job.read("edit.json")["keep"] == [[0.0, 6.0]], "edit.json сессии остался как был"
+
+
+def test_text_and_inserts_edited_in_the_editor_reach_the_video(tmp_path, sources, render_shot):
+    """Фаза 5, timeline.json страницы: хук до 2,0 с и с новым текстом, акцент на секунду позже, стикер дольше и с новым
+    текстом, картинка выключена, опечатка исправлена, «эээ» убрано — так и в кадрах слоя (рамки шаблона, события
+    движка), и в final.srt. Тот же ролик до правок — как в edit.json сессии, а сам он не меняется."""
+    said = [(0.3, 0.7, "Сегодня"), (0.8, 1.2, "эээ"), (1.3, 1.7, "покажу"), (1.8, 2.2, "как"), (2.3, 2.7, "я"),
+            (2.8, 3.2, "монтирую"), (3.3, 3.7, "ролики"), (3.8, 4.2, "прямо"), (4.3, 4.7, "на"), (4.8, 5.2, "телефне.")]
+    job = make_job(
+        tmp_path, sources["short"], style=REFERENCE,
+        words=[{"t0": a, "t1": b, "text": t} for a, b, t in said],
+        hook={"text": "Как я монтирую", "until": 1.0},
+        accents=[{"t0": 2.3, "t1": 3.2, "x": 480, "y": 1000,
+                  "lines": [{"text": "я"}, {"text": "монтирую", "size": "big", "color": "accent"}]}],
+        inserts=[{"kind": "sticker", "text": "5 минут", "t0": 2.0, "t1": 2.5, "x": 120, "y": 560, "w": 560, "sfx": None, "params": {}},
+                 {"kind": "image", "src": "in/uploads/upload-i1.png", "t0": 4.5, "t1": 5.5, "x": 560, "y": 560, "w": 300,
+                  "sfx": None, "params": {}}],
+    )
+    session = job.read("edit.json")
+
+    def drawn() -> tuple[list[dict], list[dict], set[str]]:
+        """Что вышло: события слоя (движок), рамки на кадрах (шаблон) и слова final.srt."""
+        work = job.path("work/render")
+        cues = job.path("out/final.srt").read_text(encoding="utf-8").strip().split("\n\n")
+        return (json.loads((work / "events.json").read_text(encoding="utf-8")),
+                json.loads((work / "frames/boxes.json").read_text(encoding="utf-8")),
+                {w for cue in cues for line in cue.splitlines()[2:] for w in line.split()})
+
+    render(job, job.path("out"), preset="ultrafast")
+    render_shot("text-before", job.path("out/final.mp4"))
+    events_before, boxes_before, srt_before = drawn()
+    hook, sticker = "Монтаж на телефоне", "Весь монтаж — 5 минут на телефоне"
+    job.write("timeline.json", {"rev": 1, "edits": [], "text": {
+        "hook": {"until": 2.0, "text": hook},
+        "accents": [{"at": [2.3, 3.2], "t0": 3.3, "t1": 4.2}],
+        "inserts": [{"at": [2.0, 2.5], "t1": 4.2, "text": sticker}, {"at": [4.5, 5.5], "off": True}],
+    }, "words": [{"t0": 4.8, "t1": 5.2, "text": "телефоне."}, {"t0": 0.8, "t1": 1.2, "text": ""}]})
+    render(job, job.path("out"), preset="ultrafast")
+    render_shot("text-after", job.path("out/final.mp4"))
+    events_after, boxes_after, srt_after = drawn()
+
+    def shown(boxes, seen) -> list[tuple[float, float]]:
+        """Промежутки ролика, где на кадре есть рамка, которую отбирает `seen`."""
+        return [(e["t0"], e["t1"]) for e in boxes if seen(e.get("boxes") or {})]
+
+    def first_last(boxes, seen) -> tuple[float, float] | None:
+        times = shown(boxes, seen)
+        return (min(a for a, _ in times), max(b for _, b in times)) if times else None
+
+    def insert(n):
+        return lambda b: any(box.get("n") == n for box in b.get("inserts") or [])
+
+    def texts(events, key) -> set[str]:
+        return {e["state"][key]["text"] for e in events if key in e["state"]}
+
+    def inserted(events, n) -> list[dict]:
+        return [i for e in events for i in e["state"].get("inserts", []) if i["n"] == n]
+
+    def subtitled(events) -> set[str]:
+        return {w for e in events if "sub" in e["state"] for w in e["state"]["sub"]["words"]}
+
+    assert first_last(boxes_before, lambda b: b.get("hook")) == pytest.approx((0.0, 1.0))
+    assert first_last(boxes_after, lambda b: b.get("hook")) == pytest.approx((0.0, 2.0)), "хук — до 2,0 с и не дольше"
+    assert texts(events_before, "hook") == {"Как я монтирую"} and texts(events_after, "hook") == {hook}
+
+    assert first_last(boxes_before, lambda b: b.get("accent"))[0] == pytest.approx(2.3)
+    assert first_last(boxes_after, lambda b: b.get("accent"))[0] == pytest.approx(3.3), "акцент — на секунду позже"
+    assert not [s for s in shown(boxes_after, lambda b: b.get("accent")) if s[0] < 3.2 and s[1] > 2.3], "на старом месте его нет"
+
+    assert first_last(boxes_before, insert(0)) == pytest.approx((2.0, 3.5)), "стикер: показ не короче 1,5 с"
+    assert first_last(boxes_after, insert(0)) == pytest.approx((2.0, 4.2)), "стикер растянут до 4,2 с"
+    assert {i["text"] for i in inserted(events_before, 0)} == {"5 минут"}
+    assert {i["text"] for i in inserted(events_after, 0)} == {sticker}
+    tall = lambda boxes: max(box["h"] for e in boxes for box in (e.get("boxes") or {}).get("inserts") or [] if box.get("n") == 0)
+    assert tall(boxes_after) > tall(boxes_before), "шаблон нарисовал новый текст: длиннее — в две строки"
+
+    assert first_last(boxes_before, insert(1)) == pytest.approx((4.5, 6.0))
+    assert not shown(boxes_after, insert(1)) and not inserted(events_after, 1), "выключенной картинки нет"
+
+    for words in (subtitled(events_before), srt_before):
+        assert {"телефне.", "эээ"} <= words, "до правок — слова сессии"
+    for words in (subtitled(events_after), srt_after):
+        assert "телефоне." in words and not {"телефне.", "эээ"} & words, "опечатка исправлена, «эээ» в субтитрах нет"
+    assert job.read("edit.json") == session, "edit.json сессии не меняется"

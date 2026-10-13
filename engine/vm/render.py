@@ -35,7 +35,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import beats, matte, transitions
+from . import beats, edits, matte, transitions
 from .asr import Word
 from .audio import MIN_MUSIC, QUIET_LUFS, audio_graph
 from .job import Job, validate
@@ -69,6 +69,11 @@ TO_709 = "scale=out_color_matrix=bt709:out_range=tv"
 # ч/б-кусок стиля эталона: без цвета и темнее на ~20 уровней, контраст тот же, без виньетки — так тон цветного кадра
 # эталона (1:56) становится тоном его ч/б-кадра того же плана (1:57): средняя 61 → 38, медиана 49 → 22, света 157 → 127
 BW = ("hue=s=0", "eq=brightness=-0.08")
+# ч/б-кадр в превью редактора: прокси без цветокора (editor._proxy), и плеер красит <video> CSS-фильтром
+# grayscale(1) brightness(B) contrast(C) — COLOR и BW сразу. Подобраны по рампе серого и цвета: расходятся с финалом
+# меньше чем на 1/255 (test_looks.py); страница — web/lib/picture.ts, BW_FILTER (общая фикстура overlay-events.json)
+BW_CSS_BRIGHTNESS = 0.808
+BW_CSS_CONTRAST = 1.274
 # Meta не принимает edit lists в контейнере (гайд «Всё о Reels», стр. 63). Без них плеер играет приминг кодера AAC
 # ffmpeg — 1024 отсчёта в начале, поэтому на вход кодера звук идёт с 1024-го отсчёта: приминг занимает его место, и
 # отсчёт n звучит ровно в n. B-кадров нет (`-bf 0`): с ними картинка начиналась бы на 2 кадра позже звука.
@@ -136,25 +141,37 @@ def variant_b(edit: dict) -> dict:
     return {**edit, kind: None, "ab": None}
 
 
+def music_beats(music: dict | None, times: list[float], length: float, duration: float) -> list[float] | None:
+    """Доли музыки во времени ролика, если монтаж идёт в такт: музыка есть и не `beats: false`, её хватает с места
+    `from` (не меньше MIN_MUSIC) — иначе None, вставки и зум не двигаются. `times` и `length` — доли и длина трека.
+    То же решает редактор на странице (musicBeats в web/lib/beats.ts, фикстура overlay-events.json, раздел pipeline)."""
+    if not music or music.get("beats") is False:
+        return None
+    at, skip = float(music.get("at") or 0.0), float(music.get("from") or 0.0)  # правка Павла: где и с какого места
+    period = beats.played(length, at, skip, duration)
+    if period < MIN_MUSIC or skip > period - MIN_MUSIC:
+        return None
+    return beats.beat_times(times, length, at, skip, duration)
+
+
 def on_beats(job: Job, edit: dict, tl: Timeline) -> tuple[dict, dict | None]:
     """Монтаж в такт: с музыкой (и без `music.beats: false`) смены зума и появления вставок встают на её доли
-    (`beats.snap_edit`, не дальше 0,25 с). Трек звучит с начала ролика и по кругу — доли повторяются с ним.
+    (`beats.snap_edit`, не дальше 0,25 с). Трек звучит с начала ролика и по кругу — доли повторяются с ним. Доли трека
+    пишутся в beats.json: редактор на странице ставит вставки на те же доли.
     → (edit со сдвигами, {bpm, moved}); без музыки, файла или ритма в нём — (edit как был, None)."""
     music = edit.get("music")
     path = _resolve(job, music["file"]) if music and music.get("beats", True) else None
     if path is None:
         return edit, None
-    want = tl.duration + 2.0  # доли дальше ролика не нужны; запас — чтобы последняя доля нашлась
     try:
-        y = beats.load(path, seconds=want)
+        grid, length = beats.track_file(path)
     except (subprocess.SubprocessError, OSError):
         return edit, None  # не читается — микс скажет об этом в missing
-    length = len(y) / beats.SR
-    if length < MIN_MUSIC:
+    times = music_beats(music, grid.times, length, tl.duration)
+    if times is None:
         return edit, None
-    grid = beats.track(y)
-    loops = 1 if length >= want - 0.05 else math.ceil(tl.duration / length)  # короче — весь трек, и он по кругу
-    snapped, moved = beats.snap_edit(edit, tl, [t + k * length for k in range(loops) for t in grid.times])
+    job.write("beats.json", {"file": music["file"], "length": length, "bpm": grid.bpm, "times": grid.times})
+    snapped, moved = beats.snap_edit(edit, tl, times)
     return snapped, {"bpm": grid.bpm, "moved": moved}
 
 
@@ -164,17 +181,21 @@ def variant_ad(edit: dict) -> dict:
 
 
 def draw_layer(job: Job, edit: dict | None = None, work: str = "work/render") -> Layer:
-    """edit.json (по схеме; `edit` — вместо него, например версия B) → шкала по исходнику → события на доли музыки
+    """edit.json с правками Павла руками (`edits.edit_of`; по схеме; `edit` — вместо него, например версия B) → шкала по
+    исходнику → события на доли музыки
     (`on_beats`) → кадры слоя в `<work>/frames`."""
-    edit = job.read("edit.json") if edit is None else edit
+    source = job.path("source.mp4")
+    if edit is None:  # с правками Павла руками (timeline.json); вернуть — не дальше конца исходника
+        edit = edits.edit_of(job, probe(source).duration if source.is_file() else None)
     validate("edit.json", edit)  # файл пишет Claude: ошибка называет поле, а не падает KeyError где-то в графе
-    waiting = [ins["question"] for ins in edit["inserts"] if ins.get("question") and not ins.get("src") and ins["kind"] not in TEXTUAL]
+    waiting = [ins["question"] for ins in edit["inserts"]
+               if ins.get("question") and not ins.get("src") and ins["kind"] not in TEXTUAL and not ins.get("off")]
     if waiting:
         raise RenderError(
             "edit.json: вставки ждут ответа на вопросы " + ", ".join(f"«{q}»" for q in waiting)
             + ": по answers.json поставь src (или kind sticker и text), «не надо» — убери вставку; место и время не меняй"
         )
-    info = probe(job.path("source.mp4"))
+    info = probe(source)
     tl = timeline(edit, info.duration)
     if tl.duration <= 0:
         raise RenderError("edit.json: отрезки keep не оставляют ни одного кадра исходника")
@@ -189,7 +210,7 @@ def draw_layer(job: Job, edit: dict | None = None, work: str = "work/render") ->
     return Layer(edit, info, tl, frames, boxes, warnings, beat)
 
 
-def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium", edit: dict | None = None,
+def render(job: Job, out_dir: Path, name: str = "final", preset: str = "veryfast", edit: dict | None = None,
            work: str = "work/render") -> dict:
     """Пишет `out_dir/<name>.mp4` и `out_dir/<name>.srt` (без речи `.srt` нет: пустой ассет GitHub не примет и не
     отдаст ролик). → `{durations, missing, warnings, music, voice}`; `missing` Павел читает на странице — по-русски;
@@ -214,11 +235,11 @@ def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium",
         missing.append("нет речи — ролик без субтитров")
 
     inputs = ["-i", str(source), "-f", "concat", "-safe", "0", "-i", str(layer)]
-    teaser_input = None
-    if tl.teaser:  # тизер — своим декодером того же файла (см. `_cut`)
-        teaser_input = _count(inputs)
+    readers = [0]  # входы исходника: куски не по порядку исходника (тизер, переставленные) — своими (см. `_cut`)
+    for _ in range(1, max(decoders(segment_frames(tl))) + 1):
+        readers.append(_count(inputs))
         inputs += ["-i", str(source)]
-    chains = _cut(tl, info.has_audio, teaser_input)
+    chains = _cut(tl, info.has_audio, readers)
     video = "[vc]"
     if float(edit.get("dim") or 0) > 0:  # фон темнее по маске человека — сразу после склейки, кадр в кадр с ней
         mask, note = _matte(job, tl)
@@ -243,7 +264,8 @@ def render(job: Job, out_dir: Path, name: str = "final", preset: str = "medium",
     missing += notes
     lufs = loudness(source) if info.has_audio else None
     quiet = lufs is not None and lufs < QUIET_LUFS
-    extra, sound, notes = audio_graph("[ac]", edit["speed"], total, music, sfx, inputs_offset=_count(inputs), denoise=quiet)
+    extra, sound, notes = audio_graph("[ac]", edit["speed"], total, music, sfx, inputs_offset=_count(inputs), denoise=quiet,
+                                      voice_level=edit.get("voice"))
     inputs += extra
     chains.append(sound)
     chains.append(f"[aout]atrim=start_sample={AAC_PRIMING}[aenc]")
@@ -367,14 +389,13 @@ def _matte(job: Job, tl: Timeline) -> tuple[Path | None, str | None]:
     folder = job.path("work/matte")
     folder.mkdir(parents=True, exist_ok=True)
     parts = [folder / f"{key.hexdigest()[:12]}-{a}-{b}.mkv" for a, b in plan]
-    if todo := [(a, b) for (a, b), part in zip(plan, parts, strict=True) if not part.is_file()]:
-        frames = sum(b - a for a, b in todo)
-        print(f"затемнение фона: маска на {frames} кадров (~{max(1, round(frames * 0.09 / 60))} мин)", flush=True)
+    # тизер ровно по кадрам куска — тот же отрезок дважды: его файл считает один поток
+    if todo := list({part: (unit, part) for unit, part in zip(plan, parts, strict=True) if not part.is_file()}.values()):
+        frames = sum(b - a for (a, b), _ in todo)
+        print(f"затемнение фона: маска на {frames} кадров (~{max(1, round(frames * 0.06 / 60))} мин)", flush=True)
     whole = folder / f"{key.hexdigest()[:12]}-{hashlib.sha1(json.dumps(plan).encode()).hexdigest()[:12]}.mkv"
     try:
-        for (a, b), part in zip(plan, parts, strict=True):
-            if not part.is_file():
-                matte.write_mattes(source, [(a, b)], part)
+        matte.write_parts(source, todo)
         if not whole.is_file():
             matte.join(parts, whole)
     except Exception as err:  # noqa: BLE001 — и исключения onnxruntime: ролик без затемнения лучше, чем никакого
@@ -388,25 +409,47 @@ def segment_frames(tl: Timeline) -> list[tuple[int, int]]:
     return [(round(start * FPS), round(end * FPS)) for start, end, _ in tl.segments]
 
 
-def _cut(tl: Timeline, has_audio: bool, teaser_input: int | None = None) -> list[str]:
+def decoders(plan: list[tuple[int, int]]) -> list[int]:
+    """Какой вход исходника (декодер) читает каждый отрезок финала `plan` (кадры, в порядке склейки): номер с 0. Внутри
+    одного входа отрезки идут только по возрастанию исходника — иначе кадры до отрезка, которого склейка ещё не ждёт,
+    копились бы в памяти. Входов — сколько нужно, не больше: отрезок берёт вход, что прочёл больше всех, но не дальше
+    его начала (раскладка пасьянса); по порядку исходника — один вход, как всегда."""
+    ends: list[int] = []
+    out = []
+    for f0, f1 in plan:
+        ready = [k for k, end in enumerate(ends) if end <= f0]
+        if ready:
+            k = max(ready, key=lambda j: ends[j])
+            ends[k] = f1
+        else:
+            k = len(ends)
+            ends.append(f1)
+        out.append(k)
+    return out
+
+
+def _cut(tl: Timeline, has_audio: bool, readers: list[int] | None = None) -> list[str]:
     """Отрезки keep встык: картинка — по целым кадрам, звук — те же границы в отсчётах, с фейдами 10 мс.
 
-    Исходник читается один раз и раздаётся отрезкам через split/asplit: каждый trim отбрасывает чужие кадры сразу.
-    Если бы каждый trim брал `[0:v]` сам, ffmpeg держал бы в памяти кадры для отрезков, до которых concat ещё
-    не дошёл (≈3 МБ на кадр 1080×1920 — гигабайты на минутном ролике). Тизер по той же причине читается своим входом
-    `teaser_input` (тот же файл ещё раз): он звучит первым, а лежит дальше в исходнике — из общего декодера concat
-    ждал бы его, держа в памяти все кадры до него (тизер на 2:39 — 14 ГБ)."""
+    Каждый вход исходника `readers[k]` (тот же файл, свой декодер) раздаёт свои отрезки через split/asplit: каждый trim
+    отбрасывает чужие кадры сразу. Если бы каждый trim брал `[0:v]` сам, ffmpeg держал бы в памяти кадры для отрезков,
+    до которых concat ещё не дошёл (≈3 МБ на кадр 1080×1920 — гигабайты на минутном ролике). По той же причине отрезки
+    не по порядку исходника — тизер (звучит первым, а лежит дальше; тизер на 2:39 — 14 ГБ) и куски, переставленные
+    Павлом, — читают свои входы: внутри входа — только по возрастанию (`decoders`)."""
     plan = segment_frames(tl)
-    own = teaser_input is not None and tl.teaser is not None  # первый отрезок — тизер со своим входом
-    shared = [i for i in range(len(plan)) if not (own and i == 0)]
+    which = decoders(plan)
+    readers = [0] if readers is None else readers
+    if which and max(which) >= len(readers):
+        raise ValueError(f"_cut: отрезкам нужно входов исходника {max(which) + 1}, а дано {len(readers)}")
     chains = []
-    if shared:  # отрезки keep могли все выпасть (за концом исходника) — тогда ролик из одного тизера
-        chains.append(f"[0:v]split={len(shared)}" + "".join(f"[sv{i}]" for i in shared))
+    for k in sorted(set(which)):
+        mine = [i for i, w in enumerate(which) if w == k]
+        chains.append(f"[{readers[k]}:v]split={len(mine)}" + "".join(f"[sv{i}]" for i in mine))
         if has_audio:
-            chains.append(f"[0:a]asplit={len(shared)}" + "".join(f"[sa{i}]" for i in shared))
+            chains.append(f"[{readers[k]}:a]asplit={len(mine)}" + "".join(f"[sa{i}]" for i in mine))
     pads = []
     for i, (f0, f1) in enumerate(plan):
-        video, audio = (f"[{teaser_input}:v]", f"[{teaser_input}:a]") if i not in shared else (f"[sv{i}]", f"[sa{i}]")
+        video, audio = f"[sv{i}]", f"[sa{i}]"
         length = (f1 - f0) / FPS
         chains.append(f"{video}trim=start_frame={f0}:end_frame={f1},setpts=PTS-STARTPTS[v{i}]")
         if has_audio:
@@ -433,11 +476,11 @@ def look_windows(edit: dict, tl: Timeline) -> list[tuple[int, int]]:
     (`Timeline.to_cut`), на её кадре (`cut_frame`), как смена камеры. Кусок без кадров (весь в вырезке, нулевой) не
     нужен."""
     windows = []
-    for look in edit.get("looks") or []:
+    for look in (x for x in edit.get("looks") or [] if not x.get("off")):  # убранный Павлом в редакторе — в цвете
         t0, t1 = float(look["t0"]), float(look["t1"])
         if t1 <= t0:
             continue
-        spans = [(tl.to_cut(t0), tl.to_cut(t1))]
+        spans = [tl.span(t0, t1, cut=True)]  # с места начала и до конца его серии (куски могут быть переставлены)
         if tl.teaser and max(t0, tl.teaser[0]) < min(t1, tl.teaser[1]):
             lo, hi = tl.teaser
             spans.append((tl.teaser_final(_near_edge(max(t0, lo), lo, hi)), tl.teaser_final(_near_edge(min(t1, hi), lo, hi))))
@@ -567,11 +610,23 @@ def _layers(style: dict, tl: Timeline) -> list[str]:
     ]
 
 
+MUSIC_PLACE = ("at", "from", "fadeIn", "fadeOut")  # правки Павла в редакторе: где звучит музыка и как входит и уходит
+
+
 def _sounds(job: Job, edit: dict, tl: Timeline, skip: set[int]) -> tuple[list, dict | None, list[str]]:
-    """Звуки появления вставок (время финала, файл) — кроме вставок `skip`, которых в ролике нет, — и музыка.
-    Файлы — только из папки задачи или репозитория; ненайденные — в заметках (третий элемент)."""
+    """Звуки появления вставок (время финала, файл[, дБ]) — кроме вставок `skip`, которых в ролике нет, — и музыка.
+    Файлы — только из папки задачи или репозитория; ненайденные — в заметках (третий элемент). Громкость и «без звука»
+    отдельных звуков — `edit.sounds` (правка Павла в редакторе: insert:<номер вставки>, teaser, transition:<номер>, end)."""
     inserts = edit.get("inserts") or []
+    levels = edit.get("sounds") or {}
     sfx, notes = [], []
+
+    def add(key: str, t: float, path: Path) -> None:
+        level = levels.get(key) or {}
+        if level.get("muted"):
+            return
+        sfx.append((t, path, float(level["gainDb"])) if level.get("gainDb") else (t, path))
+
     silent = False  # есть вставка без своего звука
     for i, first, _ in insert_spans(edit, tl):
         name = inserts[i].get("sfx")
@@ -584,7 +639,7 @@ def _sounds(job: Job, edit: dict, tl: Timeline, skip: set[int]) -> tuple[list, d
         if path is None:
             notes.append(f"нет звука {name} — вставка {i + 1} без звука появления")
         else:
-            sfx.append((first / FPS, path))
+            add(f"insert:{i}", first / FPS, path)
     if silent and not (SFX.is_dir() and any(p.suffix.lower() in SOUNDS for p in SFX.iterdir())):
         notes.append("в assets/sfx нет звуков — вставки без звука появления")
     teaser = edit.get("teaser") or None
@@ -593,7 +648,8 @@ def _sounds(job: Job, edit: dict, tl: Timeline, skip: set[int]) -> tuple[list, d
         if path is None:
             notes.append(f"нет звука {teaser['sfx']} — тизер без звука на стыке")
         else:
-            sfx.append((tl.teaser_duration, path))
+            add("teaser", tl.teaser_duration, path)
+    sources = [t.get("t") for t in edit.get("transitions") or []]
     for cut in transitions.marks(edit, tl):  # свуш перехода — с началом перехода
         if not cut.sfx:
             continue
@@ -602,14 +658,14 @@ def _sounds(job: Job, edit: dict, tl: Timeline, skip: set[int]) -> tuple[list, d
             when = f"{cut.t:.1f}".replace(".", ",")
             notes.append(f"нет звука {cut.sfx} — переход на {when} с без звука")
         else:
-            sfx.append((max(0.0, cut.t - transitions.HALF), path))
+            add(f"transition:{sources.index(cut.source)}" if cut.source in sources else "transition", max(0.0, cut.t - transitions.HALF), path)
     card = edit.get("end") or None
     if card and card.get("sfx"):  # звук появления карточки — сразу после стоп-кадра
         path = _resolve(job, card["sfx"])
         if path is None:
             notes.append(f"нет звука {card['sfx']} — финальная карточка без звука появления")
         else:
-            sfx.append((tl.duration + float(edit.get("hold") or 0.0), path))
+            add("end", tl.duration + float(edit.get("hold") or 0.0), path)
     music = edit.get("music")
     if music:
         path = _resolve(job, music["file"])
@@ -617,7 +673,7 @@ def _sounds(job: Job, edit: dict, tl: Timeline, skip: set[int]) -> tuple[list, d
             notes.append(f"нет музыки {music['file']} — ролик без неё")
             music = None
         else:
-            music = {"file": str(path), "gainDb": music["gainDb"]}
+            music = {"file": str(path), "gainDb": music["gainDb"], **{k: music[k] for k in MUSIC_PLACE if k in music}}
     return sfx, music, notes
 
 

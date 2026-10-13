@@ -3,13 +3,17 @@
 Почти везде ролик целый и без ускорения (`keep = [(0, 10)]`, speed 1): время финала равно времени исходника.
 Границы промежутков стоят на сетке кадров 30 к/с, поэтому сравнения — с допуском в долю кадра.
 """
+import json
 import math
 from itertools import pairwise
+from pathlib import Path
 
 import pytest
+import shared_events
 
 from vm.asr import Word
-from vm.overlay import FPS, build_overlay_events
+from vm.overlay import FPS, build_overlay_events, insert_spans
+from vm.render import BW_CSS_BRIGHTNESS, BW_CSS_CONTRAST, RenderError
 from vm.subs import build_sub_events
 from vm.timeline import Timeline
 
@@ -338,11 +342,23 @@ def test_soft_subtitles_carry_their_lines_and_the_newest_line_slides_in():
     events = build_overlay_events(edit, timeline(edit))
     texts = [w["text"] for w in SIX]
     first = frame_states(events, 1.0, 1.2)
-    assert first[0]["sub"] == {"words": texts, "active": 0, "visible": 3, "lines": [3, 3], "t": pytest.approx(FRAME)}
+    assert first[0]["sub"] == {"words": texts, "active": 0, "visible": 3, "lines": [3, 3], "opens": True, "t": pytest.approx(FRAME)}
     assert [s["sub"].get("t") for s in first[:5]] == pytest.approx([FRAME, 2 * FRAME, 3 * FRAME, 4 * FRAME, None])
     second = at(events, 1.9 + FRAME / 2)["sub"]
     assert second["visible"] == 6 and second["t"] == pytest.approx(FRAME)
     assert "t" not in at(events, 2.5)["sub"], "строка появилась — дальше кадры одинаковые и склеиваются"
+
+
+def test_a_soft_block_in_the_middle_of_a_sentence_keeps_its_capital():
+    """Блок с начала предложения — opens: шаблон пишет его первое слово со строчной; блок посреди предложения (здесь — с
+    имени) — нет, имя остаётся с заглавной, как на превью страницы (sampleState)."""
+    sentence = words((1.0, 1.2, "Сегодня"), (1.3, 1.5, "мы"), (1.6, 1.8, "с"), (1.9, 2.1, "другом"), (2.2, 2.4, "Павлом"),
+                     (2.5, 2.7, "снимаем"), (2.8, 3.0, "этот"), (3.1, 3.3, "ролик."))
+    edit = make_edit(words=sentence, style=SOFT_STYLE)
+    events = build_overlay_events(edit, timeline(edit))
+    assert at(events, 1.1)["sub"]["opens"] is True
+    second = at(events, 2.3)["sub"]
+    assert second["words"][0] == "Павлом" and second["opens"] is False
 
 
 def test_hook_in_accent_mode_comes_out_of_blur_frame_by_frame():
@@ -455,3 +471,104 @@ def test_an_accent_on_the_last_frame_stays_whole_on_the_freeze_frame():
     for t in (tl.duration - FRAME / 2, tl.duration + 0.5, tl.duration + 0.95):
         state = at(events, t)
         assert "accent" in state and "leave" not in state["accent"], f"{t}: на стоп-кадре акцент остаётся, как был"
+
+
+def test_an_insert_stays_with_its_piece_when_the_next_piece_is_moved_away():
+    """Вставка на 0,2–3 с исходника; Павел переставил кусок 2,5–4 в конец: вставка кончается с куском 0–2 (2 с), а не
+    тянется через чужой кусок 6–8 до места 3 с исходника."""
+    edit = {"hook": None, "inserts": [{"kind": "image", "t0": 0.2, "t1": 3.0}]}
+    in_order = insert_spans(edit, Timeline([(0, 2), (2.5, 4), (6, 8)], 1.0))
+    moved = insert_spans(edit, Timeline([(0, 2), (6, 8), (2.5, 4)], 1.0))
+    assert in_order == [(0, 6, 75)], "по порядку — до 3 с исходника (2,5 с ролика), как всегда"
+    assert moved == [(0, 6, 60)]
+
+
+def test_a_piece_moved_to_the_front_does_not_stretch_the_hook_or_push_its_insert_away():
+    """Хук до 2,5 с исходника; Павел поставил кусок 5–10 первым. Хук держится столько же, сколько по порядку
+    исходника (2,5 с), а не до места 2,5 с в ролике (7,5 с); вставка 6–8 из переставленного куска (её место —
+    1–3 с ролика) — сразу после хука, а не на 7,5–9,0 поверх чужого куска (ревью фазы 4)."""
+    edit = {"hook": {"text": "Хук", "until": 2.5}, "inserts": [{"kind": "image", "t0": 6.0, "t1": 8.0}]}
+    moved = Timeline([(5, 10), (0, 4)], 1.0)
+    assert insert_spans(edit, moved) == [(0, 75, 120)]
+    events = build_overlay_events({**edit, "words": [], "cta": None, "inserts": [], "style": STYLE}, moved)
+    hooked = [e["t1"] for e in events if e["state"].get("hook")]
+    assert max(hooked) == pytest.approx(2.5, abs=1 / FPS)
+
+
+# ---------- общая фикстура со страницей (web/lib/subs.ts, web/lib/overlay.ts) ----------
+
+SHARED = json.loads((Path(__file__).parent / "fixtures" / "overlay-events.json").read_text(encoding="utf-8"))
+
+
+def test_the_shared_fixture_is_what_the_engine_draws():
+    """Фикстура — ровно то, что считает движок: поменялся движок — запишите её заново (python3 -m tests.shared_events
+    из engine/) и сверьте перенос на TS (web/tests/overlay.test.ts)."""
+    assert json.loads(json.dumps(shared_events.build())) == SHARED
+
+
+@pytest.mark.parametrize("case", SHARED["subs"], ids=lambda c: c["name"])
+def test_subtitles_match_the_shared_fixture(case):
+    assert shared_events.subs_events(case) == case["events"]
+
+
+@pytest.mark.parametrize("bad", SHARED["subsRefused"], ids=lambda b: f"{b['mode']}-{b['n']}")
+def test_subtitles_refuse_what_the_shared_fixture_refuses(bad):
+    with pytest.raises(ValueError):
+        build_sub_events([Word(0, 0.5, "слово")], Timeline([(0, 1)], 1.0), bad["mode"], bad["n"])
+
+
+@pytest.mark.parametrize("case", SHARED["overlay"], ids=lambda c: c["name"])
+def test_layer_events_match_the_shared_fixture(case):
+    assert json.loads(json.dumps(shared_events.overlay_events(case))) == case["events"]
+    assert shared_events.spans(case) == case["insertSpans"]
+
+
+@pytest.mark.parametrize("bad", SHARED["overlayRefused"], ids=lambda b: b["name"])
+def test_layer_refuses_what_the_shared_fixture_refuses(bad):
+    with pytest.raises(ValueError):
+        shared_events.overlay_events(bad)
+
+
+@pytest.mark.parametrize("case", SHARED["render"], ids=lambda c: c["name"])
+def test_the_render_timeline_matches_the_shared_fixture(case):
+    got = shared_events.render_case(case)
+    assert got == {k: case[k] for k in ("segments", "teaserSpan", "duration")}
+
+
+@pytest.mark.parametrize("bad", SHARED["renderRefused"], ids=lambda b: b["name"])
+def test_the_render_timeline_refuses_what_the_shared_fixture_refuses(bad):
+    with pytest.raises(RenderError):
+        shared_events.render_case(bad)
+
+
+@pytest.mark.parametrize("case", SHARED["look"], ids=lambda c: c["name"])
+def test_zoom_transitions_and_looks_match_the_shared_fixture(case):
+    got = json.loads(json.dumps(shared_events.look_case(case)))
+    assert got == {k: case[k] for k in ("zoom", "marks", "looks", "flash", "blur")}
+
+
+def test_the_shared_fixture_has_flash_and_blur_by_frame_and_the_bw_filter_of_the_engine():
+    """Вспышка и смаз — по кадрам у каждого стыка (окно и кадр-другой за ним), ч/б превью — те же B и C, что у движка."""
+    flashes = [f for case in SHARED["look"] for f in case["flash"]]
+    blurs = [b for case in SHARED["look"] for b in case["blur"]]
+    assert len(flashes) >= 3 and len(blurs) >= 3
+    assert all(any(0 < a < 1 for _, a in f["frames"]) and f["frames"][0][1] == f["frames"][-1][1] == 0 for f in flashes)
+    assert all(max(s for _, s in b["frames"]) > 28 and b["frames"][0][1] == b["frames"][-1][1] == 0 for b in blurs)
+    assert SHARED["bwFilter"] == {"brightness": BW_CSS_BRIGHTNESS, "contrast": BW_CSS_CONTRAST}
+
+
+@pytest.mark.parametrize("case", SHARED["beats"], ids=lambda c: c["name"])
+def test_beats_of_the_video_and_snapping_match_the_shared_fixture(case):
+    got = json.loads(json.dumps(shared_events.beats_case(case)))
+    assert got == {k: case[k] for k in ("times", "zoomsAt", "insertsAt", "moved", "played")}
+
+
+@pytest.mark.parametrize("case", SHARED["text"], ids=lambda c: c["name"])
+def test_hand_text_edits_match_the_shared_fixture(case):
+    assert json.loads(json.dumps(shared_events.text_case(case))) == case["expected"]
+
+
+@pytest.mark.parametrize("bad", SHARED["textRefused"], ids=lambda b: b["name"])
+def test_hand_text_edits_refuse_what_the_shared_fixture_refuses(bad):
+    with pytest.raises(ValueError, match="timeline.json: text"):
+        shared_events.text_case(bad)

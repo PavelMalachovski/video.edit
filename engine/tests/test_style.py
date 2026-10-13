@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from vm.job import Job
-from vm.style import final_style
+from vm.style import final_style, merge_style
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "style-merge.json").read_text(encoding="utf-8"))
 
@@ -117,3 +117,60 @@ def test_answers_take_insert_boxes_within_the_safe_zone(tmp_path):
     for bad in bad_boxes:
         with pytest.raises(ValueError, match="insertBoxes"):
             job.write("answers.json", {**FIXTURE["answers"], "insertBoxes": bad})
+
+
+# ---------- новый стиль из редактора поверх стиля ролика ----------
+
+
+def test_a_new_style_from_the_editor_keeps_what_text_fixes_changed():
+    """Стиль ролика = выбор Павла + правки текстом (затемнение и т. п.). Он поменял в редакторе цвет: новое — цвет, а
+    затемнение из правки текстом остаётся; поменял и затемнение — его выбор."""
+    old = {k: v for k, v in FIXTURE["answers"]["style"].items() if k != "subShade"}
+    base = final_style(FIXTURE["styles"], {"style": old})
+    ours = {**base, "subtitles": {**base["subtitles"], "shade": 0.4}}  # правка «затемни под субтитрами»
+    new = {**old, "colors": {**old["colors"], "accent": "#FF3B30"}}
+    theirs = final_style(FIXTURE["styles"], {"style": new})
+    merged = merge_style(base, ours, theirs)
+    assert merged["colors"]["accent"] == "#FF3B30" and merged["subtitles"]["shade"] == 0.4
+    assert merged == {**theirs, "subtitles": {**theirs["subtitles"], "shade": 0.4}}
+    shaded = final_style(FIXTURE["styles"], {"style": {**new, "subShade": 0.3}})
+    assert merge_style(base, ours, shaded)["subtitles"]["shade"] == 0.3, "затемнение поменял в редакторе — его выбор"
+    other = final_style(FIXTURE["styles"], {"style": {**old, "variant": "A"}})
+    assert merge_style(base, ours, other) == {**other, "subtitles": {**other["subtitles"], "shade": 0.4}}
+    gone = {k: v for k, v in theirs.items() if k != "hand"}
+    assert "hand" not in merge_style(base, ours, gone), "чего в новом стиле нет — нет и в итоге"
+
+
+@pytest.mark.parametrize("case", FIXTURE["merge"], ids=lambda c: c["name"])
+def test_merge_style_matches_the_shared_fixture(case):
+    """То же правило у редактора (mergeStyle в web/lib/style.ts): каким стиль выйдет в ролике после «Монтировать»."""
+    assert merge_style(case["base"], case["ours"], case["theirs"]) == case["expected"]
+
+
+@pytest.mark.parametrize("case", FIXTURE["choices"], ids=lambda c: c["name"])
+def test_pavels_choice_lands_in_the_final_style_as_on_the_page(case):
+    """Выбор Павла в редакторе — и вид субтитров, и слов в группе — в стиле ролика (страница — finalStyle, та же фикстура)."""
+    assert final_style(FIXTURE["styles"], {"style": case["choice"]}) == case["expected"]
+
+
+def test_answers_take_the_subtitle_mode_and_words_within_the_schema(tmp_path):
+    job = Job(tmp_path / "j")
+    job.root.mkdir()
+    style = {**FIXTURE["answers"]["style"], "subMode": "soft", "subWords": 4}
+    job.write("answers.json", {**FIXTURE["answers"], "style": style})
+    for bad in ({"subMode": "fancy"}, {"subWords": 7}, {"subWords": 2.5}):
+        with pytest.raises(ValueError):
+            job.write("answers.json", {**FIXTURE["answers"], "style": {**style, **bad}})
+
+
+def test_answers_take_the_bar_and_the_hook_look_within_the_schema(tmp_path):
+    """Редактор: шкала времени сверху или снизу и её толщина, вид хука — кнопками и ползунком (стиль: final_style)."""
+    job = Job(tmp_path / "j")
+    job.root.mkdir()
+    style = {**FIXTURE["answers"]["style"], "barPos": "top", "barHeight": 10, "hookMode": "accent"}
+    job.write("answers.json", {**FIXTURE["answers"], "style": style})
+    spec = final_style(FIXTURE["styles"], {"style": style})
+    assert spec["bar"] == {"pos": "top", "height": 10} and spec["hook"]["mode"] == "accent"
+    for bad in ({"barPos": "left"}, {"barHeight": 0}, {"barHeight": 40}, {"barHeight": 7}, {"hookMode": "neon"}):
+        with pytest.raises(ValueError):
+            job.write("answers.json", {**FIXTURE["answers"], "style": {**style, **bad}})

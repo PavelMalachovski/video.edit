@@ -1,5 +1,7 @@
 """Шкала времени: как время исходника становится временем финала (вырезки + ускорение). Чистая арифметика."""
+import json
 import math
+from pathlib import Path
 
 import pytest
 
@@ -111,8 +113,8 @@ def test_nothing_kept_gives_an_empty_timeline():
 @pytest.mark.parametrize(
     "keep, problem",
     [
-        ([(3, 5), (0, 2)], r"keep\[1\].*in order"),
         ([(0, 3), (2, 5)], r"keep\[1\].*overlap"),
+        ([(0, 2), (5, 6), (1, 3)], r"keep\[2\].*overlap"),
         ([(1, 1)], r"keep\[0\].*end after"),
         ([(2, 1)], r"keep\[0\].*end after"),
         ([(0, 2), (3, math.inf)], r"keep\[1\].*finite"),
@@ -120,7 +122,7 @@ def test_nothing_kept_gives_an_empty_timeline():
         ([(0, 2), (3,)], r"keep\[1\].*\[start, end\]"),
         ([(0, 2), "ab"], r"keep\[1\]"),
     ],
-    ids=["unsorted", "overlapping", "empty", "backwards", "infinite", "nan", "one number", "not a pair"],
+    ids=["overlapping", "overlapping out of order", "empty", "backwards", "infinite", "nan", "one number", "not a pair"],
 )
 def test_keep_that_is_not_ordered_segments_is_refused_with_the_segment_number(keep, problem):
     with pytest.raises(ValueError, match=problem):
@@ -184,3 +186,99 @@ def test_in_a_short_piece_a_moment_lands_on_the_nearer_cut():
     tl = Timeline([(0.0, 2.0), (2.5, 2.8), (3.0, 6.0)], 1.0)  # кусок 0,3 с: стыки на 2,0 и 2,3 с финала
     assert tl.to_cut(2.6) == 2.0
     assert tl.to_cut(2.75) == pytest.approx(2.3)
+
+
+# ---------- куски, переставленные руками (фаза 4) ----------
+
+
+def reordered() -> Timeline:
+    """Исходник 0–2, 3–5, 6–8; в финале — 6–8, 0–2, 3–5 (последний кусок Павел поставил первым)."""
+    return Timeline([(6, 8), (0, 2), (3, 5)], 1.0)
+
+
+def test_pieces_may_stand_in_any_order_the_final_is_their_order():
+    tl = reordered()
+    assert tl.duration == approx(6)
+    assert tl.segments == [(6, 8, 0), (0, 2, 2), (3, 5, 4)]
+    assert tl.to_final(7) == approx(1) and tl.to_final(1) == approx(3) and tl.to_final(4) == approx(5)
+    assert tl.to_source(1) == approx(7) and tl.to_source(3) == approx(1) and tl.to_source(5.5) == approx(4.5)
+    assert tl.to_final(2.5) is None, "вырезанное — вырезано"
+
+
+def test_a_cut_moment_goes_to_the_piece_that_follows_it_in_the_recording():
+    tl = reordered()
+    assert tl.to_final_snap(2.5) == approx(4), "между 0–2 и 3–5: начало куска 3–5 (в финале — на 4 с)"
+    assert tl.to_final_snap(5.5) == approx(0), "между 3–5 и 6–8: начало куска 6–8 — он первый в финале"
+    assert tl.to_final_snap(9) == approx(6), "после всего исходника — конец ролика"
+
+
+def test_a_moment_by_a_join_lands_on_the_join_of_its_own_piece():
+    tl = Timeline([(0, 2), (6, 8), (2, 4)], 1.0)  # 2–4 переставлен в конец: в исходнике он сразу за 0–2
+    assert tl.to_cut(1.9) == approx(2), "конец куска 0–2 — в финале 2 с, а не начало 2–4 (там 4 с)"
+    assert tl.to_cut(2.1) == approx(4), "начало куска 2–4 — там, где он стоит"
+
+
+def test_an_event_does_not_run_over_a_piece_moved_in_between():
+    """Вставка на 1–4 с исходника: в обычном порядке — через стык, как всегда; кусок 2–4 переставлен в конец — вставка
+    кончается с куском 0–2, а не тянется через чужой кусок 6–8."""
+    in_order = Timeline([(0, 2), (2.5, 4), (6, 8)], 1.0)
+    assert in_order.span(1, 3) == (approx(1), approx(2.5))
+    assert in_order.span(1, 3) == (in_order.to_final_snap(1), in_order.to_final_snap(3))
+    moved = Timeline([(0, 2), (6, 8), (2.5, 4)], 1.0)
+    assert moved.span(1, 3) == (approx(1), approx(2))
+    assert moved.span(7, 9) == (approx(3), approx(4)), "после конца исходника — до конца своей серии"
+    assert moved.span(3, 3.5) == (approx(4.5), approx(5))
+    touching = Timeline([(0, 2), (4, 6), (2, 4)], 1.0)  # 2–4 вплотную за 0–2 в исходнике, но в финале — в конце
+    assert touching.span(1, 3) == (approx(1), approx(2)), "до конца своего куска, а не до начала соседа по исходнику"
+    assert touching.span(1, 3, cut=True)[1] == approx(2)
+
+
+def test_runs_are_pieces_that_follow_each_other_in_the_recording():
+    tl = Timeline([(0, 2), (2.5, 4), (9, 10), (6, 8)], 1.0)
+    assert [tl.run_of(t) for t in (1, 3, 9.5, 7)] == [0, 0, 1, 2]
+    assert tl.run_of(5) == 2, "вырезанный момент — серия куска, что идёт за ним в исходнике (6–8)"
+    assert tl.run_of(11) is None
+    assert {Timeline([(0, 2), (3, 5)], 1.0).run_of(t) for t in (1, 2.5, 4)} == {0}, "по порядку — одна серия"
+
+
+# ---------- общая фикстура со страницей (web/lib/timeline.ts) ----------
+
+SHARED = json.loads((Path(__file__).parent / "fixtures" / "timeline-map.json").read_text(encoding="utf-8"))
+
+
+def _same(got, want):
+    return got is None and want is None or (got is not None and want is not None and abs(got - want) <= 1e-9)
+
+
+@pytest.mark.parametrize("case", SHARED["cases"], ids=lambda c: f"{len(c['keep'])}seg-x{c['speed']}-teaser{bool(c['teaser'])}")
+def test_timeline_matches_the_shared_fixture(case):
+    tl = Timeline(case["keep"], case["speed"], case["teaser"])
+    assert _same(tl.duration, case["duration"]) and _same(tl.teaser_duration, case["teaserDuration"])
+    assert len(tl.segments) == len(case["segments"])
+    assert all(_same(x, y) for got, want in zip(tl.segments, case["segments"], strict=True) for x, y in zip(got, want, strict=True))
+    for name, fn in (("toFinal", tl.to_final), ("teaserFinal", tl.teaser_final), ("toFinalSnap", tl.to_final_snap),
+                     ("toCut", tl.to_cut), ("toSource", tl.to_source)):
+        for t, want in case[name]:
+            assert _same(fn(t), want), f"{name}({t}) = {fn(t)}, want {want}"
+    for t, within, want in case["toCutWithin"]:
+        assert _same(tl.to_cut(t, within), want)
+    for t, want in case.get("runOf", []):
+        assert tl.run_of(t) == want, f"run_of({t}) = {tl.run_of(t)}, want {want}"
+    for t0, t1, cut, want in case.get("span", []):
+        got = tl.span(t0, t1, cut)
+        assert _same(got[0], want[0]) and _same(got[1], want[1]), f"span({t0}, {t1}, {cut}) = {got}, want {want}"
+
+
+@pytest.mark.parametrize("bad", SHARED["refused"])
+def test_timeline_refuses_what_the_shared_fixture_refuses(bad):
+    with pytest.raises(ValueError):
+        Timeline(bad["keep"], bad["speed"], bad.get("teaser"))
+
+
+def test_the_same_pieces_in_source_order():
+    """Та же шкала, но по порядку исходника: так длится хук и так считаются ступени зума у переставленных кусков."""
+    tl = Timeline([(6, 8), (0, 2), (3, 5)], 1.25, teaser=(3.5, 4.5))
+    plain = tl.in_source_order()
+    assert [(s, e) for s, e, _ in plain.segments] == [(3.5, 4.5), (0, 2), (3, 5), (6, 8)]
+    assert plain.duration == pytest.approx(tl.duration) and plain.teaser == tl.teaser
+    assert plain.to_final(6.5) == pytest.approx((1 + 4 + 0.5) / 1.25)

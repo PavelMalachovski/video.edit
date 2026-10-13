@@ -2,9 +2,9 @@
 // Входные файлы шага, новая запись в job.json и статус «queued» ложатся одним коммитом ДО запуска рутины: сессия,
 // стартовав, уже видит всё в ветке. Текст запуска — только {job, step, attempt}.
 import { brandForJob } from './brand.ts';
-import { commitFiles, deleteBranch, readText, type FileMap } from './branch.ts';
+import { commitFiles, deleteBranch, listDir, readText, type FileMap } from './branch.ts';
 import { createDraftRelease, deleteRelease, findReleaseByTag, listAllAssets, readAssetText, type GH } from './github.ts';
-import { backStatus, buildJobFile, errorStatus, queuedStatus, type FixFile, type JobFile, type Manifest, type Run } from './jobfiles.ts';
+import { backStatus, buildJobFile, errorStatus, queuedStatus, type AnswersFile, type FixFile, type JobFile, type Manifest, type Run } from './jobfiles.ts';
 import { jobBranch, jobDir, jobTag, newJobId } from './jobs.ts';
 import { fireRoutine, RoutineError, type Routine, type Step } from './routine.ts';
 import { buildScriptJob, type ScriptRequest } from './script.ts';
@@ -21,13 +21,15 @@ async function readJob(gh: GH, id: string): Promise<JobFile | null> {
 /**
  * Запуск шага: `files` (имена от папки задачи), job.json с новой записью `runs` и статус «queued» — одним коммитом,
  * затем запуск рутины. Сбой запуска — статус ошибки с её текстом и та же ошибка дальше. `opts.job` — старт: job.json
- * ещё нет, ветка создаётся от master (удалённую задачу другие шаги не воскрешают).
+ * ещё нет, ветка создаётся от master (удалённую задачу другие шаги не воскрешают); `opts.base` — job.json ветки, уже
+ * поправленный вызвавшим (повтор без озвучки). Имя файла → null в `files` — файл из ветки убирается.
  */
-export async function runStep(d: Deps, id: string, step: Step, files: FileMap, opts: { retry?: boolean; job?: JobFile } = {}): Promise<{ attempt: number; sessionUrl: string }> {
+export async function runStep(d: Deps, id: string, step: Step, files: FileMap,
+  opts: { retry?: boolean; job?: JobFile; base?: JobFile } = {}): Promise<{ attempt: number; sessionUrl: string }> {
   const now = () => (d.now ?? (() => new Date()))();
   const dir = jobDir(id);
   const branch = jobBranch(id);
-  const job = opts.job ?? (await readJob(d.gh, id));
+  const job = opts.job ?? opts.base ?? (await readJob(d.gh, id)); // base — job.json ветки, уже поправленный вызвавшим
   if (!job) throw new Error('Задача не найдена: в ветке нет job.json');
   const last = job.runs.at(-1);
   if (opts.retry && last?.step !== step) throw new Error(`Повторить можно только последний шаг (${last?.step ?? 'шагов не было'})`);
@@ -91,6 +93,25 @@ export async function retryStep(d: Deps, id: string): Promise<{ attempt: number;
   return runStep(d, id, last.step, {}, { retry: true });
 }
 
+/** Что анализ сделал из звука задачи: с озвучкой — из неё; без неё повтор должен расслышать звук видео заново. */
+const FROM_SOUND = ['words.json', 'cuts.json', 'speech.json', 'language.json', 'reference.txt', 'editor.json', 'film.jpg'];
+
+/**
+ * Анализ сорвался из-за озвучки (в неё попала песня, чужая запись): тот же анализ без неё — видео уже в черновике, загружать
+ * его заново не нужно. Из job.json уходит озвучка, из ветки — сделанное по её звуку (слова, паузы, язык, файлы редактора).
+ */
+export async function retryWithoutVoice(d: Deps, id: string): Promise<{ attempt: number; sessionUrl: string }> {
+  const job = await readJob(d.gh, id);
+  if (!job) throw new Error('Задача не найдена: в ветке нет job.json');
+  if (!job.uploads.some((u) => u.kind === 'audio')) throw new Error('Озвучки нет — повторите шаг');
+  const unvoiced = { ...job, uploads: job.uploads.filter((u) => u.kind !== 'audio') };
+  // удаляются только файлы, что есть в ветке: сорвавшийся анализ мог не запушить ничего, а GitHub на удаление файла,
+  // которого нет, отвечает 422
+  const present = new Set(((await listDir(d.gh, jobBranch(id), jobDir(id))) ?? []).map((e) => e.name));
+  const drop = Object.fromEntries(FROM_SOUND.filter((name) => present.has(name)).map((name) => [name, null]));
+  return runStep(d, id, 'analyze', drop, { retry: true, base: unvoiced });
+}
+
 /**
  * Шаг сорвался из-за входных данных — вернуться к последнему хорошему: после restyle и render снова ждём ответов (файлы
  * шага остаются: прежние стили, ответы), после fix снимается последняя, не доставленная правка — экран «Готово» с
@@ -107,8 +128,12 @@ export async function backStep(d: Deps, id: string): Promise<{ screen: 'question
     const fixes = text ? (JSON.parse(text) as FixFile).fixes ?? [] : [];
     const dropped = fixes.at(-1);
     if (!dropped) throw new Error('Правок нет — возвращать нечего');
-    await commitFiles(d.gh, branch, { [`${dir}/fix.json`]: json({ fixes: fixes.slice(0, -1) }), [`${dir}/status.json`]: json(backStatus('fix', now)) },
-      `web(${id}): правка ${dropped.version} отменена`);
+    // правка из редактора с новым стилем: в answers.json — снова стиль, в котором ролик смонтирован
+    const answersText = dropped.styleFrom ? await readText(d.gh, branch, `${dir}/answers.json`) : null;
+    const restyled = answersText ? { [`${dir}/answers.json`]: json({ ...(JSON.parse(answersText) as AnswersFile), style: dropped.styleFrom }) } : {};
+    await commitFiles(d.gh, branch, {
+      [`${dir}/fix.json`]: json({ fixes: fixes.slice(0, -1) }), [`${dir}/status.json`]: json(backStatus('fix', now)), ...restyled,
+    }, `web(${id}): правка ${dropped.version} отменена`);
     return { screen: 'result' };
   }
   await commitFiles(d.gh, branch, { [`${dir}/status.json`]: json(backStatus(last.step, now)) }, `web(${id}): назад к ответам после ${last.step}`);

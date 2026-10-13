@@ -403,3 +403,18 @@ def test_cli_status_push_leaves_big_outputs_alone(origin, job):
 
     assert rc == 0
     assert files_in(origin) == ["README.md", "jobs/abc/status.json"]
+
+
+def test_a_git_command_that_hangs_is_stopped_and_reads_as_a_failure(monkeypatch, tmp_path):
+    """git, который не отвечает (сеть прокси), не держит сессию: через потолок — отказ с причиной (push повторит его
+    как сетевую ошибку), а не вечное ожидание."""
+    from vm import git
+
+    def hang(cmd, **kwargs):
+        raise subprocess.TimeoutExpired(cmd, kwargs.get("timeout"))
+
+    monkeypatch.setattr(git.subprocess, "run", hang)
+    done = git._git(tmp_path, "push", "origin", "main", check=False)
+    assert done.returncode != 0 and "не ответил" in done.stderr
+    with pytest.raises(GitError, match="не ответил"):
+        git._git(tmp_path, "push")

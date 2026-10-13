@@ -1,25 +1,27 @@
 'use client';
-// Экран «1 · Загрузка»: видео, ТЗ, вставки и озвучка → черновик job-<id> кусками → manifest.json → запуск анализа.
-// Незаконченная загрузка помнится в localStorage: после перезагрузки тот же файл продолжает с недостающих кусков.
+// Экран «1 · Загрузка»: видео (одно или несколько — склеятся по порядку), ТЗ, вставки и озвучка → черновик job-<id>
+// кусками → manifest.json → запуск анализа. Незаконченная загрузка помнится в localStorage: после перезагрузки те же
+// файлы продолжают с недостающих кусков.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { errorText, message, post, storage } from '@/lib/client.ts';
 import { bytes, mmss } from '@/lib/format.ts';
 import {
-  checkInsert, checkSource, checkTotal, checkVoice, INSERT_TYPES, LONG_VIDEO_SEC, MAX_BRIEF, MAX_INSERTS, uploadAssetName, VOICE_EXT, voiceAssetName,
+  checkInsert, checkSources, checkTotal, checkVoice, INSERT_TYPES, LONG_VIDEO_SEC, MAX_BRIEF, MAX_INSERTS, MAX_VIDEOS, uploadAssetName, VOICE_EXT,
+  videoAsset, voiceAssetName,
 } from '@/lib/jobs.ts';
 import {
   clearPending, loadPending, matchPending, planChunks, resumeDone, runUpload, sameSelection, savePending, type Pending, type PendingInsert,
 } from '@/lib/uploader.ts';
 import { keepScreenOn } from '@/lib/wakelock.ts';
 import { takeNextBrief } from '@/lib/script.ts';
-import { CloseIcon, FilmIcon, ImageIcon, MicIcon, PlayIcon, PlusIcon, RefreshIcon, UploadIcon } from './icons';
+import { CloseIcon, FilmIcon, ImageIcon, MicIcon, PlayIcon, PlusIcon, RefreshIcon, UploadIcon, UpIcon } from './icons';
 import { JOBS_CHANGED } from './jobs-list';
 
 const BRIEF_HINT = 'ХУК: Как я учу чешский\nКОДОВОЕ СЛОВО: чешский\nМУЗЫКА: lofi\nКогда говорю «приложение» — покажи логотип\nНа «вот так это выглядит» — фуллскрин демо';
 
 type Phase = 'idle' | 'uploading' | 'completing' | 'launching' | 'failed' | 'launch_failed';
-type Active = { p: Pending; files: Map<string, File> }; // files: 'source', ассеты вставок и озвучки → файлы
+type Active = { p: Pending; files: Map<string, File> }; // files: ассеты видео (source, source-2…), вставок и озвучки → файлы
 
 /** Длительность по метаданным `<video>`; не узнал за 5 с (или файл не читается) — null. */
 function videoDuration(file: File, timeoutMs = 5000): Promise<number | null> {
@@ -46,7 +48,8 @@ function videoDuration(file: File, timeoutMs = 5000): Promise<number | null> {
 }
 
 
-const sameFile = (a: File, b: File) => a.name === b.name && a.size === b.size && a.lastModified === b.lastModified;
+// тот же файл — имя и размер: iPhone при повторном выборе отдаёт свежую копию с новым временем изменения
+const sameFile = (a: File, b: File) => a.name === b.name && a.size === b.size;
 
 function Thumb({ file }: { file: File }) {
   const [url, setUrl] = useState<string | null>(null);
@@ -65,8 +68,8 @@ function Thumb({ file }: { file: File }) {
 
 export default function Uploader() {
   const router = useRouter();
-  const [source, setSource] = useState<File | null>(null);
-  const [duration, setDuration] = useState<number | null | undefined>(undefined); // undefined — ещё смотрю
+  const [sources, setSources] = useState<File[]>([]); // видео по порядку: склеятся в один исходник
+  const [durations, setDurations] = useState<Map<File, number | null>>(new Map()); // нет файла — ещё смотрю
   const [brief, setBrief] = useState('');
   const [inserts, setInserts] = useState<File[]>([]);
   const [insertError, setInsertError] = useState('');
@@ -79,7 +82,6 @@ export default function Uploader() {
   const [error, setError] = useState('');
   const briefRef = useRef('');
   const active = useRef<Active | null>(null);
-  const picked = useRef(0);
   const launched = useRef<string | null>(null);
 
   useEffect(() => {
@@ -93,21 +95,29 @@ export default function Uploader() {
   }, []);
 
   const busy = phase === 'uploading' || phase === 'completing' || phase === 'launching';
-  const match = useMemo(() => (pending && source && !busy ? matchPending(pending, source, inserts, voice) : null), [pending, source, inserts, voice, busy]);
-  const sourceError = source ? checkSource(source.size) : null;
-  const totalError = source ? checkTotal(source.size, [...inserts, ...(voice ? [voice] : [])].map((f) => f.size)) : null;
-  const measuring = !!source && duration === undefined;
+  const source = sources[0] ?? null;
+  const match = useMemo(() => (pending && sources.length && !busy ? matchPending(pending, sources, inserts, voice) : null), [pending, sources, inserts, voice, busy]);
+  const sourceError = sources.length ? checkSources(sources.map((f) => f.size)) : null;
+  const totalError = source ? checkTotal(source.size, [...sources.slice(1), ...inserts, ...(voice ? [voice] : [])].map((f) => f.size)) : null;
+  const measuring = sources.some((f) => !durations.has(f));
+  // длина всех видео вместе; хоть одно не узнал — неизвестна
+  const duration = measuring ? undefined : sources.every((f) => typeof durations.get(f) === 'number')
+    ? sources.reduce((sum, f) => sum + (durations.get(f) as number), 0) : null;
   const canStart = !!source && !sourceError && !totalError && !busy && !measuring;
+  const label = sources.length > 1 ? `${sources[0].name} + ${sources.length - 1}` : source?.name ?? '';
 
-  async function pickSource(f: File | null) {
-    const n = ++picked.current;
-    setSource(f);
+  /** Ещё видео — в конец списка (то же второй раз не берётся); длительность каждого смотрим сразу. */
+  function addSources(list: FileList | null) {
+    const picked = (list ? [...list] : []).filter((f) => !sources.some((x) => sameFile(x, f)));
+    if (!picked.length) return;
+    setSources([...sources, ...picked]);
     setError('');
     setPhase('idle');
-    setDuration(f ? undefined : null);
-    if (!f) return;
-    const d = await videoDuration(f);
-    if (picked.current === n) setDuration(d);
+    for (const f of picked) void videoDuration(f).then((d) => setDurations((m) => new Map(m).set(f, d)));
+  }
+
+  function moveUp(k: number) {
+    setSources(sources.map((f, i) => (i === k - 1 ? sources[k] : i === k ? sources[k - 1] : f)));
   }
 
   function addInserts(list: FileList | null) {
@@ -148,14 +158,19 @@ export default function Uploader() {
     setError('');
     setPhase('uploading');
     try {
-      const r = await post('/api/jobs', { name: source.name, size: source.size, type: source.type });
+      const size = sources.reduce((sum, f) => sum + f.size, 0);
+      const r = await post('/api/jobs', { name: label, size, type: source.type });
       if (!r.ok) throw new Error(await errorText(r, 'Задача не создалась'));
       const { jobId, releaseId } = (await r.json()) as { jobId: string; releaseId: number };
       window.dispatchEvent(new Event(JOBS_CHANGED));
       const list: PendingInsert[] = inserts.map((f, k) => ({ asset: uploadAssetName('i', k + 1, f.name, f.type), name: f.name, size: f.size, type: f.type, lastModified: f.lastModified }));
       const said = voice ? { asset: voiceAssetName(voice.name, voice.type), name: voice.name, size: voice.size, type: voice.type, lastModified: voice.lastModified } : undefined;
-      const p: Pending = { jobId, releaseId, source: { name: source.name, size: source.size, lastModified: source.lastModified }, brief: briefRef.current, duration: duration ?? null, inserts: list, voice: said };
-      const files = new Map<string, File>([['source', source], ...list.map((i, k) => [i.asset, inserts[k]] as [string, File])]);
+      const more: PendingInsert[] = sources.slice(1).map((f, k) => ({ asset: videoAsset(k + 1), name: f.name, size: f.size, type: f.type, lastModified: f.lastModified }));
+      const p: Pending = {
+        jobId, releaseId, source: { name: source.name, size: source.size, lastModified: source.lastModified }, brief: briefRef.current, duration: duration ?? null,
+        inserts: list, voice: said, ...(more.length ? { more } : {}),
+      };
+      const files = new Map<string, File>([...sources.map((f, k) => [videoAsset(k), f] as [string, File]), ...list.map((i, k) => [i.asset, inserts[k]] as [string, File])]);
       if (said && voice) files.set(said.asset, voice);
       await upload({ p, files }, new Set());
     } catch (e) {
@@ -164,10 +179,10 @@ export default function Uploader() {
     }
   }
 
-  /** Тот же файл после перезагрузки: заново выбранные вставки — те же ассеты, новые — следующие номера; та же
+  /** Те же видео после перезагрузки: заново выбранные вставки — те же ассеты, новые — следующие номера; та же
    *  озвучка — тот же ассет, другая — следующий номер (куски прежней остались в черновике). */
   async function resume() {
-    if (!pending || !source || !match?.ok) return;
+    if (!pending || !sources.length || !match?.ok) return;
     const kept = pending.inserts.filter((i) => match.inserts.has(i.asset));
     const reused = new Set(match.inserts.values());
     const extras = inserts.filter((f) => !reused.has(f));
@@ -177,7 +192,8 @@ export default function Uploader() {
     const said = match.voice ? pending.voice : voice
       ? { asset: voiceAssetName(voice.name, voice.type, last + 1), name: voice.name, size: voice.size, type: voice.type, lastModified: voice.lastModified } : undefined;
     const p: Pending = { ...pending, brief: briefRef.current, duration: duration ?? pending.duration, inserts: [...kept, ...added], voice: said };
-    const files = new Map<string, File>([['source', source], ...match.inserts, ...added.map((a, k) => [a.asset, extras[k]] as [string, File])]);
+    const files = new Map<string, File>([...match.videos, ...match.inserts, ...added.map((a, k) => [a.asset, extras[k]] as [string, File])]);
+    setSources([...match.videos.values()]); // видео — в порядке задачи, даже если выбраны заново в другом
     if (said && voice) files.set(said.asset, voice);
     await upload({ p, files }, null);
   }
@@ -192,8 +208,9 @@ export default function Uploader() {
     const release = keepScreenOn(navigator as Parameters<typeof keepScreenOn>[0], document); // экран не гаснет до конца загрузки
     const { p, files } = a;
     try {
-      const extra = [...p.inserts, ...(p.voice ? [p.voice] : [])]; // вставки и озвучка — одной очередью после исходника
-      const chunks = planChunks([{ asset: 'source', size: p.source.size }, ...extra.map((i) => ({ asset: i.asset, size: i.size }))]);
+      const videos = [{ asset: 'source', size: p.source.size }, ...(p.more ?? [])]; // видео по порядку, потом вставки и озвучка
+      const extra = [...p.inserts, ...(p.voice ? [p.voice] : [])];
+      const chunks = planChunks([...videos, ...extra].map((i) => ({ asset: i.asset, size: i.size })));
       let done = known;
       if (!done) {
         const r = await fetch(`/api/jobs/${p.jobId}/parts?release=${p.releaseId}`, { cache: 'no-store' });
@@ -210,7 +227,7 @@ export default function Uploader() {
         minGapMs: 700,
         put: async (i) => {
           const c = chunks[i];
-          const file = c.file === 'source' ? '' : `&file=${encodeURIComponent(c.file)}`;
+          const file = c.file === 'source' ? '' : `&file=${encodeURIComponent(c.file)}`; // source — как раньше, без file
           const r = await fetch(`/api/jobs/${p.jobId}/parts/${c.index}?release=${p.releaseId}${file}`, {
             method: 'PUT', body: files.get(c.file)!.slice(c.start, c.end), headers: { 'Content-Type': 'application/octet-stream' },
           });
@@ -222,10 +239,16 @@ export default function Uploader() {
       });
       setPhase('completing');
       const partsOf = (asset: string) => chunks.filter((c) => c.file === asset).length;
+      const first = { asset: 'source', name: p.source.name, size: p.source.size, type: files.get('source')!.type, lastModified: p.source.lastModified };
+      const all = [first, ...(p.more ?? [])].map((v) => {
+        const d = durations.get(files.get(v.asset)!);
+        return { ...v, parts: partsOf(v.asset), duration: typeof d === 'number' ? d : null };
+      });
       const c = await post(`/api/jobs/${p.jobId}/complete`, {
-        releaseId: p.releaseId, name: p.source.name, size: p.source.size, type: files.get('source')!.type, lastModified: p.source.lastModified,
+        releaseId: p.releaseId, name: first.name, size: first.size, type: first.type, lastModified: first.lastModified,
         parts: partsOf('source'), userAgent: navigator.userAgent, brief: briefRef.current.trim(), duration: p.duration,
         uploads: extra.map((i) => ({ asset: i.asset, name: i.name, size: i.size, type: i.type, parts: partsOf(i.asset) })),
+        ...(all.length > 1 ? { videos: all } : {}),
       });
       if (!c.ok) throw new Error(await errorText(c, 'Проверка загрузки не прошла'));
       clearPending(storage()); // всё в черновике — продолжать больше нечего, запуск повторяется и со страницы задачи
@@ -269,14 +292,17 @@ export default function Uploader() {
 
   const pct = total ? Math.floor((100 * sent) / total) : 0;
   // после сбоя — как была, если вставки и озвучка те же; поменяли — заново собранной загрузкой (resume)
-  const resumable = phase === 'failed' && active.current !== null && sameSelection(active.current.files, inserts, voice);
+  // в заметке о незаконченной загрузке — как в списке задач: первое видео и сколько ещё
+  const pendingName = (p: Pending) => (p.more?.length ? `${p.source.name} + ${p.more.length}` : p.source.name);
+  const resumable = phase === 'failed' && active.current !== null && sameSelection(active.current.files, inserts, voice, sources);
   const long = typeof duration === 'number' && duration > LONG_VIDEO_SEC;
 
   return (
     <>
       {pending && !busy && phase !== 'failed' ? (
         <div className="card note">
-          <div>{match?.ok ? <>Продолжаю загрузку <b>{pending.source.name}</b>: недостающие куски дошлю.</> : <>Загрузка <b>{pending.source.name}</b> не закончена: выберите тот же файл.</>}</div>
+          <div>{match?.ok ? <>Продолжаю загрузку <b>{pendingName(pending)}</b>: недостающие куски дошлю.</>
+            : <>Загрузка <b>{pendingName(pending)}</b> не закончена: {pending.more?.length ? 'выберите те же видео' : 'выберите тот же файл'}.</>}</div>
           {match?.ok && match.dropped.length ? <div className="muted">Не выбраны заново и не войдут: {match.dropped.join(', ')}</div> : null}
           <button type="button" className="btn ghost" onClick={forget}>Забыть</button>
         </div>
@@ -287,22 +313,35 @@ export default function Uploader() {
           <h2 id="new-project">Новый проект</h2>
           <span className="mono muted small">до 3 ГБ</span>
         </div>
-        <label className={`pick${busy ? ' off' : ''}`}>
+        <label className={`pick${busy || sources.length >= MAX_VIDEOS ? ' off' : ''}`}>
           <span className="pick-icon"><PlusIcon size={26} /></span>
-          <span className="pick-title">{source ? 'Выбрать другое видео' : 'Выбрать видео'}</span>
-          <span className="pick-hint">из галереи телефона</span>
-          <input id="source" type="file" accept="video/*,.mov,.mp4" disabled={busy} hidden
-            onChange={(e) => { void pickSource(e.target.files?.[0] ?? null); e.target.value = ''; }} />
+          <span className="pick-title">{source ? 'Добавить видео' : 'Выбрать видео'}</span>
+          <span className="pick-hint">{source ? 'склею по порядку списка' : 'из галереи телефона — можно несколько'}</span>
+          <input id="source" type="file" multiple accept="video/*,.mov,.mp4" disabled={busy || sources.length >= MAX_VIDEOS} hidden
+            onChange={(e) => { addSources(e.target.files); e.target.value = ''; }} />
         </label>
         {source ? (
           <div className="media">
-            <div className="media-row">
-              <span className="media-icon"><FilmIcon /></span>
-              <div className="grow media-name">
-                <b className="name">{source.name}</b>
-                <span className="mono muted small">{bytes(source.size)}{typeof duration === 'number' ? ` · ${mmss(duration)}` : ''}</span>
-              </div>
-            </div>
+            {sources.map((f, k) => {
+              const d = durations.get(f);
+              return (
+                <div className="media-row" key={`${f.name}:${f.size}:${f.lastModified}`}>
+                  <span className="media-icon"><FilmIcon /></span>
+                  <div className="grow media-name">
+                    <b className="name">{sources.length > 1 ? `${k + 1}. ` : ''}{f.name}</b>
+                    <span className="mono muted small">{bytes(f.size)}{typeof d === 'number' ? ` · ${mmss(d)}` : ''}</span>
+                  </div>
+                  {sources.length > 1 && k > 0 ? (
+                    <button type="button" className="icon" aria-label={`${f.name} — раньше`} disabled={busy} onClick={() => moveUp(k)}><UpIcon /></button>
+                  ) : null}
+                  <button type="button" className="icon" aria-label={`Убрать ${f.name}`} disabled={busy}
+                    onClick={() => setSources(sources.filter((_, i) => i !== k))}>
+                    <CloseIcon />
+                  </button>
+                </div>
+              );
+            })}
+            {sources.length > 1 && typeof duration === 'number' ? <div className="muted small mono">Вместе {mmss(duration)}</div> : null}
             {measuring ? <div className="muted small">Смотрю видео…</div> : null}
             {long ? <div className="warn small">Ролик длиннее 5 минут — монтаж может не уложиться.</div> : null}
             {sourceError ? <div className="err small">{sourceError}</div> : null}

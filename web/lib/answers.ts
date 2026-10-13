@@ -8,7 +8,12 @@ export type LocalUpload = { asset: string; name: string; size: number; type: str
 export type Draft = { picks: Record<string, string[]>; texts: Record<string, string>; uploads: Record<string, LocalUpload> };
 
 const defaults = (q: Question): string[] => (q.default === undefined ? [] : Array.isArray(q.default) ? q.default : [q.default]);
-const known = (q: Question, id: string): boolean => (q.options ?? []).some((o) => o.id === id);
+
+/** Вопрос «Фон» (`dim`): кроме кадров-вариантов (`none`, `30`, `50`) — ползунок, любое число процентов 0–80 через 5
+ *  (как `edit.json.dim` движка, доля до 0,8). Ответ — число строкой: `35` → `edit.dim` 0,35. */
+export const DIM = { id: 'dim', min: 0, max: 80, step: 5 } as const;
+const isDimValue = (id: string): boolean => /^\d{1,2}$/.test(id) && Number(id) <= DIM.max && Number(id) % DIM.step === 0;
+const known = (q: Question, id: string): boolean => (q.options ?? []).some((o) => o.id === id) || (q.id === DIM.id && isDimValue(id));
 
 /**
  * Ассет картинки к ответу: `upload-q-<id>[-n].<ext>` с первым `n ≥ from`, у которого нет кусков в черновике (`taken` —
@@ -22,14 +27,23 @@ export function pictureAsset(qid: string, fileName: string, type: string, taken:
   }
 }
 
-/** Черновик по умолчанию: `default` выбран заранее, у вопроса-текста он — в поле. */
-export function initialDraft(qs: Question[]): Draft {
+/** «Мой стиль» из бренда для ответов по умолчанию: затемнение фона, % (0 — как есть) и трек (null — без музыки). */
+export type LookDefaults = { dim?: number; music?: { file: string } | null } | null;
+
+/** Черновик по умолчанию: `default` выбран заранее, у вопроса-текста он — в поле. С «Моим стилем» бренда «Фон» и
+ *  «Музыка» — как в нём (если такой ответ у вопроса есть). */
+export function initialDraft(qs: Question[], mine: LookDefaults = null): Draft {
   const picks: Record<string, string[]> = {};
   const texts: Record<string, string> = {};
   for (const q of qs) {
     if (q.type === 'text') texts[q.id] = typeof q.default === 'string' ? q.default : '';
     else picks[q.id] = defaults(q).filter((id) => known(q, id)).slice(0, q.type === 'multi' ? undefined : 1);
   }
+  const dim = qs.find((q) => q.id === DIM.id);
+  if (dim && typeof mine?.dim === 'number') picks[dim.id] = setDimPercent({ picks, texts, uploads: {} }, dim, mine.dim).picks[dim.id];
+  const music = qs.find((q) => q.id === 'music' && q.type === 'choice');
+  const track = mine?.music === null ? RESERVED.none : mine?.music?.file;
+  if (music && track && known(music, track)) picks[music.id] = [track];
   return { picks, texts, uploads: {} };
 }
 
@@ -38,6 +52,18 @@ export function pick(d: Draft, q: Question, optionId: string): Draft {
   const current = d.picks[q.id] ?? [];
   const next = q.type !== 'multi' ? [optionId] : current.includes(optionId) ? current.filter((x) => x !== optionId) : [...current, optionId];
   return { ...d, picks: { ...d.picks, [q.id]: next } };
+}
+
+/** Насколько темнее фон по черновику вопроса «Фон», %: `none` и нет ответа — 0. */
+export function dimPercent(q: Question, d: Draft): number {
+  const id = chosen(q, d);
+  return id !== undefined && isDimValue(id) ? Number(id) : 0;
+}
+
+/** Ползунок «Фон»: значение по шагу и в пределах `DIM`; 0 — вариант «Как есть» (`none`), если он есть. */
+export function setDimPercent(d: Draft, q: Question, percent: number): Draft {
+  const v = Math.min(DIM.max, Math.max(DIM.min, Math.round(percent / DIM.step) * DIM.step));
+  return pick(d, q, v === 0 && (q.options ?? []).some((o) => o.id === RESERVED.none) ? RESERVED.none : String(v));
 }
 
 /** Выбранный вариант вопроса с одним ответом (нет выбора — `default`). */
@@ -150,8 +176,8 @@ export function saveDraft(storage: Storage | null, jobId: string, d: Draft): voi
 }
 
 /** Черновик этой задачи под нынешние вопросы: чужие вопросы и устаревшие варианты отброшены; нет или битый — по умолчанию. */
-export function loadDraft(storage: Storage | null, jobId: string, qs: Question[]): Draft {
-  const base = initialDraft(qs);
+export function loadDraft(storage: Storage | null, jobId: string, qs: Question[], mine: LookDefaults = null): Draft {
+  const base = initialDraft(qs, mine);
   let raw: unknown;
   try {
     const text = storage?.getItem(key(jobId));

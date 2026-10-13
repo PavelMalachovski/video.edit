@@ -12,10 +12,12 @@
 - `blur` — смаз: горизонтальное размытие (`gblur` только по x), сильнее всего на стыке; `dblur` на пике давал полосы и
   бурую кашу из цветов.
 Вспышка и смаз включены только в своём окне (`enable`): остальные кадры они не трогают и не считают, формат кадра
-(yuv420p) не меняется.
+(yuv420p) не меняется. Что они делают с кадром n финала, по кадрам (замерено на ffmpeg), — `flash_alpha` и
+`blur_sigma`: их повторяет превью редактора (web/lib/zoom.ts, общая фикстура overlay-events.json).
 Субтитры, хук, вставки и шкала — поверх перехода: слой накладывается после. Звук `sfx` (свуш) начинается вместе с
 переходом. У самого начала и конца ролика перехода нет (сцены до или после нет); чаще раза в 3 с — предупреждение.
 """
+import math
 from dataclasses import dataclass
 from itertools import pairwise
 
@@ -42,7 +44,8 @@ def _sec(t: float) -> str:
 
 
 def _placed(edit: dict, tl: Timeline) -> list[Mark]:
-    items = [Mark(tl.to_final_snap(float(x["t"])), x["kind"], x.get("sfx") or None, float(x["t"])) for x in edit.get("transitions") or []]
+    items = [Mark(tl.to_final_snap(float(x["t"])), x["kind"], x.get("sfx") or None, float(x["t"]))
+             for x in edit.get("transitions") or [] if not x.get("off")]  # убранный Павлом в редакторе — не в ролике
     return sorted(items, key=lambda m: (m.t, m.source))
 
 
@@ -91,3 +94,43 @@ def picture_chains(items: list[Mark], src: str, out: str, size: tuple[int, int],
             chains.append(f"{current}{','.join(steps)}{label}")
         current = label
     return chains
+
+
+def _read(x: float) -> float:
+    """Число, которое ffmpeg прочтёт там, где picture_chains пишет `x` шестью знаками (края окон, сдвиг белого кадра)."""
+    return float(f"{x:.6f}")
+
+
+def _white(k: int, fps: int) -> int:
+    """Альфа (0–255) кадра k белого кадра вспышки после fade in и fade out: ffmpeg переводит их начало и длину (0,12 с) в
+    целые кадры (3,6 → 4) и считает целыми числами — 0, 64, 127, 191, 255, 191, 128, 64, 0."""
+    frames = round(HALF * fps)
+    alpha = 255
+    for start, rising in ((0, True), (frames, False)):
+        factor = 0 if k < start else 65535 if k >= start + frames else (k - start) * 65535 // frames
+        if not rising:
+            factor = 65535 - factor
+        if factor < 65535:
+            alpha = (alpha * factor + 32768) >> 16
+    return alpha
+
+
+def flash_alpha(join: float, n: int, fps: int = 30) -> float:
+    """Белизна вспышки со стыком `join` (время финала) на кадре n финала, 0..1 — что делает с ним picture_chains.
+    overlay включён, пока время кадра n · (1/fps) в окне стык ± HALF (оба края включительно), и кладёт последний кадр
+    белого с меткой не позже n: метка кадра k белого — int(k + a / TB) (setpts отбрасывает дробь; a — начало окна)."""
+    a, b = _read(join - HALF), _read(join + HALF)
+    if not a <= n * (1 / fps) <= b:
+        return 0.0
+    shift = a / (1 / fps)
+    k = -1
+    while math.trunc(k + 1 + shift) <= n:
+        k += 1
+    return _white(k, fps) / 255 if k >= 0 else 0.0
+
+
+def blur_sigma(join: float, n: int, fps: int = 30) -> float:
+    """Сила смаза со стыком `join` на кадре n финала — sigma по x, px кадра шириной 1080: ступени gblur, чьё окно
+    захватывает время кадра n · (1/fps) (оба края включительно); размытия подряд складываются — корень из суммы квадратов."""
+    t = n * (1 / fps)
+    return math.sqrt(sum(sigma * sigma for sigma, share in BLUR if _read(join - HALF * share) <= t <= _read(join + HALF * share)))

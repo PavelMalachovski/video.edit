@@ -91,7 +91,7 @@ def github(monkeypatch):
             if m := re.fullmatch(r"/repos/o/r/releases/assets/(\d+)", url.path):
                 assert self.headers.get("Accept") == "application/octet-stream"
                 self.send_response(302)
-                self.send_header("Location", f"/blob/{m[1]}")
+                self.send_header("Location", f"/blob/{int(m[1])}")
                 self.end_headers()
                 return None
             if m := re.fullmatch(r"/blob/(\d+)", url.path):
@@ -208,6 +208,28 @@ def test_cli_style_prints_final_spec(tmp_path, capsys):
     assert json.loads(capsys.readouterr().out) == fixture["expected"]
 
 
+def test_cli_style_onto_lays_the_editor_style_over_the_video_style(tmp_path, capsys):
+    """«Монтировать» из редактора со стилем: в последней правке fix.json — прошлый выбор (`styleFrom`); `vm style
+    --onto` берёт из нового выбора только то, что Павел поменял, остальное — из edit.json.style (правки текстом)."""
+    fixture = json.loads((Path(__file__).parent / "fixtures" / "style-merge.json").read_text(encoding="utf-8"))
+    old = {k: v for k, v in fixture["answers"]["style"].items() if k != "subShade"}  # выбор Павла без затемнения
+    new = {**old, "colors": {**old["colors"], "accent": "#FF3B30"}}
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    job.write("styles.json", fixture["styles"])
+    job.write("answers.json", {**fixture["answers"], "style": new})
+    job.write("edit.json", {"speed": 1.0, "keep": [[0.0, 1.0]], "words": [], "hook": None, "cta": None, "inserts": [], "zooms": [],
+                            "face": {"x": 0.5, "y": 0.3}, "music": None, "hold": 0.0,
+                            "style": fixture["expected"]})  # стиль ролика: тот выбор + затемнение 0,6 из правки текстом
+    job.write("fix.json", {"fixes": [{"text": "Правки в редакторе", "at": "2026-10-12T15:00:00Z", "version": 2, "style": True, "styleFrom": old}]})
+    assert main(["style", str(job.root), "--onto"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["colors"]["accent"] == "#FF3B30" and out["subtitles"]["shade"] == 0.6
+    job.write("fix.json", {"fixes": [{"text": "x", "at": "2026-10-12T15:00:00Z", "version": 2}]})
+    assert main(["style", str(job.root), "--onto"]) == 0
+    assert "shade" not in json.loads(capsys.readouterr().out)["subtitles"], "прошлого выбора нет — новый стиль целиком"
+
+
 def test_fetch_rejects_a_size_mismatch(tmp_path, github, capsys):
     body = random.Random(4).randbytes(6000)
     files = parts("source", body, 3000)
@@ -219,6 +241,32 @@ def test_fetch_rejects_a_size_mismatch(tmp_path, github, capsys):
     assert not (job / "in" / "source.mov").exists()
 
 
+def test_fetch_takes_every_video_of_the_job_in_order(tmp_path, github):
+    first = random.Random(21).randbytes(7000)
+    second = random.Random(22).randbytes(4000)
+    videos = [{"asset": "source", "name": "IMG_1.MOV", "size": len(first), "type": "video/quicktime", "parts": 3},
+              {"asset": "source-2", "name": "IMG_2.mp4", "size": len(second), "type": "video/mp4", "parts": 2}]
+    github.draft("job-abc", {**parts("source", first, 3000), **parts("source-2", second, 3000),
+                             "manifest.json": manifest("IMG_1.MOV", first, 3, videos=videos)})
+    job = tmp_path / "jobs" / "abc"
+    assert main(["fetch", str(job)]) == 0
+    assert (job / "in" / "source.mov").read_bytes() == first
+    assert (job / "in" / "source-2.mp4").read_bytes() == second
+
+
+@pytest.mark.parametrize("videos", [
+    [{"asset": "../x", "name": "a.mov", "size": 3000, "parts": 1}],  # не видео задачи
+    [{"asset": "source-2", "name": "a.mov", "size": 3000, "parts": 1}],  # первое — не source
+    [{"asset": "source", "name": "a.mov", "size": 3000, "parts": 1}, {"asset": "source", "name": "b.mov", "size": 3000, "parts": 1}],
+    "source",
+])
+def test_fetch_refuses_a_video_list_the_page_does_not_write(tmp_path, github, capsys, videos):
+    body = random.Random(23).randbytes(3000)
+    github.draft("job-abc", {**parts("source", body, 3000), "manifest.json": manifest("a.mov", body, 1, videos=videos)})
+    assert main(["fetch", str(tmp_path / "jobs" / "abc")]) == 1
+    assert "videos" in capsys.readouterr().err
+
+
 def test_fetch_twice_downloads_once(tmp_path, github):
     body = random.Random(5).randbytes(6000)
     files = parts("source", body, 3000)
@@ -228,6 +276,75 @@ def test_fetch_twice_downloads_once(tmp_path, github):
     first = github.downloads
     assert main(["fetch", str(job)]) == 0
     assert github.downloads - first == 1, "only manifest.json again — the joined file is already there"
+
+
+def ready_job(tmp_path, body: bytes, analyzed: bool = True, **extra):
+    """Задача с job.json (по нему — ключ готового исходника) для fetch; `analyzed` — анализ уже в ветке (editor.json
+    есть: шаги render и fix)."""
+    from vm import source
+
+    job = Job(tmp_path / "jobs" / "abc")
+    job.write("job.json", {"id": "abc", "name": "a.mov", "size": len(body), "type": "video/quicktime", "duration": 3,
+                           "createdAt": "2026-10-13T10:10:10Z", "brief": "", "uploads": [], "runs": [], **extra})
+    if analyzed:
+        job.write("editor.json", {"duration": 3.0, "proxy": None, "film": {"file": "film.jpg", "step": 1.0, "w": 54, "h": 96, "n": 3},
+                                  "peaks": {"perS": 10, "data": ""}})
+    return job, source.asset(job)
+
+
+def ready_files(name: str, ready: bytes, size: int = 3000, **over) -> dict[str, bytes]:
+    """Готовый исходник в черновике, как его кладёт Action job-source: куски и (последним) описание."""
+    import hashlib
+
+    pieces = parts(name, ready, size)
+    info = {"size": len(ready), "sha256": hashlib.sha256(ready).hexdigest(), "parts": len(pieces), "normalize": 1, **over}
+    return {**pieces, name.removesuffix(".mp4") + ".json": json.dumps(info).encode()}
+
+
+def test_fetch_takes_the_ready_source_instead_of_the_videos(tmp_path, github, capsys):
+    """Action job-source уже сделал исходник: качается он, а не видео Павла (2 ГБ 4K) — prepare не нормализует заново."""
+    body = random.Random(31).randbytes(9000)
+    ready = random.Random(32).randbytes(7000)
+    job, name = ready_job(tmp_path, body)
+    github.draft("job-abc", {**parts("source", body, 3000), "manifest.json": manifest("a.mov", body, 3), **ready_files(name, ready)})
+    assert main(["fetch", str(job.root)]) == 0
+    assert job.path("source.mp4").read_bytes() == ready
+    assert not job.path("in/source.mov").exists(), "видео Павла не качалось"
+    assert "готовый исходник" in capsys.readouterr().out
+    assert main(["fetch", str(job.root), "--originals"]) == 0, "для vm prepare --redo — видео Павла"
+    assert job.path("in/source.mov").read_bytes() == body
+
+
+def test_fetch_takes_the_videos_for_the_analysis_even_with_the_ready_source(tmp_path, github):
+    """Анализ (editor.json ещё нет: первый запуск, повтор после сбоя, «Повторить без озвучки») качает видео Павла даже
+    при готовом исходнике: по ним prepare размечает, где какое видео (editor.json.videos, «Видео по порядку»)."""
+    body = random.Random(35).randbytes(9000)
+    ready = random.Random(36).randbytes(7000)
+    job, name = ready_job(tmp_path, body, analyzed=False)
+    github.draft("job-abc", {**parts("source", body, 3000), "manifest.json": manifest("a.mov", body, 3), **ready_files(name, ready)})
+    assert main(["fetch", str(job.root)]) == 0
+    assert job.path("in/source.mov").read_bytes() == body
+    assert not job.path("source.mp4").exists(), "исходник анализ делает сам — из видео"
+
+
+@pytest.mark.parametrize("trouble", ["other inputs", "no json yet", "bad sha256", "part lost"])
+def test_fetch_takes_the_videos_when_the_ready_source_does_not_fit(tmp_path, github, trouble):
+    body = random.Random(33).randbytes(9000)
+    ready = random.Random(34).randbytes(7000)
+    job, name = ready_job(tmp_path, body)
+    files = ready_files(name, ready)
+    if trouble == "other inputs":  # исходник с озвучкой, а её убрали («Повторить без озвучки»)
+        files = ready_files("source-0123456789ab.mp4", ready)
+    elif trouble == "no json yet":  # Action ещё грузит куски
+        files.pop(name.removesuffix(".mp4") + ".json")
+    elif trouble == "bad sha256":
+        files = ready_files(name, ready, sha256="0" * 64)
+    else:
+        files.pop(f"{name}.part-00001")
+    github.draft("job-abc", {**parts("source", body, 3000), "manifest.json": manifest("a.mov", body, 3), **files})
+    assert main(["fetch", str(job.root)]) == 0
+    assert job.path("in/source.mov").read_bytes() == body
+    assert not job.path("source.mp4").exists(), "битый или чужой исходник не остаётся"
 
 
 def test_fetch_without_a_draft_names_it(tmp_path, github, capsys):
@@ -349,7 +466,7 @@ def test_cli_prepare_then_render_on_fixture(tmp_path, speech, capsys):
         "style": STYLE,
     }
     job.write("edit.json", edit)
-    job.path("out").mkdir()
+    job.path("out").mkdir(exist_ok=True)  # prepare уже положил туда прокси редактора
     job.path("out/final.mp4.part-aa").write_bytes(b"old render")  # от прошлого push --outputs
     job.path("out/final.mp4.sha256").write_text("0  final.mp4\n", encoding="utf-8")
     assert main(["render", str(job.root), "--preset", "ultrafast"]) == 0
@@ -395,6 +512,45 @@ def test_prepare_in_a_later_session_only_restores_the_source(tmp_path, monkeypat
 
 
 @needs_ffmpeg
+def test_prepare_makes_the_editor_files_once(tmp_path, monkeypatch, capsys):
+    no_models(monkeypatch, tmp_path)
+    job = Job(tmp_path / "jobs" / "abc")
+    make_source(job.path("in/source.mp4"), 2)
+    for name, text in SPEECH_WORK.items():
+        job.path(name).write_text(text, encoding="utf-8")
+    assert main(["prepare", str(job.root)]) == 0
+    assert job.path("out/proxy.mp4").is_file() and job.path("film.jpg").is_file()
+    assert job.read("editor.json")["proxy"]["file"] == "out/proxy.mp4"
+    assert "Редактор" in capsys.readouterr().out
+    job.path("out/proxy.mp4").unlink()  # Action перенёс прокси в релиз, editor.json остался в ветке
+    assert main(["prepare", str(job.root)]) == 0
+    assert not job.path("out/proxy.mp4").exists(), "второй раз прокси не делается"
+
+
+@needs_ffmpeg
+def test_prepare_goes_on_when_the_editor_files_fail(tmp_path, monkeypatch, capsys):
+    """Редактор — бета: его сбой не останавливает шаг — вопросы, стили и монтаж идут как раньше."""
+    from vm import editor
+
+    no_models(monkeypatch, tmp_path)
+    job = Job(tmp_path / "jobs" / "abc")
+    make_source(job.path("in/source.mp4"), 2)
+    for name, text in SPEECH_WORK.items():
+        job.path(name).write_text(text, encoding="utf-8")
+
+    def broken(j):
+        j.path("out").mkdir(exist_ok=True)
+        j.path("out/proxy.mp4").write_bytes(b"half")  # половина работы осталась
+        raise RuntimeError("ffmpeg упал")
+
+    monkeypatch.setattr(editor, "make", broken)
+    assert main(["prepare", str(job.root)]) == 0
+    out = capsys.readouterr().out
+    assert "Редактор (бета): не вышло" in out and "ffmpeg упал" in out
+    assert not job.path("out/proxy.mp4").exists() and not job.path("editor.json").exists()
+
+
+@needs_ffmpeg
 def test_prepare_redo_recognises_again(tmp_path, monkeypatch, capsys):
     no_models(monkeypatch, tmp_path)
     job = Job(tmp_path / "jobs" / "abc")
@@ -419,6 +575,41 @@ def test_prepare_takes_the_fetched_source_not_every_video_in_in(tmp_path, monkey
     assert probe(job.path("source.mp4")).duration == pytest.approx(2.0, abs=0.1)
     cuts = job.path("cuts.json").read_text(encoding="utf-8")
     assert len(json.loads(cuts)["keep"]) == 2 and len(cuts.splitlines()) <= 6, cuts
+
+
+def test_the_videos_of_a_job_go_in_their_order_not_by_name(tmp_path):
+    from vm.media import source_parts
+
+    folder = tmp_path / "in"
+    folder.mkdir()
+    for name in ("source-10.mp4", "source-2.mov", "source.mp4", "old.mp4", "source-3.MTS", "source.mov.part"):
+        (folder / name).write_bytes(b"x")
+    # расширение — какое было у Павла (.MTS и т. п. тоже): видео задачи не выпадает молча (ревью фазы 4)
+    assert [p.name for p in source_parts(folder)] == ["source.mp4", "source-2.mov", "source-3.MTS", "source-10.mp4"]
+    for name in ("source-10.mp4", "source-2.mov", "source.mp4", "source-3.MTS"):
+        (folder / name).unlink()
+    assert [p.name for p in source_parts(folder)] == ["old.mp4"], "не через fetch — все видео папки по имени"
+
+
+@needs_ffmpeg
+def test_prepare_joins_the_videos_and_the_editor_knows_where_each_one_is(tmp_path, monkeypatch, capsys):
+    from vm.media import probe
+
+    no_models(monkeypatch, tmp_path)
+    job = Job(tmp_path / "jobs" / "abc")
+    make_source(job.path("in/source.mov"), 2)
+    make_source(job.path("in/source-2.mp4"), 1)
+    videos = [{"file": "in/source.mov", "asset": "source", "name": "IMG_1.MOV", "size": 1, "type": "video/quicktime", "duration": 2},
+              {"file": "in/source-2.mp4", "asset": "source-2", "name": "IMG_2.mp4", "size": 1, "type": "video/mp4", "duration": 1}]
+    job.path("job.json").write_text(json.dumps({"brief": "", "name": "IMG_1.MOV", "videos": videos}), encoding="utf-8")
+    job.path("words.json").write_text('[{"t0": 0.2, "t1": 0.6, "text": "раз"}, {"t0": 2.2, "t1": 2.6, "text": "два"}]', encoding="utf-8")
+    assert main(["prepare", str(job.root)]) == 0
+    assert probe(job.path("source.mp4")).duration == pytest.approx(3.0, abs=0.1)
+    marks = job.read("editor.json")["videos"]
+    assert [v["name"] for v in marks] == ["IMG_1.MOV", "IMG_2.mp4"]
+    assert marks[0]["t0"] == 0 and marks[0]["t1"] == pytest.approx(2.0, abs=0.04) and marks[1]["t0"] == marks[0]["t1"]
+    assert marks[1]["t1"] == pytest.approx(job.read("editor.json")["duration"], abs=1e-3)
+    assert "Видео по порядку: IMG_1.MOV 0:00.0–0:02.0, IMG_2.mp4 0:02.0–0:03.0" in capsys.readouterr().out
 
 
 @needs_ffmpeg
@@ -743,6 +934,10 @@ def test_validate_leaves_uploads_alone_until_fetch(tmp_path, capsys):
     job.path("in/source.mov").write_bytes(b"mov")  # после vm fetch — проверяются
     assert main(["validate", str(job.root)]) == 1
     assert "in/uploads/upload-i1.png" in capsys.readouterr().err
+    job.path("in/source.mov").unlink()  # vm fetch взял готовый исходник: видео Павла в in/ нет, а source.mp4 есть
+    job.path("source.mp4").write_bytes(b"mp4")
+    assert main(["validate", str(job.root)]) == 1
+    assert "in/uploads/upload-i1.png" in capsys.readouterr().err
 
 
 @needs_ffmpeg
@@ -767,7 +962,7 @@ def test_preview_shows_the_background_dimmed_for_the_question(tmp_path, monkeypa
         return mask, state
 
     monkeypatch.setattr("vm.matte.unavailable", lambda: None)
-    monkeypatch.setattr("vm.matte._rvm", lambda: left_person)
+    monkeypatch.setattr("vm.matte._rvm", lambda threads=None: left_person)
     job = Job(tmp_path / "jobs" / "abc")
     make_source(job.path("source.mp4"), 3)
     assert main(["preview", str(job.root), "--at", "1.0", "--out", "q-dim-none.png"]) == 0
@@ -1382,3 +1577,47 @@ def test_render_checks_the_hook_against_the_face_as_big_as_the_strongest_zoom_ma
         assert main(["render", str(job.root)]) == 0
         problems = job.read("result.json")["qa"]["problems"]
         assert any("хук на лице" in p for p in problems) == flagged, (level, problems)
+
+
+def test_prepare_stops_when_a_video_of_the_job_is_missing(tmp_path, monkeypatch, capsys):
+    no_models(monkeypatch, tmp_path)
+    job = Job(tmp_path / "jobs" / "abc")
+    job.path("in").mkdir(parents=True)
+    job.path("in/source.mov").write_bytes(b"x")
+    videos = [{"file": "in/source.mov", "name": "IMG_1.MOV"}, {"file": "in/source-2.mp4", "name": "IMG_2.mp4"}]
+    job.path("job.json").write_text(json.dumps({"brief": "", "videos": videos}), encoding="utf-8")
+    job.path("words.json").write_text("[]\n", encoding="utf-8")  # речь уже разобрана — моделей не нужно
+    assert main(["prepare", str(job.root)]) == 1
+    err = capsys.readouterr().err
+    assert "IMG_2.mp4" in err and "vm fetch" in err, err
+
+
+def test_render_encodes_with_veryfast_by_default(tmp_path, monkeypatch):
+    """Финал — x264 veryfast, crf 18: втрое быстрее medium на настоящем ролике (34 → 11 с на 20 с), SSIM к
+    исходнику не ниже (0,978 против 0,975), файл больше на ~18 %. `--preset` — для проверок (ultrafast)."""
+    import vm.__main__ as cli
+
+    job = Job(tmp_path / "jobs" / "abc")
+    job.write("edit.json", {"speed": 1.0, "keep": [[0.0, 4.0]], "words": [], "hook": None, "cta": None, "inserts": [], "zooms": [],
+                            "face": {"x": 0.5, "y": 0.3}, "music": None, "hold": 0.0, "style": STYLE})
+    presets = []
+
+    def fake_render(job_, out_dir, name="final", preset="medium", edit=None, work="work/render"):
+        presets.append(preset)
+        (job_.path(work) / "frames").mkdir(parents=True, exist_ok=True)
+        (job_.path(work) / "frames" / "boxes.json").write_text("[]", encoding="utf-8")
+        job_.path("out").mkdir(exist_ok=True)
+        job_.path(f"out/{name}.mp4").write_bytes(b"video")
+        return {"durations": {"source": 4.0, "final": 4.0}, "missing": [], "warnings": [], "voice": {}}
+
+    monkeypatch.setattr(cli, "render", fake_render)
+    monkeypatch.setattr(cli, "_fonts_ok", lambda job: None)
+    monkeypatch.setattr(cli, "check_render", lambda final, edit, boxes, report: [])
+    monkeypatch.setattr(cli, "control_frames", lambda *a, **k: {"sheet": job.path("qa/qa.png")})
+    monkeypatch.setattr(cli, "checklist", lambda final, boxes, report: CHECKS)
+    assert main(["render", str(job.root)]) == 0
+    assert presets == ["veryfast"]
+    import inspect
+
+    from vm.render import render as real_render
+    assert inspect.signature(real_render).parameters["preset"].default == "veryfast"

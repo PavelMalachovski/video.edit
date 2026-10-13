@@ -5,6 +5,13 @@ export function mmss(sec: number): string {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
 
+/** Время на таймлайне: минуты, секунды и десятая (1:15.5). */
+export function tenths(sec: number): string {
+  const total = Math.max(0, Math.round(sec * 10));
+  const s = (total % 600) / 10;
+  return `${Math.floor(total / 600)}:${s.toFixed(1).padStart(4, '0')}`;
+}
+
 export function bytes(n: number): string {
   if (n < 1024 ** 2) return `${Math.max(1, Math.round(n / 1024))} КБ`;
   if (n < 1024 ** 3) return `${Math.round(n / 1024 ** 2)} МБ`;

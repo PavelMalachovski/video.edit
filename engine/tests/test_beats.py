@@ -150,3 +150,71 @@ def test_a_short_track_repeats_and_so_do_its_beats(tmp_path):
     tl = Timeline([(0.0, 10.0)], 1.0)
     snapped, report = on_beats(job, edit_with(music=music, zooms=[{"t": 6.2, "level": 1.05}, {"t": 8.05, "level": 1.0}]), tl)
     assert [z["t"] for z in snapped["zooms"]] == pytest.approx([6.1, 8.1], abs=0.02) and report["moved"] == 2
+
+
+@needs_ffmpeg
+def test_music_placed_later_and_from_its_middle_moves_its_beats(tmp_path):
+    # доли трека — 0,1 с + 0,5 с × k; музыка с 1,3 с ролика и с 0,35 с трека: доля трека 0,6 с — на 1,55 с ролика
+    job, music = music_job(tmp_path, 12, at=1.3, **{"from": 0.35})
+    tl = Timeline([(0.0, 10.0)], 1.0)
+    snapped, report = on_beats(job, edit_with(music=music, zooms=[{"t": 1.5, "level": 1.05}, {"t": 0.6, "level": 1.0}]), tl)
+    assert [z["t"] for z in snapped["zooms"]] == pytest.approx([1.55, 0.6], abs=0.02), "до начала музыки долей нет"
+    assert report["moved"] == 1
+
+
+@needs_ffmpeg
+def test_a_short_track_from_its_middle_loops_from_its_start(tmp_path):
+    # 2,8 с трека с 1,2-й секунды (доли 1,6…3,6 → 0,4…2,4 с ролика), дальше трек сначала с 2,8 с: доли 2,9 с, 3,4 с…
+    job, music = music_job(tmp_path, 4, **{"from": 1.2})
+    tl = Timeline([(0.0, 10.0)], 1.0)
+    snapped, _ = on_beats(job, edit_with(music=music, zooms=[{"t": 3.3, "level": 1.05}]), tl)
+    assert snapped["zooms"][0]["t"] == pytest.approx(3.4, abs=0.02)
+
+
+@needs_ffmpeg
+def test_render_writes_the_beats_of_the_whole_track_for_the_editor(tmp_path):
+    """Доли всего трека — в beats.json (редактор ставит вставки на те же доли), а не только той части, что звучит в
+    ролике: от длины ролика и правок они не зависят."""
+    job, music = music_job(tmp_path, 12)
+    on_beats(job, edit_with(music=music, zooms=[{"t": 1.0, "level": 1.05}]), Timeline([(0.0, 3.0)], 1.0))
+    saved = job.read("beats.json")
+    assert saved["file"] == music["file"] and saved["length"] == pytest.approx(12.0, abs=0.01) and 117 <= saved["bpm"] <= 123
+    assert saved["times"][0] == pytest.approx(0.1, abs=0.02) and saved["times"][-1] > 11, "доли до конца трека, а не ролика"
+    assert saved["times"] == sorted(saved["times"])
+
+
+def test_beats_in_the_video_follow_where_the_track_plays_and_repeat_with_it():
+    times = [0.1, 0.6, 1.1, 1.6]  # трек 2 с
+    assert beats.beat_times(times, 4.0, 0.0, 0.0, 1.0) == [0.1, 0.6, 1.1, 1.6], "трек длиннее нужного (ролик и 2 с) — без повтора"
+    looped = beats.beat_times(times, 2.0, 0.0, 0.0, 3.0)
+    assert looped[:8] == pytest.approx([0.1, 0.6, 1.1, 1.6, 2.1, 2.6, 3.1, 3.6]), "короче ролика — по кругу"
+    late = beats.beat_times(times, 2.0, 1.3, 0.35, 1.0)
+    assert late[:3] == pytest.approx([1.55, 2.05, 2.55]), "с 1,3 с ролика и с 0,35 с трека; доли до from — нет"
+    assert beats.played(10.0, 1.0, 2.0, 5.0) == pytest.approx(8.0) and beats.played(3.0, 0.0, 0.0, 9.0) == 3.0
+
+
+def test_an_insert_does_not_jump_to_a_beat_across_a_join_into_another_piece():
+    """Кусок 5–8 Павел поставил перед 0–3: доля на 3,05 с ролика — уже в куске 0–3. Вставка с 7,9 (2,9 с ролика) к ней
+    не прыгает: на 0,05 с исходника она оказалась бы в другом месте записи (ревью фазы 4)."""
+    edit = {"zooms": [], "inserts": [{"kind": "image", "t0": 7.9, "t1": 8.0}, {"kind": "image", "t0": 5.9, "t1": 7.0}]}
+    out, moved = beats.snap_edit(edit, Timeline([(5.0, 8.0), (0.0, 3.0)], 1.0), [1.0, 3.05])
+    assert [i["t0"] for i in out["inserts"]] == [7.9, 6.0] and moved == 1, out["inserts"]
+
+
+def test_an_insert_pavel_switched_off_is_not_moved_to_a_beat_and_not_counted():
+    # в ролике её нет (insert_spans): к доле не двигаем — «подвинуто» считает только видимое
+    edit = {"zooms": [], "inserts": [{"kind": "image", "t0": 2.9, "t1": 4.0, "off": True}, {"kind": "image", "t0": 5.9, "t1": 7.0}]}
+    out, moved = beats.snap_edit(edit, Timeline([(0.0, 9.0)], 1.0), [3.0, 6.0])
+    assert [i["t0"] for i in out["inserts"]] == [2.9, 6.0]
+    assert moved == 1
+
+
+def test_music_beats_are_taken_only_when_the_render_uses_them():
+    from vm.render import music_beats
+
+    grid = [0.1 + 0.5 * k for k in range(24)]
+    assert music_beats({"file": "a.mp3", "gainDb": -14}, grid, 12.0, 8.0)[:3] == [0.1, 0.6, 1.1]
+    assert music_beats({"file": "a.mp3", "gainDb": -14, "beats": False}, grid, 12.0, 8.0) is None, "монтаж не в такт"
+    assert music_beats(None, grid, 12.0, 8.0) is None, "музыки нет"
+    assert music_beats({"file": "a.mp3", "gainDb": -14}, [0.1], 0.4, 8.0) is None, "трек короче MIN_MUSIC"
+    assert music_beats({"file": "a.mp3", "gainDb": -14, "from": 11.8}, grid, 12.0, 8.0) is None, "с этого места трека почти не осталось"

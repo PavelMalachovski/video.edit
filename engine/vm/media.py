@@ -27,6 +27,7 @@ BT709 = ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt7
 GRID_CELL = (108, 192)  # 10×10 клеток на кадре 1080×1920: по клетке можно назвать, куда указывает палец
 THUMB_WIDTH = 180  # колонка контактного листа: 6 колонок — ровно 1080 px
 STDERR_LINES = 8  # столько последних строк ffmpeg/ffprobe попадает в сообщение об ошибке
+FFMPEG_TIMEOUT = 1800  # с — потолок одного ffmpeg/ffprobe: зависший (битый файл) не держит сессию монтажа вечно
 LAST_FRAME_SLACK = 0.001  # на столько t может выйти за конец клипа из-за округления, оставаясь последним кадром
 # кадр не 9:16 — по центру на своей размытой копии во весь кадр 1080×1920: так его кладёт финал (render), так же его
 # показывают кадры превью и обложка (`vm preview`, `render_cover`)
@@ -78,7 +79,7 @@ class _Streams:
 # ---------- запуск ffmpeg / ffprobe ----------
 
 
-def _run(cmd: list[str]) -> subprocess.CompletedProcess:
+def _run(cmd: list[str], timeout: float = FFMPEG_TIMEOUT) -> subprocess.CompletedProcess:
     try:
         done = subprocess.run(
             cmd,
@@ -88,17 +89,20 @@ def _run(cmd: list[str]) -> subprocess.CompletedProcess:
             encoding="utf-8",
             errors="replace",
             check=False,
+            timeout=timeout,
         )
     except FileNotFoundError:
         raise MediaError(f"{cmd[0]} not found (is ffmpeg installed?)") from None
+    except subprocess.TimeoutExpired:  # subprocess.run уже остановил процесс
+        raise MediaError(f"{cmd[0]} не уложился в {timeout:.0f} с — остановлен") from None
     if done.returncode != 0:
         tail = "\n".join(done.stderr.strip().splitlines()[-STDERR_LINES:])
         raise MediaError(f"{cmd[0]} failed (exit {done.returncode}): {tail}")
     return done
 
 
-def _ffmpeg(*args) -> None:
-    _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y", *map(str, args)])
+def _ffmpeg(*args, timeout: float = FFMPEG_TIMEOUT) -> None:
+    _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y", *map(str, args)], timeout=timeout)
 
 
 @contextmanager
@@ -259,6 +263,31 @@ def voice_seconds(path: PathLike) -> float:
     return seconds
 
 
+VIDEO = {".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi", ".3gp", ".hevc"}
+SOURCE_PART = re.compile(r"^source(?:-(\d{1,2}))?$")
+
+
+def source_parts(folder: PathLike) -> list[Path]:
+    """Видео исходника по порядку: `source.*`, `source-2.*` … `source-10.*` (так их кладёт fetch: несколько видео
+    задачи — номерами; расширение — какое было у файла Павла, любое: ffmpeg узнаёт видео по содержимому), а если таких
+    нет — все видео папки по имени."""
+    folder = Path(folder)
+    files = sorted(p for p in folder.iterdir() if p.is_file()) if folder.is_dir() else []
+    numbered = sorted((int(m[1] or 1), p.name, p) for p in files if (m := SOURCE_PART.match(p.stem)))
+    return [p for *_, p in numbered] or [p for p in files if p.suffix.lower() in VIDEO]
+
+
+def part_spans(parts: Sequence[PathLike]) -> list[tuple[float, float]]:
+    """Где каждая часть в исходнике, который склеивает `normalize`, с: подряд, по длине части в целых кадрах (столько
+    звука `normalize` даёт каждой части)."""
+    spans, at = [], 0
+    for part in parts:
+        frames = max(1, round(_inspect(part)[1].seconds * FPS))
+        spans.append((at / FPS, (at + frames) / FPS))
+        at += frames
+    return spans
+
+
 def normalize(parts: Sequence[PathLike], out: PathLike, voice: PathLike | None = None) -> Probe:
     """Исходник для всего движка: части подряд в один файл 1080×1920 (или шириной 1080) SDR, 30 к/с, звук 48 кГц.
 
@@ -310,6 +339,8 @@ def normalize(parts: Sequence[PathLike], out: PathLike, voice: PathLike | None =
             "-r", FPS, "-fps_mode", "cfr",
             "-c:a", "aac", "-b:a", "192k", "-ar", AUDIO_RATE, "-ac", 2,
             tmp,
+            # 4K HEVC с iPhone — ~1 с на секунду видео на 4 ядрах: потолок — вчетверо, не меньше общего
+            timeout=max(FFMPEG_TIMEOUT, 4 * sum(streams.seconds for _, streams in inspected)),
         )  # fmt: skip
     return probe(out)
 

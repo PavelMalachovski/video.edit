@@ -45,6 +45,31 @@
           "minimum": 200,
           "maximum": 1330
         },
+        "subWords": {
+          "description": "Сколько слов в группе субтитров Павел выбрал в редакторе; нет — как в варианте.",
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 6
+        },
+        "subMode": {
+          "description": "Вид субтитров, который Павел выбрал в редакторе (как StyleSpec.subtitles.mode); нет — как в варианте.",
+          "enum": ["karaoke", "plate", "word", "accumulate", "soft"]
+        },
+        "hookMode": {
+          "description": "Вид хука, который Павел выбрал в редакторе (как StyleSpec.hook.mode); нет — как в варианте.",
+          "enum": ["plate", "outline", "shadow", "accent"]
+        },
+        "barPos": {
+          "description": "Где шкала времени, — Павел выбрал в редакторе; нет — как в варианте.",
+          "enum": ["bottom", "top"]
+        },
+        "barHeight": {
+          "description": "Толщина шкалы времени, px кадра (чётная), — Павел выбрал в редакторе; нет — как в варианте.",
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 30,
+          "multipleOf": 2
+        },
         "subY": {
           "description": "Куда Павел перетащил субтитры на превью: центр блока, px кадра — почти до низа, над шкалой времени (ниже 1530 их может закрыть подпись Reels); нет — как в варианте.",
           "type": "number",

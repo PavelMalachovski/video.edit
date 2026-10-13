@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { initialDraft, pick } from '../lib/answers.ts';
 import type { Question, StyleChoice, Styles } from '../lib/jobfiles.ts';
-import { loadAb, saveAb, loadAd, saveAd, loadCover, saveCover, coverOf, underCaption, allowedFonts, choiceFor, clampHookSize, insertKey, INSERT_W, loadInsertBoxes, moveBox, placedInserts, resizeBox, saveInsertBoxes, clampHookY, clampSubShade, clampSubSize, clampSubY, finalStyle, HOOK_SIZE, HOOK_Y, SUB_SHADE, SUB_SIZE, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES } from '../lib/style.ts';
+import { brandChoice, loadAb, saveAb, loadAd, saveAd, loadCover, saveCover, coverOf, underCaption, allowedFonts, choiceFor, clampHookSize, insertKey, INSERT_W, loadInsertBoxes, moveBox, moveCentre, placedInserts, resizeBox, saveInsertBoxes, clampHookY, clampSubShade, clampSubSize, clampSubY, finalStyle, mergeStyle, HOOK_SIZE, HOOK_Y, SUB_SHADE, SUB_SIZE, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES } from '../lib/style.ts';
 import { blockedStorage, memoryStorage } from './helpers.ts';
 
 // Общая с движком фикстура: final_style в engine/vm/style.py обязан давать то же самое.
@@ -14,6 +14,12 @@ const STYLES = FIXTURE.styles;
 
 test('finalStyle matches the shared engine fixture', () => {
   assert.deepEqual(finalStyle(STYLES, FIXTURE.answers.style), FIXTURE.expected);
+});
+
+test('a new style from the editor lands on the video’s style as the engine merges it (vm style --onto)', () => {
+  const merge = (FIXTURE as unknown as { merge: { name: string; base: unknown; ours: unknown; theirs: unknown; expected: unknown }[] }).merge;
+  assert.ok(merge.length >= 4);
+  for (const c of merge) assert.deepStrictEqual(mergeStyle(c.base, c.ours, c.theirs), c.expected, c.name);
 });
 
 test('switching variant resets font, hand and colors', () => {
@@ -210,6 +216,20 @@ test('resizing keeps the centre and the top; moving follows the finger; both sta
   assert.equal(resizeBox({ x: 400, y: 300, w: 200 }, 5, 200).w, INSERT_W.min);
   assert.deepEqual(moveBox({ x: 400, y: 300, w: 200 }, 455.4, 610.6, 200), { x: 455, y: 611, w: 200 });
   assert.deepEqual(moveBox({ x: 400, y: 300, w: 200 }, -50, 5000, 200), { x: 60, y: 1330, w: 200 });
+  // с тенью (поля рамки от шаблона): в зоне — вся рамка, как её проверяет монтаж (qa: «вставка вне безопасной зоны»)
+  const ext = { left: 24, top: 16, right: 24 }; // тень карточки: 24 px по бокам, 16 сверху; рамка — 248 высотой
+  assert.deepEqual(moveBox({ x: 400, y: 300, w: 200 }, -50, -50, 248, ext), { x: 84, y: 136, w: 200 });
+  assert.deepEqual(moveBox({ x: 400, y: 300, w: 200 }, 5000, 5000, 248, ext), { x: 666, y: 1298, w: 200 });
+  assert.deepEqual(resizeBox({ x: 70, y: 500, w: 250 }, 330, 250, ext), { x: 84, y: 500, w: 330 }, 'шире у левого края — от края зоны с тенью');
+});
+
+test('an accent dragged on the frame: its whole block (the template\'s box around the centre) stays in the safe zone', () => {
+  const box = { w: 300, h: 200 }; // блок вокруг центра: 150 влево и вправо, 100 вверх и вниз
+  assert.deepEqual(moveCentre(box, 600.4, 1000.6), { x: 600, y: 1001 });
+  assert.deepEqual(moveCentre(box, 0, 0), { x: 210, y: 220 }, 'левый верхний угол зоны');
+  assert.deepEqual(moveCentre(box, 5000, 5000), { x: 740, y: 1430 }, 'правый нижний угол зоны');
+  assert.deepEqual(moveCentre({ w: 1000, h: 1500 }, 700, 300), { x: 475, y: 825 }, 'шире и выше зоны — посередине неё');
+  assert.deepEqual(moveCentre({ w: 10, h: 10 }, -100, 9999), { x: 65, y: 1525 });
 });
 
 test('preview inserts are drawn where Pavel put them', () => {
@@ -310,4 +330,29 @@ test('subtitles may go down to just above the time bar; below the Reels safe zon
   assert.equal(underCaption(high), false);
   assert.equal(underCaption(low), true, 'низ на 1570 — ниже 1530');
   assert.equal(underCaption(undefined), false);
+});
+
+test('Pavel\'s choice lands in the final style as the engine builds it — the subtitle mode and words too (shared fixture)', () => {
+  const choices = (FIXTURE as unknown as { choices: { name: string; choice: StyleChoice; expected: unknown }[] }).choices;
+  assert.ok(choices.length >= 3);
+  for (const c of choices) assert.deepStrictEqual(finalStyle(FIXTURE.styles as Styles, c.choice), c.expected, c.name);
+});
+
+test('«Мой стиль» of the brand: a new job starts from it — its variant, fonts the video can show, its speed', () => {
+  const mine: StyleChoice = {
+    variant: 'B', font: 'rubik', hand: 'caveat', colors: { text: '#FFFFFF', accent: '#FF5C8A', bar: '#FFD23F' }, subY: 1300, subSize: 70, subMode: 'soft', barPos: 'top',
+  };
+  assert.deepEqual(brandChoice(STYLES, mine), mine);
+  assert.equal(brandChoice(STYLES, { ...mine, variant: 'C' as const }).variant, 'C');
+  const latin = { ...STYLES, fonts: { main: ['montserrat'], hand: ['caveat'] } }; // в Rubik нет букв этого ролика
+  assert.deepEqual(brandChoice(latin, mine), { ...mine, font: STYLES.variants[1].spec.font }, 'шрифт без букв ролика — шрифт варианта');
+  const store = memoryStorage();
+  assert.deepEqual(loadChoice(store, 'j', STYLES, mine), mine, 'Павел ещё не выбирал — «Мой стиль»');
+  assert.deepEqual(loadChoice(store, 'j', STYLES, { ...mine, subSize: 999 }), choiceFor(STYLES, 'A'), 'испорченный — вариант A');
+  saveChoice(store, 'j', STYLES, choiceFor(STYLES, 'C'));
+  assert.deepEqual(loadChoice(store, 'j', STYLES, mine), choiceFor(STYLES, 'C'), 'выбор Павла на этом ролике важнее');
+  assert.equal(loadSpeed(store, 'k', 1.3), 1.3);
+  assert.equal(loadSpeed(store, 'k', 2), 1.1, 'не из списка — по умолчанию');
+  saveSpeed(store, 'k', 1.2);
+  assert.equal(loadSpeed(store, 'k', 1.3), 1.2);
 });

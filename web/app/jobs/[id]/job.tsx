@@ -1,6 +1,7 @@
 'use client';
 // Страница задачи: опрос GET /api/jobs/<id> (5 с; GitHub просит подождать — дольше), пока вкладка видна; шапка,
 // полоса шагов и экран по view.screen.
+import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buildAnswers, loadDraft, saveDraft, type Draft } from '@/lib/answers.ts';
 import { errorText, message, post, storage } from '@/lib/client.ts';
@@ -91,13 +92,15 @@ export default function Job({ id }: { id: string }) {
   }, [poll]);
 
   // вопросы и стили — тот же объект, пока не поменялось содержимое (опрос раз в 5 с не перерисовывает превью)
+  const lookJson = data?.brandLook ? JSON.stringify(data.brandLook) : null; // «Мой стиль» бренда: превью и ответы по умолчанию
+  const look = useMemo(() => (lookJson ? (JSON.parse(lookJson) as NonNullable<JobData['brandLook']>) : null), [lookJson]);
   const questionsJson = data?.view.screen === 'questions' && data.questions ? JSON.stringify(data.questions) : null;
   const stylesJson = data?.view.screen === 'questions' && data.styles ? JSON.stringify(data.styles) : null;
   const questions = useMemo(() => (questionsJson ? (JSON.parse(questionsJson) as JobData['questions']) : null), [questionsJson]);
   const styles = useMemo(() => (stylesJson ? (JSON.parse(stylesJson) as NonNullable<JobData['styles']>) : null), [stylesJson]);
   useEffect(() => {  // черновик ответов — когда вопросы впервые пришли
-    if (questions && !draft) setDraft(loadDraft(storage(), id, questions));
-  }, [questions, draft, id]);
+    if (questions && !draft) setDraft(loadDraft(storage(), id, questions, look));
+  }, [questions, draft, id, look]);
 
   const changeDraft: ChangeDraft = useCallback((update) => {
     setDraft((d) => {
@@ -133,10 +136,13 @@ export default function Job({ id }: { id: string }) {
     );
   }
   const view = data?.view;
+  // черновик монтажа есть с вопросов: его можно посмотреть на дорожках в редакторе (бета), старый поток — как был
+  const beta = view?.kind === 'video' && (view.screen === 'questions' || view.screen === 'result');
   const notices = (
     <>
       {wait !== null ? <div className="muted small">GitHub просит подождать, обновлю через {wait} с</div> : null}
       {trouble ? <div className="muted small">{trouble}</div> : null}
+      {beta ? <Link className="beta-link" href={`/jobs/${id}/editor`}>Открыть в редакторе <span>бета</span></Link> : null}
     </>
   );
   // после «Ещё три варианта» вопросы уже отвечены — сразу превью; «← Вопросы» и «Показать превью» решают сами
@@ -144,7 +150,7 @@ export default function Job({ id }: { id: string }) {
   const previews = stage === 'previews' || (stage === 'auto' && view?.step === 'restyle' && answered);
   if (data && view?.screen === 'questions' && draft && questions && styles && previews) {
     return (
-      <Previews jobId={id} styles={styles} questions={questions} draft={draft} brief={data.brief} duration={view.duration} fileUrl={fileUrl} localUrl={localUrl}
+      <Previews jobId={id} styles={styles} questions={questions} draft={draft} brief={data.brief} duration={view.duration} fileUrl={fileUrl} localUrl={localUrl} look={look}
         onBack={() => { setStage('questions'); window.scrollTo(0, 0); }} onAct={act} />
     );
   }

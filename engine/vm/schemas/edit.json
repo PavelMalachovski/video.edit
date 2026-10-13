@@ -11,7 +11,7 @@
       "exclusiveMinimum": 0
     },
     "keep": {
-      "description": "Отрезки исходника [начало, конец], которые остаются; по возрастанию, без пересечений.",
+      "description": "Отрезки исходника [начало, конец], которые остаются, в порядке ролика: обычно по возрастанию, переставленный кусок — в другом месте списка; без пересечений.",
       "type": "array",
       "minItems": 1,
       "items": {
@@ -101,7 +101,8 @@
         "properties": {
           "t0": { "type": "number", "minimum": 0 },
           "t1": { "type": "number", "minimum": 0 },
-          "look": { "enum": ["bw"] }
+          "look": { "enum": ["bw"] },
+          "off": { "const": true, "description": "Служебное: Павел убрал этот ч/б-кусок в редакторе (timeline.json) — в ролике его нет; сессия это поле не пишет." }
         }
       }
     },
@@ -126,8 +127,21 @@
         "beats": {
           "description": "Монтаж в такт: смены зума и появления вставок встают на ближайшую долю трека (не дальше 0,25 с). Нет поля — да; false — время событий как в edit.json.",
           "type": "boolean"
-        }
+        },
+        "at": { "description": "С какой секунды ролика звучит; нет — с начала.", "type": "number", "minimum": 0 },
+        "from": { "description": "С какого места трека, с; нет — с начала.", "type": "number", "minimum": 0 },
+        "fadeIn": { "description": "Нарастание, с; нет — 0,1.", "type": "number", "minimum": 0, "maximum": 10 },
+        "fadeOut": { "description": "Затухание в конце, с; нет — 1.", "type": "number", "minimum": 0, "maximum": 10 }
       }
+    },
+    "voice": {
+      "description": "Голос: громкость после выравнивания к −14 LUFS (gainDb) и без звука (muted) — правка Павла в редакторе. Нет поля — как есть.",
+      "$ref": "timeline.json#/$defs/Level"
+    },
+    "sounds": {
+      "description": "Громкость и без звука отдельных звуков (правка Павла в редакторе): insert:<номер вставки>, teaser, transition:<номер перехода>, end.",
+      "type": "object",
+      "additionalProperties": { "$ref": "timeline.json#/$defs/Level" }
     },
     "transitions": {
       "description": "Переходы — только на смене сцены (резкая смена кадра из cuts.json joins или вырезка, за которой другое место или план): t — время исходника, где начинается новая сцена; kind: flash — белая вспышка, zoom — толчок зума, blur — смаз; 0,24 с вокруг стыка, не чаще раза в 3 с; sfx — свуш. Нет поля или [] — без переходов.",
@@ -138,7 +152,8 @@
         "properties": {
           "t": { "type": "number", "minimum": 0 },
           "kind": { "enum": ["flash", "zoom", "blur"] },
-          "sfx": { "type": ["string", "null"] }
+          "sfx": { "type": ["string", "null"] },
+          "off": { "const": true, "description": "Служебное: Павел убрал этот переход в редакторе (timeline.json) — в ролике его нет; сессия это поле не пишет." }
         }
       }
     },
@@ -249,7 +264,11 @@
         "y": { "type": "number" },
         "w": { "type": "number", "exclusiveMinimum": 0 },
         "sfx": { "type": ["string", "null"] },
-        "params": { "type": "object" }
+        "params": { "type": "object" },
+        "off": {
+          "description": "Служебное: вставку выключил Павел в редакторе (timeline.json) — в ролике её нет, номер (и ключ звука insert:<n>) остаётся. Сессия его не пишет.",
+          "const": true
+        }
       }
     }
   }

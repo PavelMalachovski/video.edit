@@ -20,6 +20,8 @@ button { font: inherit; }
 
 .mono { font-family: var(--mono); }
 .muted { color: var(--muted); }
+/* только для экранного диктора (role=status): на экране не видно */
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 .dim { color: var(--dim); }
 .small { font-size: 13px; }
 .caps { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0; }
@@ -69,6 +71,10 @@ button { font: inherit; }
 .btn:hover { background: var(--accent-hover); }
 .btn.ghost { min-height: 44px; background: var(--panel-2); color: var(--text); font-size: 14px; font-weight: 600; }
 .btn.ghost:hover { background: var(--line); }
+.small-btn { min-height: 36px; padding: 0 14px; font-size: 13px; }
+.btn.small-btn[aria-pressed=true], .btn.small-btn[aria-pressed=true]:hover { background: var(--accent); color: var(--ink); }
+/* «Мой стиль» бренда на превью: что сейчас и кнопка вернуть его */
+.my-look { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--panel-2); margin-bottom: 10px; }
 .btn.outline { min-height: 44px; background: transparent; box-shadow: inset 0 0 0 1px var(--accent); color: var(--accent); font-size: 14px; }
 .btn.outline:hover { background: var(--accent-soft); }
 a.btn { text-decoration: none; }
@@ -99,7 +105,9 @@ input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); 
 .media { background: var(--panel-2); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
 .media-row { display: flex; align-items: center; gap: 12px; }
 .media-icon { width: 40px; height: 52px; flex: none; border-radius: 8px; background: var(--line); color: var(--dim); display: flex; align-items: center; justify-content: center; }
-.media-name { display: flex; flex-direction: column; gap: 3px; }
+.media-name { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.media-name .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.media-row .icon + .icon { margin-left: -6px; } /* несколько видео: «раньше» и «убрать» — по 44 px, рядом */
 .tools { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .tool { min-height: 52px; border-radius: 12px; background: var(--panel); color: var(--text); display: flex; align-items: center; gap: 10px; padding: 0 12px; cursor: pointer;
   font-size: 14px; font-weight: 600; }
@@ -155,6 +163,8 @@ input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); 
 .phase { font-size: 20px; font-weight: 700; }
 .updated { font-family: var(--mono); font-size: 12px; color: var(--muted); }
 .action { display: flex; flex-direction: column; gap: 6px; }
+.confirm { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+.confirm .row { justify-content: flex-start; flex-wrap: wrap; }
 
 /* вопросы */
 .question.need { outline: 1px dashed var(--accent); outline-offset: -1px; }
@@ -180,6 +190,12 @@ input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); 
 .frame-pick img, .frame-blank { width: 100%; aspect-ratio: 9 / 16; object-fit: cover; display: block; background: var(--stage); }
 .frame-label { padding: 8px 6px; font-size: 14px; font-weight: 600; text-align: center; line-height: 1.25; }
 .frame-pick[aria-pressed=true] .frame-label { background: var(--accent); color: var(--ink); font-weight: 700; }
+/* «Фон» ползунком: кадр с выбранным затемнением рядом с ползунком, под тремя кадрами-вариантами */
+.dim-slider { grid-column: 1 / -1; display: flex; gap: 12px; align-items: center; }
+.dim-frame { width: 96px; aspect-ratio: 9 / 16; border-radius: 10px; flex: none; background: var(--stage); }
+.dim-range { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.dim-head { font-size: 14px; color: var(--dim); }
+.dim-range input[type=range] { width: 100%; }
 .own { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
 .own input.on { border-color: var(--accent); }
 .upload-row { display: flex; align-items: center; gap: 10px; font-size: 14px; }
@@ -228,9 +244,9 @@ input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); 
 .big-host { position: relative; }
 /* ручка текста на крупном превью: полоса на его высоте, тянется вверх-вниз (на телефоне — пальцем) */
 .sub-handle { position: absolute; left: 0; right: 0; height: 44px; transform: translateY(-50%); cursor: ns-resize; touch-action: none;
-  border: 1.5px dashed var(--accent); border-radius: 6px; display: flex; align-items: center; justify-content: flex-end; padding-right: 4px; user-select: none; }
+  border: 1.5px dashed var(--accent); border-radius: 6px; display: flex; align-items: center; justify-content: flex-end; padding-right: 4px; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 /* рамка вставки — поверх полос хука и субтитров (она меньше и точнее), уголок ⤢ — сверху справа, подальше от субтитров */
-.insert-handle { position: absolute; z-index: 2; border: 1.5px dashed var(--accent); border-radius: 6px; touch-action: none; user-select: none;
+.insert-handle { position: absolute; z-index: 2; border: 1.5px dashed var(--accent); border-radius: 6px; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
   cursor: move; display: flex; align-items: flex-start; justify-content: flex-end; }
 .size-grip { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 6px; background: var(--accent); color: var(--ink);
   cursor: ew-resize; font-size: 15px; font-weight: 700; }
@@ -299,3 +315,268 @@ ul.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:
 .scene-part { display: flex; flex-direction: column; gap: 8px; }
 .scene { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 10px; background: var(--panel-2); }
 .scene .mono { color: var(--accent); font-size: 12px; }
+
+/* Редактор (бета): светлая тема только здесь — токены на .ed, остальной сайт тёмный. Раскладка как у veed: шапка,
+   кадр 9:16 по центру и панель справа, таймлайн с дорожками внизу; на телефоне — столбиком. */
+.ed {
+  --e-bg: #F3F4F1; --e-surface: #FFFFFF; --e-sunk: #ECEDE9; --e-hover: #E5E7E2; --e-line: #DFE1DB; --e-line-strong: #C9CDC4;
+  --e-ink: #131512; --e-muted: #5C6159; --e-faint: #868B82; --e-accent: #C6F04B; --e-accent-ink: #151A06;
+  --e-select: #2E5BFF; --e-stage: #E6E7E3; --e-frame: #20242B; --e-bad: #D93F44;
+  --e-video: #D9E1F3; --e-video-edge: #8EA2D2; --e-voice: #4F82EA; --e-music: #9672E6; --e-sub: #EFC23A; --e-text: #E2629B; --e-ins: #2FAE95;
+  color-scheme: light;
+  position: fixed; inset: 0; overflow: auto; display: grid; grid-template-rows: auto minmax(280px, 1fr) auto;
+  background: var(--e-bg); color: var(--e-ink); font-size: 14px;
+}
+.ed a { color: inherit; }
+.ed .mono { font-family: var(--mono); }
+.ed-top { display: flex; align-items: center; gap: 10px; padding: 8px 16px; background: var(--e-surface); border-bottom: 1px solid var(--e-line); min-width: 0; }
+.ed-back { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; color: var(--e-ink); background: var(--e-sunk); flex: none; }
+.ed-back:hover { background: var(--e-hover); }
+.ed-title { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+.ed-title h1 { font-size: 16px; font-weight: 600; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ed-beta { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 2px 6px; border-radius: 6px; background: var(--e-accent); color: var(--e-accent-ink); flex: none; }
+.ed-seg { display: flex; gap: 2px; padding: 2px; border-radius: 9px; background: var(--e-sunk); flex: none; }
+.ed-seg > button { min-width: 40px; min-height: 36px; border: 0; border-radius: 7px; background: transparent; color: var(--e-muted); font-weight: 600; cursor: pointer; }
+.ed-seg > button[aria-pressed=true] { background: var(--e-surface); color: var(--e-ink); box-shadow: 0 1px 2px rgba(0, 0, 0, .08); }
+.ed-primary { display: inline-flex; align-items: center; min-height: 40px; padding: 0 14px; border-radius: 10px; background: var(--e-accent); color: var(--e-accent-ink) !important;
+  font-weight: 600; text-decoration: none; white-space: nowrap; flex: none; }
+.ed-primary:hover { filter: brightness(.96); }
+.ed-main { display: grid; grid-template-columns: minmax(0, 1fr) 280px; min-height: 0; }
+.ed-stage { display: grid; place-items: center; padding: 16px; background: var(--e-stage); min-height: 0; overflow: hidden; }
+.ed-frame { position: relative; background: var(--e-frame); border-radius: 6px; overflow: hidden; box-shadow: 0 2px 12px rgba(0, 0, 0, .12); }
+.ed-frame video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.ed-layer { position: absolute; inset: 0; pointer-events: none; }
+.ed-layer .preview { background: transparent; border-radius: 0; }
+/* ручка выбранной вставки или акцента поверх кадра: слой текста пропускает щелчки к видео, а ручка — ловит */
+.ed-layer .insert-handle { pointer-events: auto; border-color: var(--e-select); box-shadow: 0 0 0 1px rgba(0, 0, 0, .35); }
+.ed-layer .insert-handle:focus-visible { outline: 2px solid var(--e-select); outline-offset: 2px; }
+/* уголок ⤢ — меньше, чем на «Превью»: кадр редактора маленький, и уголок не закрывает маленькую вставку */
+.ed-layer .size-grip { width: 18px; height: 18px; border-radius: 4px; font-size: 11px; background: var(--e-select); color: #fff; }
+.ed-place { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--e-line); padding-top: 10px; }
+.ed-place-name { font-size: 12px; color: var(--e-muted); }
+.ed-arrow { min-width: 40px; font-size: 16px; }
+.ed-notice { position: absolute; inset: 0; display: grid; place-items: center; padding: 16px; text-align: center; color: #fff; font-size: 13px; line-height: 1.45; background: rgba(32, 36, 43, .85); }
+.ed-side { background: var(--e-surface); border-left: 1px solid var(--e-line); padding: 16px; overflow: auto; display: flex; flex-direction: column; gap: 12px; }
+.ed-side h2 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--e-muted); margin: 0; }
+.ed-note { margin: 0; font-size: 13px; line-height: 1.45; color: var(--e-ink); }
+.ed-note.faint { color: var(--e-faint); }
+.ed-facts { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; margin: 0; font-size: 13px; }
+.ed-facts dt { color: var(--e-muted); }
+.ed-facts dd { margin: 0; text-align: right; }
+.ed-tl { background: var(--e-surface); border-top: 1px solid var(--e-line); min-width: 0; }
+.ed-bar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--e-line); }
+.ed-play { width: 40px; height: 40px; border-radius: 50%; border: 0; display: grid; place-items: center; background: var(--e-ink); color: #fff; cursor: pointer; }
+.ed-play:disabled { opacity: .35; cursor: default; }
+.ed-clock { font-size: 13px; color: var(--e-muted); white-space: nowrap; }
+.ed-grow { flex: 1; }
+.ed-icon { width: 36px; height: 36px; border-radius: 8px; border: 1px solid var(--e-line); background: var(--e-surface); color: var(--e-ink); font-size: 18px; cursor: pointer; }
+.ed-icon:disabled { opacity: .35; cursor: default; }
+.ed-scroll { overflow-x: auto; overflow-y: hidden; padding-bottom: 8px; }
+.ed-inner { position: relative; }
+.ed-ruler { position: relative; height: 22px; cursor: pointer; border-bottom: 1px solid var(--e-line); }
+.ed-ruler > span { position: absolute; top: 4px; transform: translateX(-50%); font-family: var(--mono); font-size: 10px; color: var(--e-faint); white-space: nowrap; }
+.ed-ruler > span:first-child { transform: none; }
+.ed-row { display: flex; border-bottom: 1px solid var(--e-line); }
+.ed-head { position: sticky; left: 0; z-index: 6; width: 112px; flex: none; padding: 0 10px; display: flex; align-items: center; font-size: 12px; font-weight: 600; color: var(--e-muted);
+  background: var(--e-surface); border-right: 1px solid var(--e-line); }
+.ed-lane { position: relative; height: 30px; cursor: pointer; flex: none; }
+.ed-row.video .ed-lane { height: 60px; }
+.ed-row.voice .ed-lane { height: 44px; }
+.ed-clip { position: absolute; top: 3px; bottom: 3px; border-radius: 6px; overflow: hidden; display: flex; align-items: center; padding: 0 6px; font-size: 11px; white-space: nowrap; }
+.ed-clip > span { overflow: hidden; text-overflow: ellipsis; }
+.ed-piece { padding: 0; background: var(--e-video); border: 1px solid var(--e-video-edge); }
+.ed-piece.teaser { border-color: var(--e-select); }
+.ed-thumbs { display: flex; height: 100%; overflow: hidden; }
+.ed-thumb { flex: none; height: 56px; background-repeat: no-repeat; opacity: .92; }
+.ed-tag { position: absolute; left: 4px; top: 4px; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 4px; background: var(--e-select); color: #fff; }
+.ed-look { position: absolute; top: 3px; bottom: 3px; border-radius: 6px; pointer-events: none;
+  background: repeating-linear-gradient(135deg, rgba(19, 21, 18, .28) 0 6px, transparent 6px 12px); }
+.ed-cut { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px dashed var(--e-bad); }
+.ed-cut::before { content: ''; position: absolute; top: -1px; left: -6px; border: 5px solid transparent; border-top-color: var(--e-bad); }
+.ed-wave { display: block; color: var(--e-voice); margin-top: 2px; }
+.ed-clip.music { background: color-mix(in srgb, var(--e-music) 22%, white); border: 1px solid var(--e-music); }
+.ed-clip.sub { background: color-mix(in srgb, var(--e-sub) 30%, white); border: 1px solid var(--e-sub); }
+.ed-clip.text { background: color-mix(in srgb, var(--e-text) 20%, white); border: 1px solid var(--e-text); }
+.ed-clip.ins { background: color-mix(in srgb, var(--e-ins) 20%, white); border: 1px solid var(--e-ins); }
+/* дорожка «Картинка»: линия крупности (зум и толчки), ч/б-куски и переходы — их нажимают */
+.ed-zoomline { position: absolute; inset: 0; color: color-mix(in srgb, var(--e-select) 45%, transparent); pointer-events: none; }
+.ed-clip.bw { cursor: pointer; color: #fff; background: #4B4F48; border: 1px solid #2B2E29; }
+.ed-clip.bw.ghost { color: var(--e-ink); }
+.ed-clip.tr { cursor: pointer; justify-content: center; padding: 0 2px; font-weight: 700; z-index: 3; border: 1px solid var(--e-ink); } /* поверх ч/б-куска, и выбранного */
+.ed-clip.tr.sel { z-index: 4; }
+.ed-clip.tr.ghost { text-decoration: none; } /* зачёркнутая «С» похожа на «€» — убранный переход и так пунктиром */
+.ed-clip.tr.flash { background: #FFF6C9; }
+.ed-clip.tr.zoom { background: color-mix(in srgb, var(--e-select) 22%, white); }
+.ed-clip.tr.blur { background: color-mix(in srgb, var(--e-music) 22%, white); }
+.ed-empty { font-size: 12px; color: var(--e-faint); padding: 0 8px; line-height: 30px; white-space: nowrap; }
+.ed-empty.pad { padding: 24px 16px; line-height: 1.45; white-space: normal; }
+.ed-playhead { position: absolute; top: 0; bottom: 0; left: 0; width: 2px; margin-left: -1px; background: var(--e-select); pointer-events: none; z-index: 3; }
+.ed-playhead::before { content: ''; position: absolute; top: 0; left: -5px; border: 6px solid transparent; border-top-color: var(--e-select); }
+/* стиль ролика в редакторе — как на «Превью», в светлой теме */
+.ed-style { display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--e-line); }
+.ed-style h3 { margin: 6px 0 0; font-size: 12px; font-weight: 600; color: var(--e-muted); }
+.ed-variants { display: flex; flex-direction: column; gap: 4px; }
+.ed-variants > button { min-height: 40px; padding: 6px 10px; border-radius: 9px; border: 1px solid var(--e-line); background: var(--e-surface); color: var(--e-ink);
+  text-align: left; font-size: 13px; cursor: pointer; }
+.ed-variants > button[aria-pressed=true] { border-color: var(--e-ink); box-shadow: inset 0 0 0 1px var(--e-ink); }
+.ed-variants > button:disabled, .ed-font:disabled, .ed-swatch:disabled { cursor: default; opacity: .55; }
+.ed-variants > button[aria-pressed=true]:disabled, .ed-font[aria-pressed=true]:disabled, .ed-swatch[aria-pressed=true]:disabled { opacity: 1; }
+.ed-fonts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+.ed-font { min-height: 40px; padding: 0 6px; border-radius: 9px; border: 1px solid var(--e-line); background: var(--e-surface); color: var(--e-ink); font-size: 15px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.ed-font.hand { font-size: 19px; }
+.ed-font[aria-pressed=true] { background: var(--e-ink); color: #fff; border-color: var(--e-ink); }
+.ed-colors { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.ed-colors-name { width: 100%; font-size: 12px; color: var(--e-muted); }
+.ed-swatch { width: 36px; height: 36px; padding: 3px; border-radius: 50%; border: 2px solid transparent; background: transparent; cursor: pointer; }
+.ed-swatch[aria-pressed=true] { border-color: var(--e-ink); }
+.ed-swatch > span { display: block; width: 100%; height: 100%; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .12); }
+.ed-own input { width: 36px; height: 36px; border: 0; padding: 0; background: transparent; cursor: pointer; }
+.ed-shade { display: flex; align-items: center; gap: 10px; min-height: 40px; }
+.ed-shade input { flex: 1; min-width: 0; accent-color: var(--e-ink); }
+.ed-shade .mono { width: 48px; text-align: right; font-size: 13px; }
+.ed-range-name { width: 86px; flex: none; font-size: 12px; color: var(--e-muted); }
+.ed-modes { display: flex; flex-wrap: wrap; gap: 4px; }
+.ed-modes > button { min-height: 36px; padding: 0 10px; border-radius: 9px; border: 1px solid var(--e-line); background: var(--e-surface); color: var(--e-ink);
+  font: inherit; font-size: 13px; cursor: pointer; }
+.ed-modes > button[aria-pressed=true] { background: var(--e-ink); color: #fff; border-color: var(--e-ink); }
+.ed-modes > button:disabled { cursor: default; opacity: .55; }
+.ed-modes > button[aria-pressed=true]:disabled { opacity: 1; }
+.ed-caption { position: absolute; left: 8px; right: 8px; bottom: 8px; padding: 6px 8px; border-radius: 6px; background: rgba(32, 36, 43, .78); color: #fff;
+  font-size: 12px; text-align: center; }
+/* правки руками (фаза 3): тулбар, выбранное, ручки краёв, «＋» на стыке, «без звука», панель выбранного */
+.ed-sep { width: 1px; align-self: stretch; margin: 4px 2px; background: var(--e-line); }
+.ed-icon { display: inline-grid; place-items: center; }
+.ed-tool { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--e-line);
+  background: var(--e-surface); color: var(--e-ink); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.ed-tool:disabled { opacity: .35; cursor: default; }
+.ed-save { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--e-faint); white-space: nowrap; }
+.ed-save[data-state=error], .ed-save[data-state=conflict] { color: var(--e-bad); }
+.ed-save > button { min-height: 30px; padding: 0 8px; border-radius: 7px; border: 1px solid currentColor; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.ed-head { justify-content: space-between; gap: 4px; }
+.ed-head > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-mute { width: 30px; height: 30px; flex: none; display: grid; place-items: center; border-radius: 7px; border: 0; background: transparent; color: var(--e-muted); cursor: pointer; }
+.ed-mute:hover { background: var(--e-hover); }
+.ed-mute[aria-pressed=true] { color: var(--e-bad); }
+.ed-mute:disabled { cursor: default; opacity: .5; }
+.ed-row.muted .ed-lane { opacity: .45; }
+.ed-row.voice.sel .ed-lane { box-shadow: inset 0 0 0 2px var(--e-select); border-radius: 6px; }
+.ed-clip.sel { box-shadow: 0 0 0 2px var(--e-select); z-index: 2; }
+.ed-piece { cursor: pointer; }
+.ed-handle { position: absolute; top: 0; bottom: 0; width: 12px; z-index: 3; cursor: ew-resize; touch-action: none; }
+.ed-handle::after { content: ''; position: absolute; top: 25%; bottom: 25%; left: 4px; width: 4px; border-radius: 2px; background: var(--e-select); opacity: 0; }
+.ed-handle.start { left: 0; }
+.ed-handle.end { right: 0; }
+.ed-clip:hover .ed-handle::after, .ed-clip.sel .ed-handle::after { opacity: .9; }
+.ed-tail { position: absolute; top: 3px; bottom: 3px; border-radius: 6px; display: flex; align-items: center; padding: 0 6px; font-size: 11px;
+  color: var(--e-muted); overflow: hidden; white-space: nowrap; pointer-events: none;
+  background: repeating-linear-gradient(135deg, var(--e-sunk) 0 6px, var(--e-hover) 6px 12px); border: 1px dashed var(--e-line-strong); }
+.ed-tail > span { overflow: hidden; text-overflow: ellipsis; }
+.ed-tail.card { cursor: pointer; pointer-events: auto; } /* у карточки — её панель по щелчку */
+.ed-tail.card:hover { border-color: var(--e-select); }
+.ed-tail.sel { box-shadow: 0 0 0 2px var(--e-select); z-index: 2; }
+.ed-tail.ghost { background: transparent; border-style: dashed; opacity: .65; text-decoration: line-through; }
+.ed-add { margin: 3px 8px; height: 24px; padding: 0 10px; border-radius: 6px; border: 1px dashed var(--e-music); background: transparent;
+  color: var(--e-ink); font-size: 12px; cursor: pointer; }
+.ed-ghost { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px solid var(--e-select); z-index: 4; pointer-events: none; }
+.ed-cut { z-index: 4; } /* «＋» на стыке — поверх кусков; ручки краёв — выше него (у кусков — в верхней части) */
+.ed-piece .ed-handle { bottom: 24px; }
+.ed-restore { position: absolute; bottom: 2px; left: -11px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; padding: 0;
+  border: 1px solid var(--e-bad); background: var(--e-surface); color: var(--e-bad); cursor: pointer; }
+.ed-restore:hover { background: var(--e-bad); color: #fff; }
+.ed-cut.end .ed-restore { left: -25px; }
+.ed-cut.start .ed-restore { left: 3px; }
+.ed-clip.music { cursor: grab; touch-action: none; }
+/* перестановка кусков (фаза 4а): мышью — сразу, пальцем — выбранный кусок; линия — куда он встанет */
+.ed-piece.movable { cursor: grab; }
+.ed-piece.movable.sel { touch-action: none; }
+.ed-piece.dragging { cursor: grabbing; opacity: .8; z-index: 5; box-shadow: 0 6px 16px rgba(19, 21, 18, .28); }
+/* несколько видео задачи (фаза 4б): номер видео на куске и список видео справа */
+.ed-vno { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; font-size: 11px; font-weight: 700;
+  background: var(--e-ink); color: #fff; flex: none; }
+.ed-vno.on-piece { position: absolute; left: 14px; top: 4px; opacity: .85; pointer-events: none; }
+.ed-videos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.ed-videos li { display: flex; gap: 6px; align-items: center; }
+.ed-videos li > .ed-btn { flex: none; }
+.ed-videos li > button:first-child { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 10px; border-radius: 9px;
+  border: 1px solid var(--e-line); background: var(--e-surface); color: var(--e-ink); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.ed-videos li > button:first-child:disabled { cursor: default; opacity: .55; }
+.ed-videos .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-drop { position: absolute; top: 0; bottom: 0; width: 0; margin-left: -2px; border-left: 4px solid var(--e-select); border-radius: 2px; z-index: 5; pointer-events: none; }
+.ed-clip.music.dragging { cursor: grabbing; opacity: .85; }
+.ed-clip.music .ed-handle.start::after { background: var(--e-music); }
+.ed-clip.snd { justify-content: center; padding: 0 4px; font-size: 10px; cursor: pointer; background: color-mix(in srgb, var(--e-music) 14%, white); border: 1px solid var(--e-music); }
+.ed-clip.snd.muted { opacity: .4; text-decoration: line-through; }
+.ed-insp, .ed-media { display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--e-line); }
+.ed-insp input[type=range] { width: 100%; accent-color: var(--e-ink); }
+.ed-row2 { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--e-muted); }
+.ed-toggle, .ed-btn { align-self: flex-start; min-height: 36px; padding: 0 12px; border-radius: 9px; border: 1px solid var(--e-line); background: var(--e-surface);
+  color: var(--e-ink); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.ed-toggle[aria-pressed=true] { background: var(--e-ink); border-color: var(--e-ink); color: #fff; }
+.ed-btn.bad { color: var(--e-bad); border-color: color-mix(in srgb, var(--e-bad) 40%, white); }
+.ed-toggle:disabled, .ed-btn:disabled { opacity: .45; cursor: default; }
+.ed-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.ed-field { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--e-muted); }
+.ed-field input { width: 88px; min-height: 34px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--e-line); background: var(--e-surface); color: var(--e-ink);
+  font-family: var(--mono); font-size: 13px; }
+.ed-fade { display: flex; flex-direction: column; gap: 4px; }
+.ed-flag { padding: 8px 10px; border-radius: 9px; background: color-mix(in srgb, var(--e-select) 10%, white); }
+.ed-flag.bad { background: color-mix(in srgb, var(--e-bad) 10%, white); color: var(--e-bad); }
+.ed-primary:disabled { opacity: .5; cursor: default; filter: none; }
+button.ed-primary { border: 0; font: inherit; font-weight: 700; cursor: pointer; }
+/* фаза 5: кадр как в ролике — картинка с зумом, ч/б, смазом и перебивкой, вспышка, слой, шкала */
+.ed-pic { position: absolute; inset: 0; overflow: hidden; }
+.ed-pic video { will-change: transform; }
+.ed-cover { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.ed-cover[hidden] { display: none; }
+.ed-cover-note { display: grid; place-items: center; padding: 16px; text-align: center; color: #fff; font-size: 13px; line-height: 1.45;
+  background: repeating-linear-gradient(135deg, #2A2F38 0 10px, #232830 10px 20px); }
+.ed-flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+.ed-pbar { position: absolute; left: 0; width: 0; pointer-events: none; }
+/* блоки субтитров, текста и вставок: выбрать, тянуть, растянуть; убранные — тенью */
+.ed-clip.sub, .ed-clip.text, .ed-clip.ins { cursor: pointer; }
+.ed-clip.text.movable, .ed-clip.ins.movable { cursor: grab; }
+.ed-clip.text.movable.sel, .ed-clip.ins.movable.sel { touch-action: none; }
+.ed-clip.text.dragging, .ed-clip.ins.dragging { cursor: grabbing; opacity: .85; z-index: 5; box-shadow: 0 6px 16px rgba(19, 21, 18, .25); }
+.ed-clip.ghost { background: transparent; border-style: dashed; opacity: .6; text-decoration: line-through; }
+/* хвост блока: на кадре он ещё виден (акцент — после своих слов, вставка — до 1,5 с), а его место в речи кончилось */
+.ed-hold { position: absolute; top: 0; bottom: 0; pointer-events: none; border-left: 1px dashed currentColor; opacity: .5;
+  background: repeating-linear-gradient(135deg, rgba(255, 255, 255, .7) 0 4px, transparent 4px 8px); }
+.ed-clip.faint { opacity: .6; }
+.ed-clip.text .ed-handle::after { background: var(--e-text); }
+.ed-clip.ins .ed-handle::after { background: var(--e-ins); }
+.ed-clip.text.sel .ed-handle::after, .ed-clip.ins.sel .ed-handle::after { background: var(--e-select); }
+.ed-text { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--e-muted); }
+.ed-text input { min-height: 36px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--e-line); background: var(--e-surface); color: var(--e-ink);
+  font: inherit; font-size: 14px; }
+.ed-text input:focus { outline: 2px solid var(--e-select); outline-offset: -1px; }
+.ed-text input[aria-invalid=true] { border-color: var(--e-bad); }
+.ed-text.struck input { text-decoration: line-through; color: var(--e-faint); }
+.ed-err { color: var(--e-bad); font-size: 12px; }
+.ed-words { display: flex; flex-direction: column; gap: 6px; }
+.ed-word { display: flex; align-items: flex-end; gap: 6px; }
+.ed-word > .ed-text { flex: 1; min-width: 0; }
+.ed-word > .ed-btn { flex: none; }
+@media (max-width: 860px) {
+  /* на телефоне — как в мобильных редакторах: кадр, сразу под ним дорожки (видно без прокрутки), панели — ниже (панель
+     выбранного блока — первой) */
+  .ed { grid-template-rows: none; position: static; min-height: 100vh; }
+  .ed-bar { flex-wrap: wrap; }
+  .ed-tool { padding: 0 9px; }
+  .ed-tool > span { display: none; } /* на телефоне — только значки (подписи — в aria-label и title) */
+  .ed-main { display: contents; }
+  .ed-top { order: 0; }
+  .ed-stage { order: 1; height: 50vh; }
+  .ed-tl { order: 2; }
+  .ed-side { order: 3; border-left: 0; border-top: 1px solid var(--e-line); }
+  .ed-primary { padding: 0 10px; font-size: 13px; }
+  .ed-top { flex-wrap: wrap; }
+  .ed-title { flex: 1 1 calc(100% - 50px); }
+  .ed-seg { margin-right: auto; }
+}
+
+/* вход в редактор (бета) со старого потока */
+.beta-link { align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--text); font-size: 14px; font-weight: 600; text-decoration: none; }
+.beta-link:hover { background: var(--panel-2); color: var(--text); }
+.beta-link > span { font-size: 11px; font-weight: 700; text-transform: uppercase; padding: 2px 6px; border-radius: 6px; background: var(--accent); color: var(--ink); }

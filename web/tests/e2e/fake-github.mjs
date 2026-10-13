@@ -11,6 +11,7 @@
 // Первый PUT куска source.part-00003 отвечает 502 (проверка повтора в загрузчике). Служебные адреса для e2e:
 // POST /__commit {branch, files: {путь: текст | {base64} | null}}, GET /__file?ref=&path=, GET /__fires, POST /__fail-fire {status},
 // POST /__asset {tag, name, base64}, GET /__state, а также /__dump и /__joined (проверка загрузки).
+import fs from 'node:fs';
 import crypto from 'node:crypto';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
@@ -89,7 +90,10 @@ export async function startFake({ port = 0 } = {}) {
     return false;
   };
 
-  refs.set('master', makeCommit(makeTree(null, [['README.md', '# video.edit\n'], ['assets/logos/logo.png', LOGO]]), [], 'init').sha);
+  // в master — и схема timeline.json движка: ветки задач из него знают правки руками (как после слияния редактора)
+  const schema = fs.readFileSync(new URL('../../../engine/vm/schemas/timeline.json', import.meta.url));
+  refs.set('master', makeCommit(makeTree(null, [['README.md', '# video.edit\n'], ['assets/logos/logo.png', LOGO],
+    ['engine/vm/schemas/timeline.json', schema]]), [], 'init').sha);
 
   /** @type {Fake} */
   const fake = {
@@ -206,6 +210,10 @@ export async function startFake({ port = 0 } = {}) {
       const entries = b.tree ?? [];
       const unknown = entries.find((e) => typeof e.sha === 'string' && !gitBlobs.has(e.sha));
       if (unknown) return send(res, 422, { message: `fake: no blob ${unknown.sha}` });
+      // как настоящий GitHub: удалить файл, которого в base_tree нет, — 422 (GitRPC::BadObjectState)
+      const base = b.base_tree ? trees.get(b.base_tree) : new Map();
+      const absent = entries.find((e) => e.sha === null && !base.has(e.path));
+      if (absent) return send(res, 422, { message: `GitRPC::BadObjectState (${absent.path})` });
       const sha = makeTree(b.base_tree, entries.map((e) => [e.path, e.sha === null ? null : typeof e.sha === 'string' ? gitBlobs.get(e.sha) : String(e.content ?? '')]));
       return send(res, 201, { sha });
     }
@@ -300,7 +308,20 @@ export async function startFake({ port = 0 } = {}) {
     if (req.method === 'GET' && (m = p.match(/^\/__blob\/(\d+)$/))) {
       const b = blobs.get(Number(m[1]));
       if (!b) return notFound(res);
-      res.writeHead(200, { 'content-type': 'application/octet-stream' });
+      // как подписанные ссылки GitHub: куски по Range — плеер перематывает видео
+      const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
+      if (range && (range[1] || range[2])) {
+        const start = range[1] ? Number(range[1]) : Math.max(0, b.length - Number(range[2]));
+        const end = range[1] && range[2] ? Math.min(Number(range[2]), b.length - 1) : b.length - 1;
+        if (start >= b.length || start > end) {
+          res.writeHead(416, { 'content-range': `bytes */${b.length}` });
+          return res.end();
+        }
+        res.writeHead(206, { 'content-type': 'application/octet-stream', 'accept-ranges': 'bytes', 'content-range': `bytes ${start}-${end}/${b.length}`,
+          'content-length': String(end - start + 1) });
+        return res.end(b.subarray(start, end + 1));
+      }
+      res.writeHead(200, { 'content-type': 'application/octet-stream', 'accept-ranges': 'bytes', 'content-length': String(b.length) });
       return res.end(b);
     }
     if (req.method === 'POST' && (m = p.match(/^\/up\/repos\/o\/r\/releases\/(\d+)\/assets$/))) {
@@ -350,9 +371,10 @@ export async function startFake({ port = 0 } = {}) {
           joined: Buffer.concat(parts.map((k) => data[k])).toString('base64').length };
       }));
     }
-    if (req.method === 'GET' && p === '/__joined') {
+    if (req.method === 'GET' && p === '/__joined') { // ?file=source-2 — другое видео задачи
       const r = releases[releases.length - 1];
-      const parts = r.assets.filter((a) => a.name.startsWith('source.part-')).sort((a, b) => a.name.localeCompare(b.name));
+      const file = u.searchParams.get('file') ?? 'source';
+      const parts = r.assets.filter((a) => a.name.startsWith(`${file}.part-`)).sort((a, b) => a.name.localeCompare(b.name));
       res.writeHead(200);
       return res.end(Buffer.concat(parts.map((a) => blobs.get(a.id))));
     }

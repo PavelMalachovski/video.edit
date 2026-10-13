@@ -130,8 +130,9 @@ def _subtitles(edit: dict, tl: Timeline) -> list[_Piece]:
     pieces = []
     for e in build_sub_events(spoken, tl, style["mode"], style["words"], hidden=hidden):
         sub = {"words": list(e["words"]), "active": e["active"], "visible": e["visible"]}
-        if soft:
+        if soft:  # opens — блок начинает предложение: иначе шаблон сделал бы строчным и имя посреди фразы
             sub["lines"] = list(e["lines"])
+            sub["opens"] = e["opens"]
         pieces.append(_Piece(_frame(e["t0"]), _frame(e["t1"]), "sub", sub, appear=SUB_APPEAR if soft else 0))
     return pieces
 
@@ -167,14 +168,16 @@ def _appear_frames(line: dict, anim: str) -> int:
 def _accents(edit: dict, tl: Timeline, sub_starts: list[int]) -> list[_Piece]:
     """Акцентные фразы: показ — с начала фразы до начала следующих субтитров (не дольше 0,3 с после её конца и не
     дальше следующего акцента); строки — со своими словами; последние кадры — уход."""
-    accents = sorted(edit.get("accents") or [], key=lambda a: float(a["t0"]))
+    # по месту в ролике (куски могут стоять не по порядку исходника); фраза — с начала и до конца своей серии (Timeline.span)
+    accents = sorted(edit.get("accents") or [], key=lambda a: (tl.to_final_snap(float(a["t0"])), float(a["t0"])))
     words = edit.get("words") or []
     pieces = []
-    starts = [_frame(tl.to_final_snap(float(a["t0"]))) for a in accents]
+    spans = [tl.span(float(a["t0"]), float(a["t1"])) for a in accents]
+    starts = [_frame(a) for a, _ in spans]
     for k, accent in enumerate(accents):
         start = starts[k]
-        said = _frame(tl.to_final_snap(float(accent["t1"])))
-        stop = _frame(tl.to_final_snap(float(accent["t1"])) + ACCENT_LINGER)
+        said = _frame(spans[k][1])
+        stop = _frame(spans[k][1] + ACCENT_LINGER)
         stop = min([stop, *(s for s in sub_starts if s >= said), *(s for s in starts[k + 1 :] if s > start)])
         lines = [dict(line) for line in accent["lines"]]
         frames = [min(max(_frame(tl.to_final_snap(t)), start), max(start, stop - 1)) for t in _line_times(accent, words)]
@@ -215,28 +218,33 @@ def _titles(edit: dict, tl: Timeline) -> list[_Piece]:
         pieces.append(_Piece(0, _hook_end(edit, tl), "hook", {"text": hook["text"]}, appear=moving))
     cta = edit.get("cta")
     if cta:
-        span = (_frame(tl.to_final_snap(cta["t0"])), _frame(tl.to_final_snap(cta["t1"])))
-        pieces.append(_Piece(*span, "cta", {"lines": list(cta["lines"]), "word": cta["word"]}))
+        a, b = tl.span(float(cta["t0"]), float(cta["t1"]))
+        pieces.append(_Piece(_frame(a), _frame(b), "cta", {"lines": list(cta["lines"]), "word": cta["word"]}))
     return pieces
 
 
 def _hook_end(edit: dict, tl: Timeline) -> int:
-    """Кадр, на котором хук уходит: `hook.until` на его месте в ролике; есть тизер — хук стоит на нём целиком."""
+    """Кадр, на котором хук уходит: `hook.until` на его месте в ролике — по порядку исходника: кусок, переставленный
+    руками в начало, хук не удлиняет (тот держится, сколько планировал монтаж); есть тизер — хук стоит на нём целиком."""
     hook = edit.get("hook")
     if not hook:
         return 0
-    return _frame(tl.teaser_duration) if tl.teaser else _frame(tl.to_final_snap(hook["until"]))
+    return _frame(tl.teaser_duration) if tl.teaser else _frame(tl.in_source_order().to_final_snap(hook["until"]))
 
 
 def insert_spans(edit: dict, tl: Timeline) -> list[tuple[int, int, int]]:
     """Кадры показа вставок `(номер в edit.inserts, первый кадр, кадр после последнего)` по правилам: не раньше
-    конца хука, не короче 1,5 с. Все виды, в том числе fullscreen (её монтирует ffmpeg, а звук — в нужный кадр)."""
+    конца хука, не короче 1,5 с. Все виды, в том числе fullscreen (её монтирует ffmpeg, а звук — в нужный кадр);
+    выключенных Павлом (`off`) — нет."""
     after_hook = _hook_end(edit, tl)
     min_show = math.ceil(MIN_SHOW * FPS - 1e-9)
     spans = []
     for i, ins in enumerate(edit.get("inserts") or []):
-        start = max(_frame(tl.to_final_snap(ins["t0"])), after_hook)
-        stop = max(_frame(tl.to_final_snap(ins["t1"])), start + min_show)
+        if ins.get("off"):  # выключил Павел в редакторе: в ролике её нет, номер остаётся
+            continue
+        a, b = tl.span(float(ins["t0"]), float(ins["t1"]))  # не дальше своей серии: переставленный кусок не тянет за собой
+        start = max(_frame(a), after_hook)
+        stop = max(_frame(b), start + min_show)
         spans.append((i, start, stop))
     return spans
 

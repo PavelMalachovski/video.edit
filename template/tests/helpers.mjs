@@ -40,8 +40,28 @@ export function drawnBox(page, scratch, alpha = 4) {
   );
 }
 
-export function contains(outer, inner) {
-  return inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.w <= outer.x + outer.w && inner.y + inner.h <= outer.y + outer.h;
+/** Номера пикселей кадра с чисто белыми непрозрачными буквами. */
+export function whitePixels(page, scratch) {
+  return shot(
+    page,
+    scratch,
+    undefined,
+    `const o = [];
+     for (let k = 0, i = 0; k < d.length; k += 4, i++) if (d[k + 3] === 255 && d[k] >= 250 && d[k + 1] >= 250 && d[k + 2] >= 250) o.push(i);
+     return o;`,
+  );
+}
+
+/** Сколько из пикселей `keys` (номера, как у whitePixels) теперь заметно темнее белого (зелёный < 200). */
+export function darkenedAmong(page, scratch, keys) {
+  return shot(page, scratch, undefined, `let n = 0; for (const i of ${JSON.stringify(keys)}) if (d[4 * i + 1] < 200) n++; return n;`);
+}
+
+/** `inner` внутри `outer`; `slack` px — на сглаживание краёв: на другой машине (процессор, библиотеки шрифтов) Chromium
+той же версии сглаживает край буквы на пиксель шире. */
+export function contains(outer, inner, slack = 1) {
+  return inner.x >= outer.x - slack && inner.y >= outer.y - slack && inner.x + inner.w <= outer.x + outer.w + slack
+    && inner.y + inner.h <= outer.y + outer.h + slack;
 }
 
 /** Кодовые точки, которые есть в cmap шрифта TrueType/OpenType (форматы 4 и 12). */

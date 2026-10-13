@@ -21,19 +21,20 @@ import re
 from collections.abc import Callable
 from pathlib import Path
 
-from . import asr, lang
+from . import asr, editor, lang
 from .cuts import SOFT, plan_keep
 from .job import Job, _atomic_write
 from .media import (
     contact_sheet,
     extract_wav,
-    normalize,
     probe,
     scene_cuts,
+    source_parts,
     voice_seconds,
 )
+from .source import make as make_source
+from .source import voice as _voice
 
-VIDEO = {".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi", ".3gp", ".hevc"}
 SHEET_THUMBS = 60  # кадров на контактном листе — не больше, иначе лист выходит в десятки тысяч пикселей
 PHRASE_GAP = 0.6  # с — пауза, после которой сводка начинает новую строку текста
 LINE_MAX = 10.0  # с — строка сводки не длиннее: по её времени Claude выбирает кадры
@@ -65,20 +66,6 @@ def _engine(code: str, have: dict[str, bool], hint: str = "") -> str:
 def _brief(job: Job) -> str:
     path = job.path("job.json")
     return str(json.loads(path.read_text(encoding="utf-8")).get("brief") or "") if path.is_file() else ""
-
-
-def _voice(job: Job) -> tuple[Path, str] | None:
-    """Озвучка Павла — upload `kind: "audio"` в job.json: (файл, как он назывался у Павла); нет — None. В job.json есть,
-    а файла нет — ValueError: без неё ролик собрался бы со звуком видео."""
-    path = job.path("job.json")
-    uploads = json.loads(path.read_text(encoding="utf-8")).get("uploads") or [] if path.is_file() else []
-    up = next((u for u in uploads if isinstance(u, dict) and u.get("kind") == "audio"), None)
-    if up is None:
-        return None
-    file = job.path(str(up.get("file") or ""))
-    if not (file.is_file() and file.is_relative_to(job.path("in"))):
-        raise ValueError(f"озвучки {up.get('name')} нет ({up.get('file')}) — сначала vm fetch {job.root}")
-    return file, str(up.get("name") or file.name)
 
 
 def _voice_line(name: str, voice: float, video: float) -> str:
@@ -156,18 +143,26 @@ def _uncovered(words: list[asr.Word], spans: list[tuple[float, float]]) -> list[
     return out
 
 
-def _videos(folder: Path) -> list[Path]:
-    """Видео исходника: `in/source.*` (так его кладёт fetch), а если такого нет — все видео в `in/` по имени."""
-    videos = sorted(p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in VIDEO) if folder.is_dir() else []
-    return [p for p in videos if p.stem == "source"] or videos
-
-
 def _write_cuts(path: Path, cuts: dict) -> None:
     """cuts.json — по отрезку в строке (json с отступами ставит каждое число на свою строку)."""
     rows = ",\n".join(f"  {json.dumps(list(k))}" for k in cuts["keep"])
     keep = f"[\n{rows}\n]" if rows else "[]"
     head = f'"duration": {cuts["duration"]}, "cut_seconds": {cuts["cut_seconds"]}, "joins": {json.dumps(cuts["joins"])}'
     _atomic_write(path, f'{{{head}, "keep": {keep}}}\n')
+
+
+def _editor_files(job: Job) -> str:
+    """Файлы редактора (бета) → строка сводки. Сбой не останавливает шаг: недоделанное убирается, монтаж идёт как раньше."""
+    try:
+        made = editor.make(job)
+    except Exception as e:  # noqa: BLE001 — любой сбой беты (ffmpeg, память, схема) не должен ронять анализ
+        for name in ("out/proxy.mp4", "film.jpg", "editor.json"):
+            job.path(name).unlink(missing_ok=True)
+        return f"Редактор (бета): не вышло — {e}; монтаж это не задевает"
+    if made["proxy"] is None:
+        return f"Редактор (бета): без видео — исходник длинный; film.jpg ({made['film']['n']} кадров), editor.json"
+    size = job.path("out/proxy.mp4").stat().st_size / editor.MB
+    return f"Редактор (бета): out/proxy.mp4 ({size:.1f} МБ), film.jpg ({made['film']['n']} кадров), editor.json — уйдут с vm push"
 
 
 def prepare(
@@ -198,17 +193,16 @@ def prepare(
             _engine(told, have)
     notes = []
 
-    if redo or not source.is_file():
-        parts = _videos(job.path("in"))
-        if not parts:
-            raise ValueError(f"{job.path('in')}: нет видео — сначала python -m vm fetch {job.root}")
-        if len(parts) > 1:
-            notes.append(f"Части по порядку: {', '.join(p.name for p in parts)}")
-        voice = _voice(job)
+    if redo or not source.is_file():  # готовый исходник из черновика (vm fetch, Action job-source) — не нормализуем
+        parts = source_parts(job.path("in"))
+        voice = _voice(job) if parts else None
         step("Готовлю видео", "Привожу к 1080×1920, 30 к/с, SDR" + (" и ставлю озвучку" if voice else ""))
         if voice:
             notes.append(_voice_line(voice[1], voice_seconds(voice[0]), sum(probe(p).duration for p in parts)))
-        info = normalize(parts, source, voice=voice[0] if voice else None)
+        info = make_source(job)
+        if len(parts) > 1:
+            marks = editor.video_marks(job, parts, info.duration)
+            notes.append("Видео по порядку: " + ", ".join(f"{v['name']} {_clock(v['t0'])}–{_clock(v['t1'])}" for v in marks))
     else:
         info = probe(source)
     if not (math.isfinite(info.duration) and info.duration > 0):
@@ -259,6 +253,9 @@ def prepare(
         kept = sum(b - a for a, b in keep)
     if recognise:
         contact_sheet(source, job.path("sheet.png"), fps=min(1.0, SHEET_THUMBS / info.duration))
+    if redo or not job.path("editor.json").is_file():  # для редактора на странице (бета); прокси уйдёт в релиз с push
+        step("Готовлю редактор", "Прокси-видео, волна и лента кадров для редактора")
+        notes.append(_editor_files(job))
 
     cut_line = f"Слов: {len(words)}; плотная резка: {max(0, len(keep) - 1)} пауз, вырезано {cuts['cut_seconds']:.1f} с"
     speech_spans = json.loads(speech_path.read_text(encoding="utf-8")) if speech_path.is_file() else []

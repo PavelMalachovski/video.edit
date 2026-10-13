@@ -1,6 +1,7 @@
 """Входные файлы задачи из черновика релиза `job-<id>`: куски `<файл>.part-NNNNN` склеиваются по порядку номеров.
 
-`source` → `in/source.<расширение из manifest.json>`; вставки к ролику (`uploads` манифеста) и картинки к ответам
+`source` → `in/source.<расширение из manifest.json>`; несколько видео задачи (`videos` манифеста, по порядку) —
+`source`, `source-2`, … → `in/source.<расширение>`, `in/source-2.<расширение>`, …; вставки к ролику (`uploads` манифеста) и картинки к ответам
 (`uploads` в answers.json) → `in/uploads/<файл>`. Другие группы `upload-*` в черновике — брошенные загрузки (картинку
 выбрали заново, вставку не выбрали при продолжении): их не качаем. Размер каждого склеенного файла сверяется с
 манифестом, и все группы проверяются до того, как качать тяжёлое. Уже скачанный файл нужного размера второй раз не качается; оборванный запуск продолжается с уже
@@ -8,6 +9,12 @@
 авторизует GitHub для video.edit (`GITHUB_TOKEN` там — заглушка `proxy-injected`; настоящий токен из окружения
 передаётся заголовком, и curl не отдаёт его на чужой хост при переходе на подписанную ссылку ассета). Обрыв
 соединения (прокси сессии такое умеет) или зависший кусок curl повторяет сам.
+
+Готовый исходник (`vm.source`: его кладёт в черновик Action job-source) с ключом этой задачи — качается он, сразу в
+`source.mp4`, а видео Павла — нет: `vm prepare` не нормализует их заново. Только когда анализ уже в ветке (есть
+`editor.json`: шаги render и fix) — анализу нужны сами видео: по ним prepare размечает, где какое (`editor.json.videos`,
+«Видео по порядку» сводки). Чужой ключ (другие видео, другая озвучка), нет описания (Action ещё грузит), не сошлись
+куски или sha256 — видео Павла, как без него. `originals` — видео Павла всегда (для `vm prepare --redo`).
 """
 import json
 import os
@@ -17,9 +24,11 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from . import source as ready_source
 from .job import Job
 
 PART = re.compile(r"^(?P<file>.+)\.part-(?P<n>\d{5})$")
+VIDEO_ASSET = re.compile(r"^source(-([2-9]|10))?$")  # видео задачи по порядку: source, source-2 … source-10
 PLACEHOLDERS = {"", "proxy-injected"}
 PARALLEL = 8
 TIMEOUT = 1800  # с на один запрос со всеми повторами (кусок 4 МБ качается секунды; потолок — от зависания)
@@ -129,8 +138,33 @@ def _answer_uploads(job: Job) -> list[str]:
     return sorted({Path(rel).name for rel in uploads.values() if isinstance(rel, str) and rel.startswith("in/uploads/upload-")})
 
 
-def fetch(job: Job) -> dict[str, Path]:
-    """Скачать и склеить входные файлы задачи. → {имя группы: путь} (source и upload-*)."""
+def _ready(api: str, repo: str, job: Job, named: dict[str, dict], groups: dict[str, list[tuple[int, dict]]]) -> Path | None:
+    """Готовый исходник этой задачи из черновика → `source.mp4`; нет его или он не годится — None (и файла нет)."""
+    name = ready_source.asset(job) if job.path("job.json").is_file() else None
+    about = named.get(name.removesuffix(".mp4") + ".json") if name else None
+    if about is None:
+        return None
+    dest = job.path("source.mp4")
+    try:
+        info = json.loads(_curl(_asset_url(api, repo, about), accept="application/octet-stream"))
+        pieces = [a for _, a in sorted(groups.get(name, []), key=lambda p: p[0])]
+        numbers = sorted(n for n, _ in groups.get(name, []))
+        if numbers != list(range(info["parts"])) or sum(a["size"] for a in pieces) != info["size"]:
+            raise FetchError(f"{name}: куски не те, что в описании")
+        if not (dest.is_file() and dest.stat().st_size == info["size"]):
+            _join(api, repo, pieces, dest, job.path(f"work/fetch/{name}"))
+            if ready_source.describe(dest, info["parts"])["sha256"] != info["sha256"]:
+                raise FetchError(f"{name}: sha256 не сошёлся")
+    except (FetchError, json.JSONDecodeError, KeyError, TypeError) as err:
+        dest.unlink(missing_ok=True)
+        print(f"готовый исходник не взял ({err}) — качаю видео", flush=True)
+        return None
+    return dest
+
+
+def fetch(job: Job, originals: bool = False) -> dict[str, Path]:
+    """Скачать и склеить входные файлы задачи. → {имя группы: путь} (source и upload-*; готовый исходник —
+    `source.mp4` вместо видео, если анализ уже в ветке). `originals` — видео Павла, даже если готовый исходник есть."""
     api, repo, tag = _api(), _repo(job), f"job-{job.id}"
     release = _release(api, repo, tag)
     if release is None:
@@ -147,14 +181,26 @@ def fetch(job: Job) -> dict[str, Path]:
     if not isinstance(uploads, list) or not all(isinstance(u, dict) and isinstance(u.get("asset"), str) for u in uploads):
         raise FetchError(f"{tag}: manifest.json не такой, как пишет страница (объект; uploads — список с asset)")
 
+    videos = manifest.get("videos")
+    if videos is None:  # задача из одного видео (как до нескольких)
+        videos = [{"asset": "source", "name": manifest.get("name"), "size": manifest.get("size"), "parts": manifest.get("parts")}]
+    assets_of = [v.get("asset") if isinstance(v, dict) else None for v in videos] if isinstance(videos, list) else []
+    if not (assets_of and assets_of[0] == "source" and len(set(assets_of)) == len(assets_of)
+            and all(isinstance(a, str) and VIDEO_ASSET.match(a) for a in assets_of)):
+        raise FetchError(f"{tag}: videos в manifest.json не такой, как пишет страница (source, source-2 … без повторов)")
+
     groups: dict[str, list[tuple[int, dict]]] = {}
     for a in assets:
         if m := PART.match(a["name"]):
             groups.setdefault(m["file"], []).append((int(m["n"]), a))
-    ext = Path(str(manifest.get("name", ""))).suffix.lower() or ".mp4"
-    targets: dict[str, tuple[Path, int | None, int | None]] = {
-        "source": (job.path(f"in/source{ext}"), manifest.get("size"), manifest.get("parts")),
-    }
+    files: dict[str, Path] = {}
+    analyzed = job.path("editor.json").is_file()  # без анализа в ветке — видео: по ним prepare размечает, где какое
+    if not originals and analyzed and (made := _ready(api, repo, job, named, groups)):
+        files["source.mp4"] = made
+    targets: dict[str, tuple[Path, int | None, int | None]] = {}
+    for v in videos if not files else []:
+        ext = Path(str(v.get("name") or "")).suffix.lower() or ".mp4"
+        targets[v["asset"]] = (job.path(f"in/{v['asset']}{ext}"), v.get("size"), v.get("parts"))
     for up in uploads:
         targets[up["asset"]] = (job.path(f"in/uploads/{up['asset']}"), up.get("size"), up.get("parts"))
     for name in _answer_uploads(job):  # картинок к ответам в манифесте нет — размер не сверить
@@ -176,7 +222,6 @@ def fetch(job: Job) -> dict[str, Path]:
             raise FetchError(f"{name}: куски вместе {total} байт, а по манифесту {size}")
         plan.append((name, dest, total, [a for _, a in pieces]))
 
-    files: dict[str, Path] = {}
     for name, dest, total, pieces in plan:
         if not (dest.is_file() and dest.stat().st_size == total):
             _join(api, repo, pieces, dest, job.path(f"work/fetch/{name}"))

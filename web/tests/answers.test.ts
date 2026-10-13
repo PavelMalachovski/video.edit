@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { abOptions, buildAnswers, initialDraft, loadDraft, pick, pictureAsset, previewEnd, previewHook, saveDraft, type LocalUpload } from '../lib/answers.ts';
+import { abOptions, buildAnswers, dimPercent, initialDraft, loadDraft, pick, pictureAsset, previewEnd, previewHook, saveDraft, setDimPercent, type LocalUpload } from '../lib/answers.ts';
 import type { Question } from '../lib/jobfiles.ts';
 import { blockedStorage, memoryStorage } from './helpers.ts';
 
@@ -142,4 +142,36 @@ test('abOptions: a version without the teaser if Pavel took it, without music if
   assert.deepEqual(abOptions([teaser], initialDraft([teaser]), 'ХУК: Как я учу\nмузыка: lofi'), ['teaser', 'music']);
   assert.deepEqual(abOptions([teaser], initialDraft([teaser]), 'ХУК: Как я учу'), ['teaser']);
   assert.deepEqual(abOptions(qs, pick(d, music, 'none'), 'МУЗЫКА: lofi'), ['teaser'], 'ответ на вопрос важнее ТЗ');
+});
+
+test('dim: frames none, 30 and 50 or any percent by the slider — the answer is the number', () => {
+  const dim: Question = {
+    id: 'dim', type: 'choice', title: 'Затемнить фон?', layout: 'frames', default: '30',
+    options: [{ id: 'none', label: 'Как есть' }, { id: '30', label: 'Темнее на 30 %' }, { id: '50', label: 'Темнее на 50 %' }],
+  };
+  const d = initialDraft([dim]);
+  assert.equal(dimPercent(dim, d), 30);
+  const slid = setDimPercent(d, dim, 37); // ползунок — шагами по 5
+  assert.equal(dimPercent(dim, slid), 35);
+  assert.deepEqual(buildAnswers([dim], slid).answers, { dim: '35' });
+  assert.deepEqual(buildAnswers([dim], setDimPercent(d, dim, 0)).answers, { dim: 'none' }, 'ноль — вариант «Как есть»');
+  assert.deepEqual(buildAnswers([dim], setDimPercent(d, dim, 95)).answers, { dim: '80' }, 'не темнее 80 %, как в движке');
+  assert.equal(dimPercent(dim, pick(slid, dim, '50')), 50, 'кадр-вариант — снова число');
+  // число ползунка переживает перезагрузку, чужое — нет
+  const storage = memoryStorage();
+  saveDraft(storage, '261010-120000-ab12', setDimPercent(d, dim, 45));
+  assert.equal(dimPercent(dim, loadDraft(storage, '261010-120000-ab12', [dim])), 45);
+  saveDraft(storage, '261010-120000-ab12', { ...d, picks: { dim: ['33'] } });
+  assert.equal(dimPercent(dim, loadDraft(storage, '261010-120000-ab12', [dim])), 30, 'не по шагу ползунка — по умолчанию');
+});
+
+test('«Мой стиль» of the brand answers «Фон» and «Музыка» by default when the job asks them', () => {
+  const dim: Question = { id: 'dim', type: 'choice', title: 'Фон', layout: 'frames', default: '30',
+    options: [{ id: 'none', label: 'Как есть' }, { id: '30', label: '30 %' }, { id: '50', label: '50 %' }] };
+  const music: Question = { id: 'music', type: 'choice', title: 'Музыка', default: 'calm.m4a',
+    options: [{ id: 'calm.m4a', label: 'Спокойная' }, { id: 'bleak.m4a', label: 'Мрачная' }, { id: 'none', label: 'Без музыки' }] };
+  assert.deepEqual(initialDraft([dim, music], { dim: 45, music: { file: 'bleak.m4a' } }).picks, { dim: ['45'], music: ['bleak.m4a'] });
+  assert.deepEqual(initialDraft([dim, music], { dim: 0, music: null }).picks, { dim: ['none'], music: ['none'] });
+  assert.deepEqual(initialDraft([dim, music], { dim: 30, music: { file: 'gone.m4a' } }).picks.music, ['calm.m4a'], 'трека нет в вопросе — как предложил Claude');
+  assert.deepEqual(loadDraft(memoryStorage(), '261010-120000-ab12', [dim, music], { dim: 20 }).picks.dim, ['20']);
 });

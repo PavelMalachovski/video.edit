@@ -1,7 +1,7 @@
 // Файлы задачи jobs/<id>/ в ветке claude/job-<id> — контракт страницы и сессии монтажа. Типы повторяют схемы движка
 // (engine/vm/schemas/*.json; тесты сверяют перечни с ними). Страница пишет job.json, answers.json, restyle.json,
 // fix.json; сессия — status.json, questions.json, styles.json, result.json; Action — out/released.json.
-import { isUploadFile, isVoiceFile, MAX_NOTE } from './jobs.ts';
+import { isUploadFile, isVoiceFile, MAX_NOTE, videoFile, type VideoClaim } from './jobs.ts';
 import type { Step } from './routine.ts';
 import type { Brand } from './brand.ts';
 import type { ScriptRequest } from './script.ts';
@@ -128,7 +128,11 @@ export const isCoverChoice = (c: unknown): c is CoverChoice => isObject(c) && Nu
 export type StyleChoice = {
   variant: 'A' | 'B' | 'C'; font: string; hand: string; colors: { text: string; accent: string; bar: string }; subY?: number; hookY?: number; subSize?: number; hookSize?: number;
   subShade?: number;
+  subWords?: number; subMode?: SubtitleMode; // слов в группе и вид субтитров — выбор в редакторе; нет — как в варианте
+  hookMode?: HookMode; barPos?: BarPos; barHeight?: number; // вид хука, место и толщина шкалы — выбор в редакторе
 };
+export const BAR_POSITIONS = ['bottom', 'top'] as const;
+export type BarPos = (typeof BAR_POSITIONS)[number];
 /** Где могут стоять субтитры (центр блока): блок не выходит из безопасной зоны 120–1530 px. */
 export const SUB_Y = { min: 240, max: 1760 }; // ниже 1530 — под подписью Reels, но над шкалой времени: выбор Павла
 /** Где может стоять хук (центр строки капсом): его рамка — от y − 75 до y + 200 — не выходит из безопасной зоны. */
@@ -137,6 +141,10 @@ export const SUB_SIZE = { min: 40, max: 110 };
 export const HOOK_SIZE = { min: 48, max: 120 };
 /** Мягкое пятно под субтитрами (решение Павла 12.10.2026): насколько темнее фон в его середине; 0 — без пятна. */
 export const SUB_SHADE = { min: 0, max: 0.8 };
+/** Сколько слов в группе субтитров (как StyleSpec.subtitles.words). */
+export const SUB_WORDS = { min: 2, max: 6 };
+/** Толщина шкалы времени, px кадра: чётная — так её ставит overlay в yuv420p (render._layers). */
+export const BAR_HEIGHT = { min: 2, max: 30 };
 /** Что Павел настраивает на превью: поле выбора → часть и поле StyleSpec, пределы и шаг (то же — ADJUSTED в engine/vm/style.py). */
 export const ADJUST = {
   subY: { part: 'subtitles', field: 'y', range: SUB_Y, step: 10 },
@@ -144,10 +152,19 @@ export const ADJUST = {
   subSize: { part: 'subtitles', field: 'size', range: SUB_SIZE, step: 2 },
   hookSize: { part: 'hook', field: 'size', range: HOOK_SIZE, step: 2 },
   subShade: { part: 'subtitles', field: 'shade', range: SUB_SHADE, step: 0.05 },
+  subWords: { part: 'subtitles', field: 'words', range: SUB_WORDS, step: 1, whole: 1 },
+  barHeight: { part: 'bar', field: 'height', range: BAR_HEIGHT, step: 2, whole: 2 },
 } as const;
 export type Adjustable = keyof typeof ADJUST;
 export const ADJUSTABLE = Object.keys(ADJUST) as Adjustable[];
-export const inRange = (key: Adjustable, x: unknown): x is number => isNum(x) && x >= ADJUST[key].range.min && x <= ADJUST[key].range.max;
+/** В пределах ключа `key`; у слов в группе и толщины шкалы — ещё и кратно (целое, чётное — как в схеме answers.json). */
+export const inRange = (key: Adjustable, x: unknown): x is number => {
+  const a: { range: { min: number; max: number }; whole?: number } = ADJUST[key];
+  return isNum(x) && x >= a.range.min && x <= a.range.max && (a.whole === undefined || Number.isInteger(x / a.whole));
+};
+export const isSubMode = (x: unknown): x is SubtitleMode => (SUBTITLE_MODES as readonly unknown[]).includes(x);
+export const isHookMode = (x: unknown): x is HookMode => (HOOK_MODES as readonly unknown[]).includes(x);
+export const isBarPos = (x: unknown): x is BarPos => (BAR_POSITIONS as readonly unknown[]).includes(x);
 
 function isSpec(s: unknown): s is StyleSpec {
   if (!isObject(s) || !isFontId(s.font) || !isFontId(s.hand) || !isObject(s.colors)) return false;
@@ -192,13 +209,17 @@ export type Manifest = {
   job: string; name: string; size: number; type: string; lastModified: number; parts: number; chunkSize: number;
   userAgent?: string; startedAt?: number; finishedAt?: number; retries?: number; completedAt?: string;
   brief?: string; duration?: number | null; uploads?: ManifestUpload[];
+  videos?: VideoClaim[]; // несколько видео — все по порядку (первое — то же, что сверху); одно — поля нет
 };
+/** Видео задачи в job.json: `file` — куда его кладёт `vm fetch` (от папки задачи), длительность — если браузер узнал. */
+export type VideoRef = { file: string; asset: string; name: string; size: number; type: string; duration: number | null };
 /** Вставка Павла к ролику или его озвучка (`audio`): `file` — куда её кладёт `vm fetch` (от папки задачи). */
 export type UploadRef = { file: string; asset: string; name: string; size: number; type: string; kind: 'image' | 'video' | 'audio' };
 export type Run = { step: Step; attempt: number; at: string; sessionUrl?: string };
 export type JobFile = {
   id: string; name: string; size: number; type: string; duration: number | null; createdAt: string;
   brief: string; uploads: UploadRef[]; runs: Run[];
+  videos?: VideoRef[]; // несколько видео (склеиваются по порядку); одно — поля нет, оно — name, size, type
   brand?: Brand; // копия «Моего бренда» на момент старта; логотип — путь от папки задачи (in/brand/logo.png)
   kind?: 'script'; // задача-сценарий: видео нет, сессия пишет script.json (нет поля — видео)
   script?: ScriptRequest; // запрос сценария с экрана «Новый сценарий»
@@ -212,6 +233,9 @@ export function buildJobFile(m: Manifest, now: Date): JobFile {
       file: `in/uploads/${u.asset}`, asset: u.asset, name: u.name, size: u.size, type: u.type,
       kind: isVoiceFile(u.asset) ? 'audio' : u.type.startsWith('video/') ? 'video' : 'image',
     })),
+    ...(m.videos ? {
+      videos: m.videos.map((v) => ({ file: videoFile(v.asset, v.name), asset: v.asset, name: v.name, size: v.size, type: v.type, duration: v.duration ?? null })),
+    } : {}),
     runs: [],
   };
 }
@@ -254,7 +278,8 @@ const isNum = (x: unknown): x is number => typeof x === 'number' && Number.isFin
 /** id шрифта: встроенный (`montserrat`) или свой — имя файла из assets/fonts без расширения (кириллица и пробелы можно). */
 const isFontId = (x: unknown): x is string => isStr(x) && x.trim() !== '' && x.length <= 200 && !/[\u0000-\u001f\u007f/\\]/.test(x);
 
-function parseStyle(raw: unknown): StyleChoice | string {
+/** Стиль от страницы (ответы, «Монтировать» из редактора) → выбор; не так — что не так, по-русски. */
+export function parseStyle(raw: unknown): StyleChoice | string {
   if (!isObject(raw)) return 'style: нужен объект';
   const { variant, font, hand, colors } = raw;
   if (variant !== 'A' && variant !== 'B' && variant !== 'C') return 'style.variant: A, B или C';
@@ -269,9 +294,13 @@ function parseStyle(raw: unknown): StyleChoice | string {
     if (!inRange(key, x)) return `style.${key}: от ${ADJUST[key].range.min} до ${ADJUST[key].range.max}`;
     adjusted[key] = x;
   }
+  if (raw.subMode !== undefined && !isSubMode(raw.subMode)) return `style.subMode: ${SUBTITLE_MODES.join(', ')}`;
+  if (raw.hookMode !== undefined && !isHookMode(raw.hookMode)) return `style.hookMode: ${HOOK_MODES.join(', ')}`;
+  if (raw.barPos !== undefined && !isBarPos(raw.barPos)) return `style.barPos: ${BAR_POSITIONS.join(', ')}`;
   return {
     variant, font, hand, colors: { text: colors.text as string, accent: colors.accent as string, bar: colors.bar as string },
-    ...adjusted,
+    ...adjusted, ...(raw.subMode !== undefined ? { subMode: raw.subMode } : {}), ...(raw.hookMode !== undefined ? { hookMode: raw.hookMode } : {}),
+    ...(raw.barPos !== undefined ? { barPos: raw.barPos } : {}),
   };
 }
 
@@ -353,7 +382,10 @@ export function answersFile(p: ParsedAnswers, job: JobFile): AnswersFile {
 
 export type Note = { text: string; at: string };
 export type RestyleFile = { requests: Note[] };
-export type FixFile = { fixes: (Note & { version: number })[] };
+/** Правка: текстом («Поправить») или «Монтировать» из редактора — `timeline` (ревизия timeline.json с правками руками) и
+ *  `style` (стиль поменян: новый — в answers.json, прошлый — `styleFrom`: по нему vm style --onto сохраняет правки
+ *  текстом, а «Вернуть готовый ролик» — стиль ролика). */
+export type FixFile = { fixes: (Note & { version: number; timeline?: number; style?: true; styleFrom?: StyleChoice })[] };
 
 export function parseNote(body: unknown): string | { error: string } {
   const text = isObject(body) && typeof body.text === 'string' ? body.text.trim() : '';
@@ -366,10 +398,17 @@ export function appendRestyle(prev: RestyleFile | null, text: string, now: Date)
   return { requests: [...(prev?.requests ?? []), { text, at: now.toISOString() }] };
 }
 
-/** Правка k получает версию k + 1: первый ролик — final.mp4, после первой правки — final-v2.mp4. */
-export function appendFix(prev: FixFile | null, text: string, now: Date): FixFile {
+/** Правка k получает версию k + 1: первый ролик — final.mp4, после первой правки — final-v2.mp4. `editor` — что
+ *  монтировать из редактора: ревизию правок руками и, если стиль поменян, прошлый (`styleFrom`). */
+export function appendFix(prev: FixFile | null, text: string, now: Date, editor: { timeline?: number; styleFrom?: StyleChoice } = {}): FixFile {
   const fixes = prev?.fixes ?? [];
-  return { fixes: [...fixes, { text, at: now.toISOString(), version: 2 + fixes.length }] };
+  return {
+    fixes: [...fixes, {
+      text, at: now.toISOString(), version: 2 + fixes.length,
+      ...(editor.timeline !== undefined ? { timeline: editor.timeline } : {}),
+      ...(editor.styleFrom ? { style: true as const, styleFrom: editor.styleFrom } : {}),
+    }],
+  };
 }
 
 export const wantedVersion = (fix: FixFile | null): number => 1 + (fix?.fixes.length ?? 0);

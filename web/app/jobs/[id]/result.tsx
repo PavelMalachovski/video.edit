@@ -51,6 +51,33 @@ function CaptionCard({ caption }: { caption: Caption }) {
   );
 }
 
+/** «Мой стиль»: как смонтирован этот ролик (стиль, скорость, затемнение, музыка) — в «Мой бренд»; новые ролики начнут с
+ *  него. Что сохранять, сервер берёт из ветки задачи, а не со страницы. */
+function SaveLook({ jobId }: { jobId: string }) {
+  const [state, setState] = useState<{ kind: 'idle' | 'busy' | 'done' } | { kind: 'error'; text: string }>({ kind: 'idle' });
+  async function save() {
+    setState({ kind: 'busy' });
+    try {
+      const r = await fetch('/api/brand/look', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job: jobId }) });
+      const body = (await r.json().catch(() => null)) as { error?: string } | null;
+      setState(r.ok ? { kind: 'done' } : { kind: 'error', text: body?.error ?? 'Не получилось сохранить' });
+    } catch {
+      setState({ kind: 'error', text: 'Нет связи — попробуйте ещё раз' });
+    }
+  }
+  return (
+    <div className="card" data-save-look>
+      <div className="caps">Мой стиль</div>
+      <div className="muted small">Шрифты, цвета, места и размеры текста, скорость, затемнение фона и музыка этого ролика — в «Мой бренд»: следующие ролики начнутся с них.</div>
+      <button type="button" className="btn ghost" disabled={state.kind === 'busy'} onClick={() => void save()}>
+        {state.kind === 'done' ? 'Сохранено в «Мой бренд»' : 'Сохранить стиль ролика в «Мой бренд»'}
+      </button>
+      <div role="status" className="sr-only">{state.kind === 'done' ? 'Стиль сохранён в «Мой бренд»' : ''}</div>
+      {state.kind === 'error' ? <div className="err small" role="alert">{state.text}</div> : null}
+    </div>
+  );
+}
+
 /** Основной текст рекламы (до 72 знаков — столько видно до обрезки) с копированием. */
 function AdText({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -139,6 +166,7 @@ export default function Result({ view, result, answers, fixes, onAct, notice }: 
         </div>
       ) : null}
       {caption ? <CaptionCard caption={caption} /> : null}
+      <SaveLook jobId={view.id} />
       {result?.checklist ? <Checklist items={result.checklist} caption={Boolean(caption)} /> : null}
       {result ? (
         <>

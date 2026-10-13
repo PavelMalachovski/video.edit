@@ -1,0 +1,37 @@
+{
+  "_": "Правки Павла руками (timeline.json, edits) поверх keep сессии: engine/vm/edits.py (apply_keep) и web/lib/edits.ts (applyKeep) дают одно и то же. Времена — секунды исходника; keep — в порядке финала (move переставляет куски).",
+  "cases": [
+    {"name": "cut inside a piece splits it", "keep": [[0.5, 4.0]], "duration": 5, "edits": [{"op": "cut", "t0": 1.0, "t1": 2.0}], "expected": [[0.5, 1.0], [2.0, 4.0]]},
+    {"name": "cut over a gap trims both pieces", "keep": [[0, 2], [3, 5]], "duration": 6, "edits": [{"op": "cut", "t0": 1.5, "t1": 3.5}], "expected": [[0, 1.5], [3.5, 5]]},
+    {"name": "cut of a whole piece removes it", "keep": [[0, 1], [2, 3], [4, 5]], "duration": 6, "edits": [{"op": "cut", "t0": 2, "t1": 3}], "expected": [[0, 1], [4, 5]]},
+    {"name": "restore fills a gap and joins the pieces", "keep": [[0, 2], [3, 5]], "duration": 6, "edits": [{"op": "restore", "t0": 2, "t1": 3}], "expected": [[0, 5]]},
+    {"name": "restore of part of a gap", "keep": [[0, 2], [3, 5]], "duration": 6, "edits": [{"op": "restore", "t0": 2.2, "t1": 2.6}], "expected": [[0, 2], [2.2, 2.6], [3, 5]]},
+    {"name": "restore beyond the source is clipped", "keep": [[1, 2]], "duration": 3, "edits": [{"op": "restore", "t0": 2.5, "t1": 9}], "expected": [[1, 2], [2.5, 3]]},
+    {"name": "restore over kept time changes nothing", "keep": [[0, 4]], "duration": 5, "edits": [{"op": "restore", "t0": 1, "t1": 2}], "expected": [[0, 4]]},
+    {"name": "edits go in order: cut, then restore the same span", "keep": [[0, 4]], "duration": 5, "edits": [{"op": "cut", "t0": 1, "t1": 2}, {"op": "restore", "t0": 1, "t1": 2}], "expected": [[0, 4]]},
+    {"name": "and restore, then cut", "keep": [[0, 1], [2, 3]], "duration": 5, "edits": [{"op": "restore", "t0": 1, "t1": 2}, {"op": "cut", "t0": 0.5, "t1": 2.5}], "expected": [[0, 0.5], [2.5, 3]]},
+    {"name": "a split does not change the cut", "keep": [[0, 4]], "duration": 5, "edits": [{"op": "split", "t": 2}], "expected": [[0, 4]]},
+    {"name": "a cut leaving a sliver drops it", "keep": [[0, 2]], "duration": 3, "edits": [{"op": "cut", "t0": 0.01, "t1": 2}], "expected": []},
+    {"name": "no edits — the session's cut as is", "keep": [[0.25, 1.5], [2, 3]], "duration": 4, "edits": [], "expected": [[0.25, 1.5], [2, 3]]},
+    {"name": "move a piece to the front", "keep": [[0, 2], [3, 5], [6, 8]], "duration": 9, "edits": [{"op": "move", "t0": 6, "t1": 8, "before": 0}], "expected": [[6, 8], [0, 2], [3, 5]]},
+    {"name": "move a piece to the end", "keep": [[0, 2], [3, 5], [6, 8]], "duration": 9, "edits": [{"op": "move", "t0": 0, "t1": 2, "before": null}], "expected": [[3, 5], [6, 8], [0, 2]]},
+    {"name": "move part of a piece: the piece splits around it", "keep": [[0, 4]], "duration": 5, "edits": [{"op": "move", "t0": 1, "t1": 2, "before": 3}], "expected": [[0, 1], [2, 3], [1, 2], [3, 4]]},
+    {"name": "moved back to its place it joins its piece again", "keep": [[0, 4]], "duration": 5, "edits": [{"op": "move", "t0": 1, "t1": 2, "before": 3}, {"op": "move", "t0": 1, "t1": 2, "before": 2}], "expected": [[0, 4]]},
+    {"name": "a cut after a move cuts the piece where it stands", "keep": [[0, 2], [3, 5]], "duration": 6, "edits": [{"op": "move", "t0": 3, "t1": 5, "before": 0}, {"op": "cut", "t0": 3.5, "t1": 4}], "expected": [[3, 3.5], [4, 5], [0, 2]]},
+    {"name": "restore joins the piece before it in the recording", "keep": [[0, 2], [3, 5], [6, 8]], "duration": 9, "edits": [{"op": "move", "t0": 6, "t1": 8, "before": 0}, {"op": "restore", "t0": 5, "t1": 6}], "expected": [[6, 8], [0, 2], [3, 6]]},
+    {"name": "restore with next joins the piece after it (trim of a start)", "keep": [[0, 2], [3, 5], [6, 8]], "duration": 9, "edits": [{"op": "move", "t0": 6, "t1": 8, "before": 0}, {"op": "restore", "t0": 5, "t1": 6, "next": true}], "expected": [[5, 8], [0, 2], [3, 5]]},
+    {"name": "a lone restored span goes right after the piece before it in the recording", "keep": [[0, 1], [2, 3], [4, 5]], "duration": 6, "edits": [{"op": "move", "t0": 4, "t1": 5, "before": 2}, {"op": "restore", "t0": 3.5, "t1": 3.8}], "expected": [[0, 1], [4, 5], [2, 3], [3.5, 3.8]]},
+    {"name": "a move of nothing kept changes nothing", "keep": [[0, 2], [3, 5]], "duration": 6, "edits": [{"op": "move", "t0": 2.2, "t1": 2.8, "before": 0}], "expected": [[0, 2], [3, 5]]},
+    {"name": "a move to a cut moment goes before the piece that follows it in the recording", "keep": [[0, 2], [3, 5], [6, 8]], "duration": 9, "edits": [{"op": "move", "t0": 6, "t1": 8, "before": 2.5}], "expected": [[0, 2], [6, 8], [3, 5]]},
+    {"name": "a move over two pieces takes both, in their order", "keep": [[0, 2], [3, 5], [6, 8]], "duration": 9, "edits": [{"op": "move", "t0": 1, "t1": 4, "before": null}], "expected": [[0, 1], [4, 5], [6, 8], [1, 2], [3, 4]]},
+    {"name": "a sliver left by a move is dropped", "keep": [[0, 4], [5, 6]], "duration": 7, "edits": [{"op": "move", "t0": 0.02, "t1": 4, "before": null}], "expected": [[5, 6], [0.02, 4]]}
+  ],
+  "refused": [
+    {"op": "cut", "t0": 2, "t1": 1},
+    {"op": "restore", "t0": 1, "t1": 1},
+    {"op": "move", "t0": 0, "t1": 1},
+    {"op": "move", "t0": 1, "t1": 1, "before": null},
+    {"op": "jump", "t": 1}
+  ],
+  "sliver": 0.04
+}

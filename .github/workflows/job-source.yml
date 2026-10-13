@@ -6,8 +6,8 @@
 name: job-source
 on:
   push:
-    branches: ['claude/job-*', 'claude/pensive-goldberg-hu3qdo']  # ВРЕМЕННО: проверка на задаче w7eu до слияния
-    paths: ['jobs/*/job.json', '.github/workflows/job-source.yml']
+    branches: ['claude/job-*']
+    paths: ['jobs/*/job.json']
   workflow_dispatch:
     inputs:
       job:
@@ -31,5 +31,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
-          JOB: ${{ inputs.job || (github.ref_name == 'claude/pensive-goldberg-hu3qdo' && '261012-091256-w7eu') || '' }}
+          JOB: ${{ inputs.job }}
         run: bash .github/scripts/job-source.sh

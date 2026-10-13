@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import zlib from 'node:zlib';
 
 import { stateAt } from '../../lib/overlay.ts';
 import { finalStyle } from '../../lib/style.ts';
@@ -23,6 +24,24 @@ const APP = 'http://127.0.0.1:3000';
 const FAKE = 'http://127.0.0.1:4010';
 // 1×1 PNG — вставка к ролику
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+/** Однотонный PNG `w×h` (RGB) без библиотек: кадры к вопросу «Фон» — по ним страница считает кадр с любым затемнением. */
+function solidPng(w, h, [r, g, b]) {
+  const chunk = (type, data) => {
+    const body = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(zlib.crc32(body));
+    return Buffer.concat([len, body, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0);
+  ihdr.writeUInt32BE(h, 4);
+  ihdr.set([8, 2, 0, 0, 0], 8); // 8 бит, RGB
+  const row = Buffer.concat([Buffer.from([0]), Buffer.from(Array(w).fill([r, g, b]).flat())]);
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(Buffer.concat(Array(h).fill(row)))),
+    chunk('IEND', Buffer.alloc(0))]);
+}
 
 // ---------- помощники ----------
 
@@ -345,14 +364,13 @@ const segments = [
     await session(ctx, { 'status.json': { state: 'error', phase: 'Ошибка', message: 'Не удалось расшифровать', at: iso(), error: 'GigaAM: нет памяти' } });
     await page.getByText('Не удалось расшифровать').waitFor({ timeout: 7000 });
     await shot(page, 'phases-error');
-    check(await page.getByRole('button', { name: 'Повторить без озвучки' }).count() === 0, 'озвучки в задаче нет — и кнопки без неё нет');
+    check(await page.getByRole('button', { name: 'Повторить без озвучки' }).count() === 1, 'у задачи с озвучкой анализ можно повторить и без неё');
     await page.getByRole('button', { name: 'Повторить', exact: true }).click();
     await until(async () => (await fires()).some((f) => f.step === 'analyze' && f.attempt === 3), 10_000, 'повтор шага');
 
     // в «Озвучку» попала песня — анализ сорвался: повтор без неё, видео заново не загружать
     const job = JSON.parse((await branchFile(ctx, 'job.json')) ?? '{}');
-    const voice = { file: 'in/uploads/upload-voice.m4a', asset: 'upload-voice.m4a', name: 'Песня.m4a', size: 5, type: 'audio/x-m4a', kind: 'audio' };
-    await session(ctx, { 'job.json': { ...job, uploads: [...job.uploads, voice] }, 'words.json': [],
+    await session(ctx, { 'words.json': [],
       'status.json': { state: 'error', phase: 'Ошибка', message: 'В «Озвучке» песня — нажми «Повторить без озвучки»', at: iso(), error: 'voice is a song' } });
     await page.getByText('В «Озвучке» песня').waitFor({ timeout: 7000 });
     await shot(page, 'phases-error-voice');
@@ -360,7 +378,7 @@ const segments = [
     await until(async () => (await fires()).some((f) => f.step === 'analyze' && f.attempt === 4), 10_000, 'повтор без озвучки');
     const unvoiced = JSON.parse((await branchFile(ctx, 'job.json')) ?? '{}');
     check(!unvoiced.uploads.some((u) => u.kind === 'audio'), `озвучка осталась в job.json: ${JSON.stringify(unvoiced.uploads)}`);
-    check(unvoiced.uploads.length === job.uploads.length, 'вставки задачи остались');
+    check(unvoiced.uploads.length === job.uploads.length - 1, `вставки задачи остались: ${JSON.stringify(unvoiced.uploads)}`);
     check(await branchFile(ctx, 'words.json') === null, 'слова от песни убраны — анализ расслышит звук видео заново');
   }],
 
@@ -372,7 +390,8 @@ const segments = [
     const waiting = { state: 'waiting_answers', phase: 'Ждёт ответов', message: 'Ответь на вопросы и выбери стиль', at: new Date().toISOString(), needs: 'answers' };
     engineValidate('status.json', waiting);
     await session(ctx, { 'questions.json': QUESTIONS, 'styles.json': STYLES, 'review.json': REVIEW, 'frame.png': PNG, 'q-logo.png': PNG, 'cover-1.jpg': PNG, 'cover-2.jpg': PNG, 'cover-3.jpg': PNG,
-      'q-dim-none.jpg': PNG, 'q-dim-30.jpg': PNG, 'q-dim-50.jpg': PNG, 'status.json': waiting });
+      'q-dim-none.jpg': solidPng(18, 32, [200, 200, 200]), 'q-dim-30.jpg': solidPng(18, 32, [140, 140, 140]), 'q-dim-50.jpg': solidPng(18, 32, [100, 100, 100]),
+      'status.json': waiting });
     const cards = page.locator('[data-question]');
     await until(async () => (await cards.count()) === 9, 10_000, 'девять карточек вопросов');
     // «Фон»: варианты — кадры видео крупно (9:16), а не значки в кнопке — иначе разницу не увидеть
@@ -383,6 +402,20 @@ const segments = [
     check(await frames.nth(1).getAttribute('aria-pressed') === 'true', 'по умолчанию — темнее на 30 %');
     await frames.nth(2).click();
     check(await frames.nth(2).getAttribute('aria-pressed') === 'true' && await frames.nth(1).getAttribute('aria-pressed') === 'false', 'выбор кадра');
+    // и ползунком — любое затемнение 0–80 % через 5; кадр с ним страница считает сразу из «как есть» и «на 50 %»
+    const dimRange = page.getByRole('slider', { name: 'Насколько темнее фон' });
+    check(await dimRange.inputValue() === '50', `ползунок стоит на выбранном кадре: ${await dimRange.inputValue()}`);
+    await dimRange.fill('35');
+    check(await frames.nth(2).getAttribute('aria-pressed') === 'false', 'между вариантами — ни один кадр не выбран');
+    await until(async () => {
+      const [value, percent] = await page.evaluate(() => {
+        const c = document.querySelector('.dim-frame');
+        return c ? [c.getContext('2d').getImageData(c.width >> 1, c.height >> 1, 1, 1).data[0], c.dataset.percent] : [null, null];
+      });
+      return percent === '35' && Math.abs(value - 130) <= 2; // 200 + 35/50 × (100 − 200)
+    }, 5000, 'кадр с затемнением 35 % посчитан');
+    await page.locator('[data-question="dim"]').scrollIntoViewIfNeeded();
+    await shot(page, 'questions-dim');
     const go = page.getByRole('button', { name: 'Показать превью' });
     check(await go.isDisabled(), '«Показать превью» включена, хотя brand и logo без ответа');
     // разбор по гайду — над вопросами: что хорошо и что поправить
@@ -727,7 +760,7 @@ const segments = [
     check(answers.ab === 'teaser', `ab: ${JSON.stringify(answers.ab)}`);
     check(isDeepStrictEqual(answers.cover, { frame: 1, text: 'Чешский за 15 минут' }), `cover: ${JSON.stringify(answers.cover)}`);
     check(answers.ad === true, `ad: ${JSON.stringify(answers.ad)}`);
-    check(answers.answers?.dim === '50', `dim: ${JSON.stringify(answers.answers?.dim)}`);
+    check(answers.answers?.dim === '35', `dim — с ползунка: ${JSON.stringify(answers.answers?.dim)}`);
     check(answers.style?.subSize === grown - 4 && answers.style?.hookSize === pinched, `размеры: ${answers.style?.subSize}, ${answers.style?.hookSize}`);
     check(answers.style?.subShade === 0.6, `пятно под субтитрами: ${answers.style?.subShade}`);
     check(isDeepStrictEqual(finalStyle(restyled, answers.style), last), `стиль ответа ${JSON.stringify(answers.style)} ≠ последнему превью`);

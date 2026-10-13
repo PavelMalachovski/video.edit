@@ -1,8 +1,8 @@
 'use client';
 // Экран «2 · Вопросы»: карточка на вопрос из questions.json — варианты кнопками, свой текст, своя картинка.
 // Черновик ответов живёт у страницы задачи (его же читают превью); «Показать превью» — без запроса к серверу.
-import { useMemo, useState } from 'react';
-import { buildAnswers, pick, pictureAsset, type Draft, type LocalUpload } from '@/lib/answers.ts';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { buildAnswers, DIM, dimPercent, pick, pictureAsset, setDimPercent, type Draft, type LocalUpload } from '@/lib/answers.ts';
 import { RESERVED, type Question, type Review } from '@/lib/jobfiles.ts';
 import { MAX_ANSWER_IMAGE_BYTES } from '@/lib/jobs.ts';
 import { planChunks, runUpload } from '@/lib/uploader.ts';
@@ -145,6 +145,7 @@ function QuestionCard({ q, n, draft, onDraft, need, fileUrl, localUrl, loading, 
               <span className="frame-label">{o.label}</span>
             </button>
           ))}
+          {q.id === DIM.id ? <DimSlider q={q} draft={draft} onDraft={onDraft} fileUrl={fileUrl} /> : null}
         </div>
       ) : (
         <div className="pills">
@@ -180,4 +181,71 @@ function QuestionCard({ q, n, draft, onDraft, need, fileUrl, localUrl, loading, 
       {error ? <div className="err small">{error}</div> : null}
     </section>
   );
+}
+
+/** «Фон» ползунком: любое затемнение 0–80 % через 5, кадр показывает его сразу. Кадр считается из картинок вариантов
+ *  «Как есть» и «на 50 %»: затемнение по маске линейно (фон темнеет пропорционально), так что любое — между ними или
+ *  дальше по той же прямой. Картинок нет — только ползунок. */
+function DimSlider({ q, draft, onDraft, fileUrl }: { q: Question; draft: Draft; onDraft: ChangeDraft; fileUrl: (path: string) => string }) {
+  const percent = dimPercent(q, draft);
+  const image = (id: string) => q.options?.find((o) => o.id === id)?.image;
+  const plain = image('none');
+  const half = image('50');
+  return (
+    <div className="dim-slider">
+      {plain && half ? <DimFrame plain={fileUrl(plain)} half={fileUrl(half)} percent={percent} /> : null}
+      <label className="dim-range">
+        <span className="dim-head">Насколько темнее фон <b>{percent ? `${percent} %` : 'как есть'}</b></span>
+        <input type="range" min={DIM.min} max={DIM.max} step={DIM.step} value={percent} aria-label="Насколько темнее фон"
+          onChange={(e) => onDraft((d) => setDimPercent(d, q, Number(e.target.value)))} />
+      </label>
+    </div>
+  );
+}
+
+type Pixels = { w: number; h: number; plain: Uint8ClampedArray; half: Uint8ClampedArray };
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error(src));
+    img.src = src;
+  });
+}
+
+/** Кадр с затемнением `percent`: каждая точка — «как есть» + percent/50 × (на 50 % − как есть). */
+function DimFrame({ plain, half, percent }: { plain: string; half: string; percent: number }) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const [pixels, setPixels] = useState<Pixels | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void Promise.all([loadImage(plain), loadImage(half)]).then(([a, b]) => {
+      const w = Math.min(360, a.naturalWidth);
+      const h = Math.round((w * a.naturalHeight) / a.naturalWidth);
+      const read = (img: HTMLImageElement) => {
+        const c = document.createElement('canvas');
+        c.width = w;
+        c.height = h;
+        const ctx = c.getContext('2d')!;
+        ctx.drawImage(img, 0, 0, w, h);
+        return ctx.getImageData(0, 0, w, h).data;
+      };
+      if (alive && w > 0 && h > 0) setPixels({ w, h, plain: read(a), half: read(b) });
+    }).catch(() => undefined); // картинки не открылись — остаётся ползунок
+    return () => { alive = false; };
+  }, [plain, half]);
+  useEffect(() => {
+    const c = canvas.current;
+    if (!c || !pixels) return;
+    c.width = pixels.w;
+    c.height = pixels.h;
+    const ctx = c.getContext('2d')!;
+    const out = ctx.createImageData(pixels.w, pixels.h);
+    const k = percent / 50;
+    for (let i = 0; i < out.data.length; i++) out.data[i] = pixels.plain[i] + k * (pixels.half[i] - pixels.plain[i]);
+    for (let i = 3; i < out.data.length; i += 4) out.data[i] = 255;
+    ctx.putImageData(out, 0, 0);
+  }, [pixels, percent]);
+  return pixels ? <canvas ref={canvas} className="dim-frame" data-percent={percent} aria-label={`Кадр: фон темнее на ${percent} %`} role="img" /> : null;
 }

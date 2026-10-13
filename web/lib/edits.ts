@@ -480,11 +480,12 @@ export function badSymbols(text: string): string {
   return [...out].join('');
 }
 
-/** Весь текст, что Павел набрал в правках блоков: хук, строки и слово титра, строки акцентов, текст вставок. */
+/** Весь текст, что Павел набрал в правках блоков: хук, строки и слово титра, строки акцентов, текст вставок, строки и ник
+ *  финальной карточки (её движок рисует основным шрифтом — fonts.texts). */
 export function typedTexts(h: HandEdits): string[] {
   const t = h.text ?? {};
-  return [t.hook?.text, ...(t.cta?.lines ?? []), t.cta?.word, ...(t.accents ?? []).flatMap((a) => a.lines ?? []), ...(t.inserts ?? []).map((i) => i.text)]
-    .filter((x): x is string => typeof x === 'string');
+  return [t.hook?.text, ...(t.cta?.lines ?? []), t.cta?.word, ...(t.accents ?? []).flatMap((a) => a.lines ?? []), ...(t.inserts ?? []).map((i) => i.text),
+    ...(t.end?.lines ?? []), t.end?.handle].filter((x): x is string => typeof x === 'string');
 }
 
 /** Трек музыки из библиотеки (`assets/music/…`); null — трек сессии (громкость и место Павла остаются). */

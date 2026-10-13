@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { abilitiesOf, editorFix, ENGINE_SCHEMA, isUploadPicture, layerUrl, loadEditor, MEDIA_NAMES, mediaAsset, pictureType, refusedBy, saveTimeline, timelineOf, uploadParts } from '../lib/editordata.ts';
+import { abilitiesOf, editorFix, editorGates, ENGINE_SCHEMA, isUploadPicture, layerUrl, loadEditor, MEDIA_NAMES, mediaAsset, pictureType, refusedBy, saveTimeline, timelineOf, uploadParts } from '../lib/editordata.ts';
 import type { AnswersFile } from '../lib/jobfiles.ts';
 import { withFake } from './helpers.ts';
 
@@ -44,6 +44,19 @@ test('no proxy in the release yet, no editor files, no draft — each is null, t
   const broken = await loadEditor(gh, ID);
   assert.ok(broken && broken.media === null && broken.draft === null && broken.filmUrl === null);
   assert.equal(await loadEditor(gh, '261010-070509-none'), null);
+}));
+
+test('the editor gets the brand look the job was started with — before the montage the style starts from it', () => withFake(async ({ fake, gh }) => {
+  const style = { variant: 'B', font: 'rubik', hand: 'caveat', colors: { text: '#FFFFFF', accent: '#FF5C8A', bar: '#FFD23F' }, subY: 1300 };
+  const look = { style, dim: 30, music: null, from: { job: '261013-101010-abcd', title: 'IMG_1.MOV', at: '2026-10-13T10:10:10.000Z' } };
+  fake.addAsset(`job-${ID}`, 'manifest.json', '{}');
+  fake.commit(`claude/job-${ID}`, {
+    [`${DIR}/job.json`]: JSON.stringify({ ...JOB, brand: { handle: '@pavel', look } }), [`${DIR}/status.json`]: JSON.stringify(STATUS),
+    [`${DIR}/edit.json`]: JSON.stringify(EDIT),
+  });
+  assert.deepEqual((await loadEditor(gh, ID))?.brandLook, look);
+  fake.commit(`claude/job-${ID}`, { [`${DIR}/job.json`]: JSON.stringify(JOB) });
+  assert.equal((await loadEditor(gh, ID))?.brandLook, null, 'без «Мой стиль» — null');
 }));
 
 test('only the proxy is served as editor media', () => {
@@ -111,7 +124,8 @@ test('saving hand edits: a bad body, a job Claude is mounting right now, a job n
   start(fake, { ...STATUS, state: 'rendering', phase: 'Монтирую', needs: undefined } as unknown as typeof STATUS);
   for (const bad of [null, { base: 0 }, { base: -1, edits: [] }, { base: 0, edits: [{ op: 'jump', t: 1 }] }, { base: 0, edits: [], voice: { gainDb: 99 } }, { base: 0, edits: [], rev: 5 },
     { base: 0, edits: [], words: [{ t0: 1, t1: 1.3, text: 'огонь🔥' }] }, // эмодзи в субтитрах не пропустит проверка шрифтов
-    { base: 0, edits: [], text: { hook: { text: 'Лучший ★ кофе' } } }, { base: 0, edits: [], words: [{ t0: 1, t1: 1.3, text: '✓' }] }]) { // и ★, ✓
+    { base: 0, edits: [], text: { hook: { text: 'Лучший ★ кофе' } } }, { base: 0, edits: [], words: [{ t0: 1, t1: 1.3, text: '✓' }] }, // и ★, ✓
+    { base: 0, edits: [], text: { end: { lines: ['Подпишись ★'] } } }, { base: 0, edits: [], text: { end: { handle: '@pavel ♪' } } }]) { // и на карточке
     const r = await saveTimeline(gh, ID, bad, NOW);
     assert.ok(!r.ok && r.status === 400, JSON.stringify(bad));
   }
@@ -171,6 +185,18 @@ function olderSchema(what: 'move' | 'text' | 'picture'): string {
   if (what === 'move') s.properties.edits.items.oneOf = s.properties.edits.items.oneOf.filter((o: { properties: { op: { const: string } } }) => o.properties.op.const !== 'move');
   return JSON.stringify(s);
 }
+
+test('before the montage the editor edits only what «Превью» and the questions do not choose', () => {
+  const all = abilitiesOf(SCHEMA_NOW);
+  // до монтажа скорость, затемнение фона и трек выбирают «Превью» и вопросы: правка руками молча перебила бы ответ
+  assert.deepEqual(editorGates(true, false, all),
+    { move: true, zoom: true, marks: false, track: false, speed: false, teaser: false, text: false, card: false, place: false });
+  assert.deepEqual(editorGates(true, true, all),
+    { move: true, zoom: true, marks: true, track: true, speed: true, teaser: true, text: true, card: true, place: true });
+  assert.ok(Object.values(editorGates(false, true, all)).every((on) => !on), 'идёт сессия — ничего не правится');
+  assert.deepEqual(editorGates(true, true, { ...all, video: false, track: false }),
+    { move: true, zoom: true, marks: true, track: false, speed: false, teaser: false, text: true, card: true, place: true }, 'старый движок');
+});
 
 test('what the job\'s engine takes is read from its own schema in the job branch', () => {
   const none5c = { picture: false, track: false, card: false, video: false, place: false };

@@ -210,6 +210,10 @@ export async function startFake({ port = 0 } = {}) {
       const entries = b.tree ?? [];
       const unknown = entries.find((e) => typeof e.sha === 'string' && !gitBlobs.has(e.sha));
       if (unknown) return send(res, 422, { message: `fake: no blob ${unknown.sha}` });
+      // как настоящий GitHub: удалить файл, которого в base_tree нет, — 422 (GitRPC::BadObjectState)
+      const base = b.base_tree ? trees.get(b.base_tree) : new Map();
+      const absent = entries.find((e) => e.sha === null && !base.has(e.path));
+      if (absent) return send(res, 422, { message: `GitRPC::BadObjectState (${absent.path})` });
       const sha = makeTree(b.base_tree, entries.map((e) => [e.path, e.sha === null ? null : typeof e.sha === 'string' ? gitBlobs.get(e.sha) : String(e.content ?? '')]));
       return send(res, 201, { sha });
     }

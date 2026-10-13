@@ -20,6 +20,8 @@ button { font: inherit; }
 
 .mono { font-family: var(--mono); }
 .muted { color: var(--muted); }
+/* только для экранного диктора (role=status): на экране не видно */
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 .dim { color: var(--dim); }
 .small { font-size: 13px; }
 .caps { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0; }
@@ -161,6 +163,8 @@ input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); 
 .phase { font-size: 20px; font-weight: 700; }
 .updated { font-family: var(--mono); font-size: 12px; color: var(--muted); }
 .action { display: flex; flex-direction: column; gap: 6px; }
+.confirm { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+.confirm .row { justify-content: flex-start; flex-wrap: wrap; }
 
 /* вопросы */
 .question.need { outline: 1px dashed var(--accent); outline-offset: -1px; }

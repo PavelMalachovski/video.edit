@@ -4,6 +4,7 @@
 import { commitFiles, listDir, readText, type FileMap } from './branch.ts';
 import type { GH } from './github.ts';
 import { parseStyle, type StyleChoice } from './jobfiles.ts';
+import { DEFAULT_MUSIC_DB } from './sound.ts';
 import { SPEEDS } from './style.ts';
 
 export const BRAND_BRANCH = 'claude/brand';
@@ -101,25 +102,38 @@ export function parseLook(raw: unknown): BrandLook | null {
 }
 
 /**
- * «Мой стиль» смонтированного ролика: стиль и скорость — из answers.json, затемнение и музыка — из edit.json (нет в нём
- * поля — по ответам «Фон» и «Музыка»), а что Павел поменял руками в редакторе (timeline.json: затемнение, трек,
- * скорость) — оттуда. Стиля нет — null.
+ * «Мой стиль» смонтированного ролика: стиль — из answers.json; скорость, затемнение и музыка — какими их собрал движок
+ * (edits.apply: edit.json, поверх — правки руками из timeline.json; нет поля dim — без затемнения, `music: null` — без
+ * музыки, заглушённый трек — тоже). edit.json ещё нет — по ответам («Фон», «Музыка», скорость превью). Стиля нет — null.
  */
 export function lookFromJob(files: { answers: Record<string, unknown> | null; edit: Record<string, unknown> | null;
   timeline: Record<string, unknown> | null }, from: BrandLook['from']): BrandLook | null {
   const style = parseStyle(files.answers?.style);
   if (typeof style === 'string') return null;
-  const pick = (key: string): unknown => (files.timeline && key in files.timeline ? files.timeline[key] : files.edit?.[key]);
-  const rawSpeed = pick('speed') ?? files.answers?.speed;
+  const { edit } = files;
+  const hand = files.timeline ?? {};
+  const said = isObj(files.answers?.answers) ? files.answers.answers : {}; // ответы на вопросы — пока монтажа не было
+  const rawSpeed = isNum(hand.speed) ? hand.speed : edit ? edit.speed : files.answers?.speed;
   const speed = isNum(rawSpeed) ? SPEEDS.reduce((a, b) => (Math.abs(b - rawSpeed) < Math.abs(a - rawSpeed) ? b : a)) : undefined;
-  const said = isObj(files.answers?.answers) ? files.answers.answers : {}; // ответы на вопросы — если монтаж их не записал
-  const rawDim = pick('dim') ?? (typeof said.dim === 'string' && /^\d+$/.test(said.dim) ? Number(said.dim) / 100 : undefined);
-  const dim = isNum(rawDim) ? Math.min(80, Math.max(0, Math.round((rawDim * 100) / DIM_STEP) * DIM_STEP)) : 0;
-  const rawMusic = pick('music') ?? (typeof said.music === 'string' && said.music !== 'none' ? { file: said.music } : undefined);
-  const file = isObj(rawMusic) && typeof rawMusic.file === 'string' ? rawMusic.file.replace(/^assets\/music\//, '') : null;
+  const rawDim = isNum(hand.dim) ? hand.dim
+    : edit ? (isNum(edit.dim) ? edit.dim : 0) : typeof said.dim === 'string' && /^\d+$/.test(said.dim) ? Number(said.dim) / 100 : 0;
+  const dim = Math.min(80, Math.max(0, Math.round((rawDim * 100) / DIM_STEP) * DIM_STEP));
+  const rawMusic = edit ? montagedMusic(isObj(edit.music) ? edit.music : null, hand.music)
+    : typeof said.music === 'string' && said.music !== 'none' ? { file: said.music } : null;
+  const file = rawMusic && typeof rawMusic.file === 'string' ? rawMusic.file.replace(/^assets\/music\//, '') : null;
   const music = file && TRACK.test(file)
-    ? { file, ...(isObj(rawMusic) && isNum(rawMusic.gainDb) ? { gainDb: Math.min(0, Math.max(-40, rawMusic.gainDb)) } : {}) } : null;
+    ? { file, ...(rawMusic && isNum(rawMusic.gainDb) ? { gainDb: Math.min(0, Math.max(-40, rawMusic.gainDb)) } : {}) } : null;
   return parseLook({ style, ...(speed !== undefined ? { speed } : {}), dim, music, from });
+}
+
+/** Музыка ролика, как её собирает движок (edits.apply): правка руками (timeline.json → music) поверх музыки монтажа;
+ *  трек руками к ролику без музыки — с громкостью по умолчанию; заглушённая — без музыки. */
+function montagedMusic(base: Record<string, unknown> | null, hand: unknown): Record<string, unknown> | null {
+  if (!isObj(hand)) return base;
+  if (hand.muted === true) return null;
+  const from = base ?? (typeof hand.file === 'string' ? { file: hand.file, gainDb: DEFAULT_MUSIC_DB } : null);
+  if (!from) return null;
+  return { ...from, ...(typeof hand.file === 'string' ? { file: hand.file } : {}), ...(isNum(hand.gainDb) ? { gainDb: hand.gainDb } : {}) };
 }
 
 const SUB_MODES: Record<string, string> = { karaoke: 'караоке', plate: 'на плашке', word: 'по слову', accumulate: 'копятся', soft: 'мягкие' };
@@ -146,8 +160,8 @@ export function lookLines(look: BrandLook, font: (id: string) => string = (id) =
 
 /** Сохранить «Мой стиль» (null — убрать) одним коммитом; остальной бренд и логотип — как были. */
 export async function saveLook(gh: GH, look: BrandLook | null): Promise<void> {
-  await commitFiles(gh, BRAND_BRANCH, async () => {
-    const raw = await readText(gh, BRAND_BRANCH, `${BRAND_DIR}/brand.json`);
+  await commitFiles(gh, BRAND_BRANCH, async (head) => {
+    const raw = await readText(gh, head, `${BRAND_DIR}/brand.json`); // на голове, поверх которой коммит
     const { look: _old, ...brand } = { ...EMPTY_BRAND, ...(raw ? (JSON.parse(raw) as Partial<Brand>) : {}) };
     return { [`${BRAND_DIR}/brand.json`]: `${JSON.stringify(look ? { ...brand, look } : brand, null, 2)}\n` };
   }, look ? 'web: мой стиль' : 'web: мой стиль убран', { base: 'master' });

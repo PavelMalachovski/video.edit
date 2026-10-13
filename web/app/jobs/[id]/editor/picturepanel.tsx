@@ -18,8 +18,8 @@ const percent = (z: number) => `${Math.round(z * 100)} %`;
 
 /** Раздел «Картинка» справа: сила зума, затемнение фона (`dim` монтажа — из edit.json) и сколько ч/б-кусков и переходов в
  *  ролике. `note` — почему править нельзя. */
-export function PictureSection({ T, tracks, hand, dim, canZoom, note, onEdit }: {
-  T: TFn; tracks: Tracks; hand: HandEdits; dim: number; canZoom: boolean; note: string | null; onEdit: (next: HandEdits, key?: string) => void;
+export function PictureSection({ T, tracks, hand, dim, canZoom, canDim, note, onEdit }: {
+  T: TFn; tracks: Tracks; hand: HandEdits; dim: number; canZoom: boolean; canDim: boolean; note: string | null; onEdit: (next: HandEdits, key?: string) => void;
 }) {
   const zoom = hand.zoom ?? 1;
   const shade = hand.dim ?? dim;
@@ -41,13 +41,13 @@ export function PictureSection({ T, tracks, hand, dim, canZoom, note, onEdit }: 
       ) : null}
       <div className="ed-shade">
         <span className="ed-range-name">{T('dimStrength')}</span>
-        <input type="range" aria-label={T('dimStrength')} min={LIMITS.dim.min} max={LIMITS.dim.max} step={0.05} value={shade} disabled={!canZoom}
+        <input type="range" aria-label={T('dimStrength')} min={LIMITS.dim.min} max={LIMITS.dim.max} step={0.05} value={shade} disabled={!canDim}
           onChange={(e) => onEdit(setDim(hand, Number(e.target.value)), 'dim')} />
         <span className="mono">{percent(shade)}</span>
       </div>
       <p className="ed-note faint">{shade > 0 ? T('dimNote') : T('dimNone')}</p>
       {hand.dim !== undefined ? (
-        <button type="button" className="ed-btn" disabled={!canZoom} onClick={() => onEdit(setDim(hand, null))}>{T('dimReset')}</button>
+        <button type="button" className="ed-btn" disabled={!canDim} onClick={() => onEdit(setDim(hand, null))}>{T('dimReset')}</button>
       ) : null}
       <dl className="ed-facts">
         <dt>{T('bw')}</dt><dd className="mono">{T('ofTotal', { n: bw.filter((off) => !off).length, m: bw.length })}</dd>

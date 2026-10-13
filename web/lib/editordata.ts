@@ -1,6 +1,7 @@
 // Данные редактора (бета): черновик монтажа (edit.json), файлы редактора от vm prepare (editor.json), ссылки на прокси
 // (ассет черновика релиза — через /media) и ленту кадров (картинка ветки — через /file), стили и выбор Павла. Правки
 // руками — timeline.json: сохранение с ревизией (без force, гонка вкладок — конфликт) и «Монтировать» из редактора.
+import { parseLook, type BrandLook } from './brand.ts';
 import { commitFiles, listDir, readText } from './branch.ts';
 import { badSymbols, hasEmoji, MUSIC_FILE, parseTimeline, typedTexts, type HandEdits, type TimelineFile } from './edits.ts';
 import { sameJson } from './equal.ts';
@@ -26,6 +27,21 @@ export type Abilities = { edits: boolean; move: boolean; text: boolean; picture:
 export const ENGINE_SCHEMA = 'engine/vm/schemas/timeline.json';
 const ALL: Abilities = { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true };
 const NONE: Abilities = { edits: false, move: false, text: false, picture: false, track: false, card: false, video: false, place: false };
+
+/**
+ * Что Павел правит в редакторе. `editable` — правки сохраняются (у задачи есть черновик, сессия не работает, её движок
+ * правки знает); `mounted` — монтаж уже был (есть answers.json); `a` — что примет движок задачи. До монтажа — только то,
+ * чего не выбирают «Превью» и вопросы: куски, сила зума (ложится на любой зум монтажа), громкости. Скорость, затемнение
+ * фона, трек, тизер, ч/б-куски и переходы (`marks`), текст, карточка и места на кадре — после него: до монтажа их
+ * выбирают ответы, и правка руками молча перебила бы ответ или потеряла бы своё место.
+ */
+export function editorGates(editable: boolean, mounted: boolean, a: Abilities = ALL) {
+  const after = editable && mounted;
+  return {
+    move: editable && a.move, zoom: editable && a.picture, marks: after && a.picture, track: after && a.track,
+    speed: after && a.video, teaser: after && a.video, text: after && a.text, card: after && a.card, place: after && a.text && a.place,
+  };
+}
 
 /** Схема timeline.json из ветки задачи → что примет её движок. Схемы нет — ничего (задача до редактора); есть, но не
  *  читается — движок нынешний. */
@@ -82,6 +98,7 @@ export type EditorData = {
   beats: BeatsFile | null; // доли музыки (beats.json от vm render): вставки и зум встают на них, как в ролике
   library: string[]; // треки библиотеки в ветке задачи (assets/music/…): другой трек — из них
   rev: number; // ревизия timeline.json в ветке (нет — 0): от неё сохраняется следующая
+  brandLook: BrandLook | null; // «Мой стиль» из копии бренда задачи: до монтажа стиль начинается с него, как на «Превью»
 };
 
 const MUSIC_DIR = 'assets/music';
@@ -166,6 +183,7 @@ export async function loadEditor(gh: GH, id: string): Promise<EditorData | null>
     beats: parseBeats(json(beats)),
     library,
     ...timelineOf(timeline),
+    brandLook: parseLook(f?.job?.brand?.look),
   };
 }
 

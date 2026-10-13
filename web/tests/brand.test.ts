@@ -114,6 +114,22 @@ test('the look of a montaged video: its style and speed from answers, dim and mu
   assert.equal(lookFromJob({ answers: null, edit: null, timeline: null }, FROM), null, 'стиля нет — нечего сохранять');
 });
 
+test('the look takes the dim and the music the video was montaged with — the engine lays the editor over edit.json', () => {
+  const edit = { speed: 1.1, music: { file: 'assets/music/calm.m4a', gainDb: -14 } };
+  const answers = { answers: { dim: '30', music: 'bleak.m4a' }, style: STYLE };
+  const music = (timeline: Record<string, unknown> | null, e: Record<string, unknown> = edit) => lookFromJob({ answers, edit: e, timeline }, FROM)?.music;
+  assert.deepEqual(music({ music: { gainDb: -20 } }), { file: 'calm.m4a', gainDb: -20 }, 'тише руками — тот же трек');
+  assert.deepEqual(music({ music: { fadeIn: 2 } }), { file: 'calm.m4a', gainDb: -14 }, 'место и плавность — тот же трек');
+  assert.equal(music({ music: { file: 'assets/music/bleak.m4a', muted: true } }), null, 'музыку заглушили — без музыки');
+  assert.deepEqual(music({ music: { file: 'assets/music/bleak.m4a' } }, { speed: 1.1, music: null }), { file: 'bleak.m4a', gainDb: -14 },
+    'трек руками к ролику без музыки — с громкостью по умолчанию');
+  assert.equal(music(null, { speed: 1.1, music: null }), null, 'в ролике музыки нет («Поправить: убери музыку») — ответ не в счёт');
+  const dim = (e: Record<string, unknown>, timeline: Record<string, unknown> | null = null) => lookFromJob({ answers, edit: e, timeline }, FROM)?.dim;
+  assert.equal(dim(edit), 0, 'затемнение не вошло в ролик — ответ «30 %» не в счёт');
+  assert.equal(dim({ ...edit, dim: 0.5 }), 50);
+  assert.equal(dim({ ...edit, dim: 0.5 }, { dim: 0 }), 0, 'убрано руками');
+});
+
 test('parseLook takes only what the page itself writes', () => {
   const ok = { style: STYLE, speed: 1.2, dim: 30, music: { file: 'calm.m4a', gainDb: -14 }, from: FROM };
   assert.deepEqual(parseLook(ok), ok);

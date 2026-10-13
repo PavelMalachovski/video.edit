@@ -15,7 +15,7 @@ import { musicBeats } from '@/lib/beats.ts';
 import { blockRoom, finalEdges, hookUntil, sourceSpan, stackRows } from '@/lib/blocks.ts';
 import { storage } from '@/lib/client.ts';
 import { createClock } from '@/lib/clock.ts';
-import { layerUrl, type EditorData } from '@/lib/editordata.ts';
+import { editorGates, layerUrl, type EditorData } from '@/lib/editordata.ts';
 import { sameJson } from '@/lib/equal.ts';
 import {
   commit, cutSpan, EMPTY, initHistory, moveSpan, placeBlock, redo, restoreSpan, setBlock, setCta, setHook, setLook, setMusic, setTransition, setVoice, splitAt,
@@ -137,26 +137,24 @@ export default function Editor({ id }: { id: string }) {
   // задача до редактора (в её ветке нет схемы timeline.json): её движок правок руками не знает — только смотреть
   const editable = Boolean(data?.draft) && EDITABLE.includes(data?.screen ?? '') && (data?.abilities.edits ?? true);
   const mounted = Boolean(data?.answers);
-  // что примет движок задачи (старая задача — старый движок) и когда правится текст: после монтажа (до него ответы на
-  // вопросы ещё поменяют хук, титр и вставки — правки потеряли бы своё место)
-  const canMove = editable && (data?.abilities.move ?? true);
-  const canText = editable && mounted && (data?.abilities.text ?? true);
+  // что примет движок задачи (старая задача — старый движок) и что правится до монтажа: только то, чего не выбирают
+  // «Превью» и вопросы (куски, сила зума, громкости) — остальное после него (editorGates)
+  const gates = editorGates(editable, mounted, data?.abilities);
+  const canMove = gates.move;
+  const canText = gates.text;
   const textNote = !data?.draft ? null : !mounted ? T('textAfterMount') : !data.abilities.text ? T('textOld') : null;
-  // картинка: сила зума — и до монтажа (ложится на любой зум монтажа); ч/б-куски и переходы — после него (до него ч/б
-  // выбирают ответы на вопросы, и правка потеряла бы своё место)
-  const canZoom = editable && (data?.abilities.picture ?? true);
-  const canMarks = canZoom && mounted;
+  const canZoom = gates.zoom;
+  const canMarks = gates.marks; // ч/б-куски, переходы и затемнение фона
   const pictureNote = !data?.draft ? null : !data.abilities.picture ? T('pictureOld') : !mounted ? T('pictureAfterMount') : null;
-  // трек музыки — и до монтажа (как громкость); финальная карточка — после него, как текст (её выбирает ответ на вопрос)
-  const canTrack = editable && (data?.abilities.track ?? true);
-  const canCard = editable && mounted && (data?.abilities.card ?? true);
+  const canTrack = gates.track;
+  const trackNote = !editable || !data?.draft ? null : !data.abilities.track ? T('trackOld') : !mounted ? T('trackAfterMount') : null;
+  const canCard = gates.card;
   const cardNote = !data?.draft ? null : !mounted ? T('textAfterMount') : !data.abilities.card ? T('cardOld') : null;
-  // место вставок и акцентов на кадре — после монтажа, как текст (до него их места выбирает «Превью»)
-  const canPlace = canText && (data?.abilities.place ?? true);
+  const canPlace = gates.place;
   const placeNote = data?.draft && mounted && data.abilities.text && !data.abilities.place ? T('placeOld') : null;
-  // скорость ролика — и до монтажа; тизер — после него (до него его выбирает ответ на вопрос)
-  const canSpeed = editable && (data?.abilities.video ?? true);
-  const canTeaser = canSpeed && mounted;
+  const canSpeed = gates.speed;
+  const canTeaser = gates.teaser;
+  const videoNote = !editable ? null : !data?.abilities.video ? T('videoOld') : !mounted ? T('speedAfterMount') : null;
 
   // правки из ветки: при первой загрузке, после «Загрузить их» и когда пришла чужая ревизия (вторая вкладка), а своих
   // несохранённых нет. Своя сохранённая ревизия — уже в rev: данные с ней ничего не сбрасывают.
@@ -228,12 +226,13 @@ export default function Editor({ id }: { id: string }) {
   const shown = useRef<unknown>(undefined); // стиль ролика, от которого начат выбор: новые данные с тем же — выбор не трогают
   useEffect(() => {
     // смонтирован — от стиля ролика (новый, ещё не смонтированный, живёт до перезагрузки); иначе — выбор с «Превью»
+    // (выбора ещё нет — «Мой стиль» бренда, как там)
     if (!styles) return;
     const rendered = data?.answers?.style ?? null;
     if (shown.current !== undefined && sameJson(shown.current, rendered)) return;
     shown.current = rendered;
-    setChoiceState(rendered ?? loadChoice(storage(), id, styles));
-  }, [styles, data?.answers, id]);
+    setChoiceState(rendered ?? loadChoice(storage(), id, styles, data?.brandLook?.style ?? null));
+  }, [styles, data?.answers, data?.brandLook, id]);
   const styleLocked = data?.screen === 'working';
   const pick = (c: StyleChoice) => {
     if (!styles || styleLocked) return;
@@ -439,6 +438,9 @@ export default function Editor({ id }: { id: string }) {
     show(duration);
     return true;
   }, [tracks, tail, duration, show]);
+  useEffect(() => { // скорость поменяли, пока играет (ползунок, отмена): видео сразу идёт с ней — часы считают по ней
+    if (video.current) video.current.playbackRate = speed;
+  }, [speed]);
   const play = useCallback(async () => {
     const v = video.current;
     if (!v || !tracks?.video.length) return;
@@ -1042,7 +1044,7 @@ export default function Editor({ id }: { id: string }) {
             <Inspector T={T} sel={sel} tracks={tracks} hand={hand} mix={mix} editable={editable} canMove={canMove} splitHere={splitHere} videos={videos}
               onSplit={doSplit} onDelete={doDelete} onMove={doMove} onEdit={edit} sec={sec}
               music={{ library: data?.library ?? [], session: data?.draft?.music?.file ?? null, beats: data?.beats?.file ?? null, canTrack,
-                note: editable && data?.draft && !data.abilities.track ? T('trackOld') : null }} />
+                note: trackNote }} />
           ) : null}
           {hint ? <p className="ed-note ed-flag bad" role="status">{hint}</p> : null}
           {data?.draft && editable && !data.abilities.move ? <p className="ed-note faint">{T('moveOld')}</p> : null}
@@ -1051,11 +1053,12 @@ export default function Editor({ id }: { id: string }) {
             <StylePanel T={T} styles={styles} choice={choice} spec={spec} offered={offered} locked={styleLocked} note={styleNote} onPick={pick} />
           ) : null}
           {tracks ? (
-            <PictureSection T={T} tracks={tracks} hand={hand} dim={draft?.dim ?? 0} canZoom={canZoom} note={editable ? pictureNote : null} onEdit={edit} />
+            <PictureSection T={T} tracks={tracks} hand={hand} dim={draft?.dim ?? 0} canZoom={canZoom} canDim={canMarks} note={editable ? pictureNote : null}
+              onEdit={edit} />
           ) : null}
           {tracks && draft ? (
             <VideoSection T={T} hand={hand} speed={draft.speed} teaser={Boolean(draft.teaser)} canSpeed={canSpeed} canTeaser={canTeaser}
-              note={editable && !data?.abilities.video ? T('videoOld') : null} teaserNote={editable && !mounted ? T('teaserAfterMount') : null} onEdit={edit}
+              note={videoNote} teaserNote={editable && !mounted ? T('teaserAfterMount') : null} onEdit={edit}
               num={(x) => (lang === 'en' ? x.toFixed(2) : x.toFixed(2).replace('.', ','))} />
           ) : null}
           {videos && tracks ? (

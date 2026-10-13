@@ -16,24 +16,44 @@ function ago(at: string, now: number): string {
 }
 
 /** Кнопка действия: пока запрос идёт — выключена; отказ сервера (409, 502…) — текстом под ней. */
-export function ActionButton({ label, action, onAction, primary = false }: { label: string; action: Action; onAction: Act; primary?: boolean }) {
+/** Кнопка шага. `confirm` — действие, которое не отменить: сперва вопрос `text` и кнопка `yes`, по ней — действие. */
+export function ActionButton({ label, action, onAction, primary = false, confirm }:
+  { label: string; action: Action; onAction: Act; primary?: boolean; confirm?: { text: string; yes: string } }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [asking, setAsking] = useState(false);
+  const run = async () => {
+    setBusy(true);
+    setError('');
+    const why = await onAction(action);
+    setBusy(false);
+    setAsking(false);
+    if (why) setError(why);
+  };
   return (
     <div className="action">
-      <button type="button" className={primary ? 'btn' : 'btn ghost'} disabled={busy} onClick={async () => {
-        setBusy(true);
-        setError('');
-        const why = await onAction(action);
-        setBusy(false);
-        if (why) setError(why);
-      }}>
-        {label}
-      </button>
-      {error ? <div className="err small">{error}</div> : null}
+      {asking && confirm ? (
+        <div className="confirm" role="group" aria-label={label}>
+          <div className="small">{confirm.text}</div>
+          <div className="row">
+            <button type="button" className="btn" disabled={busy} onClick={run}>{confirm.yes}</button>
+            <button type="button" className="btn ghost" disabled={busy} onClick={() => setAsking(false)}>Отмена</button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" className={primary ? 'btn' : 'btn ghost'} disabled={busy} onClick={confirm ? () => setAsking(true) : run}>
+          {label}
+        </button>
+      )}
+      {error ? <div className="err small" role="alert">{error}</div> : null}
     </div>
   );
 }
+
+const UNVOICE = {
+  text: 'Озвучка больше не будет участвовать в этом ролике: анализ пойдёт заново со звуком самого видео. Вернуть её можно только новой задачей.',
+  yes: 'Да, без озвучки',
+};
 
 export default function Phases({ view, repo, onAction }: { view: JobView; repo: string; onAction: Act }) {
   const status = view.status;
@@ -65,9 +85,10 @@ export default function Phases({ view, repo, onAction }: { view: JobView; repo: 
       <div className="card bad">
         <b>{status?.message ?? 'Шаг не получился'}</b>
         {status?.error ? <div className="mono muted small pre">{status.error}</div> : null}
-        {/* сорвался анализ задачи с озвучкой (в неё попала песня и т. п.) — повтор без неё, видео заново не грузить */}
-        {canRun(view, 'unvoice') === null ? <ActionButton label="Повторить без озвучки" action="unvoice" onAction={onAction} primary /> : null}
-        <ActionButton label="Повторить" action="retry" onAction={onAction} primary={canRun(view, 'unvoice') !== null} />
+        <ActionButton label="Повторить" action="retry" onAction={onAction} primary />
+        {/* сорвался анализ задачи с озвучкой (в неё попала песня и т. п.) — повтор без неё, видео заново не грузить; озвучку
+            потом не вернуть — сперва вопрос */}
+        {canRun(view, 'unvoice') === null ? <ActionButton label="Повторить без озвучки" action="unvoice" onAction={onAction} confirm={UNVOICE} /> : null}
         {view.step && BACK[view.step] ? <ActionButton label={BACK[view.step]!} action="back" onAction={onAction} /> : null}
         {session}
         {previous}

@@ -365,6 +365,7 @@ const segments = [
     await page.getByText('Не удалось расшифровать').waitFor({ timeout: 7000 });
     await shot(page, 'phases-error');
     check(await page.getByRole('button', { name: 'Повторить без озвучки' }).count() === 1, 'у задачи с озвучкой анализ можно повторить и без неё');
+    check(await page.getByRole('button', { name: 'Повторить', exact: true }).getAttribute('class') === 'btn', 'главная кнопка ошибки — «Повторить»');
     await page.getByRole('button', { name: 'Повторить', exact: true }).click();
     await until(async () => (await fires()).some((f) => f.step === 'analyze' && f.attempt === 3), 10_000, 'повтор шага');
 
@@ -375,6 +376,13 @@ const segments = [
     await page.getByText('В «Озвучке» песня').waitFor({ timeout: 7000 });
     await shot(page, 'phases-error-voice');
     await page.getByRole('button', { name: 'Повторить без озвучки' }).click();
+    // озвучку потом не вернуть — сперва вопрос; «Отмена» ничего не делает
+    await page.getByRole('button', { name: 'Отмена' }).click();
+    check((await fires()).every((f) => f.attempt < 4), 'отмена не запускает анализ');
+    await page.getByRole('button', { name: 'Повторить без озвучки' }).click();
+    await page.getByText('Вернуть её можно только новой задачей').waitFor({ timeout: 3000 });
+    await shot(page, 'phases-unvoice-confirm');
+    await page.getByRole('button', { name: 'Да, без озвучки' }).click();
     await until(async () => (await fires()).some((f) => f.step === 'analyze' && f.attempt === 4), 10_000, 'повтор без озвучки');
     const unvoiced = JSON.parse((await branchFile(ctx, 'job.json')) ?? '{}');
     check(!unvoiced.uploads.some((u) => u.kind === 'audio'), `озвучка осталась в job.json: ${JSON.stringify(unvoiced.uploads)}`);
@@ -921,6 +929,14 @@ const segments = [
       check(await dim.inputValue() === '35', `«Фон» — как в «Моём стиле»: ${await dim.inputValue()}`);
       check(await page.locator('[data-question="music"]').getByRole('button', { name: 'Без музыки' }).getAttribute('aria-pressed') === 'true',
         '«Музыка» — как в «Моём стиле» (без музыки)');
+      // редактор до монтажа — тоже от «Моего стиля», как «Превью»
+      await page.getByRole('link', { name: /Открыть в редакторе/ }).click();
+      await page.waitForURL(/\/editor$/);
+      const edSpec = async () => JSON.parse((await page.locator('.ed-layer iframe').getAttribute('data-spec')) ?? '{}');
+      await until(async () => (await edSpec()).colors?.accent === answers.style.colors.accent, 10_000,
+        async () => `редактор — «Моим стилем»: ${JSON.stringify((await edSpec()).colors)}`);
+      await page.getByRole('link', { name: 'К задаче' }).click();
+      await dim.waitFor({ timeout: 10_000 });
       await page.getByRole('button', { name: 'Показать превью' }).click();
       await page.getByText('Выбери стиль').waitFor();
       const spec = async () => JSON.parse((await page.locator('iframe[data-big]').getAttribute('data-spec')) ?? '{}');
@@ -1268,6 +1284,17 @@ const segments = [
     await onFrame('Вставка').waitFor({ timeout: 3000 });
     const s0 = await stickerNow();
     check(s0?.x === 120 && s0.y === 1100 && s0.w === 400, `стикер на кадре: ${JSON.stringify(s0)}`);
+    // касание с дрожанием пальца (2 px экрана) — не перетаскивание: место остаётся как у монтажа, правки нет
+    {
+      const r = await onFrame('Вставка').boundingBox();
+      await page.mouse.move(r.x + r.width / 2, r.y + r.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(r.x + r.width / 2 + 2, r.y + r.height / 2 + 1);
+      await page.mouse.up();
+      await page.waitForTimeout(300);
+      check(isDeepStrictEqual(await stickerNow(), s0), `касание сдвинуло стикер: ${JSON.stringify(await stickerNow())}`);
+      check(await page.getByRole('button', { name: 'Место как у монтажа' }).count() === 0, 'касание — не место руками');
+    }
     await dragBy(onFrame('Вставка'), 30, -45);
     const moved = { x: Math.round(120 + 30 / k), y: Math.round(1100 - 45 / k) };
     await until(async () => { const i = await stickerNow(); return i?.x === moved.x && i.y === moved.y && i.w === 400; }, 3000,
@@ -1581,6 +1608,9 @@ const segments = [
     for (let k = 0; k < 5; k++) await page.keyboard.press('ArrowRight');
     await page.locator('.ed-video-panel').getByText('×1,25').waitFor({ timeout: 3000 });
     await until(async () => (await total()) < before - 0.2, 3000, async () => `ролик короче: было ${before}, стало ${await total()}`);
+    // видео идёт с новой скоростью сразу, а не со следующего пуска (иначе часы и звук разъезжаются с картинкой)
+    const rate = async () => page.locator('video[data-editor-video]').evaluate((el) => el.playbackRate);
+    await until(async () => Math.abs((await rate()) - 1.25) < 1e-6, 3000, async () => `скорость видео: ${await rate()}`);
     // тизер — убрать: первым на дорожке — кусок
     await page.locator('.ed-video-panel').getByRole('button', { name: 'Тизер в начале' }).click();
     await until(async () => (await page.locator('.ed-piece.teaser').count()) === 0, 3000, 'тизер убран');

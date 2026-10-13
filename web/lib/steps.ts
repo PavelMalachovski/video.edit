@@ -2,7 +2,7 @@
 // Входные файлы шага, новая запись в job.json и статус «queued» ложатся одним коммитом ДО запуска рутины: сессия,
 // стартовав, уже видит всё в ветке. Текст запуска — только {job, step, attempt}.
 import { brandForJob } from './brand.ts';
-import { commitFiles, deleteBranch, readText, type FileMap } from './branch.ts';
+import { commitFiles, deleteBranch, listDir, readText, type FileMap } from './branch.ts';
 import { createDraftRelease, deleteRelease, findReleaseByTag, listAllAssets, readAssetText, type GH } from './github.ts';
 import { backStatus, buildJobFile, errorStatus, queuedStatus, type AnswersFile, type FixFile, type JobFile, type Manifest, type Run } from './jobfiles.ts';
 import { jobBranch, jobDir, jobTag, newJobId } from './jobs.ts';
@@ -105,7 +105,11 @@ export async function retryWithoutVoice(d: Deps, id: string): Promise<{ attempt:
   if (!job) throw new Error('Задача не найдена: в ветке нет job.json');
   if (!job.uploads.some((u) => u.kind === 'audio')) throw new Error('Озвучки нет — повторите шаг');
   const unvoiced = { ...job, uploads: job.uploads.filter((u) => u.kind !== 'audio') };
-  return runStep(d, id, 'analyze', Object.fromEntries(FROM_SOUND.map((name) => [name, null])), { retry: true, base: unvoiced });
+  // удаляются только файлы, что есть в ветке: сорвавшийся анализ мог не запушить ничего, а GitHub на удаление файла,
+  // которого нет, отвечает 422
+  const present = new Set(((await listDir(d.gh, jobBranch(id), jobDir(id))) ?? []).map((e) => e.name));
+  const drop = Object.fromEntries(FROM_SOUND.filter((name) => present.has(name)).map((name) => [name, null]));
+  return runStep(d, id, 'analyze', drop, { retry: true, base: unvoiced });
 }
 
 /**

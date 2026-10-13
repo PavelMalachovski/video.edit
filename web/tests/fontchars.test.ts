@@ -46,3 +46,25 @@ test('what Pavel typed goes to the font that draws it: the hook\'s last word and
   assert.ok(accent.main.includes('ПЛАН→'));
   assert.deepEqual(typedText({ edits: [] }, false), { main: '', hand: '' }, 'ничего не набрано');
 });
+
+test('a browser without the RegExp v flag (Safari before 17) still loads the letter check, emoji still need no glyph', async () => {
+  // \p{RGI_Emoji} — только с флагом v: в браузере постарше `new RegExp(…, 'v')` бросает SyntaxError, а модуль грузят
+  // экраны задачи и редактор — страница не должна падать
+  const Native = RegExp;
+  globalThis.RegExp = new Proxy(Native, {
+    construct(target, args: [string | RegExp, string?]) {
+      if ((args[1] ?? '').includes('v')) throw new SyntaxError('Invalid flags supplied to RegExp constructor');
+      return Reflect.construct(target, args);
+    },
+  });
+  try {
+    const fresh = '../lib/fontchars.ts?without-v-flag'; // другой адрес — модуль грузится заново, уже без флага v
+    const old = (await import(fresh)) as typeof import('../lib/fontchars.ts');
+    const have = new Set([...'Привет ПРИВЕТ'].map((c) => c.codePointAt(0) as number));
+    assert.equal(old.missingLetters(have, 'Привет 🔥 👍🏽 ❤️'), '', 'эмодзи — картинки, буквы есть');
+    assert.equal(old.missingLetters(have, 'Привет ж'), 'Жж');
+    assert.equal(old.handWord('Привет мир 🔥'), 'мир 🔥');
+  } finally {
+    globalThis.RegExp = Native;
+  }
+});

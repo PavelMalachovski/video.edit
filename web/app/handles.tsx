@@ -6,6 +6,7 @@ import { useRef } from 'react';
 
 export const STEP = 20; // px кадра на нажатие «Выше» / «Ниже» и стрелку
 const GROW = 540; // уголок ⤢: на столько px кадра (половина его ширины) потянуть вправо, чтобы размер вырос вдвое
+const SLOP = 4; // px экрана: палец дрожит и при касании — пока он не ушёл дальше, это не перетаскивание (место не трогаем)
 
 /** Рамка нарисованного на кадре (от шаблона: window.layoutBoxes), px кадра. */
 export type Box = { x: number; y: number; w: number; h: number };
@@ -13,10 +14,11 @@ export type Box = { x: number; y: number; w: number; h: number };
 type HandleProps = {
   label: string; y: number; range: { min: number; max: number }; scale: number; onMove: (y: number) => void; size: number; onSize: (size: number) => void;
 };
+// x0, y0 — где палец или мышь нажали; live — ушли дальше SLOP: жест начался
 type Gesture =
-  | { kind: 'move'; from: number; y: number }
-  | { kind: 'drag'; fromX: number; fromY: number; x: number; y: number }
-  | { kind: 'grow'; from: number; size: number }
+  | { kind: 'move'; x0: number; y0: number; live: boolean; y: number }
+  | { kind: 'drag'; x0: number; y0: number; live: boolean; x: number; y: number }
+  | { kind: 'grow'; x0: number; y0: number; live: boolean; size: number }
   | { kind: 'pinch'; span: number; size: number };
 
 /** Жесты ручки: один палец или мышь — `move` (только выше-ниже) или `drag` (куда угодно); два пальца — щипок, `onSize`;
@@ -46,24 +48,30 @@ function useGestures(scale: number, size: number, onSize: (size: number) => void
       }
       points.current.set(e.pointerId, e.clientX);
       const g = gesture.current;
+      const at = { x0: e.clientX, y0: e.clientY, live: false };
       if (points.current.size >= 2) {
-        if (g?.kind === 'move') move?.onMove(g.y); // первый палец уже сдвинул ручку — щипок только про размер
-        if (g?.kind === 'drag') drag?.onDrag(g.x, g.y);
+        // первый палец уже сдвинул ручку — щипок только про размер: место — как до жеста
+        if (g?.kind === 'move' && g.live) move?.onMove(g.y);
+        if (g?.kind === 'drag' && g.live) drag?.onDrag(g.x, g.y);
         gesture.current = { kind: 'pinch', span: Math.max(1, span()), size };
       } else if ((e.target as HTMLElement).closest('[data-grip]')) {
-        gesture.current = { kind: 'grow', from: e.clientX, size };
+        gesture.current = { kind: 'grow', ...at, size };
       } else if (move) {
-        gesture.current = { kind: 'move', from: e.clientY, y: move.y };
+        gesture.current = { kind: 'move', ...at, y: move.y };
       } else if (drag) {
-        gesture.current = { kind: 'drag', fromX: e.clientX, fromY: e.clientY, x: drag.x, y: drag.y };
+        gesture.current = { kind: 'drag', ...at, x: drag.x, y: drag.y };
       }
     },
     onPointerMove: (e: React.PointerEvent<HTMLElement>) => {
       if (points.current.has(e.pointerId)) points.current.set(e.pointerId, e.clientX);
       const g = gesture.current;
-      if (g?.kind === 'move') move?.onMove(g.y + (e.clientY - g.from) / scale);
-      else if (g?.kind === 'drag') drag?.onDrag(g.x + (e.clientX - g.fromX) / scale, g.y + (e.clientY - g.fromY) / scale);
-      else if (g?.kind === 'grow') onSize(g.size * (1 + (e.clientX - g.from) / (GROW * scale)));
+      if (g && g.kind !== 'pinch' && !g.live) {
+        if (Math.hypot(e.clientX - g.x0, e.clientY - g.y0) < SLOP) return; // касание, а не перетаскивание
+        g.live = true;
+      }
+      if (g?.kind === 'move') move?.onMove(g.y + (e.clientY - g.y0) / scale);
+      else if (g?.kind === 'drag') drag?.onDrag(g.x + (e.clientX - g.x0) / scale, g.y + (e.clientY - g.y0) / scale);
+      else if (g?.kind === 'grow') onSize(g.size * (1 + (e.clientX - g.x0) / (GROW * scale)));
       else if (g?.kind === 'pinch' && points.current.size >= 2) onSize((g.size * span()) / g.span);
     },
     onPointerUp: (e: React.PointerEvent<HTMLElement>) => end(e.pointerId),

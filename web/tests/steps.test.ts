@@ -106,6 +106,21 @@ test('retry without the voice drops the voice upload and what analyze made from 
   await assert.rejects(retryWithoutVoice(d, ID), /озвучки нет/i);
 }));
 
+test('retry without the voice works when analyze failed before pushing anything it made', () => withFake(async ({ fake, gh, routine }) => {
+  // сессия остановилась на `vm status --state error --push`: в ветке только status.json — удалять из неё нечего
+  // (настоящий GitHub на удаление файла, которого нет, отвечает 422)
+  const voice = { asset: 'upload-voice.m4a', name: 'Sleepwalker.m4a', size: 5, type: 'audio/x-m4a', parts: 1 };
+  fake.addAsset(`job-${ID}`, 'manifest.json', JSON.stringify({ ...MANIFEST, uploads: [...MANIFEST.uploads, voice] }));
+  const d: Deps = { gh, routine, now: () => NOW };
+  await startJob(d, ID);
+  const branch = `claude/job-${ID}`;
+  fake.commit(branch, { [`jobs/${ID}/status.json`]: JSON.stringify({ state: 'error', phase: 'Ошибка', message: 'В «Озвучке» песня', at: NOW.toISOString() }) }, 'session');
+  const r = await retryWithoutVoice(d, ID);
+  assert.equal(r.attempt, 2);
+  assert.deepEqual(fake.fires.map((f) => [f.step, f.attempt]), [['analyze', 1], ['analyze', 2]]);
+  assert.deepEqual(read(fake, branch, 'job.json').uploads.map((u: { kind: string }) => u.kind), ['image']);
+}));
+
 test('startJob refuses a second start', () => withFake(async ({ fake, gh, routine }) => {
   fake.addAsset(`job-${ID}`, 'manifest.json', JSON.stringify(MANIFEST));
   const d: Deps = { gh, routine, now: () => NOW };

@@ -72,7 +72,8 @@ function SaveLook({ jobId }: { jobId: string }) {
       <button type="button" className="btn ghost" disabled={state.kind === 'busy'} onClick={() => void save()}>
         {state.kind === 'done' ? 'Сохранено в «Мой бренд»' : 'Сохранить стиль ролика в «Мой бренд»'}
       </button>
-      {state.kind === 'error' ? <div className="err small">{state.text}</div> : null}
+      <div role="status" className="sr-only">{state.kind === 'done' ? 'Стиль сохранён в «Мой бренд»' : ''}</div>
+      {state.kind === 'error' ? <div className="err small" role="alert">{state.text}</div> : null}
     </div>
   );
 }

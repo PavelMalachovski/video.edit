@@ -86,7 +86,16 @@ function decode(v: DataView, at: number): Set<number> {
 // селекторы вариантов (и FE0F), селекторы-дополнения, оттенки кожи — глифа не требуют (fonts.INVISIBLE)
 const invisible = (cp: number) => (cp >= 0xfe00 && cp < 0xfe10) || (cp >= 0xe0100 && cp < 0xe01f0) || (cp >= 0x1f3fb && cp < 0x1f400);
 const DRAWN = /^[\p{L}\p{M}\p{N}\p{P}\p{Sc}\p{Sm}\p{Sk}]$/u; // fonts._drawn: буквы, метки, цифры, препинание, валюты…
-const RGI = new RegExp('\\p{RGI_Emoji}', 'gv'); // эмодзи — картинки шаблона (emoji.runs): им шрифт не нужен
+/** Эмодзи — картинки шаблона (emoji.runs): им шрифт не нужен. `\p{RGI_Emoji}` — только с флагом v (Safari 17, Chrome
+ *  112); в браузере постарше — пиктограммы с ZWJ, селекторами и оттенками кожи и флаги: модуль грузят экраны задачи и
+ *  редактор, падать при загрузке он не должен. */
+const RGI: RegExp = (() => {
+  try {
+    return new RegExp('\\p{RGI_Emoji}', 'gv');
+  } catch {
+    return /\p{Extended_Pictographic}(?:\uFE0F|[\u{1F3FB}-\u{1F3FF}])*(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|[\u{1F3FB}-\u{1F3FF}])*)*|[\u{1F1E6}-\u{1F1FF}]{2}/gu;
+  }
+})();
 const KEYCAP = /[#*0-9]\u20e3/gu; // кейкап и без FE0F — эмодзи (в списке картинок FE0F не важен)
 const code = (c: string) => c.codePointAt(0) as number;
 

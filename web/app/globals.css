@@ -247,6 +247,7 @@ input:focus-visible, textarea:focus-visible { outline: 2px solid var(--select); 
 .seg { display: flex; gap: 3px; padding: 3px; border-radius: 10px; background: var(--hover); }
 .seg > button { flex: 1; min-height: 44px; border: none; border-radius: 8px; background: transparent; color: var(--muted); font-size: 13px; font-weight: 600; cursor: pointer; }
 .seg > button[aria-pressed=true] { background: var(--text); color: #fff; }
+.seg > button:disabled { cursor: default; opacity: .45; } /* вид затемнения, которого у субтитров на плашке нет */
 
 .variants { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .variant { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }

@@ -6,9 +6,9 @@ import type { EditorMedia } from '@/lib/tracks.ts';
 import { LIMITS, setMusic, setSound, setTrack, setVoice, type HandEdits, type Level } from '@/lib/edits.ts';
 import { tenths } from '@/lib/format.ts';
 import type { Key } from '@/lib/i18n.ts';
-import { ADJUST, BAR_POSITIONS, HOOK_MODES, SUBTITLE_MODES, type Adjustable, type BarPos, type HookMode, type StyleChoice, type SubtitleMode } from '@/lib/jobfiles.ts';
+import { ADJUST, BAR_POSITIONS, HOOK_MODES, SHADE_KINDS, SUBTITLE_MODES, type Adjustable, type BarPos, type HookMode, type ShadeKind, type StyleChoice, type SubtitleMode } from '@/lib/jobfiles.ts';
 import type { MusicMix } from '@/lib/sound.ts';
-import { choiceFor, clampTo, finalStyle, HOOK_Y_DEFAULT, ownAdjustments, SUB_SHADE, SWATCHES } from '@/lib/style.ts';
+import { choiceFor, clampTo, finalStyle, HOOK_Y_DEFAULT, ownAdjustments, shadeKindOf, shadeKindOk, SUB_SHADE, SWATCHES, withShadeKind } from '@/lib/style.ts';
 import { moveTarget, type Tracks } from '@/lib/tracks.ts';
 import type { BlockSel, SubSel } from './blockpanel';
 import type { PictureSel } from './picturepanel';
@@ -173,21 +173,25 @@ type ColorKey = keyof StyleChoice['colors'];
 const MODE_NAMES: Record<SubtitleMode, Key> = { karaoke: 'modeKaraoke', plate: 'modePlate', word: 'modeWord', accumulate: 'modeAccumulate', soft: 'modeSoft' };
 const HOOK_NAMES: Record<HookMode, Key> = { plate: 'hookPlate', outline: 'hookOutline', shadow: 'hookShadow', accent: 'hookAccent' };
 const BAR_NAMES: Record<BarPos, Key> = { bottom: 'barBottom', top: 'barTop' };
+const SHADE_NAMES: Record<ShadeKind, Key> = { spot: 'shadeSpot', shadow: 'shadeShadow', plate: 'shadePlate' };
 const COLOR_ROWS: [ColorKey, Key][] = [['accent', 'accentColor'], ['text', 'textColor'], ['bar', 'barColor']];
 
-/** Стиль ролика: вариант, шрифты, три цвета и затемнение под субтитрами — как на экране «Превью», в светлой теме.
- *  `note` — чей это выбор: общий с «Превью», ролика (новый — при «Монтировать») или закрыт, пока Claude монтирует. */
+/** Стиль ролика: вариант, шрифты, три цвета и затемнение под субтитрами с его видом — как на экране «Превью», в светлой
+ *  теме. `note` — чей это выбор: общий с «Превью», ролика (новый — при «Монтировать») или закрыт, пока Claude монтирует. */
 export function StylePanel({ T, styles, choice, spec, offered, locked, note, onPick }: {
   T: TFn; styles: Styles; choice: StyleChoice; spec: Spec | null;
   offered: { id: string; family: string; kind: 'main' | 'hand' }[]; locked: boolean; note: string; onPick: (c: StyleChoice) => void;
 }) {
-  // другой вариант — его шрифты и цвета; места, размеры и затемнение, что Павел выбрал сам, остаются (как на «Превью»)
+  // другой вариант — его шрифты и цвета; места, размеры, затемнение и его вид, что Павел выбрал сам, остаются (как на «Превью»)
   const pickVariant = (variant: StyleChoice['variant']) => onPick({
     ...choiceFor(styles, variant),
     ...ownAdjustments(choice),
   });
   const pickColor = (key: ColorKey, color: string) => onPick({ ...choice, colors: { ...choice.colors, [key]: color.toUpperCase() } });
-  const shade = Math.round((spec?.subtitles.shade ?? 0) * 100);
+  // затемнение и его вид — как на кадре (у смонтированного ролика — и с правками текстом); у субтитров на плашке — только пятно
+  const drawn = spec ?? finalStyle(styles, choice);
+  const shade = Math.round((drawn.subtitles.shade ?? 0) * 100);
+  const shadeKind = shadeKindOf(drawn);
   const fontButtons = (kind: 'main' | 'hand') => offered.filter((f) => f.kind === kind).map((f) => (
     <button key={f.id} type="button" className={`ed-font${kind === 'hand' ? ' hand' : ''}`} aria-pressed={(kind === 'hand' ? choice.hand : choice.font) === f.id}
       disabled={locked} style={{ fontFamily: `"pv-${f.id}", var(--font-ui)` }} onClick={() => onPick({ ...choice, [kind === 'hand' ? 'hand' : 'font']: f.id })}>
@@ -231,6 +235,14 @@ export function StylePanel({ T, styles, choice, spec, offered, locked, note, onP
           onChange={(e) => onPick({ ...choice, subShade: clampTo('subShade', Number(e.target.value) / 100) })} />
         <span className="mono">{shade ? `${shade} %` : T('shadeOff')}</span>
       </div>
+      {/* вид затемнения — как на «Превью»: вид при выключенном затемнении включает его на 60 %, сила остаётся */}
+      <div className="ed-modes" role="group" aria-label={T('shadeKind')}>
+        {SHADE_KINDS.map((k) => (
+          <button key={k} type="button" aria-pressed={shade > 0 && shadeKind === k && shadeKindOk(drawn, k)} disabled={locked || !shadeKindOk(drawn, k)}
+            onClick={() => onPick(withShadeKind(choice, k, drawn))}>{T(SHADE_NAMES[k])}</button>
+        ))}
+      </div>
+      {shadeKindOk(drawn, 'plate') ? null : <p className="ed-note faint">{T('shadeOwnPlate')}</p>}
       {/* вид субтитров и слов в группе; размер и место — как ручки на «Превью»: px кадра 1080×1920 */}
       <h3>{T('subtitles')}</h3>
       <div className="ed-modes" role="group" aria-label={T('subMode')}>

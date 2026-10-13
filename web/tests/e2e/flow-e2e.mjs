@@ -1089,6 +1089,12 @@ const segments = [
     check((await panel.textContent()).includes('Ролик смонтирован в этом стиле'), 'подсказка: стиль — ролика');
     check(await panel.getByRole('button', { name: /^B / }).getAttribute('aria-pressed') === 'true', 'выбран вариант ролика (B)');
     check(!(await panel.getByRole('button', { name: /^A / }).isDisabled()), 'после монтажа стиль можно поменять');
+    // вид затемнения — рядом с ползунком, как на «Превью»: у субтитров ролика своя плашка (B) — только пятно
+    const kinds = panel.getByRole('group', { name: 'Вид затемнения' });
+    check(await kinds.getByRole('button', { name: 'Тень' }).isDisabled() && await kinds.getByRole('button', { name: 'Плашка' }).isDisabled()
+      && !(await kinds.getByRole('button', { name: 'Пятно' }).isDisabled()), 'у субтитров на плашке (B) в редакторе — только пятно');
+    check((await panel.textContent()).includes('Субтитры уже на плашке'), 'подсказка про свою плашку — и в редакторе');
+    const frameSpec = async () => JSON.parse((await page.locator('.ed-layer iframe').getAttribute('data-spec')) ?? '{}');
     const mountBtn = page.getByRole('button', { name: 'Монтировать', exact: true });
     check(await mountBtn.isDisabled(), 'правок нет — монтировать нечего');
     // язык
@@ -1197,6 +1203,13 @@ const segments = [
     await page.locator('.ed-row.voice .ed-lane').click({ position: { x: 5, y: 10 } });
     await page.getByLabel('Голос: Громкость').fill('-6');
     await panel.getByRole('button', { name: /^A / }).click();
+    // у караоке (A) — все три вида; «Плашка» — на кадре сразу, сила — какая была (60 % — выбор Павла на «Превью»)
+    await until(async () => !(await kinds.getByRole('button', { name: 'Плашка' }).isDisabled()), 3000, 'у караоке плашка затемнения доступна');
+    await kinds.getByRole('button', { name: 'Плашка' }).click();
+    await until(async () => (await frameSpec()).subtitles?.shadeKind === 'plate', 3000,
+      async () => `плашка затемнения — на кадре: ${JSON.stringify((await frameSpec()).subtitles)}`);
+    check((await frameSpec()).subtitles.shade === 0.6 && await kinds.getByRole('button', { name: 'Плашка' }).getAttribute('aria-pressed') === 'true',
+      `вид поменялся, сила — нет: ${JSON.stringify((await frameSpec()).subtitles)}`);
     await page.locator('.ed-save').getByText('Сохранено').waitFor({ timeout: 8000 });
     const tl = JSON.parse((await branchFile(ctx, 'timeline.json')) ?? '{}');
     engineValidate('timeline.json', tl);
@@ -1217,13 +1230,15 @@ const segments = [
     const editorFix = JSON.parse((await branchFile(ctx, 'fix.json')) ?? '{}').fixes.at(-1);
     check(editorFix.text === 'Правки в редакторе' && editorFix.version === 3 && editorFix.timeline === tl.rev && editorFix.style === true,
       `правка из редактора: ${JSON.stringify(editorFix)}`);
-    check(JSON.parse((await branchFile(ctx, 'answers.json')) ?? '{}').style?.variant === 'A', 'новый стиль — в answers.json');
+    const restyled = JSON.parse((await branchFile(ctx, 'answers.json')) ?? '{}');
+    engineValidate('answers.json', restyled);
+    check(restyled.style?.variant === 'A' && restyled.style?.subShadeKind === 'plate' && restyled.style?.subShade === 0.6,
+      `новый стиль с видом затемнения — в answers.json: ${JSON.stringify(restyled.style)}`);
     await page.getByText('Claude монтирует новую версию').waitFor({ timeout: 7000 });
     // пока Claude монтирует новый стиль, кадр — уже в нём (ролик ещё в прошлом: новый ложится поверх, как в vm style --onto);
     // выбранный хук — рамкой, без ручки и ✎: тянуть и править его можно, когда Claude закончит
-    const frameSpec = async () => JSON.parse((await page.locator('.ed-layer iframe').getAttribute('data-spec')) ?? '{}');
-    await until(async () => (await frameSpec()).colors?.accent === '#FFD23F', 5000,
-      async () => `кадр — в стиле, ушедшем в монтаж: ${JSON.stringify((await frameSpec()).colors)}`);
+    await until(async () => (await frameSpec()).colors?.accent === '#FFD23F' && (await frameSpec()).subtitles?.shadeKind === 'plate', 5000,
+      async () => `кадр — в стиле, ушедшем в монтаж: ${JSON.stringify((await frameSpec()).colors)}, ${JSON.stringify((await frameSpec()).subtitles)}`);
     await page.locator('.ed-clip.text').first().click();
     await until(async () => (await page.locator('.ed-layer .ed-outline').count()) === 1, 3000, 'выбранный хук на кадре — рамкой');
     check(await page.locator('.ed-layer').getByRole('slider', { name: 'Хук на кадре' }).count() === 0, 'пока монтирует — хук не тянется');

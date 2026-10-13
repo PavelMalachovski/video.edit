@@ -72,7 +72,8 @@
 - Группы субтитров: `engine/vm/subs.py` (`build_sub_events`, блоки и строки soft) и `web/lib/style.ts` (`sampleState`).
 - Затемнение субтитров (пятно, тень, плашка): рисует `template/overlay.js` (`shadeOf`, `SHADE`, `HALO`, `SHADE_PLATE`);
   поля `subtitles.shade`/`shadeKind` — схема `styles.json` и `StyleSpec`; выбор `subShade`/`subShadeKind` — `answers.json`,
-  `ADJUSTED` движка и `ADJUST`, `isShadeKind` и `withShadeKind` страницы.
+  `ADJUSTED` движка и `ADJUST`, `isShadeKind` страницы; кнопки вида на «Превью» и в панели «Стиль» редактора — одно
+  правило: `withShadeKind`, `shadeKindOk` (у субтитров на плашке — только пятно, как `shadeOf`) в `web/lib/style.ts`.
 - Слой ролика (кадр редактора = финал): `engine/vm/subs.py` (`build_sub_events`) и `engine/vm/overlay.py`
   (`build_overlay_events`, `insert_spans`, `_hook_end`) ↔ `web/lib/subs.ts` (`buildSubEvents`, `subBlocks`) и
   `web/lib/overlay.ts` (`buildOverlayEvents`, `layerBlocks`, `insertSpans`, `hookEnd`); шкала монтажа на целых кадрах —

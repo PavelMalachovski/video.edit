@@ -52,9 +52,15 @@ export const SHADE_DEFAULT = 0.6;
 /** Вид затемнения в стиле (нет поля — пятно). */
 export const shadeKindOf = (spec: StyleSpec): ShadeKind => spec.subtitles.shadeKind ?? 'spot';
 
-/** Выбор с видом затемнения `kind`: сила — та, что уже есть, а если затемнение выключено — SHADE_DEFAULT. */
-export function withShadeKind(c: StyleChoice, kind: ShadeKind): StyleChoice {
-  return { ...c, subShadeKind: kind, subShade: c.subShade && c.subShade > 0 ? c.subShade : SHADE_DEFAULT };
+/** Вид `kind` можно выбрать у субтитров стиля: в режиме plate у них своя плашка — тень и плашку затемнения шаблон там не
+ *  рисует (shadeOf в template/overlay.js), остаётся пятно. */
+export const shadeKindOk = (spec: StyleSpec, kind: ShadeKind): boolean => kind === 'spot' || spec.subtitles.mode !== 'plate';
+
+/** Выбор с видом затемнения `kind`. Сила — та, что уже на кадре (`drawn` — стиль, который он рисует: у варианта бывает
+ *  своё затемнение, у смонтированного ролика в редакторе — и от правки текстом); затемнения нет — включает его на
+ *  SHADE_DEFAULT. */
+export function withShadeKind(c: StyleChoice, kind: ShadeKind, drawn: StyleSpec): StyleChoice {
+  return { ...c, subShadeKind: kind, ...((drawn.subtitles.shade ?? 0) > 0 ? {} : { subShade: SHADE_DEFAULT }) };
 }
 
 /** То, что Павел выбрал сам (места, размеры, затемнение и его вид, вид субтитров и слов в группе), — при смене варианта

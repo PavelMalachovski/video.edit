@@ -12,7 +12,7 @@ import { mmss } from '@/lib/format.ts';
 import { editorTabs, mountSummary, nextTab, STAGE, stageFit, type TabId } from '@/lib/editor.ts';
 import { COVER, type AbKind, type Adjustable, type Question, type ShadeKind, type StyleChoice, type Styles } from '@/lib/jobfiles.ts';
 import { MAX_NOTE } from '@/lib/jobs.ts';
-import { allowedFonts, brandChoice, choiceFor, clampTo, coverOf, ownAdjustments, finalStyle, INSERT_W, insertKey, loadAb, loadAd, loadChoice, loadCover, loadInsertBoxes, loadSpeed, moveBox, placeText, resizeBox, resolveInserts, sampleState, saveAb, saveAd, saveChoice, saveCover, saveInsertBoxes, saveSpeed, shadeKindOf, SPEEDS, SUB_SHADE, SWATCHES, textPlace, type CoverPick, type InsertBox, type TextPart, underCaption, withShadeKind } from '@/lib/style.ts';
+import { allowedFonts, brandChoice, choiceFor, clampTo, coverOf, ownAdjustments, finalStyle, INSERT_W, insertKey, loadAb, loadAd, loadChoice, loadCover, loadInsertBoxes, loadSpeed, moveBox, placeText, resizeBox, resolveInserts, sampleState, saveAb, saveAd, saveChoice, saveCover, saveInsertBoxes, saveSpeed, shadeKindOf, shadeKindOk, SPEEDS, SUB_SHADE, SWATCHES, textPlace, type CoverPick, type InsertBox, type TextPart, underCaption, withShadeKind } from '@/lib/style.ts';
 import {
   FrameIcon, GaugeIcon, LayersIcon, MoveIcon, PaletteIcon, RefreshIcon, ScissorsIcon, SplitIcon, TypeIcon,
 } from '../../icons';
@@ -221,7 +221,7 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
   };
   const movable = ending ? [] : state.hook ? [hookPart, subs] : [subs]; // хук настраивается, когда он есть на превью
   // затемнение субтитров — в процентах на ползунке; 0 — выключено (и тогда, когда оно есть у самого варианта). Вид —
-  // пятно, тень вокруг букв или плашка; у варианта с плашкой (режим plate) тень и плашка не нужны
+  // пятно, тень вокруг букв или плашка; у субтитров на своей плашке (режим plate) — только пятно (shadeKindOk)
   const shade = Math.round((spec.subtitles.shade ?? 0) * 100);
   const setShade = (pct: number) => set('subShade')(pct / 100);
   const shadeKind = shadeKindOf(spec);
@@ -398,11 +398,11 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
                   </div>
                   <div className="seg" role="group" aria-label="Вид затемнения">
                     {SHADE_LABELS.map(([kind, label]) => (
-                      <button key={kind} type="button" aria-pressed={shade > 0 && shadeKind === kind} disabled={ownPlate && kind !== 'spot'}
-                        onClick={() => setChoice(withShadeKind(choice, kind))}>{label}</button>
+                      <button key={kind} type="button" aria-pressed={shade > 0 && shadeKind === kind && shadeKindOk(spec, kind)}
+                        disabled={!shadeKindOk(spec, kind)} onClick={() => setChoice(withShadeKind(choice, kind, spec))}>{label}</button>
                     ))}
                   </div>
-                  <span className="muted small">{ownPlate ? 'Субтитры этого варианта уже на плашке: под ними можно только мягкое пятно.'
+                  <span className="muted small">{ownPlate ? 'Субтитры уже на плашке: под ними можно только мягкое пятно.'
                     : 'Пятно — мягко под строками, тень — вокруг букв, плашка — под строками. Их видно и на светлом фоне.'}</span>
                   {sized.map((m) => (
                     <div key={m.key} className="sub-move-row">

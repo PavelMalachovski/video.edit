@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { initialDraft, pick } from '../lib/answers.ts';
 import type { Question, StyleChoice, Styles } from '../lib/jobfiles.ts';
-import { brandChoice, loadAb, saveAb, loadAd, saveAd, loadCover, saveCover, coverOf, underCaption, allowedFonts, choiceFor, clampHookSize, insertKey, INSERT_W, loadInsertBoxes, moveBox, moveCentre, ownAdjustments, placedInserts, placeText, resizeBox, saveInsertBoxes, clampHookY, clampSubShade, clampSubSize, clampSubY, finalStyle, mergeStyle, SHADE_DEFAULT, shadeKindOf, withShadeKind, HOOK_SIZE, HOOK_Y, HOOK_Y_DEFAULT, SUB_SHADE, SUB_SIZE, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES, textPlace } from '../lib/style.ts';
+import { brandChoice, loadAb, saveAb, loadAd, saveAd, loadCover, saveCover, coverOf, underCaption, allowedFonts, choiceFor, clampHookSize, insertKey, INSERT_W, loadInsertBoxes, moveBox, moveCentre, ownAdjustments, placedInserts, placeText, resizeBox, saveInsertBoxes, clampHookY, clampSubShade, clampSubSize, clampSubY, finalStyle, mergeStyle, SHADE_DEFAULT, shadeKindOf, shadeKindOk, withShadeKind, HOOK_SIZE, HOOK_Y, HOOK_Y_DEFAULT, SUB_SHADE, SUB_SIZE, loadChoice, loadSpeed, resolveInserts, sampleState, saveChoice, saveSpeed, SPEEDS, SUB_Y, SWATCHES, textPlace } from '../lib/style.ts';
 import { blockedStorage, memoryStorage } from './helpers.ts';
 
 // Общая с движком фикстура: final_style в engine/vm/style.py обязан давать то же самое.
@@ -220,9 +220,10 @@ test('shade kind: the spot unless Pavel picks the shadow or the plate; kept acro
   assert.equal(finalStyle(STYLES, plain).subtitles.shadeKind, undefined, 'по умолчанию — пятно (поля нет)');
   assert.equal(finalStyle(STYLES, { ...plain, subShade: 0.6, subShadeKind: 'plate' }).subtitles.shadeKind, 'plate');
   // вид без силы включает затемнение на SHADE_DEFAULT, с силой — оставляет её
-  const on = withShadeKind(plain, 'shadow');
+  const on = withShadeKind(plain, 'shadow', finalStyle(STYLES, plain));
   assert.deepEqual([on.subShade, on.subShadeKind], [SHADE_DEFAULT, 'shadow']);
-  const kept = withShadeKind({ ...plain, subShade: 0.35 }, 'plate');
+  const dim = { ...plain, subShade: 0.35 };
+  const kept = withShadeKind(dim, 'plate', finalStyle(STYLES, dim));
   assert.deepEqual([kept.subShade, kept.subShadeKind], [0.35, 'plate']);
   assert.equal(shadeKindOf(finalStyle(STYLES, plain)), 'spot');
   assert.equal(shadeKindOf(finalStyle(STYLES, kept)), 'plate');
@@ -235,6 +236,38 @@ test('shade kind: the spot unless Pavel picks the shadow or the plate; kept acro
   assert.equal(loadChoice(store, id, STYLES).subShadeKind, 'shadow');
   saveChoice(store, id, STYLES, { ...plain, subShade: 0.6, subShadeKind: 'glow' as 'plate' });
   assert.deepEqual(loadChoice(store, id, STYLES), choiceFor(STYLES, 'A'), 'an unknown kind is not taken back');
+});
+
+test('shade kind: the strength already on the frame stays — a text fix of the video in the editor, the variant\'s own', () => {
+  const plain = choiceFor(STYLES, 'A');
+  // у смонтированного ролика затемнение 0,4 — от правки текстом (в выборе Павла его нет): вид его не перебивает
+  const base = finalStyle(STYLES, plain);
+  const video = { ...base, subtitles: { ...base.subtitles, shade: 0.4 } };
+  const fixed = withShadeKind(plain, 'shadow', video);
+  assert.deepEqual(fixed, { ...plain, subShadeKind: 'shadow' }, 'сила — как на кадре, выбор силы не появился');
+  const shown = mergeStyle(base, video, finalStyle(STYLES, fixed)); // так кадр редактора сложит новый выбор с роликом
+  assert.deepEqual([shown.subtitles.shade, shown.subtitles.shadeKind], [0.4, 'shadow']);
+  // правка текстом затемнение убрала, а в выборе Павла оно есть: вид включает его заново — на SHADE_DEFAULT
+  const chosen = { ...plain, subShade: 0.4 };
+  const bare = finalStyle(STYLES, plain);
+  const again = withShadeKind(chosen, 'plate', bare);
+  assert.equal(again.subShade, SHADE_DEFAULT);
+  assert.equal(mergeStyle(finalStyle(STYLES, chosen), bare, finalStyle(STYLES, again)).subtitles.shade, SHADE_DEFAULT, 'на кадре — снова видно');
+  // затемнение выключено ползунком — тоже SHADE_DEFAULT; своё затемнение варианта — остаётся
+  const off = { ...plain, subShade: 0 };
+  assert.equal(withShadeKind(off, 'plate', finalStyle(STYLES, off)).subShade, SHADE_DEFAULT);
+  const own = { ...STYLES, variants: STYLES.variants.map((v) => (v.id === 'A' ? { ...v, spec: { ...v.spec, subtitles: { ...v.spec.subtitles, shade: 0.3 } } } : v)) };
+  assert.deepEqual(withShadeKind(plain, 'shadow', finalStyle(own, plain)), { ...plain, subShadeKind: 'shadow' }, 'у варианта своё — сила его');
+});
+
+test('shade kind buttons: under subtitles on their own plate only the spot', () => {
+  const spec = (variant: 'A' | 'B' | 'C', c: Partial<StyleChoice> = {}) => finalStyle(STYLES, { ...choiceFor(STYLES, variant), ...c });
+  assert.equal(spec('B').subtitles.mode, 'plate');
+  assert.deepEqual((['spot', 'shadow', 'plate'] as const).map((k) => shadeKindOk(spec('B'), k)), [true, false, false]);
+  assert.deepEqual((['spot', 'shadow', 'plate'] as const).map((k) => shadeKindOk(spec('A'), k)), [true, true, true]);
+  // в редакторе вид субтитров выбирают сами: на плашке — только пятно, без плашки у варианта с ней — все три
+  assert.deepEqual((['spot', 'shadow', 'plate'] as const).map((k) => shadeKindOk(spec('A', { subMode: 'plate' }), k)), [true, false, false]);
+  assert.deepEqual((['spot', 'shadow', 'plate'] as const).map((k) => shadeKindOk(spec('B', { subMode: 'soft' }), k)), [true, true, true]);
 });
 
 test('insert boxes follow the shared engine fixture', () => {

@@ -37,7 +37,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg >/dev/null
-          python -m pip install -q numpy jsonschema onnxruntime pillow fonttools pytest
+          python -m pip install -q numpy jsonschema onnxruntime pillow fonttools pytest soundfile
       - name: Matte model (the same file as setup/cloud-setup.sh)
         run: |
           eval "$(grep -E '^MATTE(_URL|_SHA256)?=' setup/cloud-setup.sh)"

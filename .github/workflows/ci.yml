@@ -80,6 +80,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg espeak-ng >/dev/null
+          # shellcheck disable=SC2086 # список пакетов — словами
           python -m pip install -q $PY_PACKAGES
           ffmpeg -hide_banner -version | head -1
       - name: VAD model (small; the speech models are for the slow tests)
@@ -108,6 +109,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg espeak-ng >/dev/null
+          # shellcheck disable=SC2086 # список пакетов — словами
           python -m pip install -q $PY_PACKAGES
       - run: bash .github/scripts/ci-playwright.sh
       - uses: actions/cache@v4

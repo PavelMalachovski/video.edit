@@ -62,14 +62,16 @@ def ncc(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def sheet(name: str, frames: list[tuple[str, np.ndarray]]) -> None:
-    """Лист кадров с подписями → REALCLIP_OUT/<name>.png."""
-    from PIL import Image, ImageDraw
+    """Лист кадров с подписями → REALCLIP_OUT/<name>.png. Подписи — Rubik из шаблона: у шрифта Pillow по умолчанию
+    кириллицы нет."""
+    from PIL import Image, ImageDraw, ImageFont
 
+    font = ImageFont.truetype(str(Path(__file__).resolve().parents[2] / "template/fonts/rubik/rubik.ttf"), 14)
     out = Image.new("RGB", (len(frames) * (W + 8), H + 28), "white")
     draw = ImageDraw.Draw(out)
     for i, (label, rgb) in enumerate(frames):
         out.paste(Image.fromarray(rgb.clip(0, 255).astype(np.uint8)), (i * (W + 8), 28))
-        draw.text((i * (W + 8) + 4, 6), label[:44], fill="black")
+        draw.text((i * (W + 8) + 4, 6), label[:44], fill="black", font=font)
     OUT.mkdir(parents=True, exist_ok=True)
     out.save(OUT / f"{name}.png")
 

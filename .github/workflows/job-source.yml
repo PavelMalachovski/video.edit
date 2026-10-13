@@ -2,7 +2,8 @@
 # видео Павла из черновика job-<id> приводятся к 1080×1920, 30 к/с, SDR тем же движком, что в сессии, и исходник
 # ложится в тот же черновик. Сессии render и fix берут его вместо 4K-видео (vm fetch) и не нормализуют заново: на
 # 4,4 минуты видео это 5–8 минут каждой сессии. Ключ — видео и озвучка задачи: «Повторить без озвучки» меняет job.json,
-# и здесь делается новый исходник; есть уже — выход через полминуты. Вручную — для задачи, начатой до этого workflow.
+# и здесь делается новый исходник; есть уже — выход через полминуты. Вручную — заново после сбоя (метка
+# source-<ключ>.failed): берётся ветка задачи, её движок и этот же скрипт; у задачи до этого workflow скрипта нет.
 name: job-source
 on:
   push:
@@ -15,8 +16,8 @@ on:
         required: true
 permissions:
   contents: write
-concurrency:
-  group: job-source-${{ inputs.job || github.ref_name }}
+concurrency:  # пуши и ручной запуск одной задачи — в одной очереди
+  group: job-source-${{ inputs.job && format('claude/job-{0}', inputs.job) || github.ref_name }}
   cancel-in-progress: false
 jobs:
   source:
@@ -24,6 +25,8 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+        with:  # вручную — ветка задачи: её job.json, её движок (ключ исходника считает он)
+          ref: ${{ inputs.job && format('claude/job-{0}', inputs.job) || '' }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'

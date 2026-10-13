@@ -10,10 +10,17 @@ asset="realclip-30s.tar"
 src_job="${REALCLIP_SOURCE_JOB:-261012-091256-w7eu}"
 work="$(mktemp -d)"
 mkdir -p "$REALCLIP_JOB"
-if gh release download "$tag" -R "$repo" -p "$asset" -D "$work" 2>/dev/null; then
-  tar -xf "$work/$asset" -C "$REALCLIP_JOB"
-  echo "ролик — из черновика $tag"
-  exit 0
+# собирать заново — только если архива правда нет: сбой сети или API не подменяет эталон роликом из живой задачи
+if listed="$(gh release view "$tag" -R "$repo" --json assets --jq '.assets[].name' 2>&1)"; then
+  if grep -qxF "$asset" <<<"$listed"; then
+    gh release download "$tag" -R "$repo" -p "$asset" -D "$work"
+    tar -xf "$work/$asset" -C "$REALCLIP_JOB"
+    echo "ролик — из черновика $tag"
+    exit 0
+  fi
+elif ! grep -qi "not found" <<<"$listed"; then
+  echo "::error::черновик $tag: $listed"
+  exit 1
 fi
 dir="jobs/$src_job"
 git fetch -q --depth=1 origin "claude/job-$src_job"

@@ -4,14 +4,17 @@
 // build_overlay_events), картинка — зум к лицу, ч/б, вспышка, смаз, перебивки по формулам движка (frame.tsx); куски
 // играются подряд (вырезанное пропускается, скорость — как у монтажа), после них — стоп-кадр и финальная карточка.
 // Правки руками: разрезать, удалить, вернуть и переставить куски, тянуть их края (липнут к словам); тянуть и растягивать
-// хук, титр, акценты и вставки, убирать и возвращать их, править их текст и слова субтитров; громкость и «без звука»
+// хук, титр, акценты и вставки, убирать и возвращать их, править их текст и слова субтитров — в панели и прямо на кадре
+// (касание кадра — выбор; хук и субтитры тянутся выше-ниже и крупнее, вставки и акценты — по кадру); громкость и «без звука»
 // голоса, музыки и звуков, где звучит музыка; отмена и повтор. Правки сохраняются сами в timeline.json — движок кладёт
 // их поверх черновика при монтаже; прослушивание сводит звук как ролик (mixer.ts). «Монтировать» у готового ролика —
 // новая версия (правка с правками и стилем); до монтажа — старый экран с вопросами.
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { flushSync } from 'react-dom';
 import { musicBeats } from '@/lib/beats.ts';
+import { applyFields, blockTarget, textFields, type BlockField, type TextTarget } from '@/lib/blocktext.ts';
 import { blockRoom, finalEdges, hookUntil, sourceSpan, stackRows } from '@/lib/blocks.ts';
 import { statusText, storage } from '@/lib/client.ts';
 import { createClock } from '@/lib/clock.ts';
@@ -24,23 +27,28 @@ import {
 import { tenths } from '@/lib/format.ts';
 import { loadLang, saveLang, tr, type Key, type Lang } from '@/lib/i18n.ts';
 import type { StyleChoice, StyleSpec } from '@/lib/jobfiles.ts';
-import { buildOverlayEvents, hookEnd, type LayerEvent } from '@/lib/overlay.ts';
+import { buildOverlayEvents, eventIndexAt, hookEnd, type LayerEvent } from '@/lib/overlay.ts';
 import { pictureModel } from '@/lib/picture.ts';
 import { HALF } from '@/lib/zoom.ts';
 import { missingLetters, typedText } from '@/lib/fontchars.ts';
 import { advance, afterEnded, locate, stillSource, tailAt } from '@/lib/player.ts';
-import { allowedFonts, finalStyle, loadChoice, loadInsertBoxes, mergeStyle, placedInserts, sampleState, saveChoice } from '@/lib/style.ts';
+import {
+  allowedFonts, finalStyle, loadChoice, loadInsertBoxes, mergeStyle, placedInserts, placeText, sampleState, saveChoice, textPlace, type TextPart,
+} from '@/lib/style.ts';
 import { clickGuard, dragTo, type Drag, type DragView } from '@/lib/drag.ts';
 import { Saver, type PutResult } from '@/lib/saver.ts';
 import { audioUrl, levelsOf, musicMix } from '@/lib/sound.ts';
 import {
-  decodePeaks, draftTracks, findBlock, moveTarget, peakAt, splitTarget, timelineOf, videoKey, withHandEdits, wordEdges, type Clip, type Tracks,
+  clipAt, decodePeaks, draftTracks, findBlock, moveTarget, peakAt, splitTarget, timelineOf, videoKey, withHandEdits, wordEdges, type Clip, type LayerStyle,
+  type Tracks,
 } from '@/lib/tracks.ts';
+import type { Box } from '../../../handles';
 import { BackIcon, PauseIcon, PlayIcon, PlusIcon, RedoIcon, ScissorsIcon, SpeakerIcon, TrashIcon, UndoIcon } from '../../../icons';
 import PreviewFrame from '../../../preview-frame';
 import { useFontChars, useTemplateFonts } from '../../../use-fonts';
-import { BlockPanel, EndPanel, isPicked, removeBlock, sameRef, WordsPanel, type Letters } from './blockpanel';
-import { Bar, Layer, Picture, pickKey, type FramePick, type HandleText, type PickedBox } from './frame';
+import { BlockPanel, EndPanel, fieldError, fieldLabel, isPicked, removeBlock, sameRef, WordsPanel, type Letters } from './blockpanel';
+import { Bar, Layer, Picture, pickKey, type FramePick, type FrameTarget, type HandleText, type PickedBox, type StyleMove } from './frame';
+import { InlineText } from './inline';
 import { Mixer, type MixPlan } from './mixer';
 import { Inspector, StylePanel, type Selection } from './panels';
 import { KIND_NAMES, PicturePick, PictureSection, VideoSection } from './picturepanel';
@@ -57,6 +65,7 @@ const SAVE_MS = 1200; // правки сохраняются, когда Пав�
 const SNAP_PX = 8; // край куска или блока липнет к границе слова ближе стольких px
 const ROW_H = 26; // px — строка дорожки субтитров, текста и вставок (блоки одновременно — друг под другом)
 const EDITABLE = ['questions', 'result', 'error']; // сессия не работает — правки можно сохранять
+const NOTE_MS = 4000; // подпись на кадре (почему текст не правится, что не сохранилось) — столько держится
 
 type SaveState = { state: 'idle' | 'saving' | 'saved' | 'error' | 'conflict'; error?: string };
 type BlockDrag = Extract<Drag, { kind: 'block' }>;
@@ -227,6 +236,18 @@ export default function Editor({ id }: { id: string }) {
 
   const [hint, setHint] = useState('');
   const [sel, setSel] = useState<Selection | null>(null);
+  // текст на кадре: открытое поле (блок, его поля, где он нарисован, от каких правок начат) и набранное — пока Павел
+  // набирает, кадр рисует его (правки ещё нет); подпись на кадре — почему касание ничего не открыло или что не сохранилось
+  const [editing, setEditing] = useState<{ target: TextTarget; fields: BlockField[]; box: Box; base: HandEdits; seq: number } | null>(null);
+  const [typing, setTyping] = useState<HandEdits | null>(null);
+  const [inlineBox, setInlineBox] = useState<Box | null>(null); // рамка блока, пока в поле набирают (текст длиннее — блок больше)
+  const opened = useRef(0);
+  const [frameNote, setFrameNote] = useState('');
+  useEffect(() => {
+    if (!frameNote) return;
+    const timer = setTimeout(() => setFrameNote(''), NOTE_MS);
+    return () => clearTimeout(timer);
+  }, [frameNote]);
 
   // ---------- стиль: какой увидит ролик ----------
   const styles = data?.styles ?? null;
@@ -241,24 +262,30 @@ export default function Editor({ id }: { id: string }) {
     shown.current = rendered;
     setChoiceState(rendered ?? loadChoice(storage(), id, styles, data?.brandLook?.style ?? null));
   }, [styles, data?.answers, data?.brandLook, id]);
-  const styleLocked = data?.screen === 'working';
+  const [mount, setMount] = useState<{ state: 'idle' | 'busy' | 'started' | 'error'; error?: string }>({ state: 'idle' });
+  // стиль закрыт, пока Claude монтирует (и пока «Монтировать» уходит: выбор перечитается из ветки); после монтажа — у
+  // задачи, чей движок правок не знает: «Монтировать» его не отправит
+  const styleLocked = data?.screen === 'working' || mount.state === 'busy';
+  const styleOpen = !styleLocked && (!mounted || editable);
   const pick = (c: StyleChoice) => {
-    if (!styles || styleLocked) return;
+    if (!styles || !styleOpen) return;
     setChoiceState(c);
     if (!mounted) saveChoice(storage(), id, styles, c); // до монтажа — общий с «Превью»
   };
   const answered = data?.answers?.style ?? null;
   const styleChanged = mounted && choice !== null && !sameJson(choice, answered);
   const videoStyle = data?.draft?.style ?? null;
+  // пока Claude монтирует новый стиль из редактора, ролик (edit.json) — ещё в прошлом: новый — поверх него от прошлого выбора
+  const styleBase = data?.styleFrom ?? answered;
   // стиль слоя: смонтированный ролик — стиль из edit.json (выбор Павла и правки текстом); Павел выбрал другой — новый
   // поверх него, как сложит монтаж (vm style --onto); до монтажа — по выбору
   const spec = useMemo((): StyleSpec | null => {
     if (!styles || !choice) return null;
     const picked = finalStyle(styles, choice);
-    if (!videoStyle || !answered) return picked;
-    if (sameJson(choice, answered)) return videoStyle;
-    return mergeStyle(finalStyle(styles, answered), videoStyle, picked);
-  }, [styles, choice, videoStyle, answered]);
+    if (!videoStyle || !styleBase) return picked;
+    if (sameJson(choice, styleBase)) return videoStyle;
+    return mergeStyle(finalStyle(styles, styleBase), videoStyle, picked);
+  }, [styles, choice, videoStyle, styleBase]);
   const fonts = useTemplateFonts();
   // буквы шрифтов (таблицы символов тех же файлов, что рисуют ролик): набранного Павлом, чего нет в шрифте стиля, монтаж не
   // пропустит (fonts.check) — поле говорит сразу, а шрифты без его букв стиль не предлагает (выбранный — остаётся)
@@ -298,12 +325,18 @@ export default function Editor({ id }: { id: string }) {
       return null;
     }
   }, [edited, data?.beats, hand.music?.muted, sourceDuration]);
+  // слою из стиля нужны только вид и слов субтитров и вид хука: место, размер и цвета (ползунки, ручки на кадре) дорожки
+  // и события не пересчитывают — их перерисовывает шаблон
+  const layerStyle = useMemo((): LayerStyle | null => (spec
+    ? { subtitles: { mode: spec.subtitles.mode, words: spec.subtitles.words }, hook: { mode: spec.hook.mode } } : null),
+  [spec?.subtitles.mode, spec?.subtitles.words, spec?.hook.mode]);
+  const view = typing ?? hand; // пока Павел набирает текст на кадре — кадр с набранным (правки ещё нет)
   // дорожки и слой — с правками текста; не сложились (так монтаж правку не примет) — без них, чтобы экран не пропал
   const tracks: Tracks | null = useMemo(() => {
     if (!edited) return null;
-    const base = { ...(spec ? { style: spec } : {}), sourceDuration, splits: edited.splits, videos: data?.media?.videos, beats };
+    const base = { ...(layerStyle ? { style: layerStyle } : {}), sourceDuration, splits: edited.splits, videos: data?.media?.videos, beats };
     try {
-      const fixes = { text: hand.text, words: hand.words, zoom: hand.zoom, looks: hand.looks, transitions: hand.transitions };
+      const fixes = { text: view.text, words: view.words, zoom: hand.zoom, looks: hand.looks, transitions: hand.transitions };
       return draftTracks(edited.draft, { ...base, fixes });
     } catch {
       try {
@@ -312,7 +345,7 @@ export default function Editor({ id }: { id: string }) {
         return null;
       }
     }
-  }, [edited, spec, sourceDuration, data?.media?.videos, hand.text, hand.words, hand.zoom, hand.looks, hand.transitions, beats]);
+  }, [edited, layerStyle, sourceDuration, data?.media?.videos, view.text, view.words, hand.zoom, hand.looks, hand.transitions, beats]);
   const videos = (data?.media?.videos?.length ?? 0) > 1 ? data?.media?.videos ?? null : null; // несколько видео задачи — где какое
   const mix = useMemo(() => musicMix(data?.draft?.music ?? null, hand.music), [data, hand.music]);
   const edges = useMemo(() => (data?.draft ? wordEdges(data.draft) : []), [data]);
@@ -579,8 +612,15 @@ export default function Editor({ id }: { id: string }) {
   }, [selBlock, canText, edit, hand]);
   // место выбранной вставки или акцента на кадре: ручкой поверх кадра (пока блок на нём) и кнопками в панели блока
   const placeRef = selBlock && !selBlock.ghost && (selBlock.ref?.kind === 'insert' || selBlock.ref?.kind === 'accent') ? selBlock.ref : null;
-  const framePick: FramePick | null = !canPlace || !placeRef || !selBlock ? null
-    : placeRef.kind === 'insert' ? (selBlock.drawn === false ? null : { kind: 'insert', n: placeRef.n }) : { kind: 'accent', t0: selBlock.t0, t1: selBlock.t1 };
+  // выбранное — на кадре (рамкой, когда шаблон его нарисовал): блок, группа субтитров на кадре, карточка (если она в ролике)
+  const cardHere = Boolean(draft?.end && !hand.text?.end?.off);
+  const framePick: FramePick | null = !sel ? null
+    : sel.kind === 'sub' ? { kind: 'sub' }
+      : sel.kind === 'end' ? (cardHere ? { kind: 'end' } : null)
+        : sel.kind !== 'block' || !selBlock?.ref || selBlock.ghost ? null
+          : selBlock.ref.kind === 'insert' ? (selBlock.drawn === false ? null : { kind: 'insert', n: selBlock.ref.n })
+            : selBlock.ref.kind === 'accent' ? { kind: 'accent', t0: selBlock.t0, t1: selBlock.t1 }
+              : selBlock.ref.kind === 'hook' || selBlock.ref.kind === 'cta' ? { kind: selBlock.ref.kind } : null;
   const picked = useRef<PickedBox | null>(null);
   const doPlace = useCallback((place: Place | null) => {
     if (placeRef?.kind !== 'insert' && placeRef?.kind !== 'accent') return;
@@ -600,6 +640,102 @@ export default function Editor({ id }: { id: string }) {
       return p && framePick && p.key === pickKey(framePick) ? { w: p.box.w, h: p.box.h, ext: p.ext } : null;
     },
   }), [canPlace, editable, placeNote, doPlace, framePick]);
+  // хук и субтитры на кадре: ручка тянет их место и размер в стиле (как ползунки «Стиля» и ручки «Превью»: до монтажа —
+  // общий с «Превью» выбор, после — новый стиль к «Монтировать»); титр стоит, где хук, — его место не тянется
+  const movePart: TextPart | null = framePick?.kind === 'hook' || framePick?.kind === 'sub' ? framePick.kind : null;
+  const styleMove: StyleMove | null = movePart && styleOpen && spec && choice ? (() => {
+    const p = textPlace(spec, movePart);
+    return {
+      label: T(movePart === 'hook' ? 'onFrameHook' : 'onFrameSub'), title: T('onFrameT'), y: p.y, size: p.size, range: p.range,
+      onMove: (y: number) => pick(placeText(choice, movePart, { y })), onSize: (size: number) => pick(placeText(choice, movePart, { size })),
+    };
+  })() : null;
+  // текст выбранного на кадре: у какого он есть (у картинки — нет), открыт ли (после монтажа, движок его примет; карточка — свой
+  // допуск) и почему нет
+  const selTarget: TextTarget | null = sel?.kind === 'end' ? { kind: 'end' } : sel?.kind === 'sub' ? { kind: 'words', from: sel.from, to: sel.to }
+    : selBlock?.ref && !selBlock.ghost ? blockTarget(selBlock.ref) : null;
+  const selHasText = Boolean(selTarget && draft && textFields(selTarget, draft, hand).length);
+  const textGate = sel?.kind === 'end' ? canCard : canText;
+  const textWhy = styleLocked ? T('working') : sel?.kind === 'end' ? cardNote : textNote;
+  /** Поле текста выбранного блока на кадре — рядом с `box` (где его нарисовал шаблон); у субтитров — слова группы, что на
+   *  кадре сейчас (её и выбирает). Текст не правится — подпись на кадре, почему. */
+  const openText = (box: Box) => {
+    if (!tracks || !draft || !sel) return;
+    if (!textGate) {
+      if (textWhy) setFrameNote(textWhy);
+      return;
+    }
+    let target = selTarget;
+    if (sel.kind === 'sub') {
+      const i = events ? eventIndexAt(events, now.current) : -1;
+      const c = events && i >= 0 ? clipAt(tracks.subtitles, events[i].t0, events[i].t1) : null;
+      const words = c?.ref?.kind === 'sub' ? c.ref.words : [];
+      if (!words.length) return;
+      target = { kind: 'words', from: words[0].t0, to: words[words.length - 1].t1 };
+      setSel({ kind: 'sub', from: target.from, to: target.to });
+    }
+    const fields = target ? textFields(target, draft, hand) : [];
+    if (!target || !fields.length) return;
+    pause();
+    opened.current += 1;
+    const open = { target, fields, box, base: hand, seq: opened.current };
+    // сразу, в том же касании: фокус полю из обработчика касания — и iPhone покажет клавиатуру
+    flushSync(() => {
+      setEditing(open);
+      setTyping(null);
+      setInlineBox(null);
+      setFrameNote('');
+    });
+  };
+  const closeText = () => {
+    setEditing(null);
+    setTyping(null);
+    setInlineBox(null);
+  };
+  /** Набранное — на кадр (правки ещё нет); не поменялось — кадр как был. */
+  const draftText = (values: string[]) => {
+    if (editing) setTyping(applyFields(editing.base, editing.target, editing.fields, values));
+  };
+  /** Готово: набранное — одной правкой (без ключа — с нажатиями в полях панели не сливается, отмена — весь текст). */
+  const commitText = (values: string[]) => {
+    if (!editing) return;
+    const next = applyFields(editing.base, editing.target, editing.fields, values);
+    closeText();
+    if (next) edit(next);
+  };
+  const cancelText = (why: string | null) => {
+    closeText();
+    if (why) setFrameNote(why);
+  };
+  useEffect(() => { // правки поменялись не с поля (другая вкладка) или текст больше не правится — поле закрыто без правки
+    if (!editing || (hand === editing.base && textGate)) return;
+    setEditing(null);
+    setTyping(null);
+    setInlineBox(null);
+  }, [editing, hand, textGate]);
+  const onInlineBox = useCallback((b: Box | null) => setInlineBox((was) => (b && was && sameJson(b, was) ? was : b)), []);
+  /** Касание нарисованного на кадре: пауза и выбор — как щелчок по дорожке, только без перемотки (группа субтитров и акцент
+   *  — что на кадре в этом событии слоя); касание уже выбранного (без ручки) — его текст. */
+  const pickOnFrame = (target: FrameTarget, box: Box, ev: { t0: number; t1: number }) => {
+    if (!tracks) return;
+    if (playingRef.current) pause();
+    let next: Selection | null = null;
+    if (target.kind === 'hook' || target.kind === 'cta') next = { kind: 'block', block: target.kind, n: 0 };
+    else if (target.kind === 'insert') next = { kind: 'block', block: 'insert', n: target.n };
+    else if (target.kind === 'end') next = { kind: 'end' };
+    else if (target.kind === 'accent') {
+      const c = clipAt(tracks.text.filter((x) => x.kind === 'accent' && !x.ghost), ev.t0, ev.t1);
+      if (c?.ref?.kind === 'accent') next = { kind: 'block', block: 'accent', n: c.ref.n };
+    } else {
+      const c = clipAt(tracks.subtitles, ev.t0, ev.t1);
+      const words = c?.ref?.kind === 'sub' ? c.ref.words : [];
+      if (words.length) next = { kind: 'sub', from: words[0].t0, to: words[words.length - 1].t1 };
+    }
+    if (!next) return;
+    if (sameJson(sel, next)) openText(box);
+    else setSel(next);
+  };
+  const frameNames = useMemo(() => ({ hook: T('hook'), cta: T('cta'), accent: T('accent'), insert: T('insert'), sub: T('subtitles'), end: T('endCard') }), [T]);
   // ч/б-кусок или переход, выбранный на дорожке «Картинка»: Delete — убрать (вид перехода, если Павел его менял, остаётся)
   const selLook = sel?.kind === 'look' ? tracks?.looks.find((l) => l.at[0] === sel.at[0] && l.at[1] === sel.at[1]) ?? null : null;
   const selTransition = sel?.kind === 'transition' ? tracks?.transitions.find((x) => x.at === sel.at) ?? null : null;
@@ -634,7 +770,7 @@ export default function Editor({ id }: { id: string }) {
   useEffect(() => { // клавиши: пробел — пуск, S — разрезать, Delete — удалить кусок или убрать блок, Ctrl+Z / Ctrl+Shift+Z — отмена и повтор
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
-      if (el && (el.closest('input, textarea, select') || el.isContentEditable)) return;
+      if (el && (el.closest('input, textarea, select, .ed-inline') || el.isContentEditable)) return; // поле на кадре — и его ✓ и ✕
       const mod = e.ctrlKey || e.metaKey;
       if (mod && (e.code === 'KeyZ' || e.code === 'KeyY') && !editable) return;
       if (mod && e.code === 'KeyZ') {
@@ -937,7 +1073,6 @@ export default function Editor({ id }: { id: string }) {
   const voiceMuted = Boolean(hand.voice?.muted);
 
   // ---------- «Монтировать» ----------
-  const [mount, setMount] = useState<{ state: 'idle' | 'busy' | 'started' | 'error'; error?: string }>({ state: 'idle' });
   const rev = saver.current?.rev ?? 0;
   const canMount = data?.screen === 'result' && editable && (dirty || rev > 0 || styleChanged);
   const doMount = async () => {
@@ -978,7 +1113,9 @@ export default function Editor({ id }: { id: string }) {
   const cutTotal = tracks?.cuts.reduce((s, c) => s + c.src1 - c.src0, 0) ?? 0;
   const saveText = save.state === 'saving' ? T('saving') : save.state === 'error' ? T('saveFailed', { e: save.error ?? '' })
     : save.state === 'conflict' ? T('conflict') : dirty ? '' : save.state === 'saved' ? T('saved') : '';
-  const styleNote = styleLocked ? T('styleLocked') : mounted ? T('styleMounted') : T('styleShared');
+  const styleNote = styleLocked ? T('styleLocked') : !styleOpen && data?.draft && !data.abilities.edits ? T('editsOld')
+    : mounted ? T('styleMounted') : T('styleShared');
+  const frameH = Math.round((frameW * 16) / 9);
   const subRow = tracks ? blockRow(tracks.subtitles, 'sub', (c) => c.label) : null;
   const textRow = tracks ? blockRow(tracks.text, 'text', (c) => `${T(kindName[c.kind] ?? 'text')}: ${c.label}`) : null;
   const insRow = tracks ? blockRow(tracks.inserts, 'ins', (c) => c.label) : null;
@@ -1008,26 +1145,36 @@ export default function Editor({ id }: { id: string }) {
 
       <div className="ed-main">
         <section className="ed-stage" ref={stage} aria-label={T('video')}>
-          <div className="ed-frame" style={{ width: frameW, height: Math.round((frameW * 16) / 9) }}>
-            {tracks ? (
-              <Picture clock={clock} model={picture} video={video} src={data?.proxyUrl ?? null} duration={duration} width={frameW} playing={playing}
-                urlOf={urlOf} note={T('coverUpload')}>
-                {data?.proxyUrl ? (
-                  <video ref={video} src={data.proxyUrl} playsInline preload="auto" onError={onVideoError}
-                    onLoadedMetadata={() => seek(now.current)} onEnded={onEnded} data-editor-video="" />
-                ) : null}
-              </Picture>
+          <div className="ed-frame-wrap">{/* поле текста на кадре — шире маленького кадра: его обрезка ему не мешает */}
+            <div className="ed-frame" style={{ width: frameW, height: frameH }}>
+              {tracks ? (
+                <Picture clock={clock} model={picture} video={video} src={data?.proxyUrl ?? null} duration={duration} width={frameW} playing={playing}
+                  urlOf={urlOf} note={T('coverUpload')}>
+                  {data?.proxyUrl ? (
+                    <video ref={video} src={data.proxyUrl} playsInline preload="auto" onError={onVideoError}
+                      onLoadedMetadata={() => seek(now.current)} onEnded={onEnded} data-editor-video="" />
+                  ) : null}
+                </Picture>
+              ) : null}
+              {tracks ? (
+                <Layer clock={clock} events={events} spec={spec} width={frameW} pick={framePick} onPlace={canPlace && placeRef ? doPlace : undefined}
+                  handleText={handleText} picked={picked} styleMove={styleMove} onText={selHasText ? openText : null} canText={!editing && textGate && selHasText}
+                  textLabel={T('editText')} names={frameNames} onTarget={pickOnFrame} lowNote={frameNote ? null : T('subLow')}
+                  onBox={editing ? onInlineBox : undefined} />
+              ) : null}
+              {tracks ? <Bar clock={clock} spec={spec} duration={duration} width={frameW} /> : null}
+              {spec && sample && frameUrl ? (
+                <div className="ed-layer">
+                  <PreviewFrame frameUrl={frameUrl} spec={spec} state={sample} progress={0.3} width={frameW} big />
+                  <div className="ed-caption">{T('sample')}</div>
+                </div>
+              ) : notice ? <div className="ed-notice">{notice}</div> : null}
+              {frameNote ? <div className="ed-caption top" role="status">{frameNote}</div> : null}
+            </div>
+            {editing ? (
+              <InlineText key={editing.seq} T={T} fields={editing.fields} label={(f) => fieldLabel(T, f)} box={inlineBox ?? editing.box} scale={frameW / 1080}
+                frameH={frameH} check={(f, v) => fieldError(T, letters, f.check, v)} onDraft={draftText} onCommit={commitText} onCancel={cancelText} />
             ) : null}
-            {tracks ? (
-              <Layer clock={clock} events={events} spec={spec} width={frameW} pick={framePick} onPlace={doPlace} handleText={handleText} picked={picked} />
-            ) : null}
-            {tracks ? <Bar clock={clock} spec={spec} duration={duration} width={frameW} /> : null}
-            {spec && sample && frameUrl ? (
-              <div className="ed-layer">
-                <PreviewFrame frameUrl={frameUrl} spec={spec} state={sample} progress={0.3} width={frameW} big />
-                <div className="ed-caption">{T('sample')}</div>
-              </div>
-            ) : notice ? <div className="ed-notice">{notice}</div> : null}
           </div>
         </section>
 
@@ -1058,7 +1205,7 @@ export default function Editor({ id }: { id: string }) {
           {data?.draft && editable && !data.abilities.move ? <p className="ed-note faint">{T('moveOld')}</p> : null}
           {data?.draft && !data.abilities.edits ? <p className="ed-note ed-flag">{T('editsOld')}</p> : null}
           {styles && choice ? (
-            <StylePanel T={T} styles={styles} choice={choice} spec={spec} offered={offered} locked={styleLocked} note={styleNote} onPick={pick} />
+            <StylePanel T={T} styles={styles} choice={choice} spec={spec} offered={offered} locked={!styleOpen} note={styleNote} onPick={pick} />
           ) : null}
           {tracks ? (
             <PictureSection T={T} tracks={tracks} hand={hand} dim={draft?.dim ?? 0} canZoom={canZoom} canDim={canMarks} note={editable ? pictureNote : null}

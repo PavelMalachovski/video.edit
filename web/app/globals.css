@@ -370,10 +370,38 @@ ul.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:
 .ed-layer .insert-handle:focus-visible { outline: 2px solid var(--e-select); outline-offset: 2px; }
 /* уголок ⤢ — меньше, чем на «Превью»: кадр редактора маленький, и уголок не закрывает маленькую вставку */
 .ed-layer .size-grip { width: 18px; height: 18px; border-radius: 4px; font-size: 11px; background: var(--e-select); color: #fff; }
+/* на кадре: нарисованное выбирают касанием; выбранное — рамкой (хук и субтитры тянутся выше-ниже, ⤢ — размер; титр и
+   карточка — пунктиром), ✎ — текст прямо на кадре; поле — шире маленького кадра, над блоком или под ним, как панели */
+.ed-frame-wrap { position: relative; }
+.ed-hit { position: absolute; z-index: 1; padding: 0; border: 0; border-radius: 4px; background: transparent; pointer-events: auto; cursor: pointer;
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.ed-hit:hover { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .75); }
+.ed-layer .sub-handle.boxed { right: auto; height: auto; transform: none; z-index: 2; padding: 0; align-items: flex-start; pointer-events: auto;
+  border-color: var(--e-select); box-shadow: 0 0 0 1px rgba(0, 0, 0, .35); }
+.ed-layer .sub-handle.boxed:focus-visible { outline: 2px solid var(--e-select); outline-offset: 2px; }
+.ed-layer .sub-handle.boxed .size-grip { transform: translate(50%, -50%); } /* на углу рамки: строку субтитров не закрывает */
+.ed-outline { position: absolute; z-index: 2; border: 1.5px dashed var(--e-select); box-shadow: 0 0 0 1px rgba(0, 0, 0, .35); border-radius: 6px; pointer-events: none; }
+.ed-pencil { position: absolute; z-index: 3; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 5px; display: grid; place-items: center;
+  background: var(--e-select); color: #fff; pointer-events: auto; cursor: pointer; }
+.ed-pencil:hover { background: var(--select-hover); }
+.ed-inline { position: absolute; left: 50%; transform: translateX(-50%); width: min(360px, calc(100vw - 32px)); max-height: calc(100% - 8px); overflow: auto;
+  z-index: 6; display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: 10px; border: 1px solid var(--e-line); background: var(--e-surface);
+  color: var(--e-ink); box-shadow: 0 6px 20px rgba(19, 21, 18, .28); }
+.ed-inline-fields { display: flex; flex-direction: column; gap: 6px; }
+.ed-inline.words .ed-inline-fields { flex-direction: row; flex-wrap: wrap; gap: 4px; }
+.ed-inline input { min-width: 0; min-height: 40px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--e-line); background: var(--e-surface); color: var(--e-ink);
+  font: inherit; font-size: 16px; } /* мельче 16 px — iPhone увеличивает страницу, когда поле в фокусе */
+.ed-inline input:focus { outline: 2px solid var(--e-select); outline-offset: -1px; }
+.ed-inline input[aria-invalid=true] { border-color: var(--e-bad); }
+.ed-inline input.struck::placeholder { text-decoration: line-through; }
+.ed-inline-btns { display: flex; justify-content: flex-end; gap: 6px; }
+.ed-inline-btns .ed-icon { width: 44px; height: 40px; }
+.ed-inline-btns .ok { background: var(--e-select); border-color: var(--e-select); color: #fff; }
+.ed-inline-btns .ok[aria-disabled=true] { opacity: .45; cursor: default; }
 .ed-place { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--e-line); padding-top: 10px; }
 .ed-place-name { font-size: 12px; color: var(--e-muted); }
 .ed-arrow { min-width: 40px; font-size: 16px; }
-.ed-notice { position: absolute; inset: 0; display: grid; place-items: center; padding: 16px; text-align: center; color: #fff; font-size: 13px; line-height: 1.45; background: rgba(32, 36, 43, .85); }
+.ed-notice { position: absolute; inset: 0; z-index: 5; display: grid; place-items: center; padding: 16px; text-align: center; color: #fff; font-size: 13px; line-height: 1.45; background: rgba(32, 36, 43, .85); }
 .ed-side { background: var(--e-surface); border-left: 1px solid var(--e-line); padding: 16px; overflow: auto; display: flex; flex-direction: column; gap: 12px; }
 .ed-side h2 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--e-muted); margin: 0; }
 .ed-note { margin: 0; font-size: 13px; line-height: 1.45; color: var(--e-ink); }
@@ -462,6 +490,7 @@ ul.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:
 .ed-modes > button[aria-pressed=true]:disabled { opacity: 1; }
 .ed-caption { position: absolute; left: 8px; right: 8px; bottom: 8px; padding: 6px 8px; border-radius: 6px; background: rgba(32, 36, 43, .78); color: #fff;
   font-size: 12px; text-align: center; }
+.ed-caption.top { top: 8px; bottom: auto; z-index: 5; pointer-events: none; } /* подпись к касанию кадра — сверху, касаниям не мешает */
 /* правки руками (фаза 3): тулбар, выбранное, ручки краёв, «＋» на стыке, «без звука», панель выбранного */
 .ed-sep { width: 1px; align-self: stretch; margin: 4px 2px; background: var(--e-line); }
 .ed-icon { display: inline-grid; place-items: center; }

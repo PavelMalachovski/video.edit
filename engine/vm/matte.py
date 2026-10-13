@@ -8,15 +8,21 @@
 `write_mattes` — маска на каждый кадр плана (`render.segment_frames`: отрезки финала по порядку, тизер — первым) —
 серое видео ffv1 без потерь, кадр в кадр со склейкой. У каждого отрезка память модели начинается с нуля (стык бывает
 между разными планами) и разгоняется на `WARMUP` кадрах перед ним — поэтому рендер хранит маски по отрезкам и
-склеивает их `join`: готовый отрезок второй раз не считается. `frame_matte` — маска одного кадра (картинка к вопросу,
-обложка) с тем же разгоном.
+склеивает их `join`: готовый отрезок второй раз не считается. Отрезки считают `WORKERS` потоков (`write_parts`), у
+каждого своя сессия onnxruntime на свою долю ядер: на 4 ядрах 51 мс на кадр против 75 у одной сессии на все ядра
+(маленькая сеть плохо делится по ядрам). Длинный отрезок на куски не делится: память модели и после разгона уводит
+маску в своё (на настоящем ролике у шва 4 % кадра расходились на 16+ уровней и через секунду) — внутри плана это был
+бы скачок затемнения. `frame_matte` — маска одного кадра (картинка к вопросу, обложка) с тем же разгоном.
 
 `predict` — подмена модели в тестах: `(кадр RGB uint8 H×W×3, память или None) → (маска uint8 H×W, память)`.
 """
 import math
 import os
+import select
 import subprocess
+import threading
 from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from functools import cache
 from pathlib import Path
 
@@ -27,6 +33,9 @@ from .media import FPS, probe
 MODEL = "rvm_mobilenetv3_fp32.onnx"
 WARMUP = 8  # кадров перед отрезком: память модели успевает сойтись (0,27 с)
 RATIO = 0.5  # downsample_ratio модели для кадра 540×960 (совет авторов: 0,4–0,5 для HD и меньше)
+WORKERS = 4  # потоков маски (не больше ядер и отрезков): на 4 ядрах рутины 51 мс на кадр против 75 у одной сессии
+STRIDE = 2  # модель видит каждый второй кадр отрезка (и последний); маска между ними — среднее соседних
+STALL = 120  # с — столько декодер кадров может молчать; дольше — завис (битый исходник), он останавливается
 
 Predict = Callable[[np.ndarray, object], tuple[np.ndarray, object]]
 
@@ -61,8 +70,19 @@ def _session(path: str):
     return ort.InferenceSession(path, providers=["CPUExecutionProvider"])
 
 
-def _rvm() -> Predict:
-    session = _session(str(model_path()))
+def _own_session(path: str, threads: int):
+    """Своя сессия потока маски: `threads` ядер на вычисления, без своих потоков между узлами сети."""
+    import onnxruntime as ort
+
+    options = ort.SessionOptions()
+    options.intra_op_num_threads = threads
+    options.inter_op_num_threads = 1
+    return ort.InferenceSession(path, options, providers=["CPUExecutionProvider"])
+
+
+def _rvm(threads: int | None = None) -> Predict:
+    """Модель: `threads` — своя сессия на столько ядер (поток `write_parts`), None — общая на все ядра."""
+    session = _session(str(model_path())) if threads is None else _own_session(str(model_path()), threads)
     ratio = np.array([RATIO], np.float32)
 
     def predict(rgb: np.ndarray, state: object) -> tuple[np.ndarray, object]:
@@ -81,30 +101,55 @@ def matte_size(width: int, height: int) -> tuple[int, int]:
     return max(2, width // 4 * 2), max(2, height // 4 * 2)
 
 
+def _decoder(source: Path, first: int, count: int, size: tuple[int, int]) -> list[str]:
+    """ffmpeg, что отдаёт кадры для маски сырым RGB в stdout (подменяется в тестах)."""
+    w, h = size
+    return ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-ss", f"{max(0.0, (first - 0.5) / FPS):.6f}",
+            "-i", str(source), "-an", "-frames:v", str(count), "-vf", f"scale={w}:{h}", "-fps_mode", "passthrough",
+            "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]
+
+
+def _read(fd: int, size: int, proc: subprocess.Popen) -> bytes:
+    """Ровно `size` байт из трубы (меньше — кадры кончились). Молчит дольше STALL с — процесс остановлен, RuntimeError:
+    рендер узнаёт о зависшем декодере, а не ждёт вечно."""
+    chunks, got = [], 0
+    while got < size:
+        if not select.select([fd], [], [], STALL)[0]:
+            proc.kill()
+            raise RuntimeError(f"декодер кадров для маски молчит {STALL:g} с — остановлен")
+        chunk = os.read(fd, min(size - got, 1 << 20))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        got += len(chunk)
+    return b"".join(chunks)
+
+
 def _frames(source: Path, first: int, count: int, size: tuple[int, int]) -> Iterator[np.ndarray]:
     """`count` кадров исходника с номера `first` (RGB, размер `size`). Начало — посередине перед кадром: кадр
     `first` (его время `first`/30) берётся, предыдущий — нет, как `trim=start_frame` склейки. Кадры — как есть, без
     добивки: со звуком AAC (как в source.mp4) перемотка давала видео начало чуть позже нуля, и выход с постоянной
     частотой повторял первый кадр — маска отставала на кадр."""
     w, h = size
-    proc = subprocess.Popen(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-ss", f"{max(0.0, (first - 0.5) / FPS):.6f}",
-         "-i", str(source), "-an", "-frames:v", str(count), "-vf", f"scale={w}:{h}", "-fps_mode", "passthrough",
-         "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
-        stdout=subprocess.PIPE,
-    )
+    proc = subprocess.Popen(_decoder(source, first, count, size), stdout=subprocess.PIPE, bufsize=0)
     frame = w * h * 3
     try:
-        while len(buf := proc.stdout.read(frame)) == frame:
+        while len(buf := _read(proc.stdout.fileno(), frame, proc)) == frame:
             yield np.frombuffer(buf, np.uint8).reshape(h, w, 3)
     finally:
         proc.stdout.close()
+        if proc.poll() is None:  # кадров хватило раньше конца или ошибка выше — декодер дальше не нужен
+            proc.kill()
         proc.wait()
 
 
 def write_mattes(source: Path, plan: list[tuple[int, int]], out: Path, predict: Predict | None = None) -> Path:
     """Маска на каждый кадр плана `[(первый, после последнего), ...]` по порядку → `out` (серое видео ffv1, 30 к/с,
-    вдвое меньше кадра). Кадров в исходнике не хватило — маска добивается пустой (фон), чтобы шла кадр в кадр."""
+    вдвое меньше кадра). Кадров в исходнике не хватило — маска добивается пустой (фон), чтобы шла кадр в кадр.
+
+    Разгон — все `WARMUP` кадров подряд; дальше модель видит каждый `STRIDE`-й кадр отрезка и его последний, маска
+    кадра между ними — среднее соседних: вдвое быстрее, а на настоящем ролике отличие от полной — у 0,8 % точек больше
+    16 уровней из 255 (края на движении; при затемнении на 30 % — меньше 2 % яркости)."""
     predict = predict or _rvm()
     info = probe(source)
     w, h = matte_size(info.width, info.height)
@@ -119,11 +164,24 @@ def write_mattes(source: Path, plan: list[tuple[int, int]], out: Path, predict: 
     try:
         for f0, f1 in plan:
             start, state, written = max(0, f0 - WARMUP), None, 0
+            last, skipped = None, 0  # последняя посчитанная маска и сколько кадров после неё ждут следующую
             for i, rgb in enumerate(_frames(source, start, f1 - start, (w, h))):
+                n = start + i
+                if n >= f0 and (n - f0) % STRIDE and n != f1 - 1:
+                    skipped += 1
+                    continue
                 mask, state = predict(rgb, state)
-                if start + i >= f0:
-                    writer.stdin.write(mask.tobytes())
-                    written += 1
+                if n < f0:
+                    continue
+                for k in range(1, skipped + 1):  # между двумя посчитанными — по прямой
+                    between = (last.astype(np.uint16) * (skipped + 1 - k) + mask.astype(np.uint16) * k + (skipped + 1) // 2) // (skipped + 1)
+                    writer.stdin.write(between.astype(np.uint8).tobytes())
+                writer.stdin.write(mask.tobytes())
+                written += skipped + 1
+                last, skipped = mask, 0
+            for _ in range(skipped):  # кадры кончились раньше отрезка: пропущенные — как последняя маска
+                writer.stdin.write(last.tobytes())
+            written += skipped
             for _ in range(f1 - f0 - written):
                 writer.stdin.write(empty.tobytes())
         writer.stdin.close()
@@ -142,6 +200,42 @@ def write_mattes(source: Path, plan: list[tuple[int, int]], out: Path, predict: 
         raise RuntimeError(f"маска затемнения фона не записалась (ffmpeg, код {code}): {err}")
     os.replace(part, out)
     return out
+
+
+def write_parts(source: Path, jobs: list[tuple[tuple[int, int], Path]], workers: int | None = None,
+                models: Callable[[int], Predict] | None = None) -> None:
+    """Маски отрезков `[((первый, после последнего), файл), ...]` — каждая в свой файл (как `write_mattes` с одним
+    отрезком), в `workers` потоков (по умолчанию `WORKERS`, не больше ядер и отрезков). У каждого потока — своя модель
+    `models(ядер на поток)` (по умолчанию — своя сессия onnxruntime). Сбой одного отрезка — остальные потоки не берут
+    новых, ошибка — наружу; готовые файлы остаются (их возьмёт следующий рендер)."""
+    if not jobs:
+        return
+    models = models or _rvm
+    cores = os.cpu_count() or 1
+    workers = max(1, min(workers or WORKERS, cores, len(jobs)))
+    threads = max(1, cores // workers)
+    queue = iter(jobs)
+    lock = threading.Lock()
+    failed = threading.Event()
+
+    def work() -> None:
+        predict = models(threads)
+        while not failed.is_set():
+            with lock:
+                job = next(queue, None)
+            if job is None:
+                return
+            (f0, f1), part = job
+            try:
+                write_mattes(source, [(f0, f1)], part, predict=predict)
+            except BaseException:
+                failed.set()
+                raise
+
+    with ThreadPoolExecutor(workers, thread_name_prefix="matte") as pool:
+        futures = [pool.submit(work) for _ in range(workers)]
+    for future in futures:
+        future.result()
 
 
 def join(parts: list[Path], out: Path) -> Path:

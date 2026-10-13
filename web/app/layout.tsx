@@ -1,3 +1,4 @@
+import type { Viewport } from 'next';
 import type { ReactNode } from 'react';
 import { Geologica, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
@@ -8,7 +9,8 @@ const ui = Geologica({ subsets: ['latin', 'cyrillic'], weight: ['400', '500', '6
 const mono = JetBrains_Mono({ subsets: ['latin', 'cyrillic'], weight: ['500', '600'], variable: '--font-mono', display: 'swap' });
 
 export const metadata = { title: 'video.edit' };
-export const viewport = { width: 'device-width', initialScale: 1, themeColor: '#0B0C0F' };
+// полоса браузера и схема — как фон страницы (светлая тема, --bg в globals.css)
+export const viewport: Viewport = { width: 'device-width', initialScale: 1, themeColor: '#F3F4F1', colorScheme: 'light' };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (

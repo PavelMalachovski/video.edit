@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 import {
-  abLabels, answersFile, appendFix, appendRestyle, buildJobFile, coverName, errorStatus, finalNames, isFinalName, parseAnswersBody, parseNote, parseResult, parseStatus, parseStyles,
+  abLabels, answersFile, appendFix, appendRestyle, buildJobFile, coverName, errorStatus, finalNames, isFinalName, parseAnswersBody, parseNote, parseResult, parseStatus, parseStyle, parseStyles,
   parseQuestions, QUESTION_LAYOUTS, QUESTION_TYPES, queuedStatus, STATES, wantedVersion, type Manifest, type Question,
-  AB_KINDS, CHECK_IDS, parseReview, REVIEW_IDS, SAMPLE_INSERT_KINDS, SHADE_KINDS, SUB_SHADE,
+  AB_KINDS, CHECK_IDS, parseReview, REVIEW_IDS, SAMPLE_INSERT_KINDS, SHADE_KINDS, SUB_SHADE, ADJUST, BAR_HEIGHT, BAR_POSITIONS, HOOK_MODES,
 } from '../lib/jobfiles.ts';
 import { STEPS } from '../lib/routine.ts';
 
@@ -70,6 +70,23 @@ test('buildJobFile takes brief, duration and uploads from the manifest', () => {
   assert.equal(buildJobFile({ ...m, brief: undefined, duration: undefined, uploads: undefined }, NOW).duration, null);
 });
 
+test('several videos go into job.json in their order, each where vm fetch puts it', () => {
+  const m: Manifest = {
+    job: '261010-070509-abcd', name: 'IMG_1.MOV', size: 150, type: 'video/quicktime', lastModified: 1, parts: 1, chunkSize: 4, duration: 95,
+    videos: [
+      { asset: 'source', name: 'IMG_1.MOV', size: 100, type: 'video/quicktime', lastModified: 1, parts: 1, duration: 60 },
+      { asset: 'source-2', name: 'IMG_2.mp4', size: 50, type: 'video/mp4', lastModified: 2, parts: 1, duration: null },
+    ],
+  };
+  const job = buildJobFile(m, NOW);
+  assert.deepEqual(job.videos, [
+    { file: 'in/source.mov', asset: 'source', name: 'IMG_1.MOV', size: 100, type: 'video/quicktime', duration: 60 },
+    { file: 'in/source-2.mp4', asset: 'source-2', name: 'IMG_2.mp4', size: 50, type: 'video/mp4', duration: null },
+  ]);
+  assert.equal(job.duration, 95, 'длительность — всех видео вместе');
+  assert.equal('videos' in buildJobFile({ ...m, videos: undefined }, NOW), false, 'одно видео — как раньше');
+});
+
 test('a voiceover goes into job.json uploads as audio', () => {
   const job = buildJobFile({
     job: '261010-070509-abcd', name: 'IMG_1.MOV', size: 100, type: 'video/quicktime', lastModified: 1, parts: 1, chunkSize: 4,
@@ -126,6 +143,15 @@ test('fix versions: final.mp4, then final-v2.mp4', () => {
   assert.equal(finalNames(3).mp4, 'final-v3.mp4');
   const r = appendRestyle(appendRestyle(null, 'ярче', NOW), 'крупнее', NOW);
   assert.deepEqual(r.requests.map((n) => n.text), ['ярче', 'крупнее']);
+});
+
+test('a fix from the editor carries the revision of the hand edits and a new style (with the one it replaces)', () => {
+  const old = { variant: 'A' as const, font: 'montserrat', hand: 'caveat', colors: { text: '#FFFFFF', accent: '#FFD400', bar: '#FFD400' } };
+  const f = appendFix(null, 'Правки в редакторе', NOW, { timeline: 3, styleFrom: old });
+  assert.deepEqual(f.fixes[0], { text: 'Правки в редакторе', at: NOW.toISOString(), version: 2, timeline: 3, style: true, styleFrom: old });
+  assert.deepEqual(appendFix(f, 'только стиль', NOW, { styleFrom: old }).fixes[1],
+    { text: 'только стиль', at: NOW.toISOString(), version: 3, style: true, styleFrom: old });
+  assert.deepEqual(Object.keys(appendFix(null, 'x', NOW).fixes[0]), ['text', 'at', 'version'], 'правка текстом — как раньше');
 });
 
 test('parseNote trims and limits to 2000 chars', () => {
@@ -394,4 +420,25 @@ test('ads version: the answers ask for it, it has its own file names and its che
   const ad = { durations: { source: 80.2, final: 71 }, qa: { ok: false, problems: ['вставка 1 вне безопасной зоны'] } };
   assert.deepEqual(parseResult({ ...result, ad })?.ad, ad);
   assert.equal(parseResult({ ...result, ad: { qa: 1 } })?.ad, undefined);
+});
+
+test('the style choice takes the subtitle look and words per group, within the engine schema', () => {
+  const base = { variant: 'A', font: 'montserrat', hand: 'caveat', colors: { text: '#FFFFFF', accent: '#FFD400', bar: '#FFD400' } };
+  assert.deepEqual(parseStyle({ ...base, subMode: 'soft', subWords: 4 }), { ...base, subMode: 'soft', subWords: 4 });
+  for (const bad of [{ subMode: 'fancy' }, { subWords: 7 }, { subWords: 1 }, { subWords: 2.5 }]) {
+    assert.equal(typeof parseStyle({ ...base, ...bad }), 'string', JSON.stringify(bad));
+  }
+});
+
+test('the style choice takes the hook look and the bar\'s place and thickness, within the engine schema', () => {
+  const base = { variant: 'A', font: 'montserrat', hand: 'caveat', colors: { text: '#FFFFFF', accent: '#FFD400', bar: '#FFD400' } };
+  const ok = { ...base, hookMode: 'accent', barPos: 'top', barHeight: 10 };
+  assert.deepEqual(parseStyle(ok), ok);
+  for (const bad of [{ hookMode: 'neon' }, { barPos: 'left' }, { barHeight: 0 }, { barHeight: 32 }, { barHeight: 7 }, { barHeight: 9.5 }]) {
+    assert.equal(typeof parseStyle({ ...base, ...bad }), 'string', JSON.stringify(bad));
+  }
+  const style = schema('answers.json').properties.style.properties;
+  assert.deepEqual([style.barHeight.minimum, style.barHeight.maximum, style.barHeight.multipleOf], [BAR_HEIGHT.min, BAR_HEIGHT.max, ADJUST.barHeight.whole]);
+  assert.deepEqual(style.hookMode.enum, [...HOOK_MODES]);
+  assert.deepEqual(style.barPos.enum, [...BAR_POSITIONS]);
 });

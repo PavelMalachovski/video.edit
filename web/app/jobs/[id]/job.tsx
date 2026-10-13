@@ -1,12 +1,13 @@
 'use client';
 // Страница задачи: опрос GET /api/jobs/<id> (5 с; GitHub просит подождать — дольше), пока вкладка видна; шапка,
 // полоса шагов и экран по view.screen.
+import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buildAnswers, loadDraft, saveDraft, type Draft } from '@/lib/answers.ts';
-import { errorText, message, post, storage } from '@/lib/client.ts';
+import { errorText, message, post, statusText, storage } from '@/lib/client.ts';
 import { mmss } from '@/lib/format.ts';
 import { stepIndex, type Action, type JobData } from '@/lib/jobview.ts';
-import { nextDelay } from '@/lib/poll.ts';
+import { isIdle, nextDelay } from '@/lib/poll.ts';
 import { Steps } from '../../steps';
 import { TopBar } from '../../top-bar';
 import Phases from './phases';
@@ -26,6 +27,9 @@ export default function Job({ id }: { id: string }) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const busy = useRef(false);
   const again = useRef(false);
+  const etag = useRef<string | null>(null); // ETag последнего ответа опроса: то же содержимое — 304 без тела
+  const shown = useRef<string | null>(null); // экран из последнего ответа — по нему пауза до следующего опроса
+  const acted = useRef(0); // когда Павел последний раз что-то запустил (мс): минуту после — опрос каждые 5 с
   const alive = useRef(true);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [localUrls, setLocalUrls] = useState<Record<string, string>>({});
@@ -42,21 +46,28 @@ export default function Job({ id }: { id: string }) {
     busy.current = true;
     let delay: number;
     try {
-      const r = await fetch(`/api/jobs/${id}`, { cache: 'no-store' });
+      // то же, что в прошлый раз, — 304 без тела (ETag): трафик Vercel не тратится на одинаковые ответы
+      const r = await fetch(`/api/jobs/${id}`, { cache: 'no-store', headers: etag.current ? { 'If-None-Match': etag.current } : {} });
       if (r.status === 404) {
         setMissing(true);
         return;
       }
-      if (r.ok) {
-        setData((await r.json()) as JobData);
+      if (r.ok || r.status === 304) {
+        let screen = shown.current;
+        if (r.status !== 304) {
+          const next = (await r.json()) as JobData;
+          etag.current = r.headers.get('ETag');
+          shown.current = screen = next.view.screen;
+          setData(next);
+        }
         setWait(null);
         setTrouble('');
-        delay = nextDelay({ ok: true });
+        delay = nextDelay({ ok: true, idle: isIdle(screen, Date.now(), acted.current) });
       } else {
         const body = (await r.json().catch(() => null)) as { error?: unknown; retryAfter?: unknown } | null;
         delay = nextDelay({ ok: false, status: r.status, retryAfter: typeof body?.retryAfter === 'number' ? body.retryAfter : undefined });
         if (r.status === 429) setWait(Math.round(delay / 1000));
-        else setTrouble(typeof body?.error === 'string' ? body.error : `Сервер ответил ${r.status}`);
+        else setTrouble(r.status !== 402 && typeof body?.error === 'string' ? body.error : statusText(r.status, 'Сервер ответил'));
       }
     } catch {
       delay = nextDelay({ ok: false, status: 0 });
@@ -91,13 +102,15 @@ export default function Job({ id }: { id: string }) {
   }, [poll]);
 
   // вопросы и стили — тот же объект, пока не поменялось содержимое (опрос раз в 5 с не перерисовывает превью)
+  const lookJson = data?.brandLook ? JSON.stringify(data.brandLook) : null; // «Мой стиль» бренда: превью и ответы по умолчанию
+  const look = useMemo(() => (lookJson ? (JSON.parse(lookJson) as NonNullable<JobData['brandLook']>) : null), [lookJson]);
   const questionsJson = data?.view.screen === 'questions' && data.questions ? JSON.stringify(data.questions) : null;
   const stylesJson = data?.view.screen === 'questions' && data.styles ? JSON.stringify(data.styles) : null;
   const questions = useMemo(() => (questionsJson ? (JSON.parse(questionsJson) as JobData['questions']) : null), [questionsJson]);
   const styles = useMemo(() => (stylesJson ? (JSON.parse(stylesJson) as NonNullable<JobData['styles']>) : null), [stylesJson]);
   useEffect(() => {  // черновик ответов — когда вопросы впервые пришли
-    if (questions && !draft) setDraft(loadDraft(storage(), id, questions));
-  }, [questions, draft, id]);
+    if (questions && !draft) setDraft(loadDraft(storage(), id, questions, look));
+  }, [questions, draft, id, look]);
 
   const changeDraft: ChangeDraft = useCallback((update) => {
     setDraft((d) => {
@@ -117,6 +130,7 @@ export default function Job({ id }: { id: string }) {
       const r = await post(`/api/jobs/${id}/run`, { action, ...extra });
       if (!r.ok) return await errorText(r, 'Не получилось');
       if (action === 'back') setStage('auto'); // после restyle — к превью, после render — к вопросам
+      acted.current = Date.now();
       void poll();
       return null;
     } catch (e) {
@@ -133,10 +147,13 @@ export default function Job({ id }: { id: string }) {
     );
   }
   const view = data?.view;
+  // черновик монтажа есть с вопросов: его можно посмотреть на дорожках в редакторе (бета), старый поток — как был
+  const beta = view?.kind === 'video' && (view.screen === 'questions' || view.screen === 'result');
   const notices = (
     <>
       {wait !== null ? <div className="muted small">GitHub просит подождать, обновлю через {wait} с</div> : null}
       {trouble ? <div className="muted small">{trouble}</div> : null}
+      {beta ? <Link className="beta-link" href={`/jobs/${id}/editor`}>Открыть в редакторе <span>бета</span></Link> : null}
     </>
   );
   // после «Ещё три варианта» вопросы уже отвечены — сразу превью; «← Вопросы» и «Показать превью» решают сами
@@ -144,7 +161,7 @@ export default function Job({ id }: { id: string }) {
   const previews = stage === 'previews' || (stage === 'auto' && view?.step === 'restyle' && answered);
   if (data && view?.screen === 'questions' && draft && questions && styles && previews) {
     return (
-      <Previews jobId={id} styles={styles} questions={questions} draft={draft} brief={data.brief} duration={view.duration} fileUrl={fileUrl} localUrl={localUrl}
+      <Previews jobId={id} styles={styles} questions={questions} draft={draft} brief={data.brief} duration={view.duration} fileUrl={fileUrl} localUrl={localUrl} look={look}
         onBack={() => { setStage('questions'); window.scrollTo(0, 0); }} onAct={act} />
     );
   }

@@ -4,7 +4,7 @@ import { getHead } from '../lib/branch.ts';
 import { findReleaseByTag } from '../lib/github.ts';
 import { appendFix } from '../lib/jobfiles.ts';
 import { fireText } from '../lib/routine.ts';
-import { backStep, deleteJob, retryStep, runStep, startJob, startScript, type Deps } from '../lib/steps.ts';
+import { backStep, deleteJob, retryStep, retryWithoutVoice, runStep, startJob, startScript, type Deps } from '../lib/steps.ts';
 import { withFake } from './helpers.ts';
 
 const ID = '261010-070509-abcd';
@@ -83,6 +83,44 @@ test('retry fires the last step with attempt + 1', () => withFake(async ({ fake,
   await assert.rejects(runStep(d, ID, 'render', {}, { retry: true }), /последн/);
 }));
 
+test('retry without the voice drops the voice upload and what analyze made from it, then fires analyze again', () => withFake(async ({ fake, gh, routine }) => {
+  // в «Озвучку» попала песня: анализ сорвался — повтор без неё, видео заново не загружается
+  const voice = { asset: 'upload-voice.m4a', name: 'Sleepwalker.m4a', size: 5, type: 'audio/x-m4a', parts: 1 };
+  fake.addAsset(`job-${ID}`, 'manifest.json', JSON.stringify({ ...MANIFEST, uploads: [...MANIFEST.uploads, voice] }));
+  const d: Deps = { gh, routine, now: () => NOW };
+  await startJob(d, ID);
+  const branch = `claude/job-${ID}`;
+  assert.deepEqual(read(fake, branch, 'job.json').uploads.map((u: { kind: string }) => u.kind), ['image', 'audio']);
+  const made = ['words.json', 'cuts.json', 'speech.json', 'language.json', 'reference.txt', 'editor.json', 'film.jpg'];
+  fake.commit(branch, {
+    ...Object.fromEntries(made.map((name) => [`jobs/${ID}/${name}`, '[]'])),
+    [`jobs/${ID}/status.json`]: JSON.stringify({ state: 'error', phase: 'Ошибка', message: 'В «Озвучке» песня', at: NOW.toISOString() }),
+  }, 'session');
+  const r = await retryWithoutVoice(d, ID);
+  assert.equal(r.attempt, 2);
+  assert.deepEqual(fake.fires.map((f) => [f.step, f.attempt]), [['analyze', 1], ['analyze', 2]]);
+  const job = read(fake, branch, 'job.json');
+  assert.deepEqual(job.uploads.map((u: { asset: string }) => u.asset), ['upload-i1.png'], 'вставка осталась, озвучки нет');
+  for (const name of made) assert.equal(fake.read(branch, `jobs/${ID}/${name}`), null, `${name} — от песни, его нет`);
+  assert.equal(read(fake, branch, 'status.json').state, 'queued');
+  await assert.rejects(retryWithoutVoice(d, ID), /озвучки нет/i);
+}));
+
+test('retry without the voice works when analyze failed before pushing anything it made', () => withFake(async ({ fake, gh, routine }) => {
+  // сессия остановилась на `vm status --state error --push`: в ветке только status.json — удалять из неё нечего
+  // (настоящий GitHub на удаление файла, которого нет, отвечает 422)
+  const voice = { asset: 'upload-voice.m4a', name: 'Sleepwalker.m4a', size: 5, type: 'audio/x-m4a', parts: 1 };
+  fake.addAsset(`job-${ID}`, 'manifest.json', JSON.stringify({ ...MANIFEST, uploads: [...MANIFEST.uploads, voice] }));
+  const d: Deps = { gh, routine, now: () => NOW };
+  await startJob(d, ID);
+  const branch = `claude/job-${ID}`;
+  fake.commit(branch, { [`jobs/${ID}/status.json`]: JSON.stringify({ state: 'error', phase: 'Ошибка', message: 'В «Озвучке» песня', at: NOW.toISOString() }) }, 'session');
+  const r = await retryWithoutVoice(d, ID);
+  assert.equal(r.attempt, 2);
+  assert.deepEqual(fake.fires.map((f) => [f.step, f.attempt]), [['analyze', 1], ['analyze', 2]]);
+  assert.deepEqual(read(fake, branch, 'job.json').uploads.map((u: { kind: string }) => u.kind), ['image']);
+}));
+
 test('startJob refuses a second start', () => withFake(async ({ fake, gh, routine }) => {
   fake.addAsset(`job-${ID}`, 'manifest.json', JSON.stringify(MANIFEST));
   const d: Deps = { gh, routine, now: () => NOW };
@@ -124,6 +162,18 @@ test('back after a failed fix drops that fix and keeps the finished video', () =
   assert.deepEqual(await backStep(d, ID), { screen: 'result' });
   assert.deepEqual(read(fake, `claude/job-${ID}`, 'fix.json'), first);
   assert.equal(read(fake, `claude/job-${ID}`, 'status.json').state, 'rendered');
+}));
+
+test('back after a failed fix from the editor with a new style puts the rendered style back into answers.json', () => withFake(async ({ fake, gh, routine }) => {
+  fake.addAsset(`job-${ID}`, 'manifest.json', JSON.stringify(MANIFEST));
+  const d: Deps = { gh, routine, now: () => NOW };
+  await startJob(d, ID);
+  const old = { variant: 'A' as const, font: 'montserrat', hand: 'caveat', colors: { text: '#FFFFFF', accent: '#FFD400', bar: '#FFD400' } };
+  const fix = appendFix(null, 'Правки в редакторе', NOW, { timeline: 2, styleFrom: old });
+  await runStep(d, ID, 'fix', { 'fix.json': JSON.stringify(fix), 'answers.json': JSON.stringify({ answers: {}, style: { ...old, variant: 'B' } }) });
+  assert.deepEqual(await backStep(d, ID), { screen: 'result' });
+  assert.deepEqual(read(fake, `claude/job-${ID}`, 'fix.json'), { fixes: [] });
+  assert.deepEqual(read(fake, `claude/job-${ID}`, 'answers.json'), { answers: {}, style: old }, 'стиль — тот, в котором ролик смонтирован');
 }));
 
 test('back after a failed analyze is refused', () => withFake(async ({ fake, gh, routine }) => {

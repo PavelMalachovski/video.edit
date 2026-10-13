@@ -24,6 +24,11 @@ export function launch() {
   return playwright().chromium.launch();
 }
 
+/** WebKit без окна — движок Safari: так превью рисуется на iPhone Павла (тест «Safari ≈ Chromium»). */
+export function launchWebkit() {
+  return playwright().webkit.launch();
+}
+
 /** Страница размером с кадр ролика, 1 px страницы = 1 px кадра. */
 export function framePage(browser) {
   return browser.newPage({ viewport: { width: 1080, height: 1920 }, deviceScaleFactor: 1 });

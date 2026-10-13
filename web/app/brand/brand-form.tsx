@@ -3,6 +3,7 @@
 // его шрифты и цвета, финальная карточка — ник и логотип, подпись к посту — подпись и хэштеги. Превью рисует тот же
 // шаблон слоя, что ролик.
 import { useEffect, useMemo, useState } from 'react';
+import { lookLines, type BrandLook } from '@/lib/brand.ts';
 import { errorText, JSON_HEADERS, message } from '@/lib/client.ts';
 import type { StyleSpec } from '@/lib/jobfiles.ts';
 import { SWATCHES, type OverlayState } from '@/lib/style.ts';
@@ -12,7 +13,7 @@ type FontEntry = { id: string; family: string; file: string; kind: 'main' | 'han
 type Colors = { text: string; accent: string; bar: string };
 type Saved = {
   handle: string | null; colors: Colors | null; font: string | null; hand: string | null; logo: string | null;
-  signature: string | null; hashtags: string[];
+  signature: string | null; hashtags: string[]; look?: BrandLook;
 };
 type Logo = { kind: 'saved'; url: string } | { kind: 'new'; url: string; type: string; base64: string } | { kind: 'none' };
 
@@ -62,6 +63,7 @@ export default function BrandForm() {
   const [fonts, setFonts] = useState<FontEntry[]>([]);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
+  const [look, setLook] = useState<BrandLook | null>(null);
 
   const apply = (b: Saved | null, version: string | null) => {
     setHandle(b?.handle ?? '');
@@ -72,7 +74,23 @@ export default function BrandForm() {
     setLogoTouched(false);
     setSignature(b?.signature ?? '');
     setHashtags((b?.hashtags ?? []).map((t) => `#${t}`).join(' '));
+    setLook(b?.look ?? null);
   };
+
+  async function removeLook() {
+    setBusy(true);
+    setNote(null);
+    try {
+      const r = await fetch('/api/brand/look', { method: 'DELETE' });
+      if (!r.ok) throw new Error(await errorText(r, 'Не получилось убрать'));
+      setLook(null);
+      setNote({ ok: true, text: '«Мой стиль» убран — новые ролики начнутся с вариантов Claude' });
+    } catch (e) {
+      setNote({ ok: false, text: message(e) });
+    } finally {
+      setBusy(false);
+    }
+  }
 
   useEffect(() => {
     let live = true;
@@ -216,6 +234,19 @@ export default function BrandForm() {
         <label htmlFor="hashtags" className="label">Хэштеги</label>
         <input id="hashtags" type="text" autoCapitalize="none" placeholder="#монтаж #reels" value={hashtags} onChange={(e) => setHashtags(e.target.value)} />
         <div className="muted small">Подпись и хэштеги Claude добавит к подписи к посту.</div>
+      </div>
+
+      <div className="card" data-my-look>
+        <div className="caps small">Мой стиль</div>
+        {look ? (
+          <>
+            <div className="small">Из ролика «{look.from.title}», {new Date(look.from.at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}. Новые ролики начинаются с него: превью, скорость, «Фон» и «Музыка».</div>
+            <ul className="plain dots small">{lookLines(look, (id) => fonts.find((x) => x.id === id)?.family ?? id).map((line) => <li key={line}>{line}</li>)}</ul>
+            <button type="button" className="btn ghost" disabled={busy} onClick={() => void removeLook()}>Убрать мой стиль</button>
+          </>
+        ) : (
+          <div className="muted small">Смонтируйте ролик как нравится и на экране «Готово» нажмите «Сохранить стиль ролика в «Мой бренд»» — следующие ролики начнутся с него.</div>
+        )}
       </div>
 
       <button type="button" className="btn" disabled={busy} onClick={() => void save()}>{busy ? 'Сохраняю…' : 'Сохранить'}</button>

@@ -1,9 +1,26 @@
 // Очередь загрузки кусков: несколько параллельных запросов, пауза между стартами
 // (вторичные лимиты GitHub на создание ассетов), повторы с нарастающей паузой,
-// минута ожидания после ответа «лимит», продолжение с уже загруженных кусков.
-import { CHUNK_SIZE, chunkName, isJobId, isUploadFile, isVoiceFile } from './jobs.ts';
+// минута ожидания после ответа «лимит», продолжение с уже загруженных кусков; ответ, который повтор не исправит
+// (сайт на паузе, вход истёк, кусок неверный), останавливает загрузку сразу.
+import { PAUSED, statusText } from './client.ts';
+import { CHUNK_SIZE, chunkName, isJobId, isSourceFile, isUploadFile, isVoiceFile, videoAsset } from './jobs.ts';
 
 export type PutResult = { ok: true } | { ok: false; status: number };
+
+/** Ответы, которые повтор не исправит: неверный запрос (400), вход истёк (401), Vercel поставил сайт на паузу (402),
+ *  маршрута нет (404), кусок больше лимита (413). Шесть повторов каждого куска только тратили бы трафик Vercel. */
+export const FATAL: ReadonlySet<number> = new Set([400, 401, 402, 404, 413]);
+
+/** Загрузка остановилась на ответе из FATAL: загруженные куски остались, «Продолжить загрузку» пойдёт с них. */
+export class UploadStopped extends Error {
+  readonly status: number;
+  constructor(status: number) {
+    super(status === 401 ? 'Вход истёк — войдите снова (можно в другой вкладке) и повторите: загруженное не пропадёт'
+      : status === 402 ? PAUSED : statusText(status, 'Загрузка остановилась'));
+    this.name = 'UploadStopped';
+    this.status = status;
+  }
+}
 
 export type UploadOptions = {
   parts: number;
@@ -27,6 +44,7 @@ export async function runUpload(o: UploadOptions): Promise<{ retries: number }> 
   const gap = o.minGapMs ?? 700;
   let nextStart = now();
   let retries = 0;
+  let stopped: number | null = null; // ответ из FATAL: новые куски не начинаем
   const failed: number[] = [];
 
   async function slot(): Promise<void> {  // занять ближайшее окно старта
@@ -36,12 +54,14 @@ export async function runUpload(o: UploadOptions): Promise<{ retries: number }> 
   }
 
   async function worker(): Promise<void> {
-    for (let i = queue.shift(); i !== undefined; i = queue.shift()) {
+    for (let i = queue.shift(); i !== undefined && stopped === null; i = queue.shift()) {
       for (let attempt = 0; ; attempt++) {
         await slot();
+        if (stopped !== null) return;
         let r: PutResult;
         try { r = await o.put(i); } catch { r = { ok: false, status: 0 }; }
         if (r.ok) { done.add(i); o.onProgress?.(done.size); break; }
+        if (FATAL.has(r.status)) { stopped ??= r.status; return; }
         if (attempt >= maxRetries - 1) { failed.push(i); break; }
         retries += 1;
         await sleep(r.status === 429 ? (o.rateLimitWaitMs ?? 60_000) : 1000 * 2 ** attempt);
@@ -50,6 +70,7 @@ export async function runUpload(o: UploadOptions): Promise<{ retries: number }> 
   }
 
   await Promise.all(Array.from({ length: Math.max(1, o.concurrency ?? 2) }, worker));
+  if (stopped !== null) throw new UploadStopped(stopped);
   if (failed.length) throw new Error(`upload failed for part ${failed.sort((a, b) => a - b).join(', ')}`);
   return { retries };
 }
@@ -79,6 +100,7 @@ export type Pending = {
   jobId: string; releaseId: number; source: { name: string; size: number; lastModified: number };
   brief: string; duration: number | null; inserts: PendingInsert[];
   voice?: PendingInsert; // озвучка — своя запись голоса
+  more?: PendingInsert[]; // ещё видео задачи по порядку: source-2, source-3…
 };
 type Picked = { name: string; size: number; lastModified: number };
 
@@ -87,12 +109,20 @@ const PENDING_KEY = 'vm:pending';
 const same = (a: Picked, b: Picked): boolean => a.name === b.name && a.size === b.size;
 
 /**
- * Тот же ли файл выбран снова (имя и размер) и какие вставки выбраны заново: `inserts` — ассет → файл; `voice` —
- * озвучка, если выбрана та же. Невыбранные заново выпадают — их имена в `dropped`.
+ * Те же ли видео выбраны снова (имя и размер; все, в любом порядке, и ни одного лишнего) и какие вставки выбраны
+ * заново: `videos` и `inserts` — ассет → файл; `voice` — озвучка, если выбрана та же. Невыбранные заново вставки и
+ * озвучка выпадают — их имена в `dropped`.
  */
-export function matchPending<F extends Picked>(p: Pending, source: F, inserts: F[], voice: F | null = null): {
-  ok: boolean; inserts: Map<string, F>; voice: F | null; dropped: string[];
+export function matchPending<F extends Picked>(p: Pending, sources: F | F[], inserts: F[], voice: F | null = null): {
+  ok: boolean; videos: Map<string, F>; inserts: Map<string, F>; voice: F | null; dropped: string[];
 } {
+  const picked = Array.isArray(sources) ? sources : [sources];
+  const videos = new Map<string, F>();
+  for (const want of [{ asset: 'source', ...p.source }, ...(p.more ?? [])]) {
+    const f = picked.find((x) => same(x, want) && ![...videos.values()].includes(x));
+    if (f) videos.set(want.asset, f);
+  }
+  const all = videos.size === 1 + (p.more?.length ?? 0) && picked.length === videos.size;
   const found = new Map<string, F>();
   const dropped: string[] = [];
   for (const want of p.inserts) {
@@ -102,15 +132,18 @@ export function matchPending<F extends Picked>(p: Pending, source: F, inserts: F
   }
   const again = p.voice && voice && same(voice, p.voice) ? voice : null;
   if (p.voice && !again) dropped.push(p.voice.name);
-  return { ok: same(source, p.source), inserts: found, voice: again, dropped };
+  return { ok: all, videos, inserts: found, voice: again, dropped };
 }
 
-/** Тот же ли выбор, с которым загрузка остановилась: вставки и озвучка — те же файлы. Нет — Pending собирается заново
- *  (как после перезагрузки страницы), иначе ушли бы убранная запись или прежние вставки. */
-export function sameSelection(files: Map<string, File>, inserts: File[], voice: File | null): boolean {
+/** Тот же ли выбор, с которым загрузка остановилась: вставки и озвучка (и видео, если дан их список, — в том же порядке:
+ *  склеятся по нему) — те же файлы. Нет — Pending собирается заново (как после перезагрузки страницы), иначе ушли бы
+ *  убранная запись, прежние вставки или прежний порядок видео. */
+export function sameSelection(files: Map<string, File>, inserts: File[], voice: File | null, sources?: File[]): boolean {
   const picked = new Set<File>([...inserts, ...(voice ? [voice] : [])]);
-  const sent = [...files].filter(([key]) => key !== 'source').map(([, f]) => f);
-  return sent.length === picked.size && sent.every((f) => picked.has(f));
+  const sent = [...files].filter(([key]) => !isSourceFile(key)).map(([, f]) => f);
+  const videos = [...files].filter(([key]) => isSourceFile(key)).map(([, f]) => f);
+  const sameVideos = !sources || (videos.length === sources.length && sources.every((f, k) => files.get(videoAsset(k)) === f));
+  return sameVideos && sent.length === picked.size && sent.every((f) => picked.has(f));
 }
 
 const isPending = (x: unknown): x is Pending => {
@@ -118,7 +151,10 @@ const isPending = (x: unknown): x is Pending => {
   return typeof p === 'object' && p !== null && typeof p.jobId === 'string' && isJobId(p.jobId) && Number.isInteger(p.releaseId)
     && typeof p.source?.name === 'string' && Number.isFinite(p.source.size) && Number.isFinite(p.source.lastModified)
     && typeof p.brief === 'string' && Array.isArray(p.inserts) && p.inserts.every((i) => typeof i?.asset === 'string' && isUploadFile(i.asset))
-    && (p.voice === undefined || (typeof p.voice?.asset === 'string' && isVoiceFile(p.voice.asset)));
+    && (p.voice === undefined || (typeof p.voice?.asset === 'string' && isVoiceFile(p.voice.asset)))
+    && (p.more === undefined || (Array.isArray(p.more) && p.more.every((v) => typeof v?.asset === 'string' && v.asset !== 'source'
+      && isSourceFile(v.asset) && typeof v.name === 'string' && typeof v.type === 'string' && Number.isFinite(v.size) && v.size > 0
+      && Number.isFinite(v.lastModified))));
 };
 
 /** Незаконченная загрузка этого браузера; нет, битая или хранилище недоступно — null. */

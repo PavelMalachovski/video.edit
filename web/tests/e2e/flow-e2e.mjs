@@ -1,5 +1,6 @@
 // Сквозная проверка страницы по сегментам: вход → загрузка (с продолжением после перезагрузки) → список → ….
-// Нужны запущенные next start (порт 3000) и fake-github.mjs (порт 4010) — их поднимает run.sh.
+// Нужны запущенные next start (порт 3000) и fake-github.mjs (порт 4010) — их поднимает run.sh (другие порты —
+// E2E_APP_PORT и E2E_FAKE_PORT).
 // Каждый сегмент печатает `ok <имя>`; первый сбой — `FAIL <имя>` и код 1.
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
@@ -8,16 +9,40 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import zlib from 'node:zlib';
 
+import { stateAt } from '../../lib/overlay.ts';
 import { finalStyle } from '../../lib/style.ts';
+import { draftTracks, parseDraft } from '../../lib/tracks.ts';
 
 const require = createRequire(import.meta.url);
-const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const playwright = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+// браузер прогона: chromium (как рендер движка) или webkit — Safari, как у Павла на iPhone (E2E_BROWSER)
+const BROWSER = process.env.E2E_BROWSER || 'chromium';
+const WEBKIT = BROWSER === 'webkit';
 
-const APP = 'http://127.0.0.1:3000';
-const FAKE = 'http://127.0.0.1:4010';
+const APP = `http://127.0.0.1:${process.env.E2E_APP_PORT || 3000}`;
+const FAKE = `http://127.0.0.1:${process.env.E2E_FAKE_PORT || 4010}`;
 // 1×1 PNG — вставка к ролику
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+/** Однотонный PNG `w×h` (RGB) без библиотек: кадры к вопросу «Фон» — по ним страница считает кадр с любым затемнением. */
+function solidPng(w, h, [r, g, b]) {
+  const chunk = (type, data) => {
+    const body = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(zlib.crc32(body));
+    return Buffer.concat([len, body, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0);
+  ihdr.writeUInt32BE(h, 4);
+  ihdr.set([8, 2, 0, 0, 0], 8); // 8 бит, RGB
+  const row = Buffer.concat([Buffer.from([0]), Buffer.from(Array(w).fill([r, g, b]).flat())]);
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(Buffer.concat(Array(h).fill(row)))),
+    chunk('IEND', Buffer.alloc(0))]);
+}
 
 // ---------- помощники ----------
 
@@ -49,21 +74,36 @@ async function session(ctx, files) {
     out[`jobs/${ctx.jobId}/${rel}`] = Buffer.isBuffer(value) ? { base64: value.toString('base64') }
       : typeof value === 'string' || value === null ? value : `${JSON.stringify(value, null, 2)}\n`;
   }
-  return fakeJson('/__commit', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ branch: `claude/job-${ctx.jobId}`, files: out, message: 'session' }) });
+  const done = await fakeJson('/__commit', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ branch: `claude/job-${ctx.jobId}`, files: out, message: 'session' }) });
+  // пока шаг не идёт, страница задачи спрашивает раз в 30 с; а вкладку, которую снова показали, — сразу: так тест не
+  // ждёт следующего опроса (как Павел, вернувшийся к вкладке)
+  await ctx.page?.evaluate(() => document.dispatchEvent(new Event('visibilitychange'))).catch(() => undefined);
+  return done;
 }
 
-/** Ждать, пока `fn` не вернёт истину (или не истечёт `ms`). */
+/** Ждать, пока `fn` не вернёт истину (или не истечёт `ms`). `what` — что ждали; функция — с тем, что было на деле. */
 async function until(fn, ms, what) {
   const end = Date.now() + ms;
   for (;;) {
     const v = await fn();
     if (v) return v;
-    if (Date.now() > end) throw new Error(`не дождался: ${what}`);
+    if (Date.now() > end) throw new Error(`не дождался: ${typeof what === 'function' ? await what() : what}`);
     await new Promise((r) => setTimeout(r, 200));
   }
 }
 
 const sha256 = (b) => crypto.createHash('sha256').update(b).digest('hex');
+
+/** WAV: синус `hz` Гц, `seconds` с, моно 16 бит — музыка для прослушивания в редакторе (без ffmpeg). */
+function wav(seconds, hz, rate = 8000) {
+  const n = Math.round(seconds * rate);
+  const b = Buffer.alloc(44 + n * 2);
+  b.write('RIFF', 0); b.writeUInt32LE(36 + n * 2, 4); b.write('WAVE', 8); b.write('fmt ', 12); b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20);
+  b.writeUInt16LE(1, 22); b.writeUInt32LE(rate, 24); b.writeUInt32LE(rate * 2, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34);
+  b.write('data', 36); b.writeUInt32LE(n * 2, 40);
+  for (let i = 0; i < n; i++) b.writeInt16LE(Math.round(6000 * Math.sin((2 * Math.PI * hz * i) / rate)), 44 + i * 2);
+  return b;
+}
 
 /** Файл задачи проходит схему движка (vm.job.validate) — страница и сессия говорят на одном языке. */
 function engineValidate(name, data) {
@@ -123,16 +163,87 @@ const STYLES = { ...FIXTURE.styles, sample: { ...FIXTURE.styles.sample, inserts:
   cover: { frames: [{ t: 1.2, image: 'cover-1.jpg' }, { t: 7.5, image: 'cover-2.jpg' }, { t: 21, image: 'cover-3.jpg' }], text: 'Как я учу чешский' } };
 
 /** Снимок экрана в папку E2E_SHOTS (если задана) — посмотреть вёрстку глазами. */
+/** Экран снят: на телефоне страница не шире экрана (вбок не листается) и, если просили, скриншот. */
+/** Редактор: линейка (заново на каждом шаге: дорожки меняют высоту — пропала строка «Звуки», таймлайн ниже — и она
+ *  съезжает), состояние слоя кадра и «встать на момент ролика». `full` — длина ролика с хвостом. */
+function editorKit(page, full) {
+  const geo = async () => {
+    const r = await page.locator('.ed-ruler').boundingBox();
+    return { r, pps: r.width / full, X: (t) => r.x + (t * r.width) / full };
+  };
+  const layerState = async () => JSON.parse((await page.locator('.ed-layer iframe').getAttribute('data-state')) ?? '{}');
+  /** Где плейхед по часам редактора (десятые секунды). */
+  const clockAt = async () => {
+    const [m, s] = ((await page.locator('.ed-clock span').first().textContent()) ?? '').split(':');
+    return Number(m) * 60 + Number(s);
+  };
+  /** Встать на момент ролика `t` (щелчок по линейке; часы не дошли — щелчок мимо, ещё раз: WebKit на CI, бывает, щёлкает
+   *  раньше, чем вёрстка встала) и дождаться события слоя, в котором он лежит. */
+  const seekTo = async (t) => {
+    await until(async () => {
+      const { r, X } = await geo();
+      await page.mouse.click(X(t), r.y + r.height / 2);
+      return Math.abs((await clockAt()) - t) < 0.15;
+    }, 3000, async () => `часы на ${t} с, а не ${await clockAt()}`);
+    await until(async () => {
+      const t0 = Number(await page.locator('.ed-layer').getAttribute('data-t0'));
+      return Number.isFinite(t0) && t0 <= t + 0.02;
+    }, 3000, `слой на ${t} с`);
+  };
+  return { geo, layerState, seekTo };
+}
+
 async function shot(page, name) {
+  const { inner, scroll } = await page.evaluate(() => ({ inner: window.innerWidth, scroll: document.documentElement.scrollWidth }));
+  if (inner <= 430) check(scroll <= inner + 1, `экран «${name}» шире телефона: ${scroll} px при ${inner} px`);
   if (process.env.E2E_SHOTS) await page.screenshot({ path: path.join(process.env.E2E_SHOTS, `${name}.png`), fullPage: true });
 }
 
+/** Цвет точки окна (px CSS) — без библиотек: у первой точки PNG фильтр строки её не меняет, хватает распаковать IDAT. */
+async function pixel(page, x, y) {
+  const png = await page.screenshot({ clip: { x, y, width: 1, height: 1 }, scale: 'css' });
+  const idat = [];
+  for (let i = 8; i < png.length;) {
+    const len = png.readUInt32BE(i);
+    if (png.toString('ascii', i + 4, i + 8) === 'IDAT') idat.push(png.subarray(i + 8, i + 8 + len));
+    i += 12 + len;
+  }
+  const raw = zlib.inflateSync(Buffer.concat(idat));
+  return [raw[1], raw[2], raw[3]];
+}
+
 // ---------- сегменты ----------
+
+/** Видео как с телефона: настоящий MOV (картинка и звук, заголовок в начале) длиной `seconds`, дополненный до `bytes`
+ *  пустым боксом `free` — браузер читает длительность (WebKit на Linux застревал на случайных байтах вместо видео), а
+ *  кусков загрузки — сколько нужно. Без ffmpeg — случайные байты. */
+function sampleVideo(file, seconds, bytes) {
+  try {
+    execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `testsrc2=s=540x960:r=30:d=${seconds}`, '-f', 'lavfi', '-i', `sine=frequency=330:duration=${seconds}`,
+      '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', '-movflags', '+faststart', '-f', 'mov', file]);
+  } catch {
+    fs.writeFileSync(file, crypto.randomBytes(bytes));
+    return;
+  }
+  const pad = bytes - fs.statSync(file).size;
+  if (pad <= 8) return;
+  const head = Buffer.alloc(8);
+  head.writeUInt32BE(pad);
+  head.write('free', 4, 'ascii');
+  fs.appendFileSync(file, Buffer.concat([head, crypto.randomBytes(pad - 8)]));
+}
 
 const segments = [
   ['login', async ({ page }) => {
     await page.goto(`${APP}/`);
     check(page.url().endsWith('/login'), `нет перехода на вход: ${page.url()}`);
+    // кусок видео идёт мимо proxy.ts (трафик Vercel): без входа маршрут куска не пускает сам — до GitHub ничего не доходит
+    const stranger = await fetch(`${APP}/api/jobs/261013-120000-ab12/parts/0?release=1`, { method: 'PUT', body: new Uint8Array(16) });
+    check(stranger.status === 401, `кусок без входа: ${stranger.status}`);
+    // светлая тема, как у редактора: фон и схема страницы
+    const theme = await page.evaluate(() => ({ bg: getComputedStyle(document.body).backgroundColor, scheme: getComputedStyle(document.documentElement).colorScheme }));
+    check(theme.bg === 'rgb(243, 244, 241)' && theme.scheme === 'light', `светлая тема сайта: ${JSON.stringify(theme)}`);
+    await shot(page, 'login');
     await page.fill('#password', 'wrong');
     await page.click('button[type=submit]');
     check((await page.textContent('body')).includes('Неверный пароль'), 'неверный пароль принят');
@@ -155,6 +266,11 @@ const segments = [
     await page.fill('#signature', 'Пишите в директ — отвечу лично');
     await page.fill('#hashtags', '#монтаж reels');
     await page.waitForFunction(() => document.querySelector('iframe')?.contentWindow?.layoutBoxes?.().hook);
+    // под слоем виден кадр (BACKDROP — тёмный градиент), а не белая подложка iframe: схемы страницы и шаблона совпадают
+    await page.locator('.preview').scrollIntoViewIfNeeded();
+    const brandBox = await page.locator('.preview').boundingBox();
+    const backdrop = await pixel(page, brandBox.x + brandBox.width / 2, brandBox.y + brandBox.height / 2);
+    check(backdrop[0] + backdrop[1] + backdrop[2] < 3 * 128, `превью бренда: под слоем — кадр, а не белая подложка (${backdrop.join(', ')})`);
     await shot(page, 'brand');
     await page.getByRole('button', { name: 'Сохранить' }).click();
     await page.getByText('Сохранено').waitFor();
@@ -173,13 +289,21 @@ const segments = [
   ['upload', async (ctx) => {
     const { page, tmp } = ctx;
     const source = path.join(tmp, 'clip.mov');
-    fs.writeFileSync(source, crypto.randomBytes(30 * 1024 * 1024));
+    sampleVideo(source, 2, 30 * 1024 * 1024);
+    const second = path.join(tmp, 'clip2.mov'); // второе видео задачи (фаза 4б): склеится за первым
+    sampleVideo(second, 1, 3 * 1024 * 1024);
     const insert = path.join(tmp, 'logo.png');
     fs.writeFileSync(insert, PNG);
     // озвучка: своя запись голоса, два куска; буфером — путь с кириллицей Playwright молча не ставит в поле
     const voice = { name: 'Запись.m4a', mimeType: 'audio/x-m4a', buffer: crypto.randomBytes(5 * 1024 * 1024) };
 
-    await page.setInputFiles('#source', source);
+    await page.setInputFiles('#source', [source, second]);
+    await page.getByText('2. clip2.mov').waitFor();
+    // порядок меняется: второе — выше, и обратно
+    await page.getByRole('button', { name: 'clip2.mov — раньше' }).click();
+    await page.getByText('1. clip2.mov').waitFor();
+    await page.getByRole('button', { name: 'clip.mov — раньше' }).click();
+    await page.getByText('1. clip.mov').waitFor();
     await page.fill('#brief', 'ХУК: Как я учу чешский');
     await page.setInputFiles('#inserts', insert);
     await page.getByText('logo.png').waitFor();
@@ -190,25 +314,57 @@ const segments = [
     await page.getByText('Загружаю в GitHub…').waitFor();
     await shot(page, 'upload-progress');
 
-    // ≥ 2 кусков в черновике — перезагрузить посреди загрузки
-    await until(async () => ((await state()).drafts[0]?.assets.length ?? 0) >= 2, 60_000, 'два куска в черновике');
-    await page.reload();
-    await page.getByText('Загрузка clip.mov не закончена').waitFor();
-    check(await page.inputValue('#brief') === 'ХУК: Как я учу чешский', 'ТЗ не восстановилось после перезагрузки');
-    await page.setInputFiles('#source', source);
-    await page.setInputFiles('#inserts', insert);
-    await page.setInputFiles('#voice', voice);
-    await page.getByRole('button', { name: 'Продолжить загрузку' }).waitFor();
-    await shot(page, 'upload-resume');
-    await page.getByRole('button', { name: 'Продолжить загрузку' }).click();
+    // ≥ 2 кусков в черновике — перезагрузить посреди загрузки и продолжить. В Safari (WebKit на Linux) с двумя видео,
+    // вставкой и озвучкой после этого зависал следующий переход (причина не найдена: по отдельности всё проходит) —
+    // там загрузка здесь идёт до конца, а продолжение после перезагрузки проверяет отдельный шаг resume в конце
+    let resumed = () => {};
+    if (!WEBKIT) {
+      await until(async () => ((await state()).drafts[0]?.assets.length ?? 0) >= 2, 60_000, 'два куска в черновике');
+      await page.reload();
+      await page.getByText('Загрузка clip.mov + 1 не закончена: выберите те же видео').waitFor();
+      check(await page.inputValue('#brief') === 'ХУК: Как я учу чешский', 'ТЗ не восстановилось после перезагрузки');
+      await page.setInputFiles('#source', [second, source]); // те же видео в другом порядке — загрузка та же
+      await page.setInputFiles('#inserts', insert);
+      await page.setInputFiles('#voice', voice);
+      await page.getByRole('button', { name: 'Продолжить загрузку' }).waitFor();
+      await shot(page, 'upload-resume');
+      // Vercel поставил сайт на паузу (402 и своя HTML-страница): кусок не повторяется шесть раз, новые не начинаются,
+      // причина — словами; пауза снята — «Продолжить загрузку» идёт с того же места
+      const isPart = (u) => /\/api\/jobs\/[^/]+\/parts\/\d+$/.test(u.pathname);
+      let paused = 0;
+      await page.route(isPart, (route) => { paused += 1; return route.fulfill({ status: 402, contentType: 'text/html', body: '<html>402: PAYMENT_REQUIRED</html>' }); });
+      await page.getByRole('button', { name: 'Продолжить загрузку' }).click();
+      await page.locator('.err').getByText('Vercel поставил сайт на паузу').waitFor({ timeout: 15_000 });
+      check(paused >= 1 && paused <= 2, `на паузе — без повторов: ${paused} запросов кусков`);
+      await shot(page, 'upload-paused');
+      await page.unroute(isPart);
+      const had = new Set((await state()).drafts[0].assets);
+      const sent = [];
+      const onPut = (req) => {
+        const u = new URL(req.url());
+        if (req.method() === 'PUT' && isPart(u)) sent.push(`${u.searchParams.get('file') ?? 'source'}.part-${u.pathname.split('/').pop().padStart(5, '0')}`);
+      };
+      page.on('request', onPut);
+      await page.getByRole('button', { name: 'Продолжить загрузку' }).click();
+      resumed = () => {
+        page.off('request', onPut);
+        const again = sent.filter((n) => had.has(n));
+        check(sent.length > 0 && again.length === 0, `после паузы — с того же места: заново ушли ${again.join(', ') || 'ничего'} (всего ${sent.length})`);
+      };
+    }
 
     await page.waitForURL(/\/jobs\/\d{6}-\d{6}-[0-9a-z]{4}$/, { timeout: 120_000 });
+    resumed();
     ctx.jobId = page.url().split('/').pop();
     const joined = Buffer.from(await (await fetch(`${FAKE}/__joined`)).arrayBuffer());
     check(sha256(joined) === sha256(fs.readFileSync(source)), 'склеенный исходник не совпал байт в байт');
+    const joined2 = Buffer.from(await (await fetch(`${FAKE}/__joined?file=source-2`)).arrayBuffer());
+    check(sha256(joined2) === sha256(fs.readFileSync(second)), 'второе видео не совпало байт в байт');
     const [draft] = await fakeJson('/__dump');
     const manifest = draft.sha;
     check(manifest?.brief === 'ХУК: Как я учу чешский', `ТЗ в manifest.json: ${manifest?.brief}`);
+    check(isDeepStrictEqual(manifest?.videos?.map((v) => [v.asset, v.name, v.size]), [['source', 'clip.mov', 30 * 1024 * 1024], ['source-2', 'clip2.mov', 3 * 1024 * 1024]])
+      && manifest.name === 'clip.mov' && manifest.size === 30 * 1024 * 1024, `видео в manifest.json: ${JSON.stringify(manifest?.videos)}`);
     check(manifest?.uploads?.[0]?.asset === 'upload-i1.png', `вставка в manifest.json: ${JSON.stringify(manifest?.uploads)}`);
     check(manifest?.uploads?.[1]?.asset === 'upload-voice.m4a' && manifest.uploads[1].size === 5 * 1024 * 1024,
       `озвучка в manifest.json: ${JSON.stringify(manifest?.uploads)}`);
@@ -220,14 +376,22 @@ const segments = [
     const job = JSON.parse((await branchFile(ctx, 'job.json')) ?? '{}');
     check(job.brand?.handle === '@pavel.malakhouski' && job.brand?.logo === 'in/brand/logo.png', `job.json.brand: ${JSON.stringify(job.brand)}`);
     check(job.uploads?.some((u) => u.file === 'in/uploads/upload-voice.m4a' && u.kind === 'audio'), `озвучка в job.json: ${JSON.stringify(job.uploads)}`);
+    check(isDeepStrictEqual(job.videos?.map((v) => v.file), ['in/source.mov', 'in/source-2.mov']), `видео в job.json: ${JSON.stringify(job.videos)}`);
     check((await branchFile(ctx, 'in/brand/logo.png')) !== null, 'логотип бренда не скопирован в задачу');
   }],
 
   ['list', async (ctx) => {
     const { page } = ctx;
+    if (WEBKIT) { // переход со страницы задачи на список в WebKit застревал — по шагам, с временем
+      const t = Date.now();
+      console.log(`  страница задачи отвечает: ${await within(page.evaluate(() => document.readyState), 10_000)} за ${Date.now() - t} мс`);
+      await page.goto(`${APP}/`, { waitUntil: 'commit' });
+      console.log(`  переход начался (commit) за ${Date.now() - t} мс`);
+    }
     await page.goto(`${APP}/`);
     const row = page.locator(`[data-job="${ctx.jobId}"]`);
     await row.getByText('Запускаю сессию…').waitFor();
+    check((await row.textContent()).includes('clip.mov + 1'), `в списке — первое видео и сколько ещё: ${await row.textContent()}`);
 
     const created = await page.request.post(`${APP}/api/jobs`, { data: { name: 'brosheno.mov', size: 1000, type: 'video/quicktime' } });
     check(created.ok(), `брошенная задача: ${created.status()}`);
@@ -263,8 +427,30 @@ const segments = [
     await session(ctx, { 'status.json': { state: 'error', phase: 'Ошибка', message: 'Не удалось расшифровать', at: iso(), error: 'GigaAM: нет памяти' } });
     await page.getByText('Не удалось расшифровать').waitFor({ timeout: 7000 });
     await shot(page, 'phases-error');
+    check(await page.getByRole('button', { name: 'Повторить без озвучки' }).count() === 1, 'у задачи с озвучкой анализ можно повторить и без неё');
+    check(await page.getByRole('button', { name: 'Повторить', exact: true }).getAttribute('class') === 'btn', 'главная кнопка ошибки — «Повторить»');
     await page.getByRole('button', { name: 'Повторить', exact: true }).click();
     await until(async () => (await fires()).some((f) => f.step === 'analyze' && f.attempt === 3), 10_000, 'повтор шага');
+
+    // в «Озвучку» попала песня — анализ сорвался: повтор без неё, видео заново не загружать
+    const job = JSON.parse((await branchFile(ctx, 'job.json')) ?? '{}');
+    await session(ctx, { 'words.json': [],
+      'status.json': { state: 'error', phase: 'Ошибка', message: 'В «Озвучке» песня — нажми «Повторить без озвучки»', at: iso(), error: 'voice is a song' } });
+    await page.getByText('В «Озвучке» песня').waitFor({ timeout: 7000 });
+    await shot(page, 'phases-error-voice');
+    await page.getByRole('button', { name: 'Повторить без озвучки' }).click();
+    // озвучку потом не вернуть — сперва вопрос; «Отмена» ничего не делает
+    await page.getByRole('button', { name: 'Отмена' }).click();
+    check((await fires()).every((f) => f.attempt < 4), 'отмена не запускает анализ');
+    await page.getByRole('button', { name: 'Повторить без озвучки' }).click();
+    await page.getByText('Вернуть её можно только новой задачей').waitFor({ timeout: 3000 });
+    await shot(page, 'phases-unvoice-confirm');
+    await page.getByRole('button', { name: 'Да, без озвучки' }).click();
+    await until(async () => (await fires()).some((f) => f.step === 'analyze' && f.attempt === 4), 10_000, 'повтор без озвучки');
+    const unvoiced = JSON.parse((await branchFile(ctx, 'job.json')) ?? '{}');
+    check(!unvoiced.uploads.some((u) => u.kind === 'audio'), `озвучка осталась в job.json: ${JSON.stringify(unvoiced.uploads)}`);
+    check(unvoiced.uploads.length === job.uploads.length - 1, `вставки задачи остались: ${JSON.stringify(unvoiced.uploads)}`);
+    check(await branchFile(ctx, 'words.json') === null, 'слова от песни убраны — анализ расслышит звук видео заново');
   }],
 
   ['questions', async (ctx) => {
@@ -275,7 +461,8 @@ const segments = [
     const waiting = { state: 'waiting_answers', phase: 'Ждёт ответов', message: 'Ответь на вопросы и выбери стиль', at: new Date().toISOString(), needs: 'answers' };
     engineValidate('status.json', waiting);
     await session(ctx, { 'questions.json': QUESTIONS, 'styles.json': STYLES, 'review.json': REVIEW, 'frame.png': PNG, 'q-logo.png': PNG, 'cover-1.jpg': PNG, 'cover-2.jpg': PNG, 'cover-3.jpg': PNG,
-      'q-dim-none.jpg': PNG, 'q-dim-30.jpg': PNG, 'q-dim-50.jpg': PNG, 'status.json': waiting });
+      'q-dim-none.jpg': solidPng(18, 32, [200, 200, 200]), 'q-dim-30.jpg': solidPng(18, 32, [140, 140, 140]), 'q-dim-50.jpg': solidPng(18, 32, [100, 100, 100]),
+      'status.json': waiting });
     const cards = page.locator('[data-question]');
     await until(async () => (await cards.count()) === 9, 10_000, 'девять карточек вопросов');
     // «Фон»: варианты — кадры видео крупно (9:16), а не значки в кнопке — иначе разницу не увидеть
@@ -286,6 +473,20 @@ const segments = [
     check(await frames.nth(1).getAttribute('aria-pressed') === 'true', 'по умолчанию — темнее на 30 %');
     await frames.nth(2).click();
     check(await frames.nth(2).getAttribute('aria-pressed') === 'true' && await frames.nth(1).getAttribute('aria-pressed') === 'false', 'выбор кадра');
+    // и ползунком — любое затемнение 0–80 % через 5; кадр с ним страница считает сразу из «как есть» и «на 50 %»
+    const dimRange = page.getByRole('slider', { name: 'Насколько темнее фон' });
+    check(await dimRange.inputValue() === '50', `ползунок стоит на выбранном кадре: ${await dimRange.inputValue()}`);
+    await dimRange.fill('35');
+    check(await frames.nth(2).getAttribute('aria-pressed') === 'false', 'между вариантами — ни один кадр не выбран');
+    await until(async () => {
+      const [value, percent] = await page.evaluate(() => {
+        const c = document.querySelector('.dim-frame');
+        return c ? [c.getContext('2d').getImageData(c.width >> 1, c.height >> 1, 1, 1).data[0], c.dataset.percent] : [null, null];
+      });
+      return percent === '35' && Math.abs(value - 130) <= 2; // 200 + 35/50 × (100 − 200)
+    }, 5000, 'кадр с затемнением 35 % посчитан');
+    await page.locator('[data-question="dim"]').scrollIntoViewIfNeeded();
+    await shot(page, 'questions-dim');
     const go = page.getByRole('button', { name: 'Показать превью' });
     check(await go.isDisabled(), '«Показать превью» включена, хотя brand и logo без ответа');
     // разбор по гайду — над вопросами: что хорошо и что поправить
@@ -314,6 +515,19 @@ const segments = [
     check(await card('brand').getByRole('button', { name: 'Copilot' }).getAttribute('aria-pressed') === 'true', 'выбор написания пропал');
     check(await card('logo').getByText('Загружено').count() > 0, 'загруженная картинка пропала');
     await shot(page, 'questions-answered');
+
+    // редактор (бета) на вопросах: черновика ещё нет — кадр-образец; стиль в его панели общий с «Превью»
+    await page.getByRole('link', { name: /Открыть в редакторе/ }).click();
+    await page.waitForURL(/\/editor$/);
+    const panel = page.locator('.ed-style');
+    await panel.waitFor({ timeout: 10_000 });
+    check(await panel.getByRole('button', { name: /^A / }).getAttribute('aria-pressed') === 'true', 'в редакторе — вариант A, как на «Превью»');
+    await panel.getByRole('group', { name: 'Подсветка слова' }).getByRole('button', { name: 'Мятный' }).click();
+    await until(async () => JSON.parse((await page.locator('.ed-layer iframe').getAttribute('data-spec')) ?? '{}').colors?.accent === '#7CF2B0', 5000,
+      'подсветка — на кадре-образце редактора');
+    await shot(page, 'editor-sample');
+    await page.getByRole('link', { name: 'К задаче' }).click();
+    await until(async () => (await cards.count()) === 9, 10_000, 'вопросы после редактора');
     await page.getByRole('button', { name: 'Показать превью' }).click();
     await page.getByText('Выбери стиль').waitFor();
   }],
@@ -326,6 +540,7 @@ const segments = [
     check(await tab('Стиль').getAttribute('aria-selected') === 'true', 'первая вкладка — не «Стиль»');
     const big = page.locator('iframe[data-big]');
     const bigSpec = async () => JSON.parse(await big.getAttribute('data-spec'));
+    await until(async () => (await bigSpec()).colors.accent === '#7CF2B0', 5000, 'подсветка, выбранная в редакторе, — на «Превью»');
     await page.getByRole('button', { name: /^B · / }).click();
     await tab('Шрифт').click();
     await page.getByRole('button', { name: 'Rubik', exact: true }).click();
@@ -388,6 +603,11 @@ const segments = [
     await solo.close();
     check(isDeepStrictEqual(inPage, alone), `рамки превью ${JSON.stringify(inPage)} ≠ шаблона ${JSON.stringify(alone)}`);
     await page.evaluate(() => window.scrollTo(0, 0));
+    // под слоем крупного превью виден кадр (frame.png — полупрозрачный красный на тёмном --frame), а не белая подложка
+    // iframe; точка — справа на середине кадра: там ни текста, ни вставок, ни ручек
+    const stageBox = await page.locator('.stage .preview').boundingBox();
+    const framePx = await pixel(page, stageBox.x + (1050 * stageBox.width) / 1080, stageBox.y + (960 * stageBox.width) / 1080);
+    check(framePx[0] > 100 && framePx[1] < 100, `крупное превью: под слоем — кадр, а не белая подложка (${framePx.join(', ')})`);
     await shot(page, 'previews');
 
     await page.getByLabel('Ни один не подходит? Скажи, что поменять').fill('без плашки');
@@ -622,7 +842,7 @@ const segments = [
     check(answers.ab === 'teaser', `ab: ${JSON.stringify(answers.ab)}`);
     check(isDeepStrictEqual(answers.cover, { frame: 1, text: 'Чешский за 15 минут' }), `cover: ${JSON.stringify(answers.cover)}`);
     check(answers.ad === true, `ad: ${JSON.stringify(answers.ad)}`);
-    check(answers.answers?.dim === '50', `dim: ${JSON.stringify(answers.answers?.dim)}`);
+    check(answers.answers?.dim === '35', `dim — с ползунка: ${JSON.stringify(answers.answers?.dim)}`);
     check(answers.style?.subSize === grown - 4 && answers.style?.hookSize === pinched, `размеры: ${answers.style?.subSize}, ${answers.style?.hookSize}`);
     check(answers.style?.subShade === 0.6, `пятно под субтитрами: ${answers.style?.subShade}`);
     check(isDeepStrictEqual(finalStyle(restyled, answers.style), last), `стиль ответа ${JSON.stringify(answers.style)} ≠ последнему превью`);
@@ -691,7 +911,8 @@ const segments = [
     check([...((await card.locator('b').textContent()) ?? '')].length === 72, 'до «ещё» — 72 знака');
     await card.getByRole('button', { name: 'Скопировать подпись' }).click();
     await card.getByRole('button', { name: 'Скопировано' }).waitFor();
-    const copied = await page.evaluate(() => navigator.clipboard.readText());
+    // Chromium читает буфер обмена; у WebKit без разрешений — то, что страница туда записала (см. запуск)
+    const copied = await page.evaluate((webkit) => (webkit ? window.__copied?.at(-1) : navigator.clipboard.readText()), WEBKIT);
     check(copied === `${result.caption.text}\n\n#чешский #языки`, `скопировано: ${copied}`);
 
     const got = await page.request.get(`${APP}/api/jobs/${ctx.jobId}/download?name=final.mp4`, { maxRedirects: 0 });
@@ -736,6 +957,886 @@ const segments = [
     const fixes = JSON.parse((await branchFile(ctx, 'fix.json')) ?? '{}').fixes ?? [];
     check(fixes.length === 1 && fixes[0].text === 'логотип левее', `fix.json после «Вернуть»: ${JSON.stringify(fixes)}`);
     check((await fires()).filter((f) => f.step === 'fix').length === 2, '«Вернуть» ничего не запускает');
+  }],
+
+  // «Мой стиль»: как смонтирован ролик — в «Мой бренд» одной кнопкой; следующий ролик начинается с него — превью тем же
+  // стилем и скоростью, «Фон» и «Музыка» — теми же ответами
+  ['my-look', async (ctx) => {
+    const { page, tmp } = ctx;
+    await page.goto(`${APP}/jobs/${ctx.jobId}`);
+    const save = page.locator('[data-save-look]');
+    await save.waitFor({ timeout: 10_000 });
+    await save.getByRole('button', { name: 'Сохранить стиль ролика в «Мой бренд»' }).click();
+    await save.getByRole('button', { name: 'Сохранено в «Мой бренд»' }).waitFor({ timeout: 10_000 });
+    const answers = JSON.parse((await branchFile(ctx, 'answers.json')) ?? '{}');
+    const brand = JSON.parse(await (await fetch(`${FAKE}/__file?ref=claude%2Fbrand&path=brand%2Fbrand.json`)).text());
+    check(isDeepStrictEqual(brand.look?.style, answers.style) && brand.look?.from?.job === ctx.jobId && brand.look?.dim === 35,
+      `«Мой стиль» — как ответы ролика: ${JSON.stringify({ look: brand.look, style: answers.style })}`);
+    check(brand.handle === '@pavel.malakhouski' && brand.logo, `остальной бренд остался: ${JSON.stringify(brand)}`);
+    await page.goto(`${APP}/brand`);
+    const mine = page.locator('[data-my-look]');
+    await mine.getByText(`Вариант ${answers.style.variant}: шрифт Rubik`).waitFor({ timeout: 10_000 }); // имя шрифта, а не его id
+    check((await mine.textContent()).includes('Фон темнее на 35 %'), `«Мой бренд» показывает «Мой стиль»: ${await mine.textContent()}`);
+    await shot(page, 'brand-look');
+
+    // новый ролик: задача берёт «Мой стиль» с копией бренда
+    const clip = path.join(tmp, 'next.mov');
+    sampleVideo(clip, 1, 1024 * 1024);
+    await page.goto(`${APP}/`);
+    await page.setInputFiles('#source', clip);
+    await page.getByRole('button', { name: 'Загрузить', exact: true }).click();
+    await page.waitForURL((u) => /\/jobs\/\d{6}-\d{6}-[0-9a-z]{4}$/.test(u.pathname) && !u.pathname.endsWith(ctx.jobId), { timeout: 120_000 });
+    const first = ctx.jobId;
+    ctx.jobId = page.url().split('/').pop();
+    try {
+      const job = JSON.parse((await branchFile(ctx, 'job.json')) ?? '{}');
+      check(isDeepStrictEqual(job.brand?.look, brand.look), `job.json.brand.look: ${JSON.stringify(job.brand?.look)}`);
+      const questions = { questions: [
+        QUESTIONS.questions.find((q) => q.id === 'dim'),
+        { id: 'music', type: 'choice', title: 'Музыка', default: 'calm.m4a', options: [{ id: 'calm.m4a', label: 'Спокойная' }, { id: 'none', label: 'Без музыки' }] },
+      ] };
+      await session(ctx, { 'questions.json': questions, 'styles.json': STYLES, 'frame.png': PNG, 'cover-1.jpg': PNG, 'cover-2.jpg': PNG, 'cover-3.jpg': PNG,
+        'q-dim-none.jpg': solidPng(18, 32, [200, 200, 200]), 'q-dim-30.jpg': PNG, 'q-dim-50.jpg': solidPng(18, 32, [100, 100, 100]),
+        'status.json': { state: 'waiting_answers', phase: 'Ждёт ответов', message: 'Ответь на вопросы', at: new Date().toISOString(), needs: 'answers' } });
+      const dim = page.getByRole('slider', { name: 'Насколько темнее фон' });
+      await dim.waitFor({ timeout: 10_000 });
+      check(await dim.inputValue() === '35', `«Фон» — как в «Моём стиле»: ${await dim.inputValue()}`);
+      check(await page.locator('[data-question="music"]').getByRole('button', { name: 'Без музыки' }).getAttribute('aria-pressed') === 'true',
+        '«Музыка» — как в «Моём стиле» (без музыки)');
+      // редактор до монтажа — тоже от «Моего стиля», как «Превью»
+      await page.getByRole('link', { name: /Открыть в редакторе/ }).click();
+      await page.waitForURL(/\/editor$/);
+      const edSpec = async () => JSON.parse((await page.locator('.ed-layer iframe').getAttribute('data-spec')) ?? '{}');
+      await until(async () => (await edSpec()).colors?.accent === answers.style.colors.accent, 10_000,
+        async () => `редактор — «Моим стилем»: ${JSON.stringify((await edSpec()).colors)}`);
+      await page.getByRole('link', { name: 'К задаче' }).click();
+      await dim.waitFor({ timeout: 10_000 });
+      await page.getByRole('button', { name: 'Показать превью' }).click();
+      await page.getByText('Выбери стиль').waitFor();
+      const spec = async () => JSON.parse((await page.locator('iframe[data-big]').getAttribute('data-spec')) ?? '{}');
+      await until(async () => (await spec()).colors?.accent === answers.style.colors.accent, 10_000,
+        async () => `превью — «Моим стилем»: ${JSON.stringify((await spec()).colors)} вместо ${JSON.stringify(answers.style.colors)}`);
+      check((await spec()).font === answers.style.font, `шрифт превью: ${(await spec()).font}`);
+      const mineButton = page.getByRole('button', { name: 'Мой стиль', exact: true });
+      check(await mineButton.getAttribute('aria-pressed') === 'true', 'кнопка «Мой стиль» нажата');
+      await page.getByRole('button', { name: /^A · / }).click();
+      check(await mineButton.getAttribute('aria-pressed') === 'false', 'выбран вариант Claude — «Мой стиль» отжат');
+      await mineButton.click();
+      await until(async () => (await spec()).colors?.accent === answers.style.colors.accent, 5000, '«Мой стиль» вернулся одним нажатием');
+      await shot(page, 'previews-my-look');
+    } finally {
+      ctx.jobId = first;
+    }
+    await page.goto(`${APP}/jobs/${ctx.jobId}`); // дальше — снова первый ролик, с экрана «Готово»
+    await page.locator('[data-save-look]').waitFor({ timeout: 10_000 });
+  }],
+
+  ['editor', async (ctx) => {
+    const { page } = ctx;
+    const tag = `job-${ctx.jobId}`;
+    const asset = (name, bytes) => fakeJson('/__asset', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ tag, name, base64: bytes.toString('base64') }) });
+    // прокси — WebM: у Chromium из Playwright нет H.264; без ffmpeg — заглушка, тогда без пуска
+    const webm = path.join(ctx.tmp, 'proxy.webm');
+    let playable = true;
+    try {
+      execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=540x960:r=30:d=3', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=3',
+        '-c:v', 'libvpx-vp9', '-deadline', 'realtime', '-cpu-used', '8', '-b:v', '300k', '-g', '15', '-c:a', 'libopus', '-shortest', webm]);
+    } catch {
+      playable = false;
+    }
+    // этот браузер WebM (VP9 и Opus) не играет — дорожки проверяем, пуск — нет
+    playable &&= await page.evaluate(() => document.createElement('video').canPlayType('video/webm; codecs="vp9, opus"') !== '');
+    const proxy = await asset('proxy.mp4', playable ? fs.readFileSync(webm) : crypto.randomBytes(2048));
+    const edit = {
+      speed: 1.1, keep: [[0.2, 1.2], [1.6, 2.9]],
+      words: [{ t0: 0.3, t1: 0.6, text: 'Привет,' }, { t0: 0.7, t1: 0.9, text: 'это' }, { t0: 1.0, t1: 1.15, text: 'мой' },
+        { t0: 1.7, t1: 2.0, text: 'новый' }, { t0: 2.1, t1: 2.6, text: 'ролик' }],
+      hook: { text: 'Как я снимаю', until: 1.0 }, cta: null, inserts: [], zooms: [], face: { x: 0.5, y: 0.4 },
+      music: { file: 'assets/music/lofi.wav', gainDb: -14 }, hold: 0, style: FIXTURE.expected,
+    };
+    engineValidate('edit.json', edit);
+    const media = {
+      duration: 3, proxy: { file: 'out/proxy.mp4', width: 540, height: 960, key: 0.5 }, film: { file: 'film.jpg', step: 0.5, w: 54, h: 96, n: 6 },
+      peaks: { perS: 50, data: Buffer.from(Array.from({ length: 150 }, (_, i) => Math.round(127 + 120 * Math.sin(i / 4)))).toString('base64') },
+      // стык видео — в вырезанном между кусками; третье видео (последние 0,05 с) вырезано целиком
+      videos: [{ name: 'clip.mov', t0: 0, t1: 1.4 }, { name: 'clip2.mov', t0: 1.4, t1: 2.95 }, { name: 'clip3.mov', t0: 2.95, t1: 3 }],
+    };
+    engineValidate('editor.json', media);
+    const released = JSON.parse((await branchFile(ctx, 'out/released.json')) ?? '{}');
+    const WAV = wav(4, 220);
+    await fakeJson('/__commit', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ branch: `claude/job-${ctx.jobId}`, files: { 'assets/music/lofi.wav': { base64: WAV.toString('base64') } }, message: 'music' }) });
+    await session(ctx, { 'edit.json': edit, 'editor.json': media, 'film.jpg': PNG,
+      'out/released.json': { ...released, assets: [...released.assets, { name: 'proxy.mp4', id: proxy.id, size: proxy.size }] } });
+
+    // вход — со страницы задачи; старый поток не тронут
+    await page.getByRole('link', { name: /Открыть в редакторе/ }).click();
+    await page.waitForURL(/\/editor$/);
+    await page.locator('.ed-piece').first().waitFor({ timeout: 10_000 });
+    check(await page.locator('.ed-piece').count() === 2, 'два куска на дорожке «Видео»');
+    check(isDeepStrictEqual(await page.locator('.ed-piece .ed-vno').allTextContents(), ['1', '2']), 'на кусках — номер видео задачи');
+    check(isDeepStrictEqual(await page.locator('.ed-videos li .grow').allTextContents(), ['clip.mov', 'clip2.mov', 'clip3.mov']), 'список видео задачи');
+    check(await page.locator('.ed-cut').count() === 3, 'вырезанное: до, между и после кусков');
+    const subs = await page.locator('.ed-clip.sub').allTextContents();
+    check(isDeepStrictEqual(subs, ['Привет, это мой', 'новый ролик']), `субтитры по кускам: ${JSON.stringify(subs)}`);
+    check((await page.locator('.ed-clip.text').textContent()).includes('Как я снимаю'), 'хук на дорожке «Текст»');
+    check((await page.locator('.ed-clip.music').textContent()).includes('lofi'), 'музыка на своей дорожке');
+    const bg = await page.locator('.ed').evaluate((el) => getComputedStyle(el).backgroundColor);
+    check(bg === 'rgb(243, 244, 241)', `светлая тема редактора: ${bg}`);
+    // ролик смонтирован: панель стиля — от его стиля; поменять можно, новый войдёт в ролик при «Монтировать»
+    const panel = page.locator('.ed-style');
+    check((await panel.textContent()).includes('Ролик смонтирован в этом стиле'), 'подсказка: стиль — ролика');
+    check(await panel.getByRole('button', { name: /^B / }).getAttribute('aria-pressed') === 'true', 'выбран вариант ролика (B)');
+    check(!(await panel.getByRole('button', { name: /^A / }).isDisabled()), 'после монтажа стиль можно поменять');
+    const mountBtn = page.getByRole('button', { name: 'Монтировать', exact: true });
+    check(await mountBtn.isDisabled(), 'правок нет — монтировать нечего');
+    // язык
+    await page.getByRole('button', { name: 'EN', exact: true }).click();
+    await page.locator('.ed-head', { hasText: 'Subtitles' }).waitFor();
+    await page.getByRole('button', { name: 'RU', exact: true }).click();
+    await page.locator('.ed-head', { hasText: 'Субтитры' }).waitFor();
+    // перемотка: тап по дорожке субтитров — часы и слой кадра (слово, которое звучит)
+    const clock = page.locator('.ed-clock');
+    const lane = page.locator('.ed-row.sub .ed-lane');
+    // на телефоне — как в мобильных редакторах: кадр, сразу под ним дорожки (видно без прокрутки), панели — ниже
+    const [tlTop, sideTop, frameTop] = await page.evaluate(() => ['.ed-tl', '.ed-side', '.ed-frame']
+      .map((q) => document.querySelector(q).getBoundingClientRect().top + window.scrollY));
+    check(frameTop < tlTop && tlTop < 844 && sideTop > tlTop, `на телефоне дорожки — под кадром, панели — ниже: кадр ${Math.round(frameTop)}, дорожки ${Math.round(tlTop)}, панели ${Math.round(sideTop)} px`);
+    await lane.scrollIntoViewIfNeeded(); // на телефоне таймлайн — под кадром
+    const box = await lane.boundingBox();
+    const second = await page.locator('.ed-clip.sub').nth(1).boundingBox();
+    await page.mouse.click(second.x + second.width / 2, box.y + box.height / 2);
+    await until(async () => !(await clock.textContent()).startsWith('0:00.0'), 3000, 'часы после перемотки');
+    await until(async () => {
+      const st = JSON.parse((await page.locator('.ed-layer iframe').getAttribute('data-state')) ?? '{}');
+      return isDeepStrictEqual(st.sub?.words, ['новый', 'ролик']);
+    }, 5000, 'на кадре — группа субтитров, которую слышно');
+    if (playable) {
+      await page.locator('video[data-editor-video]').evaluate((v) => new Promise((ok) => (v.readyState > 0 ? ok() : v.addEventListener('loadedmetadata', ok, { once: true }))));
+      await page.mouse.click(box.x + 2, box.y + box.height / 2); // в начало
+      await page.getByRole('button', { name: 'Пуск' }).click();
+      await until(async () => (await clock.textContent()) >= '0:00.5', 8000, 'пуск: время идёт');
+      await page.getByRole('button', { name: 'Пауза' }).click();
+    }
+    await shot(page, 'editor-phone');
+
+    // ---------- правки руками (фаза 3) — на компьютере ----------
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.locator('.ed-side').waitFor();
+    // музыка для прослушивания — через страницу, из assets/ ветки; выше папки задачи — нет
+    const music = await page.request.get(`${APP}/api/jobs/${ctx.jobId}/audio?path=${encodeURIComponent('assets/music/lofi.wav')}`);
+    check(music.status() === 200 && music.headers()['content-type'] === 'audio/wav', `звук для редактора: ${music.status()} ${music.headers()['content-type']}`);
+    check(Buffer.from(await music.body()).equals(WAV), 'звук для редактора не тот');
+    const outside = await page.request.get(`${APP}/api/jobs/${ctx.jobId}/audio?path=${encodeURIComponent('../../engine/vm/audio.py')}`);
+    check(outside.status() === 400, `чужой файл как звук: ${outside.status()}`);
+
+    const pieces = page.locator('.ed-piece');
+    const bar = page.locator('.ed-bar');
+    // видео, вырезанное целиком, — «Вернуть» из списка видео: оно встаёт куском (за куском перед ним в исходнике); отмена
+    await page.locator('.ed-videos li', { hasText: 'clip3.mov' }).getByRole('button', { name: 'Вернуть' }).click();
+    await until(async () => isDeepStrictEqual(await page.locator('.ed-piece .ed-vno').allTextContents(), ['1', '2', '3']), 3000, 'третье видео вернулось куском');
+    await bar.getByRole('button', { name: 'Отменить' }).click();
+    await until(async () => (await pieces.count()) === 2, 3000, 'отмена: третье видео снова вырезано');
+    // удалить второй кусок и отменить
+    await pieces.nth(1).click();
+    await page.locator('.ed-insp').getByText('Видео 2 «clip2.mov» · 0:00.2–0:01.5').waitFor({ timeout: 3000 }); // время — в своём файле
+    await bar.getByRole('button', { name: 'Удалить' }).click();
+    await until(async () => (await pieces.count()) === 1, 3000, 'кусок удалён');
+    await bar.getByRole('button', { name: 'Отменить' }).click();
+    await until(async () => (await pieces.count()) === 2, 3000, 'отмена вернула кусок');
+    // S — разрезать первый кусок по плейхеду
+    const first = await pieces.nth(0).boundingBox();
+    await page.mouse.click(first.x + first.width / 2, first.y + first.height / 2);
+    await page.keyboard.press('s');
+    await until(async () => (await pieces.count()) === 3, 3000, 'S разрезал кусок по плейхеду');
+    // «＋» на стыке — вернуть вырезанное между кусками: куски сливаются, разрез Павла остаётся
+    await page.getByRole('button', { name: 'Вырезано 0,4 с — вернуть' }).click();
+    await until(async () => (await page.locator('.ed-cut').count()) === 2, 3000, 'вырезанное между кусками вернулось');
+    check(await pieces.count() === 3, 'кусок с разрезом и стыком видео — три части');
+    check(isDeepStrictEqual(await page.locator('.ed-piece .ed-vno').allTextContents(), ['1', '1', '2']), 'части — каждая из своего видео');
+    // конец последнего куска — левее, почти до конца слова «ролик» (2,6 с исходника): липнет к нему (ближе 8 px)
+    const last = pieces.last();
+    const span = /(\d+):(\d+\.\d)–(\d+):(\d+\.\d)/.exec((await last.getAttribute('title')) ?? '');
+    const [s0, s1] = [Number(span[1]) * 60 + Number(span[2]), Number(span[3]) * 60 + Number(span[4])];
+    const lb = await last.boundingBox();
+    const perSrc = lb.width / (s1 - s0);
+    const fromX = lb.x + lb.width - 4;
+    const grabY = lb.y + lb.height / 4; // ручка края — в верхней части куска (внизу — «＋» на стыке)
+    await page.mouse.move(fromX, grabY);
+    await page.mouse.down();
+    await page.mouse.move(fromX - 0.295 * perSrc, grabY, { steps: 6 });
+    await page.mouse.up();
+    await until(async () => ((await page.locator('.ed-cut').last().getAttribute('title')) ?? '').includes('0,4 с'), 3000,
+      async () => `конец куска прилип к слову: ${JSON.stringify(await page.locator('.ed-cut').evaluateAll((els) => els.map((el) => el.title)))}, ролик ${await clock.textContent()}`);
+    // переставить (фаза 4а): второй кусок — мышью перед первым; выбранным остаётся он, «Позже» — обратно, отмена — снова первый
+    const titles = async () => Promise.all([0, 1].map((k) => pieces.nth(k).getAttribute('title')));
+    const order = await titles();
+    const [fb, sb] = [await pieces.nth(0).boundingBox(), await pieces.nth(1).boundingBox()];
+    await page.mouse.move(sb.x + sb.width / 2, sb.y + sb.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(fb.x + 6, sb.y + sb.height / 2, { steps: 8 });
+    check(await page.locator('.ed-drop').count() === 1, 'пока тянут — линия, куда встанет кусок');
+    await page.mouse.up();
+    await until(async () => isDeepStrictEqual(await titles(), [order[1], order[0]]), 3000, 'кусок встал первым');
+    // вырезанное до первого куска и хвост — теперь на одном стыке: «＋» рядом, а не друг на друге
+    const plus = await page.locator('.ed-restore').evaluateAll((els) => els.map((el) => [el.getBoundingClientRect().left, el.getBoundingClientRect().right]));
+    check(plus.length === 2 && (plus[0][1] <= plus[1][0] + 0.5 || plus[1][1] <= plus[0][0] + 0.5), `«＋» на одном стыке закрывают друг друга: ${JSON.stringify(plus)}`);
+    const insp = page.locator('.ed-insp');
+    await insp.getByRole('heading', { name: 'Кусок 1 из 3' }).waitFor({ timeout: 3000 });
+    check((await insp.textContent()).includes('Видео 1 «clip.mov»'), 'в панели куска — из какого он видео');
+    check(await insp.getByRole('button', { name: '← Раньше' }).isDisabled(), 'первый кусок раньше не поставить');
+    await insp.getByRole('button', { name: 'Позже →' }).click();
+    await until(async () => isDeepStrictEqual(await titles(), order), 3000, '«Позже» вернул кусок на место');
+    await insp.getByRole('heading', { name: 'Кусок 2 из 3' }).waitFor({ timeout: 3000 });
+    await bar.getByRole('button', { name: 'Отменить' }).click();
+    await until(async () => isDeepStrictEqual(await titles(), [order[1], order[0]]), 3000, 'отмена: кусок снова первый');
+    // звук: музыка без звука, голос тише, свой стиль
+    await page.getByRole('button', { name: 'Музыка: без звука' }).click();
+    check(await page.getByRole('button', { name: 'Музыка: без звука' }).getAttribute('aria-pressed') === 'true', 'музыка без звука');
+    await page.locator('.ed-row.voice .ed-lane').click({ position: { x: 5, y: 10 } });
+    await page.getByLabel('Голос: Громкость').fill('-6');
+    await panel.getByRole('button', { name: /^A / }).click();
+    await page.locator('.ed-save').getByText('Сохранено').waitFor({ timeout: 8000 });
+    const tl = JSON.parse((await branchFile(ctx, 'timeline.json')) ?? '{}');
+    engineValidate('timeline.json', tl);
+    check(tl.rev >= 1 && tl.music?.muted === true && tl.voice?.gainDb === -6, `timeline.json: ${JSON.stringify(tl)}`);
+    check(isDeepStrictEqual(tl.edits.map((e) => e.op), ['split', 'restore', 'cut', 'move']), `правки по порядку: ${JSON.stringify(tl.edits)}`);
+    // движок вырежет и переставит так же, как показал редактор: часть после разреза — первой
+    const keep = JSON.parse(execFileSync('python3', ['-c', 'import json, sys\nfrom vm.edits import apply_keep\nd = json.load(sys.stdin)\nprint(json.dumps(apply_keep(d["keep"], d["edits"], d["duration"])))'], {
+      input: JSON.stringify({ keep: edit.keep, edits: tl.edits, duration: media.duration }), env: { ...process.env, PYTHONPATH: path.resolve('../engine') },
+    }).toString());
+    const at = tl.edits[0].t;
+    check(isDeepStrictEqual(keep, [[at, 1.4], [0.2, at], [1.4, 2.6]]), `куски у движка: ${JSON.stringify(keep)}`);
+    await shot(page, 'editor');
+
+    // «Монтировать» — новая версия: правка с ревизией правок и новым стилем
+    check(!(await mountBtn.isDisabled()), 'есть правки — «Монтировать» включена');
+    await mountBtn.click();
+    await until(async () => (await fires()).filter((f) => f.step === 'fix').length === 3, 10_000, 'монтаж из редактора запущен');
+    const editorFix = JSON.parse((await branchFile(ctx, 'fix.json')) ?? '{}').fixes.at(-1);
+    check(editorFix.text === 'Правки в редакторе' && editorFix.version === 3 && editorFix.timeline === tl.rev && editorFix.style === true,
+      `правка из редактора: ${JSON.stringify(editorFix)}`);
+    check(JSON.parse((await branchFile(ctx, 'answers.json')) ?? '{}').style?.variant === 'A', 'новый стиль — в answers.json');
+    await page.getByText('Claude монтирует новую версию').waitFor({ timeout: 7000 });
+    // пока Claude монтирует новый стиль, кадр — уже в нём (ролик ещё в прошлом: новый ложится поверх, как в vm style --onto);
+    // выбранный хук — рамкой, без ручки и ✎: тянуть и править его можно, когда Claude закончит
+    const frameSpec = async () => JSON.parse((await page.locator('.ed-layer iframe').getAttribute('data-spec')) ?? '{}');
+    await until(async () => (await frameSpec()).colors?.accent === '#FFD23F', 5000,
+      async () => `кадр — в стиле, ушедшем в монтаж: ${JSON.stringify((await frameSpec()).colors)}`);
+    await page.locator('.ed-clip.text').first().click();
+    await until(async () => (await page.locator('.ed-layer .ed-outline').count()) === 1, 3000, 'выбранный хук на кадре — рамкой');
+    check(await page.locator('.ed-layer').getByRole('slider', { name: 'Хук на кадре' }).count() === 0, 'пока монтирует — хук не тянется');
+    check(await page.locator('.ed-layer .ed-pencil').count() === 0, 'пока монтирует — текст на кадре не правится');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole('link', { name: 'К задаче' }).click();
+    await page.getByText('Предыдущая версия').waitFor({ timeout: 7000 });
+  }],
+
+  ['editor-text', async (ctx) => {
+    // фаза 5: хук, титр, акцент и вставки тянут и растягивают мышью, текст и слова субтитров правят в панели; кадр — как
+    // нарисует движок (сверка с vm.edits.apply → render.timeline → build_overlay_events по сохранённому timeline.json)
+    const { page } = ctx;
+    const iso = () => new Date().toISOString();
+    const tag = `job-${ctx.jobId}`;
+    const asset = (name, bytes) => fakeJson('/__asset', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ tag, name, base64: bytes.toString('base64') }) });
+    // сессия собрала версию 3; черновик — один кусок, хук, титр, акцент, стикер и картинка, ч/б, зум, вспышка, карточка
+    const released = JSON.parse((await branchFile(ctx, 'out/released.json')) ?? '{}');
+    const v3 = await asset('final-v3.mp4', crypto.randomBytes(40 * 1024));
+    const edit = {
+      speed: 1, keep: [[0.2, 2.9]],
+      words: [{ t0: 0.3, t1: 0.6, text: 'Привет,' }, { t0: 0.7, t1: 0.9, text: 'это' }, { t0: 1.0, t1: 1.15, text: 'мой' },
+        { t0: 1.7, t1: 2.0, text: 'новый' }, { t0: 2.1, t1: 2.6, text: 'ролик' }],
+      hook: { text: 'Как я снимаю', until: 0.7 },
+      cta: { t0: 2.1, t1: 2.6, lines: ['Пиши в комментариях'], word: 'ВИДЕО' },
+      accents: [{ t0: 1.0, t1: 1.15, x: 540, y: 900, lines: [{ text: 'мой' }] }],
+      inserts: [
+        { kind: 'sticker', text: '3 ошибки', t0: 0.9, t1: 1.3, x: 120, y: 1100, w: 400 },
+        // картинка, которую Павел загрузил с видео (сегмент upload): в релизе она кусками upload-i1.png.part-NNNNN
+        { kind: 'image', src: 'in/uploads/upload-i1.png', t0: 1.7, t1: 2.2, x: 600, y: 300, w: 300, sfx: 'assets/music/lofi.wav' },
+      ],
+      looks: [{ t0: 1.6, t1: 2.0, look: 'bw' }], zooms: [{ t: 0.9, level: 1.12 }], face: { x: 0.5, y: 0.4 },
+      transitions: [{ t: 1.6, kind: 'flash' }],
+      music: { file: 'assets/music/lofi.wav', gainDb: -14 }, hold: 0.4, end: { seconds: 1.0, lines: ['Подпишись'] }, style: FIXTURE.expected,
+    };
+    engineValidate('edit.json', edit);
+    await session(ctx, {
+      'edit.json': edit, 'timeline.json': null, // правки прошлого сегмента — к другим кускам
+      'status.json': { state: 'rendered', phase: 'Загружаю', message: 'Правка 3 собрана', at: iso() },
+      'out/released.json': { ...released, assets: [...released.assets, { name: 'final-v3.mp4', id: v3.id, size: v3.size }], at: iso() },
+    });
+    const SOURCE = 3;
+    const shownTracks = draftTracks(parseDraft(edit), { style: FIXTURE.expected, sourceDuration: SOURCE });
+    const FULL = shownTracks.duration + shownTracks.tail;
+    ctx.editorEdit = { edit, source: SOURCE, full: FULL }; // для сегмента картинки
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(`${APP}/jobs/${ctx.jobId}/editor`);
+    const textBlocks = page.locator('.ed-row.text .ed-clip');
+    const insBlocks = page.locator('.ed-row.ins .ed-clip');
+    await until(async () => (await textBlocks.count()) === 3 && (await insBlocks.count()) === 2, 10_000,
+      async () => `блоки: текст ${await textBlocks.count()}, вставки ${await insBlocks.count()}`);
+    check(isDeepStrictEqual(await textBlocks.evaluateAll((els) => els.map((el) => el.dataset.kind)), ['hook', 'accent', 'cta']), 'хук, акцент, титр');
+    const { geo, layerState, seekTo } = editorKit(page, FULL);
+    // щелчок по акценту — панель блока и кадр на его начале (слова акцента — вместо субтитров)
+    await textBlocks.nth(1).click();
+    const insp = page.locator('.ed-insp[data-block=accent]');
+    await insp.waitFor({ timeout: 3000 });
+    await until(async () => Boolean((await layerState()).accent), 3000, 'на кадре — акцент');
+    check(!(await layerState()).sub, 'пока акцент — субтитров нет (слова акцента и есть субтитры)');
+    await shot(page, 'editor-text');
+    // картинка Павла — на кадре (страница отдаёт её из кусков загрузки), слой нарисован без ошибки
+    await seekTo(1.6);
+    await until(async () => ((await layerState()).inserts ?? []).some((i) => i.n === 1), 3000, 'картинка Павла в слое');
+    await page.waitForTimeout(1500); // шаблон грузит картинку — сбой показал бы ошибку слоя
+    check(await page.locator('.preview-error').count() === 0, `слой не нарисовался: ${await page.locator('.preview-error').allTextContents()}`);
+    check(await page.frameLocator('.ed-layer iframe').locator('img').evaluateAll((els) => els.some((el) => el.complete && el.naturalWidth > 0)),
+      'картинка Павла загрузилась в кадр');
+
+    /** Тянуть (мышью) точку `x` блока на `dx` px. */
+    const drag = async (x, y, dx) => {
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.mouse.move(x + dx, y, { steps: 8 });
+      await page.mouse.up();
+    };
+    const box = async (loc) => loc.boundingBox();
+    // акцент — целиком позже: его начало липнет к началу слова «новый» (1,5 с ролика)
+    let b = await box(textBlocks.nth(1));
+    await drag(b.x + b.width / 2, b.y + b.height / 2, (1.5 - 0.8) * (await geo()).pps);
+    await until(async () => ((await textBlocks.nth(1).getAttribute('title')) ?? '').includes('0:01.5'), 3000,
+      async () => `акцент переехал: ${await textBlocks.nth(1).getAttribute('title')}`);
+    // хук — за правый край до конца слова «это» (0,7 с ролика)
+    b = await box(textBlocks.nth(0));
+    await drag(b.x + b.width - 3, b.y + b.height / 2, (await geo()).X(0.7) - (b.x + b.width - 3));
+    await until(async () => ((await textBlocks.nth(0).getAttribute('title')) ?? '').includes('–0:00.7'), 3000,
+      async () => `хук до 0,7 с: ${await textBlocks.nth(0).getAttribute('title')}`);
+    // стикер — растянуть до конца слова «ролик» (2,4 с ролика): ручка — на конце его места в речи (на кадре он дольше —
+    // не меньше 1,5 с, этот хвост — штриховкой)
+    check(await insBlocks.nth(0).locator('.ed-hold').count() === 1, 'у короткого стикера — хвост до 1,5 с');
+    b = await box(insBlocks.nth(0).locator('.ed-handle.end'));
+    await drag(b.x + b.width / 2, b.y + b.height / 2, (await geo()).X(2.4) - (b.x + b.width / 2));
+    await until(async () => ((await insBlocks.nth(0).getAttribute('title')) ?? '').includes('–0:02.4'), 3000,
+      async () => `стикер до 2,4 с: ${await insBlocks.nth(0).getAttribute('title')}`);
+    await shot(page, 'editor-text-moved');
+
+    // слова субтитров: «это» → «вот», «Привет,» — убрать
+    await page.locator('.ed-row.sub .ed-clip').first().click();
+    const words = page.locator('.ed-insp[data-block=sub]');
+    await words.waitFor({ timeout: 3000 });
+    await words.getByLabel('это', { exact: true }).fill('вот');
+    await words.getByLabel('Привет,', { exact: true }).fill('');
+    await until(async () => (await page.locator('.ed-row.sub .ed-clip').first().textContent()) === 'вот мой', 3000,
+      async () => `субтитры с правкой: ${await page.locator('.ed-row.sub .ed-clip').allTextContents()}`);
+    await words.getByLabel('мой', { exact: true }).fill('мой🔥');
+    await words.getByRole('alert').getByText('эмодзи нельзя').waitFor({ timeout: 3000 });
+    // буквы, которых нет в шрифте стиля (греческих в Rubik нет), — сразу в поле, как их не пропустит проверка шрифтов
+    // движка; таблицы символов шрифтов страница читает после загрузки — пока не прочитаны, поле молчит
+    const mine = words.getByLabel('мой', { exact: true });
+    await until(async () => {
+      await mine.fill('мой');
+      await mine.fill('мой αβ');
+      return (await words.getByRole('alert').allTextContents()).some((t) => t.includes('В шрифте Rubik нет букв') && t.includes('α'));
+    }, 10_000, async () => `нет букв в шрифте: ${await words.getByRole('alert').allTextContents()}`);
+    await mine.fill('мой');
+    await seekTo(0.85);
+    await until(async () => isDeepStrictEqual((await layerState()).sub?.words, ['вот', 'мой']), 3000, async () => `на кадре: ${JSON.stringify(await layerState())}`);
+    await shot(page, 'editor-word');
+
+    // титр: кодовое слово
+    await textBlocks.nth(2).click();
+    await page.locator('.ed-insp[data-block=cta]').getByLabel('Кодовое слово').fill('ПЛАН');
+    await until(async () => (await textBlocks.nth(2).textContent()).includes('ПЛАН'), 3000, 'титр с новым словом');
+    // место на кадре (фаза 5в): стикер — перетащить по кадру и расширить уголком ⤢, ширина — и ползунком панели; акцент —
+    // перетащить и подвинуть кнопками; «Место как у монтажа» и отмена. Кадр рисует сразу, рамки — в безопасной зоне
+    const onFrame = (name) => page.locator('.ed-layer').getByRole('slider', { name, exact: true });
+    const frameScale = async () => (await page.locator('.ed-frame').boundingBox()).width / 1080;
+    const dragBy = async (loc, dx, dy) => {
+      const r = await loc.boundingBox();
+      const [x, y] = [r.x + r.width / 2, r.y + r.height / 2];
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.mouse.move(x + dx / 2, y + dy / 2, { steps: 4 });
+      await page.mouse.move(x + dx, y + dy, { steps: 4 });
+      await page.mouse.up();
+    };
+    const k = await frameScale();
+    await insBlocks.nth(0).click();
+    const stickerNow = async () => ((await layerState()).inserts ?? []).find((i) => i.n === 0);
+    await onFrame('Вставка').waitFor({ timeout: 3000 });
+    const s0 = await stickerNow();
+    check(s0?.x === 120 && s0.y === 1100 && s0.w === 400, `стикер на кадре: ${JSON.stringify(s0)}`);
+    // касание с дрожанием пальца (2 px экрана) — не перетаскивание: место остаётся как у монтажа, правки нет; касание
+    // выбранного — его текст прямо на кадре, Esc — как было
+    {
+      const r = await onFrame('Вставка').boundingBox();
+      await page.mouse.move(r.x + r.width / 2, r.y + r.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(r.x + r.width / 2 + 2, r.y + r.height / 2 + 1);
+      await page.mouse.up();
+      await page.waitForTimeout(300);
+      check(isDeepStrictEqual(await stickerNow(), s0), `касание сдвинуло стикер: ${JSON.stringify(await stickerNow())}`);
+      check(await page.getByRole('button', { name: 'Место как у монтажа' }).count() === 0, 'касание — не место руками');
+      await page.locator('.ed-inline').getByRole('textbox', { name: 'Текст вставки' }).waitFor({ timeout: 3000 });
+      await page.keyboard.press('Escape');
+      await until(async () => (await page.locator('.ed-inline').count()) === 0, 3000, 'Esc закрыл поле стикера');
+    }
+    await dragBy(onFrame('Вставка'), 30, -45);
+    const moved = { x: Math.round(120 + 30 / k), y: Math.round(1100 - 45 / k) };
+    await until(async () => { const i = await stickerNow(); return i?.x === moved.x && i.y === moved.y && i.w === 400; }, 3000,
+      async () => `стикер перетащен в ${JSON.stringify(moved)}: ${JSON.stringify(await stickerNow())}`);
+    await shot(page, 'editor-place');
+    // события указателя на странице — в сообщение о сбое: жест браузера виден целиком (Safari ведёт себя иначе)
+    await page.evaluate(() => {
+      window.__pe = [];
+      for (const t of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'gotpointercapture', 'lostpointercapture']) {
+        document.addEventListener(t, (e) => window.__pe.push(`${t}:${String(e.target?.className ?? '')}:${Math.round(e.clientX)}`), true);
+      }
+    });
+    const pointerEvents = async () => page.evaluate(() => (window.__pe ?? []).join(' | '));
+    await dragBy(onFrame('Вставка').locator('[data-grip]'), 27, 0);
+    const grown = Math.min(830, Math.round((400 * (1 + 27 / (540 * k))) / 10) * 10);
+    await until(async () => (await stickerNow())?.w === grown, 3000,
+      async () => `стикер шире — ${grown}: ${JSON.stringify(await stickerNow())}\n  события указателя: ${await pointerEvents()}`);
+    const wide = await stickerNow();
+    check(wide.x === Math.max(60, Math.round(moved.x + (400 - grown) / 2)) && wide.x + wide.w <= 890, `шире — от центра, в зоне: ${JSON.stringify(wide)}`);
+    const insertPanel = page.locator('.ed-insp[data-block=insert]');
+    const widthSlider = insertPanel.getByRole('slider', { name: 'Ширина вставки' });
+    await widthSlider.focus();
+    await page.keyboard.press('ArrowRight');
+    await until(async () => (await stickerNow())?.w === grown + 10, 3000, async () => `ползунок ширины: ${JSON.stringify(await stickerNow())}`);
+    check((await insertPanel.locator('[data-place=insert] .mono').last().textContent()).includes(`ширина ${grown + 10}`), 'панель — место и ширина словами');
+    // к краю зоны — стрелками на ручке кадра: дальше края не идёт, и тень стикера — тоже в зоне (как её проверит монтаж)
+    await onFrame('Вставка').focus();
+    for (let i = 0; i < 25; i++) await page.keyboard.press('ArrowLeft');
+    const drawnSticker = async () => (await page.frameLocator('.ed-layer iframe').locator('body').evaluate(() => window.layoutBoxes())).inserts?.find((b) => b.n === 0);
+    await until(async () => { const b = await drawnSticker(); return b?.x === 60; }, 3000, async () => `у левого края — вместе с тенью: ${JSON.stringify(await drawnSticker())}`);
+    check((await stickerNow()).x > 60, `стикер у края, а его тень — внутри зоны: ${JSON.stringify(await stickerNow())}`);
+    await shot(page, 'editor-place-edge');
+    const stickerPlaced = await stickerNow();
+    // акцент — на своём месте в речи (его перетащили на 1,5 с): тащить по кадру, потом кнопки «Правее» и «Выше»
+    await textBlocks.nth(1).click();
+    const accentNow = async () => (await layerState()).accent;
+    await onFrame('Акцент').waitFor({ timeout: 3000 });
+    check((await accentNow())?.x === 540 && (await accentNow()).y === 900, `акцент на кадре: ${JSON.stringify(await accentNow())}`);
+    await dragBy(onFrame('Акцент'), -30, 60);
+    const aMoved = { x: Math.round(540 - 30 / k), y: Math.round(900 + 60 / k) };
+    await until(async () => { const a = await accentNow(); return a?.x === aMoved.x && a.y === aMoved.y; }, 3000,
+      async () => `акцент перетащен в ${JSON.stringify(aMoved)}: ${JSON.stringify(await accentNow())}`);
+    const accentPanel = page.locator('.ed-insp[data-block=accent]');
+    await accentPanel.getByRole('button', { name: 'Правее', exact: true }).click();
+    await accentPanel.getByRole('button', { name: 'Выше', exact: true }).click();
+    const aPlaced = { x: aMoved.x + 20, y: aMoved.y - 20 };
+    await until(async () => { const a = await accentNow(); return a?.x === aPlaced.x && a.y === aPlaced.y; }, 3000,
+      async () => `кнопки сдвинули акцент: ${JSON.stringify(await accentNow())}`);
+    await shot(page, 'editor-place-accent');
+    await accentPanel.getByRole('button', { name: 'Место как у монтажа', exact: true }).click();
+    await until(async () => (await accentNow())?.x === 540 && (await accentNow()).y === 900, 3000, 'место акцента — как у монтажа');
+    await page.keyboard.press('Control+z');
+    await until(async () => (await accentNow())?.x === aPlaced.x && (await accentNow()).y === aPlaced.y, 3000, 'отмена вернула место акцента');
+
+    // на кадре: касание — выбор; хук и субтитры тянутся выше-ниже и крупнее (стиль — как ползунки «Стиля»); текст — прямо на кадре
+    const hit = (t) => page.locator(`.ed-layer .ed-hit[data-target="${t}"]`);
+    const edSpec = async () => JSON.parse((await page.locator('.ed-layer iframe').getAttribute('data-spec')) ?? '{}');
+    const inline = page.locator('.ed-inline');
+    // щёлкнул титр на кадре (ручки у него нет — фокус остаётся на прозрачной кнопке): пробел — пуск, а не поле текста.
+    // Пуск — подменённый play() видео: он только считает запуски, ролик не уходит вперёд и не сбивает проверки дальше
+    const editorVideo = page.locator('video[data-editor-video]');
+    await editorVideo.evaluate((v) => {
+      v.dataset.plays = '0';
+      v.play = () => { v.dataset.plays = String(Number(v.dataset.plays) + 1); return Promise.reject(new Error('e2e: без пуска')); };
+    });
+    const [, ctaM, ctaS] = /(\d+):(\d+(?:\.\d+)?)/.exec((await textBlocks.nth(2).getAttribute('title')) ?? '') ?? [];
+    await seekTo(Number(ctaM) * 60 + Number(ctaS) + 0.1);
+    await hit('cta').click();
+    await page.locator('.ed-insp[data-block=cta]').waitFor({ timeout: 3000 });
+    await page.keyboard.press('Space');
+    await until(async () => (await editorVideo.getAttribute('data-plays')) === '1', 3000, 'пробел после щелчка по титру на кадре — пуск');
+    check(await inline.count() === 0, 'пробел после щелчка по титру на кадре открыл поле текста вместо пуска');
+    await editorVideo.evaluate((v) => { delete v.play; delete v.dataset.plays; });
+    await seekTo(0.3); // только хук: «вот» — с 0,5 с, стикер — после хука
+    await hit('hook').click();
+    await page.locator('.ed-insp[data-block=hook]').waitFor({ timeout: 3000 });
+    check((await textBlocks.nth(0).getAttribute('class')).includes(' sel'), 'хук, выбранный на кадре, выбран и на дорожке');
+    const hookOnFrame = onFrame('Хук на кадре');
+    const h0 = (await edSpec()).hook;
+    await dragBy(hookOnFrame, 0, 40);
+    const hookY = Math.min(1330, Math.round((h0.y + 40 / k) / 10) * 10);
+    await until(async () => (await edSpec()).hook.y === hookY, 3000, async () => `хук на ${hookY}: ${JSON.stringify((await edSpec()).hook)}`);
+    check(Number(await page.getByRole('slider', { name: 'Хук: Выше — ниже' }).inputValue()) === hookY, 'ползунок «Стиля» — то же место');
+    await dragBy(hookOnFrame.locator('[data-grip]'), 20, 0);
+    const hookSize = Math.min(120, Math.round((h0.size * (1 + 20 / (540 * k))) / 2) * 2);
+    await until(async () => (await edSpec()).hook.size === hookSize, 3000, async () => `хук крупнее уголком — ${hookSize}: ${JSON.stringify((await edSpec()).hook)}`);
+    await hookOnFrame.focus();
+    await page.keyboard.press('ArrowUp');
+    await until(async () => (await edSpec()).hook.y === hookY - 20, 3000, 'стрелка — 20 px кадра');
+    // текст хука: касание выбранного — поле в фокусе, шрифт 16 px; ★ — ошибка, Enter не сохраняет; набранное — на кадре до
+    // Enter; Esc — как было; Enter на ручке — тоже поле; Enter — одна правка (одна отмена — весь текст)
+    await hookOnFrame.click();
+    const hookField = inline.getByRole('textbox', { name: 'Текст хука' });
+    await hookField.waitFor({ timeout: 3000 });
+    check(await hookField.evaluate((el) => el === document.activeElement), 'поле сразу в фокусе');
+    check(parseFloat(await hookField.evaluate((el) => getComputedStyle(el).fontSize)) >= 16, 'шрифт поля — не мельче 16 px (иначе iPhone увеличит страницу)');
+    await hookField.fill('Как я снимаю ★');
+    await inline.getByRole('alert').getByText('Знаки ★ шрифт ролика не нарисует').waitFor({ timeout: 3000 });
+    await hookField.press('Enter');
+    check(await inline.count() === 1, 'с ошибкой Enter не сохраняет');
+    await hookField.fill('Как я снимаю ролик');
+    await until(async () => (await layerState()).hook?.text === 'Как я снимаю ролик', 3000, 'на кадре — набранное, ещё до Enter');
+    await hookField.press('Escape');
+    await until(async () => (await inline.count()) === 0 && (await layerState()).hook?.text === 'Как я снимаю', 3000, 'Esc — как было');
+    await hookOnFrame.press('Enter');
+    await hookField.fill('Как я снимаю ролик');
+    await hookField.press('Enter');
+    await until(async () => (await inline.count()) === 0 && (await layerState()).hook?.text === 'Как я снимаю ролик', 3000, 'Enter — правка');
+    check(await page.locator('.ed-insp[data-block=hook]').getByLabel('Текст хука').inputValue() === 'Как я снимаю ролик', 'в панели — тот же текст');
+    await page.keyboard.press('Control+z');
+    await until(async () => (await layerState()).hook?.text === 'Как я снимаю', 3000, 'одна отмена — весь текст');
+    await page.keyboard.press('Control+Shift+z');
+    await until(async () => (await layerState()).hook?.text === 'Как я снимаю ролик', 3000, 'повтор');
+    // поле открыто, а Павел щёлкнул кусок на дорожке (жест дорожки фокус у поля не забирает): набранное — правкой, до смены выбора
+    await hookOnFrame.press('Enter');
+    await hookField.fill('Как я снимаю ролики');
+    await page.locator('.ed-piece').first().click();
+    await until(async () => (await inline.count()) === 0 && (await layerState()).hook?.text === 'Как я снимаю ролики', 3000,
+      async () => `щелчок по дорожке — набранное сохранено: поле ${await inline.count()}, хук «${(await layerState()).hook?.text}»`);
+    await page.keyboard.press('Control+z');
+    await until(async () => (await layerState()).hook?.text === 'Как я снимаю ролик', 3000, 'отмена — до набранного');
+    // субтитры: касание группы — её слова в панели; выше; ✎ — по полю на слово; эмодзи — ошибка
+    await seekTo(0.85);
+    await hit('sub').click();
+    await page.locator('.ed-insp[data-block=sub]').waitFor({ timeout: 3000 });
+    const s0y = (await edSpec()).subtitles.y;
+    await dragBy(onFrame('Субтитры на кадре'), 0, -30);
+    const subY = Math.max(240, Math.round((s0y - 30 / k) / 10) * 10);
+    await until(async () => (await edSpec()).subtitles.y === subY, 3000, async () => `субтитры выше — ${subY}: ${JSON.stringify((await edSpec()).subtitles)}`);
+    const pencil = page.locator('.ed-layer').getByRole('button', { name: 'Править текст на кадре' });
+    await pencil.focus();
+    await page.keyboard.press('Enter');
+    const word = (name) => inline.getByRole('textbox', { name, exact: true });
+    await word('это').waitFor({ timeout: 3000 });
+    check(await word('это').inputValue() === 'вот', 'у слова с правкой — она');
+    const [wa, wb] = [await word('это').boundingBox(), await word('мой').boundingBox()];
+    check(wa && wb && Math.abs(wa.y - wb.y) < 2 && wa.width < 200, `поля слов — в ряд, по слову: ${JSON.stringify([wa, wb])}`);
+    await word('мой').fill('свой🔥');
+    await inline.getByRole('alert').getByText('В субтитрах эмодзи нельзя').waitFor({ timeout: 3000 });
+    await word('мой').fill('свой');
+    await word('мой').press('Enter');
+    await until(async () => isDeepStrictEqual((await layerState()).sub?.words, ['вот', 'свой']), 3000, async () => `слово на кадре: ${JSON.stringify((await layerState()).sub)}`);
+    check(await pencil.evaluate((el) => el === document.activeElement), 'поле закрыто клавишей — фокус снова на ✎');
+    await shot(page, 'editor-on-frame');
+
+    // картинку — убрать (Delete): тень на дорожке, звука нет; отмена и повтор
+    await insBlocks.nth(1).click();
+    await page.locator('.ed-insp[data-block=insert]').waitFor({ timeout: 3000 });
+    const sounds = page.locator('.ed-row.snd .ed-clip');
+    check(await sounds.count() === 1, 'у картинки — звук появления');
+    await page.keyboard.press('Delete');
+    await until(async () => (await page.locator('.ed-row.ins .ed-clip.ghost').count()) === 1, 3000, 'картинка убрана — тень');
+    check(await page.locator('.ed-row.snd').count() === 0, 'убранная картинка — без звука');
+    await page.keyboard.press('Control+z');
+    await until(async () => (await page.locator('.ed-row.ins .ed-clip.ghost').count()) === 0, 3000, 'отмена вернула картинку');
+    await page.keyboard.press('Control+Shift+z');
+    await until(async () => (await page.locator('.ed-row.ins .ed-clip.ghost').count()) === 1, 3000, 'повтор снова убрал');
+    await shot(page, 'editor-text-off');
+
+    // сохранено — timeline.json по схеме движка; правки держатся за места блоков у сессии
+    await page.locator('.ed-save').getByText('Сохранено').waitFor({ timeout: 8000 });
+    const tl = JSON.parse((await branchFile(ctx, 'timeline.json')) ?? '{}');
+    engineValidate('timeline.json', tl);
+    const t = tl.text ?? {};
+    // акцент переехал целиком: его место в речи — той же длины (хвост после слов движок добавит сам)
+    check(t.hook?.until === 0.9 && t.hook.text === 'Как я снимаю ролик' && isDeepStrictEqual(t.accents, [{ at: [1.0, 1.15], t0: 1.7, t1: 1.85, ...aPlaced }]),
+      `хук и акцент: ${JSON.stringify(t)}`);
+    check(isDeepStrictEqual(t.cta, { at: [2.1, 2.6], word: 'ПЛАН' }), `титр: ${JSON.stringify(t.cta)}`);
+    const { x: sx, y: sy, w: sw } = stickerPlaced;
+    check(isDeepStrictEqual(t.inserts, [{ at: [0.9, 1.3], t0: 0.9, t1: 2.6, x: sx, y: sy, w: sw }, { at: [1.7, 2.2], off: true }]), `вставки: ${JSON.stringify(t.inserts)}`);
+    check(isDeepStrictEqual(tl.words, [{ t0: 0.7, t1: 0.9, text: 'вот' }, { t0: 0.3, t1: 0.6, text: '' }, { t0: 1.0, t1: 1.15, text: 'свой' }]),
+      `слова: ${JSON.stringify(tl.words)}`);
+
+    // движок нарисует то же, что показал кадр: события слоя по сохранённым правкам — состояние в каждом моменте
+    const events = JSON.parse(execFileSync('python3', ['-c', [
+      'import json, sys', 'from vm.edits import apply', 'from vm.overlay import build_overlay_events', 'from vm.render import timeline',
+      'd = json.load(sys.stdin)', 'e = apply(d["edit"], d["timeline"], d["duration"])', 'print(json.dumps(build_overlay_events(e, timeline(e, d["duration"]))))',
+    ].join('\n')], { input: JSON.stringify({ edit, timeline: tl, duration: SOURCE }), env: { ...process.env, PYTHONPATH: path.resolve('../engine') } }).toString());
+    const plain = (state) => JSON.parse(JSON.stringify(state, (k, v) => {
+      if (k !== 'src' || typeof v !== 'string' || !v.startsWith('/api/')) return v;
+      const q = new URL(v, APP).searchParams; // адрес страницы → путь, как в edit.json
+      return q.get('path') ?? `in/uploads/${q.get('name')}`;
+    }));
+    for (const at of [0.3, 0.6, 1.0, 1.55, 2.0, 2.5, 3.3]) {
+      await seekTo(at);
+      const shown = await layerState();
+      const want = stateAt(events, Number(await page.locator('.ed-layer').getAttribute('data-t0')));
+      check(isDeepStrictEqual(plain(shown), plain(want)), `на ${at} с кадр не как у движка:\n  страница ${JSON.stringify(shown)}\n  движок   ${JSON.stringify(want)}`);
+    }
+
+    // картинка как в ролике: ч/б — в окне куска, вспышка — на стыке, зум — после ступени
+    const v = page.locator('video[data-editor-video]');
+    await seekTo(1.6);
+    await until(async () => (await v.getAttribute('data-bw')) === '1', 3000, 'ч/б на кадре');
+    check((await v.evaluate((el) => getComputedStyle(el).filter)).includes('grayscale'), 'ч/б — фильтр видео');
+    check(Number(await v.getAttribute('data-zoom')) > 1.1, `зум к лицу: ${await v.getAttribute('data-zoom')}`);
+    await shot(page, 'editor-bw');
+    await seekTo(1.4);
+    await until(async () => Number(await page.locator('.ed-flash').evaluate((el) => getComputedStyle(el).opacity)) > 0.5, 3000, 'вспышка на стыке');
+    await seekTo(0.3);
+    await until(async () => (await v.getAttribute('data-bw')) === '' && Number(await v.getAttribute('data-zoom')) === 1, 3000,
+      async () => `до ч/б и зума — как есть: bw ${await v.getAttribute('data-bw')}, зум ${await v.getAttribute('data-zoom')}`);
+
+    // хвост: после кусков — стоп-кадр и карточка (пуск доигрывает до конца ролика)
+    await seekTo(FULL - 0.5);
+    await until(async () => Boolean((await layerState()).end), 3000, 'на карточке — карточка');
+    check(Number(await page.locator('.ed-pbar').getAttribute('data-progress')) === 1, 'шкала на карточке — полная');
+
+    // телефон: ничего не шире экрана
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator('.ed-row.text').scrollIntoViewIfNeeded();
+    await shot(page, 'editor-text-phone');
+    // пальцем: касание хука — выбор, ещё касание — поле (шире кадра, но в пределах экрана); «Отмена» — без правки
+    await page.locator('.ed-ruler').scrollIntoViewIfNeeded();
+    await seekTo(0.3);
+    await hit('hook').tap();
+    await onFrame('Хук на кадре').tap();
+    await inline.getByRole('textbox', { name: 'Текст хука' }).waitFor({ timeout: 3000 });
+    const ib = await inline.boundingBox();
+    check(ib !== null && ib.x >= 0 && ib.x + ib.width <= 390, `поле на кадре — в пределах экрана: ${JSON.stringify(ib)}`);
+    await shot(page, 'editor-inline-phone'); // shot() проверяет и что страница не шире экрана
+    await inline.getByRole('textbox', { name: 'Текст хука' }).fill('Как я снимаю ролик!');
+    await until(async () => (await layerState()).hook?.text === 'Как я снимаю ролик!', 3000, 'набранное пальцем — на кадре');
+    await inline.getByRole('button', { name: 'Отмена' }).tap();
+    await until(async () => (await inline.count()) === 0 && (await layerState()).hook?.text === 'Как я снимаю ролик', 3000, '«Отмена» пальцем — без правки');
+
+    // задача старого движка (схема timeline.json без text и words): текст не правится, сервер правку не сохранит
+    const schema = JSON.parse(fs.readFileSync(path.resolve('../engine/vm/schemas/timeline.json'), 'utf8'));
+    const { text: _text, words: _words, ...props } = schema.properties;
+    await fakeJson('/__commit', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ branch: `claude/job-${ctx.jobId}`, files: { 'engine/vm/schemas/timeline.json': JSON.stringify({ ...schema, properties: props }) }, message: 'old engine' }) });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.reload();
+    await textBlocks.first().waitFor({ timeout: 10_000 });
+    await textBlocks.nth(0).click();
+    await page.locator('.ed-insp[data-block=hook]').getByText('до правок текста').waitFor({ timeout: 3000 });
+    check(await page.locator('.ed-row.text .ed-handle').count() === 0, 'у старой задачи блоки не тянутся');
+    await onFrame('Хук на кадре').waitFor({ timeout: 3000 }); // хук нарисован — ✎ был бы уже рядом
+    check(await page.locator('.ed-layer').getByRole('button', { name: 'Править текст на кадре' }).count() === 0, 'у старой задачи ✎ на кадре нет');
+    await onFrame('Хук на кадре').click();
+    await page.locator('.ed-frame').getByText('до правок текста').waitFor({ timeout: 3000 });
+    check(await page.locator('.ed-inline').count() === 0, 'у старой задачи поле на кадре не открывается');
+    const refused = await page.request.put(`${APP}/api/jobs/${ctx.jobId}/timeline`, { data: { base: tl.rev, edits: [], text: { hook: { until: 1.2 } } } });
+    check(refused.status() === 409, `старый движок: правка текста не сохраняется (${refused.status()})`);
+    // задача движка до мест на кадре (у вставок и акцентов в схеме нет x, y, w): ручки на кадре нет, кнопки панели —
+    // недоступны и говорят почему, сервер место не сохранит
+    const noPlace = structuredClone(schema);
+    for (const kind of ['accents', 'inserts']) {
+      const item = noPlace.properties.text.properties[kind].items;
+      for (const f of ['x', 'y', 'w']) delete item.properties[f];
+      delete item.dependentRequired;
+    }
+    await fakeJson('/__commit', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ branch: `claude/job-${ctx.jobId}`, files: { 'engine/vm/schemas/timeline.json': JSON.stringify(noPlace) }, message: 'engine before places' }) });
+    await page.reload();
+    await insBlocks.first().waitFor({ timeout: 10_000 });
+    await insBlocks.nth(0).click();
+    await page.locator('.ed-place').getByText('до перетаскивания вставок').waitFor({ timeout: 3000 });
+    check(await page.locator('.ed-place').getByRole('button', { name: 'Правее', exact: true }).isDisabled(), 'у старой задачи место не двигается кнопками');
+    check(await onFrame('Вставка').count() === 0, 'у старой задачи на кадре нет ручки');
+    const noPlaceSave = await page.request.put(`${APP}/api/jobs/${ctx.jobId}/timeline`,
+      { data: { base: tl.rev, edits: [], text: { inserts: [{ at: [0.9, 1.3], x: 200, y: 600, w: 400 }] } } });
+    check(noPlaceSave.status() === 409 && (await noPlaceSave.json()).error?.includes('до перетаскивания'), `старый движок: место не сохраняется (${noPlaceSave.status()})`);
+    await fakeJson('/__commit', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ branch: `claude/job-${ctx.jobId}`, files: { 'engine/vm/schemas/timeline.json': JSON.stringify(schema) }, message: 'engine back' }) });
+    await page.setViewportSize({ width: 390, height: 844 });
+  }],
+
+  ['editor-picture', async (ctx) => {
+    // фаза 5в: сила зума — ползунок, ч/б-кусок — убрать, переход — другой вид или убрать; кадр меняется сразу, а движок по
+    // сохранённому timeline.json даст ту же картинку (ступени зума, кадры ч/б, переходы на стыках)
+    const { page } = ctx;
+    const { edit, source, full } = ctx.editorEdit;
+    const { seekTo } = editorKit(page, full);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(`${APP}/jobs/${ctx.jobId}/editor`);
+    const row = page.locator('.ed-row.pic');
+    const look = row.locator('.ed-clip[data-kind=look]');
+    const tr = row.locator('.ed-clip[data-kind=transition]');
+    await until(async () => (await look.count()) === 1 && (await tr.count()) === 1, 10_000, 'на дорожке «Картинка» — ч/б-кусок и переход');
+    const v = page.locator('video[data-editor-video]');
+    // картинку кадр рисует после перемотки видео (seeked), а WebKit на CI перематывает и дольше 150 мс — ждём её саму
+    const zoom = async () => Number(await v.getAttribute('data-zoom'));
+    await seekTo(1.6);
+    const z0 = await until(async () => { const z = await zoom(); return z > 1.1 && z; }, 3000, async () => `зум монтажа: ${await zoom()}`);
+    // сила зума — ползунок с клавиатуры: 100 % → 50 % (шаг — 5 %)
+    const slider = page.getByRole('slider', { name: 'Сила зума' });
+    await slider.focus();
+    for (let k = 0; k < 10; k++) await page.keyboard.press('ArrowLeft');
+    await page.locator('.ed-pic-panel').getByText('50 %').first().waitFor({ timeout: 3000 });
+    await seekTo(1.6);
+    await until(async () => Math.abs((await zoom()) - (1 + (z0 - 1) / 2)) < 0.002, 3000, async () => `зум вполовину: было ${z0}, стало ${await zoom()}`);
+    const z1 = await zoom();
+
+    // ч/б-кусок: выбрать на дорожке — убрать; кадр в цвете, на дорожке — тень
+    await look.click();
+    const lookPanel = page.locator('.ed-insp[aria-label="Ч/б-кусок"]');
+    await lookPanel.getByRole('button', { name: 'Убрать ч/б' }).click();
+    await until(async () => (await look.getAttribute('class')).includes('ghost'), 3000, 'ч/б-кусок — тенью');
+    await seekTo(1.6);
+    await until(async () => (await v.getAttribute('data-bw')) === '', 3000, 'кадр куска — в цвете');
+    // переход: вместо вспышки — смаз; на стыке белого нет, кадр размыт
+    await tr.click();
+    const trPanel = page.locator('.ed-insp[aria-label="Переход"]');
+    await trPanel.getByRole('button', { name: 'Смаз' }).click();
+    await until(async () => (await trPanel.getByRole('button', { name: 'Смаз' }).getAttribute('aria-pressed')) === 'true', 3000, 'смаз выбран');
+    await seekTo(1.4);
+    await until(async () => (await page.locator('.ed-pic').evaluate((el) => getComputedStyle(el).filter)).includes('blur'), 3000, 'смаз на стыке');
+    check(Number(await page.locator('.ed-flash').evaluate((el) => getComputedStyle(el).opacity)) === 0, 'вспышки нет');
+    await shot(page, 'editor-picture');
+    // Delete — убрать переход (вид Павла остаётся в правке); отмена — вернуть
+    await page.keyboard.press('Delete');
+    await until(async () => (await tr.getAttribute('class')).includes('ghost'), 3000, 'переход убран — тенью');
+    await page.keyboard.press('Control+z');
+    await until(async () => !(await tr.getAttribute('class')).includes('ghost'), 3000, 'отмена вернула переход');
+    await page.keyboard.press('Control+Shift+z');
+    await until(async () => (await tr.getAttribute('class')).includes('ghost'), 3000, 'повтор снова убрал');
+
+    // затемнение фона — ползунок (в превью маски человека нет — о нём сказано под ползунком)
+    const dimSlider = page.getByRole('slider', { name: 'Затемнение фона' });
+    await dimSlider.focus();
+    for (let k = 0; k < 10; k++) await page.keyboard.press('ArrowRight');
+    await until(async () => (await dimSlider.inputValue()) === '0.5', 3000, async () => `затемнение: ${await dimSlider.inputValue()}`);
+    // финальная карточка: щелчок по хвосту — её панель; убрать — хвост короче, карточка — тенью после стоп-кадра;
+    // щелчок по тени — вернуть (как у монтажа)
+    await page.locator('.ed-row.video .ed-tail.endcard').first().click();
+    const endPanel = page.locator('.ed-insp[data-block=end]');
+    await endPanel.getByRole('button', { name: 'Убрать карточку' }).click();
+    const ghostCard = page.locator('.ed-row.video .ed-tail.ghost[data-kind=end]');
+    await ghostCard.waitFor({ timeout: 3000 });
+    await shot(page, 'editor-card-off');
+    await ghostCard.click();
+    await endPanel.getByRole('button', { name: 'Вернуть карточку' }).click();
+    await until(async () => (await ghostCard.count()) === 0, 3000, 'карточка вернулась');
+    // её строка и ник — на карточке новый текст
+    await endPanel.getByLabel('Строка карточки').fill('Пиши «план»');
+    await endPanel.getByLabel('Ник').fill('@pavel.edit');
+    await seekTo(full - 0.3);
+    await until(async () => (await editorKit(page, full).layerState()).end?.lines?.[0] === 'Пиши «план»', 3000,
+      async () => `карточка на кадре: ${JSON.stringify((await editorKit(page, full).layerState()).end)}`);
+
+    // сохранено — по схеме движка; движок по тем же правкам: зум, кадры ч/б и переходы — как на странице
+    await page.locator('.ed-save').getByText('Сохранено').waitFor({ timeout: 8000 });
+    // другой трек — из библиотеки ветки задачи (в ней появился calm.wav): звучит на прослушивании, доли — после монтажа
+    await fakeJson('/__commit', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ branch: `claude/job-${ctx.jobId}`, files: { 'assets/music/calm.wav': { base64: wav(3, 330).toString('base64') } }, message: 'library' }) });
+    await page.reload();
+    const musicClip = page.locator('.ed-row.music .ed-clip');
+    await musicClip.waitFor({ timeout: 10_000 });
+    await musicClip.click();
+    const musicPanel = page.locator('.ed-insp[aria-label="Музыка"]');
+    await musicPanel.getByRole('combobox', { name: 'Трек', exact: true }).selectOption('assets/music/calm.wav');
+    await until(async () => (await musicClip.textContent()).includes('calm'), 3000, async () => `трек на дорожке: ${await musicClip.textContent()}`);
+    await musicPanel.getByText('Доли этого трека').waitFor({ timeout: 3000 });
+    await shot(page, 'editor-track');
+    await page.locator('.ed-save').getByText('Сохранено').waitFor({ timeout: 8000 });
+    const tl = JSON.parse((await branchFile(ctx, 'timeline.json')) ?? '{}');
+    engineValidate('timeline.json', tl);
+    check(tl.zoom === 0.5 && isDeepStrictEqual(tl.looks, [{ at: [1.6, 2.0], off: true }]) && isDeepStrictEqual(tl.transitions, [{ at: 1.6, kind: 'blur', off: true }]),
+      `картинка в timeline.json: ${JSON.stringify({ zoom: tl.zoom, looks: tl.looks, transitions: tl.transitions })}`);
+    check(tl.dim === 0.5 && tl.music?.file === 'assets/music/calm.wav' && isDeepStrictEqual(tl.text?.end, { lines: ['Пиши «план»'], handle: '@pavel.edit' }),
+      `фон, трек и карточка в timeline.json: ${JSON.stringify({ dim: tl.dim, music: tl.music, end: tl.text?.end })}`);
+    const engine = JSON.parse(execFileSync('python3', ['-c', [
+      'import json, sys', 'from vm import transitions', 'from vm.edits import apply', 'from vm.render import look_windows, timeline',
+      'from vm.zoom import TRANS, zoom_at',
+      'd = json.load(sys.stdin)', 'e = apply(d["edit"], d["timeline"], d["duration"])', 'tl = timeline(e, d["duration"])',
+      'marks = transitions.marks(e, tl)',
+      'print(json.dumps({"windows": look_windows(e, tl), "marks": [[m.t, m.kind] for m in marks],',
+      '  "zoom": zoom_at(e["zooms"], tl, 1.6, TRANS, [m.t for m in marks if m.kind == "zoom"]),',
+      '  "dim": e.get("dim"), "music": e["music"]["file"], "end": [e["end"]["lines"], e["end"].get("handle")]}))',
+    ].join('\n')], { input: JSON.stringify({ edit, timeline: tl, duration: source }), env: { ...process.env, PYTHONPATH: path.resolve('../engine') } }).toString());
+    check(isDeepStrictEqual(engine.windows, []) && isDeepStrictEqual(engine.marks, []), `движок: ч/б и переход убраны — ${JSON.stringify(engine)}`);
+    check(Math.abs(engine.zoom - z1) < 1e-4, `зум движка на 1,6 с ${engine.zoom}, на странице ${z1}`);
+    check(engine.dim === 0.5 && engine.music === 'assets/music/calm.wav' && isDeepStrictEqual(engine.end, [['Пиши «план»'], '@pavel.edit']),
+      `движок: фон, трек и карточка — ${JSON.stringify(engine)}`);
+    // задача старого движка (схема без картинки): ползунок закрыт, сервер правку не сохранит
+    const schema = JSON.parse(fs.readFileSync(path.resolve('../engine/vm/schemas/timeline.json'), 'utf8'));
+    const { zoom: _z, looks: _l, transitions: _t, ...props } = schema.properties;
+    await fakeJson('/__commit', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ branch: `claude/job-${ctx.jobId}`, files: { 'engine/vm/schemas/timeline.json': JSON.stringify({ ...schema, properties: props }) }, message: 'old engine' }) });
+    await page.reload();
+    await page.locator('.ed-pic-panel').getByText('до правок картинки').waitFor({ timeout: 10_000 });
+    check(await page.getByRole('slider', { name: 'Сила зума' }).isDisabled(), 'у старой задачи зум не правится');
+    const refused = await page.request.put(`${APP}/api/jobs/${ctx.jobId}/timeline`, { data: { base: tl.rev, edits: [], zoom: 0.2 } });
+    check(refused.status() === 409, `старый движок: правка картинки не сохраняется (${refused.status()})`);
+    // задача до редактора (в её ветке схемы нет — движок timeline.json не читает): только смотреть
+    await fakeJson('/__commit', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ branch: `claude/job-${ctx.jobId}`, files: { 'engine/vm/schemas/timeline.json': null }, message: 'before the editor' }) });
+    await page.reload();
+    await page.locator('.ed-flag').getByText('Эта задача создана до редактора').waitFor({ timeout: 10_000 });
+    check(await page.getByText('Эта задача создана до редактора').count() === 1, 'про задачу до редактора — один раз');
+    await page.getByText('Стиль этой задачи меняется через «Поправить».').waitFor({ timeout: 3000 });
+    check(await page.locator('.ed-handle').count() === 0 && await page.getByRole('slider', { name: 'Сила зума' }).isDisabled(), 'у задачи до редактора ничего не правится');
+    await fakeJson('/__commit', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ branch: `claude/job-${ctx.jobId}`, files: { 'engine/vm/schemas/timeline.json': JSON.stringify(schema) }, message: 'engine back' }) });
+    // телефон: дорожка «Картинка» и панель — не шире экрана
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.reload();
+    await row.scrollIntoViewIfNeeded();
+    await shot(page, 'editor-picture-phone');
+  }],
+
+  ['editor-video', async (ctx) => {
+    // фаза 5в: вид хука, место и толщина шкалы — кнопки и ползунок «Стиля»; скорость ролика — ползунок, тизер — убрать;
+    // движок по сохранённым правкам: ролик той же длины, что на странице, без тизера
+    const { page } = ctx;
+    const { edit, source } = ctx.editorEdit;
+    const teased = { ...edit, teaser: { t0: 1.7, t1: 2.7, sfx: null } }; // «новый ролик» — ещё и в начале
+    engineValidate('edit.json', teased);
+    await session(ctx, { 'edit.json': teased });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(`${APP}/jobs/${ctx.jobId}/editor`);
+    await page.locator('.ed-piece.teaser').waitFor({ timeout: 10_000 });
+    const total = async () => {
+      const text = (await page.locator('.ed-clock').textContent()) ?? '';
+      const [m, sec] = text.split('/')[1].trim().split(':');
+      return Number(m) * 60 + Number(sec);
+    };
+    const before = await total();
+    // скорость: ×1,00 (как у монтажа этой задачи) → ×1,25 (пять шагов по 0,05) — ролик короче
+    const speedSlider = page.getByRole('slider', { name: 'Скорость', exact: true });
+    check(await speedSlider.inputValue() === '1', `скорость монтажа: ${await speedSlider.inputValue()}`);
+    await speedSlider.focus();
+    for (let k = 0; k < 5; k++) await page.keyboard.press('ArrowRight');
+    await page.locator('.ed-video-panel').getByText('×1,25').waitFor({ timeout: 3000 });
+    await until(async () => (await total()) < before - 0.2, 3000, async () => `ролик короче: было ${before}, стало ${await total()}`);
+    // видео идёт с новой скоростью сразу, а не со следующего пуска (иначе часы и звук разъезжаются с картинкой)
+    const rate = async () => page.locator('video[data-editor-video]').evaluate((el) => el.playbackRate);
+    await until(async () => Math.abs((await rate()) - 1.25) < 1e-6, 3000, async () => `скорость видео: ${await rate()}`);
+    // тизер — убрать: первым на дорожке — кусок
+    await page.locator('.ed-video-panel').getByRole('button', { name: 'Тизер в начале' }).click();
+    await until(async () => (await page.locator('.ed-piece.teaser').count()) === 0, 3000, 'тизер убран');
+    // стиль: хук — контуром, шкала — сверху и толще
+    const style = page.locator('.ed-style');
+    await style.getByRole('group', { name: 'Вид хука' }).getByRole('button', { name: 'Контур' }).click();
+    await style.getByRole('group', { name: 'Где шкала' }).getByRole('button', { name: 'Сверху' }).click();
+    const thick = page.getByRole('slider', { name: 'Шкала времени: Толщина' });
+    await thick.focus();
+    for (let k = 0; k < 3; k++) await page.keyboard.press('ArrowRight');
+    await until(async () => (await page.locator('.ed-pbar').evaluate((el) => el.style.top)) === '0px', 3000, 'шкала сверху');
+    check(await style.getByRole('group', { name: 'Вид хука' }).getByRole('button', { name: 'Контур' }).getAttribute('aria-pressed') === 'true', 'хук — контуром');
+    await shot(page, 'editor-video');
+    // сохранено; движок: ролик той же длины, без тизера
+    await page.locator('.ed-save').getByText('Сохранено').waitFor({ timeout: 8000 });
+    const tl = JSON.parse((await branchFile(ctx, 'timeline.json')) ?? '{}');
+    engineValidate('timeline.json', tl);
+    check(tl.teaser === false && tl.speed === 1.25, `тизер и скорость в timeline.json: ${JSON.stringify({ teaser: tl.teaser, speed: tl.speed })}`);
+    const engine = JSON.parse(execFileSync('python3', ['-c', [
+      'import json, sys', 'from vm.edits import apply', 'from vm.render import timeline',
+      'd = json.load(sys.stdin)', 'e = apply(d["edit"], d["timeline"], d["duration"])', 'tl = timeline(e, d["duration"])',
+      'print(json.dumps({"teaser": e.get("teaser"), "speed": e["speed"], "duration": tl.duration + float(e.get("hold") or 0) + float((e.get("end") or {}).get("seconds") or 0)}))',
+    ].join('\n')], { input: JSON.stringify({ edit: teased, timeline: tl, duration: source }), env: { ...process.env, PYTHONPATH: path.resolve('../engine') } }).toString());
+    check(engine.teaser === null && engine.speed === 1.25 && Math.abs(engine.duration - (await total())) < 0.06,
+      `движок: ${JSON.stringify(engine)}, на странице ${await total()} с`);
+    await page.setViewportSize({ width: 390, height: 844 });
   }],
 
   ['script', async (ctx) => {
@@ -784,13 +1885,154 @@ const segments = [
     await page.reload();
     check(await page.inputValue('#brief') === '', 'ТЗ сценария подставилось второй раз');
   }],
+  // Safari (только WebKit): загрузка прервана перезагрузкой страницы, тот же файл выбран снова — «Продолжить загрузку»
+  // доводит её до страницы задачи, и следующий переход не зависает (в Chromium продолжение — в шаге upload)
+  ...(WEBKIT ? [['resume', async (ctx) => {
+    const p = await ctx.page.context().newPage();
+    try {
+      await p.goto(`${APP}/`);
+      const big = path.join(ctx.tmp, 'reload.mov');
+      sampleVideo(big, 2, 24 * 1024 * 1024);
+      await p.setInputFiles('#source', big);
+      await p.getByRole('button', { name: 'Загрузить', exact: true }).click();
+      await p.getByText('Загружаю в GitHub…').waitFor();
+      await until(async () => ((await state()).drafts.at(-1)?.assets.length ?? 0) >= 2, 60_000, 'два куска в черновике');
+      await p.reload();
+      await p.getByText('Загрузка reload.mov не закончена').waitFor({ timeout: 15_000 });
+      await p.setInputFiles('#source', big);
+      await p.getByRole('button', { name: 'Продолжить загрузку' }).click({ timeout: 15_000 });
+      await p.waitForURL(/\/jobs\/\d{6}-\d{6}-[0-9a-z]{4}$/, { timeout: 120_000 });
+      await p.goto(`${APP}/script`, { timeout: 20_000 });
+    } finally {
+      await p.close();
+    }
+  }]] : []),
 ];
 
 // ---------- прогон ----------
 
-const browser = await chromium.launch();
-// контекст — чтобы открыть вторую вкладку с тем же входом; касания — чтобы тапать пальцем (мышь работает как раньше)
-const page = await (await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, permissions: ['clipboard-read', 'clipboard-write'] })).newPage();
+// вывод самого браузера (stderr WebKit и т. п.) — в лог прогона: при зависании видно, что он говорил
+const browserLog = [];
+const browser = await playwright[BROWSER].launch({
+  logger: { isEnabled: (name) => name === 'browser', log: (name, _severity, message) => { browserLog.push(String(message).slice(0, 300)); if (browserLog.length > 60) browserLog.shift(); } },
+});
+// контекст — чтобы открыть вторую вкладку с тем же входом; касания — чтобы тапать пальцем (мышь работает как раньше).
+// WebKit — iPhone 13 (Safari): буфер обмена без разрешений не читается — запоминаем, что страница в него пишет.
+const context = await browser.newContext(WEBKIT
+  ? { ...playwright.devices['iPhone 13'], viewport: { width: 390, height: 844 } }
+  : { viewport: { width: 390, height: 844 }, hasTouch: true, permissions: ['clipboard-read', 'clipboard-write'] });
+if (WEBKIT) {
+  await context.addInitScript(() => {
+    window.__copied = [];
+    if (!navigator.clipboard) return;
+    navigator.clipboard.writeText = async (text) => { window.__copied.push(text); };
+  });
+}
+const page = await context.newPage();
+console.log(`браузер: ${BROWSER}`);
+// запросы, что ещё идут: при сбое видно, чего ждала страница (например, `load` так и не наступил)
+const inflight = new Map();
+const answered = new Map(); // запрос → код ответа (заголовки пришли, тело ещё может идти)
+const consoleTail = []; // последние сообщения консоли страницы
+page.on('request', (r) => inflight.set(r, Date.now()));
+page.on('response', (r) => answered.set(r.request(), r.status()));
+page.on('requestfinished', (r) => inflight.delete(r));
+page.on('requestfailed', (r) => inflight.delete(r));
+page.on('pageerror', (e) => console.log(`ошибка на странице: ${e.message}`));
+page.on('crash', () => console.log('страница упала (crash)'));
+page.on('console', (m) => {
+  consoleTail.push(`${m.type()}: ${m.text().slice(0, 300)}`);
+  if (consoleTail.length > 40) consoleTail.shift();
+});
+const within = (promise, ms) => Promise.race([promise, new Promise((ok) => setTimeout(() => ok(`не ответило за ${ms / 1000} с`), ms))]);
+
+/** Что видно при сбое: жива ли страница, чего она ждёт, отвечает ли сервер, открывается ли та же страница в новой вкладке,
+ *  сколько соединений держит браузер к серверу. */
+async function diagnose(name) {
+  const doc = await within(page.evaluate(() => ({ url: location.href, ready: document.readyState })).catch((e) => `ошибка: ${e.message.split('\n')[0]}`), 10_000);
+  console.log(`страница: ${JSON.stringify(doc)}`);
+  if (name.startsWith('editor')) { // кадр редактора: событие слоя, его состояние, ошибка шаблона, сохранение, правки в ветке
+    const ed = await within(page.evaluate(() => ({
+      event: document.querySelector('.ed-layer')?.getAttribute('data-t0'), state: document.querySelector('.ed-layer iframe')?.getAttribute('data-state'),
+      error: document.querySelector('.preview-error')?.textContent, save: document.querySelector('.ed-save')?.textContent,
+      clock: document.querySelector('.ed-clock')?.textContent,
+    })).catch((e) => e.message.split('\n')[0]), 10_000);
+    console.log(`редактор: ${JSON.stringify(ed)}`);
+    if (ctx.jobId) console.log(`timeline.json: ${await branchFile(ctx, 'timeline.json').catch((e) => e.message)}`);
+  }
+  for (const [r, t] of inflight) {
+    console.log(`  ещё идёт ${Math.round((Date.now() - t) / 1000)} с: ${r.method()} ${r.resourceType()} ${r.url()} — ответ: ${answered.get(r) ?? 'нет'}`);
+  }
+  for (const port of [3000, 4010]) {
+    try {
+      const out = execFileSync('ss', ['-Htn', 'state', 'established', `( sport = :${port} )`]).toString().trim();
+      console.log(`соединений к :${port}: ${out ? out.split('\n').length : 0}`);
+    } catch (e) {
+      console.log(`ss: ${e.message.split('\n')[0]}`);
+    }
+  }
+  const cookie = (await within(context.cookies(), 10_000).then((c) => (Array.isArray(c) ? c.map((x) => `${x.name}=${x.value}`).join('; ') : ''), () => ''));
+  for (const url of [`${APP}/`, `${APP}/api/jobs`]) {
+    const t = Date.now();
+    const code = await fetch(url, { headers: { cookie }, redirect: 'manual', signal: AbortSignal.timeout(20_000) }).then((r) => r.status, (e) => e.message);
+    console.log(`сервер ${url}: ${code} за ${Date.now() - t} мс`);
+  }
+  const fresh = await within(context.newPage(), 10_000);
+  if (typeof fresh !== 'string') {
+    const t = Date.now();
+    const code = await fresh.goto(`${APP}/`, { timeout: 20_000 }).then((r) => r?.status(), (e) => e.message.split('\n')[0]);
+    console.log(`новая вкладка ${APP}/: ${code} за ${Date.now() - t} мс`);
+    if (process.env.E2E_SHOTS) await within(fresh.screenshot({ path: path.join(process.env.E2E_SHOTS, `FAIL-${name}-fresh.png`) }).catch(() => {}), 10_000);
+  } else console.log(`новая вкладка: ${fresh}`);
+  if (consoleTail.length) console.log(`консоль страницы (хвост):\n  ${consoleTail.join('\n  ')}`);
+  if (browserLog.length) console.log(`браузер (хвост):\n  ${browserLog.join('\n  ')}`);
+  // опыты на свежих вкладках: застревает ли переход после перехода внутри приложения (pushState) и после выбора видео
+  const probe = async (label, setup) => {
+    const p = await within(context.newPage(), 10_000);
+    if (typeof p === 'string') return console.log(`опыт «${label}»: вкладка ${p}`);
+    try {
+      await setup(p);
+      const t = Date.now();
+      const r = await p.goto(`${APP}/script`, { timeout: 15_000 }).then(() => 'открылась', (e) => e.message.split('\n')[0]);
+      console.log(`опыт «${label}»: переход на /script — ${r} за ${Date.now() - t} мс`);
+    } catch (e) {
+      console.log(`опыт «${label}»: подготовка не вышла — ${e.message.split('\n')[0]}`);
+    }
+  };
+  await probe('после ссылки внутри приложения', async (p) => {
+    await p.goto(`${APP}/brand`, { timeout: 15_000 });
+    await p.getByRole('link', { name: 'Мои видео' }).click({ timeout: 10_000 });
+    await p.waitForURL(`${APP}/`, { timeout: 10_000 });
+  });
+  await probe('после выбора видео', async (p) => {
+    await p.goto(`${APP}/`, { timeout: 15_000 });
+    const file = path.join(ctx.tmp, 'probe.mov');
+    sampleVideo(file, 2, 1024 * 1024);
+    await p.setInputFiles('#source', file, { timeout: 10_000 });
+    await p.getByText('probe.mov').waitFor({ timeout: 10_000 });
+    await new Promise((ok) => setTimeout(ok, 6000)); // зонд длительности успевает кончиться (5 с)
+  });
+  await probe('после блокировки экрана', async (p) => {
+    await p.goto(`${APP}/`, { timeout: 15_000 });
+    const t = Date.now();
+    const got = await within(p.evaluate(async () => {
+      const lock = await navigator.wakeLock?.request('screen').catch((e) => String(e));
+      await new Promise((ok) => setTimeout(ok, 1000));
+      if (lock && typeof lock !== 'string') await lock.release();
+      return typeof lock === 'string' ? lock : lock ? 'взята и снята' : 'нет wakeLock';
+    }), 40_000);
+    console.log(`  блокировка экрана: ${got} за ${Date.now() - t} мс`);
+  });
+  await probe('после загрузки куска', async (p) => {
+    await p.goto(`${APP}/`, { timeout: 15_000 });
+    const got = await within(p.evaluate(async () => {
+      const r = await fetch('/api/jobs/000000-000000-zzzz/parts/0?release=1', { method: 'PUT', body: new Blob([new Uint8Array(4 * 1024 * 1024)]) });
+      return r.status;
+    }), 20_000);
+    console.log(`  кусок 4 МБ: ${got}`);
+  });
+  if (process.env.E2E_SHOTS) await within(page.screenshot({ path: path.join(process.env.E2E_SHOTS, `FAIL-${name}.png`), fullPage: true }).catch(() => {}), 10_000);
+}
 const ctx = { page, browser, tmp: fs.mkdtempSync(path.join(os.tmpdir(), 'vm-e2e-')), jobId: null, fires, state, branchFile, session, until, check };
 let code = 0;
 for (const [name, run] of segments) {
@@ -799,6 +2041,7 @@ for (const [name, run] of segments) {
     console.log(`ok ${name}`);
   } catch (e) {
     console.log(`FAIL ${name}: ${e instanceof Error ? e.stack : e}`);
+    await diagnose(name).catch((d) => console.log(`диагностика упала: ${d instanceof Error ? d.message : d}`));
     code = 1;
     break;
   }

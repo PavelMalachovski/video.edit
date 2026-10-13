@@ -83,6 +83,12 @@ test('delivered version wins over a later error status', () => {
   assert.deepEqual(v.final, { mp4: 'final.mp4', srt: null });
 });
 
+test('the view knows whether the job has a voice upload', () => {
+  const voice = { file: 'in/uploads/upload-voice.m4a', asset: 'upload-voice.m4a', name: 'Голос.m4a', size: 1, type: 'audio/x-m4a', kind: 'audio' as const };
+  assert.equal(deriveView(release(), files({ job: { ...job(), uploads: [voice] }, status: status('error') }), T0).voice, true);
+  assert.equal(deriveView(release(), files({ status: status('error') }), T0).voice, false);
+});
+
 test('canRun allows each action only from its screen', () => {
   const allowed: Record<Screen, Action[]> = {
     uploading: ['delete'],
@@ -102,6 +108,12 @@ test('canRun allows each action only from its screen', () => {
       if (why !== null) assert.ok(why.length > 5, why);
     }
   }
+  // «Повторить без озвучки» — только когда сорвался анализ задачи с озвучкой
+  const failed = { ...deriveView(release(), null, T0), screen: 'error' as Screen, stuck: null, step: 'analyze' as const };
+  assert.match(canRun(failed, 'unvoice') ?? '', /озвучки нет/i);
+  assert.equal(canRun({ ...failed, voice: true }, 'unvoice'), null);
+  assert.notEqual(canRun({ ...failed, voice: true, step: 'render' }, 'unvoice'), null);
+  assert.notEqual(canRun({ ...failed, voice: true, screen: 'questions' }, 'unvoice'), null);
   const stuck = { ...deriveView(release(), null, T0), screen: 'working' as Screen, stuck: 'session' as const };
   assert.equal(canRun(stuck, 'retry'), null);
   assert.equal(canRun(stuck, 'delete'), null);
@@ -276,4 +288,11 @@ test('the cover of the version is shown once it is delivered', () => {
 test('the ads version is shown once it is delivered', () => {
   const v = deriveView(release(), files({ status: status('rendered'), released: delivered('final.mp4', 'final-ad.mp4', 'final-ad.srt') }), T0);
   assert.deepEqual(v.final, { mp4: 'final.mp4', srt: null, ad: { mp4: 'final-ad.mp4', srt: 'final-ad.srt' } });
+});
+
+test('a job of several videos is named by the first one and how many more', () => {
+  const videos = [{ file: 'in/source.mov', asset: 'source', name: 'IMG_1.MOV', size: 1, type: 'video/quicktime', duration: 40 },
+                  { file: 'in/source-2.mp4', asset: 'source-2', name: 'IMG_2.mp4', size: 1, type: 'video/mp4', duration: 35 }];
+  assert.equal(deriveView(release(), files({ job: { ...job(), videos } }), T0).title, 'IMG_1.MOV + 1');
+  assert.equal(deriveView(release(), files(), T0).title, 'IMG_1.MOV', 'одно видео — как раньше');
 });

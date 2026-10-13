@@ -69,6 +69,27 @@ def cached(name: str, *steps: list) -> Path:
     return path
 
 
+@pytest.fixture
+def render_shot() -> Callable[[str, Path], None]:
+    """Лист кадров готового ролика (2 кадра в секунду, по 6 в ряд) — в папку VM_RENDER_SHOTS. CI кладёт её в ветку
+    ci-screens/render/<ветка>: так после каждого изменения видно, как выглядит смонтированный ролик. Без переменной —
+    ничего не делает."""
+    folder = os.environ.get("VM_RENDER_SHOTS")
+
+    def shot(name: str, video: Path) -> None:
+        if not folder:
+            return
+        out = Path(folder)
+        out.mkdir(parents=True, exist_ok=True)
+        seconds = float(subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(video)],
+            check=True, capture_output=True, text=True).stdout.strip() or 0)
+        rows = max(1, math.ceil(seconds * 2 / 6))
+        ffmpeg("-i", video, "-vf", f"fps=2,scale=270:480,tile=6x{rows}", "-frames:v", "1", out / f"{name}.png")
+
+    return shot
+
+
 @pytest.fixture(scope="session")
 def landscape() -> Path:
     """1920×1080@30, 2 с, звук 440 Гц стерео; чёрный кадр с красным квадратом 300×300 в левом верхнем углу."""

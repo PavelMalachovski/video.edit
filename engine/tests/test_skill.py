@@ -306,3 +306,26 @@ def test_the_background_is_dimmed_on_pavels_answer():
     questions = section("Вопросы (questions.json)")
     assert "`dim` (choice, `layout: \"frames\"`)" in questions and "--dim 0.3" in questions and "`default` — `30`" in questions
     assert "`edit.dim`" in section("Шаг render")
+
+
+def test_hand_edits_from_the_editor_are_known_and_left_alone():
+    files = section("Файлы задачи")
+    assert "timeline.json" in files and "edit_of" not in files
+    fix = section("Шаг fix")
+    assert "timeline" in fix and "edit.json не меняй" in fix
+    # новый стиль из редактора: он уже в answers.json — сессия берёт его через vm style, остальное в edit.json не трогает
+    assert "`style`" in fix and "vm style --onto" in fix and "answers.json.style" in fix
+    # правка текстом не спорит с правками руками: вырезанное Павлом возвращает он сам, в редакторе
+    assert "вырезал в редакторе" in fix and "unsure" in fix
+    assert "style: true" in files
+
+
+def test_text_edits_from_the_editor_are_known_and_left_alone():
+    """Фаза 5: в timeline.json — и текст с вставками (хук, титр, акценты, вставки, слова субтитров); сессия их не
+    переносит в edit.json и не «чинит»: что мешает только из-за правки Павла — оставь и скажи в unsure."""
+    files = section("Файлы задачи")
+    assert "`text`" in files and "`words`" in files and "beats.json" in files
+    fix = section("Шаг fix")
+    assert "поправил в редакторе" in fix
+    render = section("Шаг render")
+    assert "правки Павла в редакторе" in render and "не двигай" in render

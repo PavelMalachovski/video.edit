@@ -30,7 +30,7 @@
 """
 import math
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import zip_longest
 
 from .asr import Word
@@ -135,7 +135,8 @@ def _line_counts(total: int, per: int) -> list[int]:
 
 def _spoken(words: list[Word], tl: Timeline, hidden: list[tuple[float, float]] = ()) -> list[_Spoken]:
     """Слова, оставшиеся в финале, по началу в исходнике (при равном — как в `words`); слова тизера — копиями впереди.
-    Слова в промежутках `hidden` на своём месте пропускаются, следующее за ними начинает фразу."""
+    Слова в промежутках `hidden` на своём месте пропускаются, следующее за ними начинает фразу; промежуток — только в
+    серии кусков, где он начинается (там стоит акцент): слова, переставленные в другое место, видны субтитрами."""
     spoken, lead = [], []
     teaser = tl.teaser
     gap = False
@@ -148,15 +149,20 @@ def _spoken(words: list[Word], tl: Timeline, hidden: list[tuple[float, float]] =
             t0 = tl.teaser_final(max(word.t0, teaser[0]))
             t1 = max(t0, tl.teaser_final(min(max(word.t1, word.t0), teaser[1])))
             lead.append(_Spoken(word, t0, t1, lead=True, opens=not lead or after_end))
-        if any(a <= middle <= b for a, b in hidden):
+        if any(a <= middle <= b and tl.run_of(middle) == tl.run_of(a) for a, b in hidden):
             gap = True
             continue
         if tl.to_final(middle) is None:
             continue  # середина вырезана или лежит за концом ролика
-        t0 = tl.to_final_snap(word.t0)
-        spoken.append(_Spoken(word, t0, max(t0, tl.to_final_snap(word.t1)), fresh=gap, opens=not spoken or after_end))
+        t0, t1 = tl.span(word.t0, max(word.t1, word.t0))  # конец в вырезанном — конец своего куска, а не чужого
+        item = _Spoken(word, t0, max(t0, t1), fresh=gap, opens=not spoken or after_end)
+        spoken.append((tl.run_of(middle), item))
         gap = False
-    return lead + spoken
+    # по месту в ролике: куски могут стоять не по порядку исходника (переставлены руками); на стыке серий кусков —
+    # новая фраза. По порядку исходника серия одна — всё как всегда
+    ordered = sorted(spoken, key=lambda x: x[1].t0)
+    out = [item if not k or run == ordered[k - 1][0] else replace(item, fresh=True) for k, (run, item) in enumerate(ordered)]
+    return lead + out
 
 
 def _ends_sentence(text: str) -> bool:

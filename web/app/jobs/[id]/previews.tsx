@@ -1,29 +1,28 @@
 'use client';
-// Экран «3 · Три превью» — редактор «Монтажки»: тулбар с «Монтировать» и чёрная сцена с крупным превью выбора Павла
+// Экран «3 · Три превью» — редактор «Монтажки»: тулбар с «Монтировать» и сцена с крупным превью выбора Павла
 // прилипают к верху, под ними — вкладки настроек (вариант, шрифт, цвет, место, скорость, обложка, реклама, A/B). Всё на
 // превью рисует шаблон слоя; шрифт и цвета меняются сразу, хук и субтитры двигаются по крупному превью выше-ниже, вставки —
 // куда угодно; размер у всех — щипком двумя пальцами или уголком ⤢. «Ещё три варианта» — шаг restyle; «Монтировать» —
 // ответы, стиль и шаг render.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { sameJson } from '@/lib/equal.ts';
 import { abOptions, buildAnswers, previewEnd, previewHook, type Draft } from '@/lib/answers.ts';
 import { storage } from '@/lib/client.ts';
 import { mmss } from '@/lib/format.ts';
 import { editorTabs, mountSummary, nextTab, STAGE, stageFit, type TabId } from '@/lib/editor.ts';
 import { COVER, type AbKind, type Adjustable, type Question, type ShadeKind, type StyleChoice, type Styles } from '@/lib/jobfiles.ts';
 import { MAX_NOTE } from '@/lib/jobs.ts';
-import {
-  allowedFonts, choiceFor, clampTo, coverOf, finalStyle, keepAdjusted, shadeKindOf, withShadeKind, underCaption, HOOK_SIZE, HOOK_Y, INSERT_W, insertKey, loadAb, loadAd, loadChoice, loadCover, loadInsertBoxes, loadSpeed, moveBox,
-  resizeBox, resolveInserts, sampleState, saveAb, saveAd, saveChoice, saveCover, saveInsertBoxes, saveSpeed, type CoverPick, type InsertBox,
-  SPEEDS, SUB_SHADE, SUB_SIZE, SUB_Y, SWATCHES,
-} from '@/lib/style.ts';
+import { allowedFonts, brandChoice, choiceFor, clampTo, coverOf, ownAdjustments, finalStyle, INSERT_W, insertKey, loadAb, loadAd, loadChoice, loadCover, loadInsertBoxes, loadSpeed, moveBox, placeText, resizeBox, resolveInserts, sampleState, saveAb, saveAd, saveChoice, saveCover, saveInsertBoxes, saveSpeed, shadeKindOf, SPEEDS, SUB_SHADE, SWATCHES, textPlace, type CoverPick, type InsertBox, type TextPart, underCaption, withShadeKind } from '@/lib/style.ts';
 import {
   FrameIcon, GaugeIcon, LayersIcon, MoveIcon, PaletteIcon, RefreshIcon, ScissorsIcon, SplitIcon, TypeIcon,
 } from '../../icons';
+import { BoxHandle, DragHandle, STEP, type Box } from '../../handles';
 import PreviewFrame from '../../preview-frame';
+import { useTemplateFonts } from '../../use-fonts';
 import { TopBar } from '../../top-bar';
+import type { BrandLook } from '@/lib/brand.ts';
 import type { Act } from './job';
 
-type FontEntry = { id: string; family: string; file: string; kind: 'main' | 'hand' };
 type ColorKey = keyof StyleChoice['colors'];
 
 type Props = {
@@ -37,18 +36,15 @@ type Props = {
   localUrl: (qid: string) => string | null;
   onBack: () => void;
   onAct: Act;
+  look?: BrandLook | null; // «Мой стиль» бренда: с него начинаются стиль и скорость, кнопка возвращает его
 };
 
 // крупное превью — до 270 px экрана, на невысоком экране — уже (lib/editor.ts, stageFit); scale — px экрана на px кадра
 const RESTICK_MS = 400; // поле под сценой потеряло фокус — столько ждать, прежде чем сцена снова прилипнет (тап успеет дойти)
-const STEP = 20; // px кадра на нажатие «Выше» / «Ниже» и стрелку
 const SIZE_STEP = 4; // px размера на нажатие «Меньше» / «Больше»
-const GROW = 540; // уголок ⤢: на столько px кадра (половина его ширины) потянуть вправо, чтобы размер вырос вдвое
 const INSERT_STEP = 20; // px ширины вставки на нажатие «A−» / «A+»
 
-type Box = { x: number; y: number; w: number; h: number };
 type LayoutBoxes = { inserts?: Box[]; sub?: Box };
-const HOOK_DEFAULT = 400; // центр хука, если в стиле не задан (template/overlay.js, HOOK_Y)
 const CARD_T = 10 / 13; // с от начала карточки: уже появилась, призыв — в обычном размере (дышит с частотой 1,3 Гц)
 
 const TAB_ICONS: Record<TabId, ReactNode> = {
@@ -63,9 +59,10 @@ const ROWS: { key: ColorKey; title: string; own: string }[] = [
   { key: 'bar', title: 'Шкала времени', own: 'Свой цвет шкалы' },
 ];
 
-export default function Previews({ jobId, styles, questions, draft, brief, duration, fileUrl, localUrl, onBack, onAct }: Props) {
-  const [choice, setChoiceState] = useState<StyleChoice>(() => loadChoice(storage(), jobId, styles));
-  useEffect(() => setChoiceState(loadChoice(storage(), jobId, styles)), [jobId, styles]); // новые варианты — выбор заново
+export default function Previews({ jobId, styles, questions, draft, brief, duration, fileUrl, localUrl, onBack, onAct, look = null }: Props) {
+  const mine = look?.style ?? null;
+  const [choice, setChoiceState] = useState<StyleChoice>(() => loadChoice(storage(), jobId, styles, mine));
+  useEffect(() => setChoiceState(loadChoice(storage(), jobId, styles, mine)), [jobId, styles, mine]); // новые варианты — выбор заново
   const setChoice = (c: StyleChoice) => {
     setChoiceState(c);
     saveChoice(storage(), jobId, styles, c);
@@ -116,7 +113,7 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
   const [tab, setTab] = useState<TabId>('style');
   const tabRefs = useRef(new Map<TabId, HTMLButtonElement>());
 
-  const [speed, setSpeedState] = useState<number>(() => loadSpeed(storage(), jobId));
+  const [speed, setSpeedState] = useState<number>(() => loadSpeed(storage(), jobId, look?.speed));
   const setSpeed = (s: number) => {
     setSpeedState(s);
     saveSpeed(storage(), jobId, s);
@@ -138,25 +135,7 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
     saveAb(storage(), jobId, x);
   };
 
-  const [fonts, setFonts] = useState<FontEntry[]>([]);
-  useEffect(() => {  // шрифты шаблона — и для кнопок выбора: название написано самим шрифтом
-    let live = true;
-    fetch('/template/fonts.json')
-      .then((r) => (r.ok ? r.json() : []))
-      .then((list: FontEntry[]) => {
-        if (!live) return;
-        setFonts(list);
-        for (const f of list) {
-          const face = new FontFace(`pv-${f.id}`, `url("/template/${f.file}")`, { weight: '1 1000' });
-          document.fonts.add(face);
-          void face.load().catch(() => undefined);
-        }
-      })
-      .catch(() => undefined);
-    return () => {
-      live = false;
-    };
-  }, []);
+  const fonts = useTemplateFonts(); // шрифты шаблона — и для кнопок выбора: название написано самим шрифтом
 
   const hook = useMemo(() => previewHook(questions, draft, styles.sample.hook), [questions, draft, styles]);
   const cover = coverOf(coverPick, styles, hook);
@@ -215,19 +194,29 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
   }
 
   const pickFont = (kind: 'font' | 'hand', id: string) => setChoice({ ...choice, [kind]: id });
-  // смена варианта сбрасывает шрифты и цвета к нему, а места хука и субтитров, которые Павел выбрал сам, остаются
-  const pickVariant = (id: StyleChoice['variant']) => setChoice(keepAdjusted(choice, choiceFor(styles, id)));
+  // смена варианта сбрасывает шрифты и цвета к нему, а места и размеры хука и субтитров, затемнение и его вид, которые
+  // Павел выбрал сам, остаются
+  const pickVariant = (id: StyleChoice['variant']) => setChoice({
+    ...choiceFor(styles, id),
+    ...ownAdjustments(choice),
+  });
   const set = (key: Adjustable) => (x: number) => setChoice({ ...choice, [key]: clampTo(key, x) });
   const reset = (...keys: Adjustable[]) => () =>
     setChoice(Object.fromEntries(Object.entries(choice).filter(([k]) => !keys.includes(k as Adjustable))) as StyleChoice);
+  // место и размер субтитров и хука — как их тянут и на кадре редактора (textPlace, placeText): с шагом и в пределах ADJUST
+  const part = (p: TextPart) => {
+    const at = textPlace(spec, p);
+    return {
+      y: at.y, range: at.range, move: (y: number) => setChoice(placeText(choice, p, { y })),
+      size: at.size, sizes: at.sizes, resize: (size: number) => setChoice(placeText(choice, p, { size })),
+    };
+  };
   const subs = {
-    name: 'Субтитры', label: 'Высота субтитров', y: spec.subtitles.y, range: SUB_Y, move: set('subY'),
-    size: spec.subtitles.size, sizes: SUB_SIZE, resize: set('subSize'),
+    name: 'Субтитры', label: 'Высота субтитров', ...part('sub'),
     changed: choice.subY !== undefined || choice.subSize !== undefined, reset: reset('subY', 'subSize'),
   };
   const hookPart = {
-    name: 'Хук', label: 'Высота хука', y: spec.hook.y ?? HOOK_DEFAULT, range: HOOK_Y, move: set('hookY'),
-    size: spec.hook.size, sizes: HOOK_SIZE, resize: set('hookSize'),
+    name: 'Хук', label: 'Высота хука', ...part('hook'),
     changed: choice.hookY !== undefined || choice.hookSize !== undefined, reset: reset('hookY', 'hookSize'),
   };
   const movable = ending ? [] : state.hook ? [hookPart, subs] : [subs]; // хук настраивается, когда он есть на превью
@@ -293,7 +282,11 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
         <div className="stage" style={{ height: fit.height }}>
           <div className="big-host">
             <PreviewFrame frameUrl={stage.frameUrl} spec={spec} state={stage.state} progress={stage.progress} width={bigW} big onBoxes={(b) => setBoxes(b as LayoutBoxes)} />
-            {ending || zoned || coverView ? null : sized.map((m) => m.box ? <InsertHandle key={m.key} label={m.name} box={m.box} at={m.at} scale={scale} onSize={m.resize} onDrag={m.drag} /> : null)}
+            {ending || zoned || coverView ? null : sized.map((m) => m.box ? (
+              <BoxHandle key={m.key} label={m.name} box={m.box} x={m.at.x} y={m.at.y} scale={scale} onDrag={m.drag}
+                size={{ value: m.at.w, min: INSERT_W.min, max: INSERT_W.max, onSize: m.resize }}
+                title={`${m.name}: перетащи; размер — щипком или уголком`} valueText={`x ${m.at.x}, y ${m.at.y}, ширина ${m.at.w}`} />
+            ) : null)}
             {zoned || coverView ? null : movable.map((m) => <DragHandle key={m.name} label={m.label} y={m.y} range={m.range} scale={scale} onMove={m.move} size={m.size} onSize={m.resize} />)}
           </div>
         </div>
@@ -317,6 +310,13 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
         <div role="tabpanel" id="tab-panel" aria-labelledby={`tab-${current}`} className="tab-panel">
           {current === 'style' ? (
             <>
+              {mine ? (
+                <div className="my-look">
+                  <span className="grow small">{sameJson(choice, brandChoice(styles, mine)) ? 'Сейчас — «Мой стиль» из бренда' : '«Мой стиль» из бренда — одним нажатием'}</span>
+                  <button type="button" className="btn ghost small-btn" aria-pressed={sameJson(choice, brandChoice(styles, mine))}
+                    onClick={() => { setChoice(brandChoice(styles, mine)); if (look?.speed) setSpeed(look.speed); }}>Мой стиль</button>
+                </div>
+              ) : null}
               <div className="muted small">Один кадр с {mmss(styles.frameTime)} в трёх вариантах. Шрифт и цвета меняются сразу, без ожидания.</div>
               <div className="variants">
                 {thumbs.map(({ v, state: s }) => (
@@ -494,104 +494,6 @@ export default function Previews({ jobId, styles, questions, draft, brief, durat
           {error?.at === 'restyle' ? <div className="err small">{error.text}</div> : null}
         </form>
       </div>
-    </div>
-  );
-}
-
-type HandleProps = {
-  label: string; y: number; range: { min: number; max: number }; scale: number; onMove: (y: number) => void; size: number; onSize: (size: number) => void;
-};
-type Gesture =
-  | { kind: 'move'; from: number; y: number }
-  | { kind: 'drag'; fromX: number; fromY: number; x: number; y: number }
-  | { kind: 'grow'; from: number; size: number }
-  | { kind: 'pinch'; span: number; size: number };
-
-/** Жесты ручки: один палец или мышь — `move` (только выше-ниже) или `drag` (куда угодно); два пальца — щипок, `onSize`;
- *  уголок `[data-grip]` мышкой вправо-влево — тоже `onSize`. Палец убран — жест закончен: оставшийся палец ручку не дёргает. */
-function useGestures(scale: number, size: number, onSize: (size: number) => void, move?: { y: number; onMove: (y: number) => void },
-  drag?: { x: number; y: number; onDrag: (x: number, y: number) => void }) {
-  const points = useRef(new Map<number, number>()); // пальцы на ручке: id → x
-  const gesture = useRef<Gesture | null>(null);
-  const span = () => {
-    const [a, b] = [...points.current.values()];
-    return Math.abs(a - b);
-  };
-  const end = (id: number) => {
-    points.current.delete(id);
-    gesture.current = null;
-  };
-  return {
-    onPointerDown: (e: React.PointerEvent<HTMLElement>) => {
-      try {
-        e.currentTarget.setPointerCapture(e.pointerId);
-      } catch {
-        // указатель уже ушёл — жест всё равно ловим
-      }
-      points.current.set(e.pointerId, e.clientX);
-      const g = gesture.current;
-      if (points.current.size >= 2) {
-        if (g?.kind === 'move') move?.onMove(g.y); // первый палец уже сдвинул ручку — щипок только про размер
-        if (g?.kind === 'drag') drag?.onDrag(g.x, g.y);
-        gesture.current = { kind: 'pinch', span: Math.max(1, span()), size };
-      } else if ((e.target as HTMLElement).closest('[data-grip]')) {
-        gesture.current = { kind: 'grow', from: e.clientX, size };
-      } else if (move) {
-        gesture.current = { kind: 'move', from: e.clientY, y: move.y };
-      } else if (drag) {
-        gesture.current = { kind: 'drag', fromX: e.clientX, fromY: e.clientY, x: drag.x, y: drag.y };
-      }
-    },
-    onPointerMove: (e: React.PointerEvent<HTMLElement>) => {
-      if (points.current.has(e.pointerId)) points.current.set(e.pointerId, e.clientX);
-      const g = gesture.current;
-      if (g?.kind === 'move') move?.onMove(g.y + (e.clientY - g.from) / scale);
-      else if (g?.kind === 'drag') drag?.onDrag(g.x + (e.clientX - g.fromX) / scale, g.y + (e.clientY - g.fromY) / scale);
-      else if (g?.kind === 'grow') onSize(g.size * (1 + (e.clientX - g.from) / (GROW * scale)));
-      else if (g?.kind === 'pinch' && points.current.size >= 2) onSize((g.size * span()) / g.span);
-    },
-    onPointerUp: (e: React.PointerEvent<HTMLElement>) => end(e.pointerId),
-    onPointerCancel: (e: React.PointerEvent<HTMLElement>) => end(e.pointerId),
-  };
-}
-
-/** Ручка текста на крупном превью — полоса на высоте `y` (px кадра): двигает выше-ниже и меняет размер; стрелки — по STEP. */
-function DragHandle({ label, y, range, scale, onMove, size, onSize }: HandleProps) {
-  const gestures = useGestures(scale, size, onSize, { y, onMove });
-  return (
-    <div className="sub-handle" role="slider" tabIndex={0} aria-label={label} aria-orientation="vertical"
-      aria-valuemin={range.min} aria-valuemax={range.max} aria-valuenow={y} title={`${label}: потяни выше или ниже; размер — щипком или уголком`}
-      style={{ top: y * scale }} {...gestures}
-      onKeyDown={(e) => {
-        if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
-        e.preventDefault();
-        onMove(y + (e.key === 'ArrowUp' ? -STEP : STEP));
-      }}>
-      <span className="size-grip" data-grip aria-hidden="true">⤢</span>
-    </div>
-  );
-}
-
-type InsertHandleProps = {
-  label: string; box: Box; at: InsertBox; scale: number; onSize: (w: number) => void; onDrag: (x: number, y: number) => void;
-};
-
-/** Ручка вставки — рамка по её месту на крупном превью (от шаблона): один палец или мышь — тащит куда угодно, щипок или
- *  уголок ⤢ — ширина; стрелки — сдвиг по STEP. */
-function InsertHandle({ label, box, at, scale, onSize, onDrag }: InsertHandleProps) {
-  const gestures = useGestures(scale, at.w, onSize, undefined, { x: at.x, y: at.y, onDrag });
-  const arrows: Record<string, [number, number]> = { ArrowLeft: [-STEP, 0], ArrowRight: [STEP, 0], ArrowUp: [0, -STEP], ArrowDown: [0, STEP] };
-  return (
-    <div className="insert-handle" role="slider" tabIndex={0} aria-label={label} aria-valuemin={INSERT_W.min} aria-valuemax={INSERT_W.max}
-      aria-valuenow={at.w} aria-valuetext={`x ${at.x}, y ${at.y}, ширина ${at.w}`} title={`${label}: перетащи; размер — щипком или уголком`}
-      style={{ left: box.x * scale, top: box.y * scale, width: box.w * scale, height: box.h * scale }} {...gestures}
-      onKeyDown={(e) => {
-        const step = arrows[e.key];
-        if (!step) return;
-        e.preventDefault();
-        onDrag(at.x + step[0], at.y + step[1]);
-      }}>
-      <span className="size-grip" data-grip aria-hidden="true">⤢</span>
     </div>
   );
 }

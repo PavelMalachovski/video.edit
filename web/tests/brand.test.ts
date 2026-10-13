@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BRAND_BRANCH, checkLogo, EMPTY_BRAND, MAX_LOGO_BYTES, parseBrand, readBrand, saveBrand } from '../lib/brand.ts';
+import { BRAND_BRANCH, checkLogo, EMPTY_BRAND, lookFromJob, lookLines, MAX_LOGO_BYTES, parseBrand, parseLook, readBrand, saveBrand, saveLook } from '../lib/brand.ts';
 import { readRaw } from '../lib/branch.ts';
 import { startJob } from '../lib/steps.ts';
 import { withFake } from './helpers.ts';
@@ -93,3 +93,83 @@ test('a job without a saved brand has no brand field', () => withFake(async ({ f
   const job = JSON.parse(fake.read(`claude/job-${ID}`, `jobs/${ID}/job.json`) ?? '{}');
   assert.equal('brand' in job, false);
 }));
+
+const STYLE = {
+  variant: 'B', font: 'rubik', hand: 'caveat', colors: { text: '#FFFFFF', accent: '#FF5C8A', bar: '#FFD23F' },
+  subY: 1300, subSize: 70, hookY: 400, hookSize: 90, subShade: 0.3, subWords: 4, subMode: 'soft', hookMode: 'plate', barPos: 'top', barHeight: 10,
+} as const;
+const FROM = { job: '261013-101010-abcd', title: 'IMG_1.MOV', at: '2026-10-13T10:10:10.000Z' };
+
+test('the look of a montaged video: its style and speed from answers, dim and music from the edit and the hand edits', () => {
+  const look = lookFromJob({
+    answers: { answers: {}, style: STYLE, speed: 1.2 },
+    edit: { dim: 0.3, music: { file: 'assets/music/calm.m4a', gainDb: -14 }, speed: 1.2 },
+    timeline: { dim: 0.45, music: { file: 'assets/music/bleak.m4a', gainDb: -10 }, speed: 1.3 },
+  }, FROM);
+  assert.deepEqual(look, { style: STYLE, speed: 1.3, dim: 45, music: { file: 'bleak.m4a', gainDb: -10 }, from: FROM });
+  const asked = lookFromJob({ answers: { answers: { dim: '35', music: 'bleak.m4a' }, style: STYLE }, edit: null, timeline: null }, FROM);
+  assert.deepEqual([asked?.dim, asked?.music], [35, { file: 'bleak.m4a' }], 'до монтажа — по ответам «Фон» и «Музыка»');
+  const plain = lookFromJob({ answers: { answers: {}, style: STYLE }, edit: { music: null }, timeline: null }, FROM);
+  assert.deepEqual(plain, { style: STYLE, dim: 0, music: null, from: FROM }, 'без затемнения и без музыки — так и запомнить');
+  assert.equal(lookFromJob({ answers: null, edit: null, timeline: null }, FROM), null, 'стиля нет — нечего сохранять');
+});
+
+test('the look takes the dim and the music the video was montaged with — the engine lays the editor over edit.json', () => {
+  const edit = { speed: 1.1, music: { file: 'assets/music/calm.m4a', gainDb: -14 } };
+  const answers = { answers: { dim: '30', music: 'bleak.m4a' }, style: STYLE };
+  const music = (timeline: Record<string, unknown> | null, e: Record<string, unknown> = edit) => lookFromJob({ answers, edit: e, timeline }, FROM)?.music;
+  assert.deepEqual(music({ music: { gainDb: -20 } }), { file: 'calm.m4a', gainDb: -20 }, 'тише руками — тот же трек');
+  assert.deepEqual(music({ music: { fadeIn: 2 } }), { file: 'calm.m4a', gainDb: -14 }, 'место и плавность — тот же трек');
+  assert.equal(music({ music: { file: 'assets/music/bleak.m4a', muted: true } }), null, 'музыку заглушили — без музыки');
+  assert.deepEqual(music({ music: { file: 'assets/music/bleak.m4a' } }, { speed: 1.1, music: null }), { file: 'bleak.m4a', gainDb: -14 },
+    'трек руками к ролику без музыки — с громкостью по умолчанию');
+  assert.equal(music(null, { speed: 1.1, music: null }), null, 'в ролике музыки нет («Поправить: убери музыку») — ответ не в счёт');
+  const dim = (e: Record<string, unknown>, timeline: Record<string, unknown> | null = null) => lookFromJob({ answers, edit: e, timeline }, FROM)?.dim;
+  assert.equal(dim(edit), 0, 'затемнение не вошло в ролик — ответ «30 %» не в счёт');
+  assert.equal(dim({ ...edit, dim: 0.5 }), 50);
+  assert.equal(dim({ ...edit, dim: 0.5 }, { dim: 0 }), 0, 'убрано руками');
+});
+
+test('parseLook takes only what the page itself writes', () => {
+  const ok = { style: STYLE, speed: 1.2, dim: 30, music: { file: 'calm.m4a', gainDb: -14 }, from: FROM };
+  assert.deepEqual(parseLook(ok), ok);
+  for (const bad of [
+    { ...ok, style: { ...STYLE, subSize: 500 } }, { ...ok, speed: 3 }, { ...ok, dim: 95 }, { ...ok, dim: 33 },
+    { ...ok, music: { file: '../secret.m4a' } }, { ...ok, from: null }, null, 'стиль',
+  ]) assert.equal(parseLook(bad), null, JSON.stringify(bad));
+});
+
+test('the look is saved and removed on its own; the brand form keeps it', () => withFake(async ({ gh }) => {
+  await saveBrand(gh, { ...EMPTY_BRAND, handle: '@pavel' }, undefined);
+  const look = { style: STYLE, speed: 1.2, dim: 30, music: { file: 'calm.m4a', gainDb: -14 }, from: FROM };
+  await saveLook(gh, look as never);
+  assert.deepEqual((await readBrand(gh))?.brand.look, look);
+  assert.equal((await readBrand(gh))?.brand.handle, '@pavel', 'ник остался');
+  const parsed = parseBrand({ handle: 'pavel.edit' });
+  assert.ok('brand' in parsed);
+  await saveBrand(gh, parsed.brand, undefined); // форма «Мой бренд» стиль не присылает — он остаётся
+  assert.deepEqual((await readBrand(gh))?.brand.look, look);
+  await saveLook(gh, null);
+  assert.equal((await readBrand(gh))?.brand.look, undefined);
+}));
+
+test('a new job takes the saved look with the brand', () => withFake(async ({ fake, gh, routine }) => {
+  const look = { style: STYLE, dim: 30, music: null, from: FROM };
+  await saveLook(gh, look as never);
+  const id = '261013-111111-wxyz';
+  fake.addAsset(`job-${id}`, 'manifest.json', JSON.stringify(manifest(id)));
+  await startJob({ gh, routine, now: () => new Date(FROM.at) }, id);
+  const job = JSON.parse(fake.read(`claude/job-${id}`, `jobs/${id}/job.json`)!);
+  assert.deepEqual(job.brand.look, look);
+}));
+
+test('lookLines says in Russian what «Мой стиль» keeps', () => {
+  const lines = lookLines({ style: STYLE as never, speed: 1.2, dim: 30, music: { file: 'calm.m4a', gainDb: -14 }, from: FROM });
+  assert.deepEqual(lines, [
+    'Вариант B: шрифт rubik, рукописный caveat', 'Цвета: текст #FFFFFF, подсветка #FF5C8A, шкала #FFD23F',
+    'Субтитры: 70 px на высоте 1300, мягкие, по 4 слова', 'Хук: 90 px на высоте 400, на плашке', 'Шкала: сверху, 10 px',
+    'Скорость ×1,2', 'Фон темнее на 30 %', 'Музыка: calm.m4a (-14 дБ)',
+  ]);
+  assert.deepEqual(lookLines({ style: { variant: 'A', font: 'forum', hand: 'caveat', colors: { text: '#FFFFFF', accent: '#EDE4C1', bar: '#EDE4C1' } }, dim: 0, music: null, from: FROM }).slice(2),
+    ['Фон — как есть', 'Без музыки']);
+});

@@ -24,11 +24,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import fonts, matte
+from . import edits, fonts, matte
 from .fetch import fetch
 from .git import MAX_FILE_BYTES, GitError, push
 from .job import Job, set_status, states, validate
-from .media import extract_frame, grid_frames
+from .media import extract_frame, grid_frames, probe
 from .prepare import prepare
 from .qa import (
     ADS_SAFE,
@@ -51,7 +51,7 @@ from .render import (
     variant_ad,
     variant_b,
 )
-from .style import final_style
+from .style import final_style, merge_style
 from .timeline import Timeline
 from .zoom import zoom_at
 
@@ -97,9 +97,10 @@ def _status(args: argparse.Namespace) -> None:
 def _fetch(args: argparse.Namespace) -> None:
     job = _job(args)
     _stepper(job, args.state, args.status)("Скачиваю видео", "Забираю загруженные файлы")
-    files = fetch(job)
+    files = fetch(job, originals=args.originals)
     for name, path in files.items():
-        print(f"{name}: {path.relative_to(job.root)} ({path.stat().st_size / 1024 / 1024:.1f} МБ)")
+        ready = " — готовый исходник из черновика: vm prepare не нормализует видео заново" if name == "source.mp4" else ""
+        print(f"{name}: {path.relative_to(job.root)} ({path.stat().st_size / 1024 / 1024:.1f} МБ){ready}")
 
 
 def _prepare(args: argparse.Namespace) -> None:
@@ -134,17 +135,18 @@ def _preview(args: argparse.Namespace) -> None:
     print(f"{path.relative_to(job.root)} — кадр {args.at:g} с {what}" + (f", фон темнее на {args.dim:.0%}" if args.dim else ""))
 
 
-CHECKED = ("status.json", "questions.json", "answers.json", "styles.json", "review.json", "edit.json", "result.json", "script.json")
+CHECKED = ("status.json", "questions.json", "answers.json", "styles.json", "review.json", "edit.json", "timeline.json", "result.json",
+           "script.json")
 
 
 def _files(job: Job, name: str, data: dict, unchecked: set[str] | None = None) -> list[str]:
     """Файлы, на которые ссылаются данные и которых нет: картинки вопросов и кадр превью — от папки задачи (так их
     берёт страница); вставки, звуки и музыка edit.json — от папки задачи или корня репозитория (так их берёт рендер).
-    Файлы `in/…` появляются только после `vm fetch` (шаг restyle идёт без него): пока исходника `in/source.*` нет, их
-    не проверить — они попадают в `unchecked`, а не в потерянные. Сама папка `in/` — ещё не признак: в ней с первого
-    коммита лежит копия логотипа бренда (`in/brand/`)."""
+    Файлы `in/…` появляются только после `vm fetch` (шаг restyle идёт без него): пока нет ни видео `in/source.*`, ни
+    `source.mp4` (готовый исходник fetch кладёт сразу туда), их не проверить — они попадают в `unchecked`, а не в
+    потерянные. Сама папка `in/` — ещё не признак: в ней с первого коммита лежит копия логотипа бренда (`in/brand/`)."""
     lost = []
-    fetched = any(job.path("in").glob("source.*"))
+    fetched = any(job.path("in").glob("source.*")) or job.path("source.mp4").is_file()
 
     def need(field: str, rel: str, render: bool = False) -> None:
         if render and not fetched and rel.startswith("in/"):
@@ -202,7 +204,14 @@ def _style(args: argparse.Namespace) -> None:
     styles, answers = job.read("styles.json"), job.read("answers.json")
     validate("styles.json", styles)
     validate("answers.json", answers)
-    print(json.dumps(final_style(styles, answers), ensure_ascii=False, indent=2))
+    spec = final_style(styles, answers)
+    if args.onto:  # «Монтировать» из редактора: новый выбор поверх стиля ролика (правки текстом остаются)
+        fixes = job.read("fix.json").get("fixes") if job.path("fix.json").is_file() else None
+        before = fixes[-1].get("styleFrom") if fixes else None
+        if before and job.path("edit.json").is_file():
+            validate("answers.json", {**answers, "style": before})
+            spec = merge_style(final_style(styles, {"style": before}), job.read("edit.json")["style"], spec)
+    print(json.dumps(spec, ensure_ascii=False, indent=2))
 
 
 def _fonts(args: argparse.Namespace) -> None:
@@ -212,7 +221,7 @@ def _fonts(args: argparse.Namespace) -> None:
     без кнопок Павлу нечего выбрать."""
     job = _job(args)
     if job.path("edit.json").is_file():
-        main_text, hand_text = fonts.texts(job.read("edit.json"))
+        main_text, hand_text = fonts.texts(edits.edit_of(job))  # с текстом, что Павел поправил в редакторе
         if job.path("questions.json").is_file():
             questions = job.read("questions.json")["questions"]
 
@@ -247,8 +256,10 @@ def _fonts(args: argparse.Namespace) -> None:
 
 
 def _fonts_ok(job: Job) -> None:
-    """Шрифты стиля edit.json с буквами ролика — до тяжёлой работы: иначе превью и ролик разойдутся."""
-    if problems := fonts.check(job.read("edit.json")):
+    """Шрифты стиля edit.json с буквами ролика — до тяжёлой работы: иначе превью и ролик разойдутся. Текст — с правками
+    Павла из редактора (timeline.json: слова субтитров, текст хука, титра, акцентов и вставок)."""
+    source = job.path("source.mp4")
+    if problems := fonts.check(edits.edit_of(job, probe(source).duration if source.is_file() else None)):
         raise ValueError("шрифты:\n" + "\n".join(f"  - {line}" for line in problems))
 
 
@@ -297,7 +308,8 @@ def _render(args: argparse.Namespace) -> None:
     step = _stepper(job, "rendering", args.status)
     name = "final" if args.version in (None, 1) else f"final-v{args.version}"
     _fonts_ok(job)
-    edit = job.read("edit.json")
+    source = job.path("source.mp4")
+    edit = edits.edit_of(job, probe(source).duration if source.is_file() else None)  # с правками Павла (timeline.json)
     variant = variant_b(edit) if edit.get("ab") else None  # вторая версия A/B-теста; ошибка в ab — до сборки
     previous = job.read("result.json") if job.path("result.json").is_file() else {}
     if previous:  # done, unsure и подпись Claude переносятся в новый result.json: кривые — ошибка до кодирования
@@ -512,6 +524,9 @@ def _parser() -> argparse.ArgumentParser:
         sub.add_argument("--status", action="store_true", help="писать фазы в status.json и пушить")
         sub.add_argument("--state", choices=["analyzing", "rendering"], default="analyzing",
                          help="состояние задачи в status.json: analyzing (analyze, restyle) или rendering (render, fix)")
+    commands.choices["fetch"].add_argument(
+        "--originals", action="store_true", help="видео Павла, даже если в черновике есть готовый исходник (для prepare --redo)"
+    )
     commands.choices["prepare"].add_argument("--redo", action="store_true", help="всё заново, в том числе распознавание")
     commands.choices["prepare"].add_argument(
         "--lang", help="язык ролика по ответу Павла (код или название): другой, чем в language.json, — распознать заново"
@@ -529,7 +544,9 @@ def _parser() -> argparse.ArgumentParser:
 
     command("validate", _validate, "файлы задачи по схемам и файлы, на которые они ссылаются")
 
-    command("style", _style, "итоговый стиль: вариант из answers.json с выбранными шрифтами и цветами (для edit.json.style)")
+    style = command("style", _style, "итоговый стиль: вариант из answers.json с выбранными шрифтами и цветами (для edit.json.style)")
+    style.add_argument("--onto", action="store_true",
+                       help="«Монтировать» из редактора со стилем: новый выбор поверх edit.json.style — правки текстом остаются")
 
     command("fonts", _fonts, "шрифты, в которых есть все буквы текста ролика, и чего каким не хватает")
 
@@ -537,7 +554,7 @@ def _parser() -> argparse.ArgumentParser:
 
     render_ = command("render", _render, "финал по edit.json → out/, qa/, result.json")
     render_.add_argument("--version", type=_version, help="номер версии: 1 — final, 2 и дальше → final-vN (правки)")
-    render_.add_argument("--preset", default="medium", help="пресет x264 (для проверок — ultrafast)")
+    render_.add_argument("--preset", default="veryfast", help="пресет x264: veryfast (crf 18 — втрое быстрее medium, не хуже по SSIM); для проверок — ultrafast")
     render_.add_argument("--status", action="store_true", help="писать фазы в status.json и пушить")
 
     push_ = command("push", _push, "коммит и пуш папки задачи")

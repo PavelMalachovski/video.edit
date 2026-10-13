@@ -6,7 +6,15 @@ import numpy as np
 import pytest
 
 from vm.media import cut_frame
-from vm.render import FPS, _cut, look_windows, looks_filter
+from vm.render import (
+    BW_CSS_BRIGHTNESS,
+    BW_CSS_CONTRAST,
+    COLOR,
+    FPS,
+    _cut,
+    look_windows,
+    looks_filter,
+)
 from vm.timeline import Timeline
 
 needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="нужен ffmpeg")
@@ -97,6 +105,70 @@ def saturation(path, n: int) -> float:
     ).stdout
     rgb = np.frombuffer(raw, np.uint8).reshape(-1, 3).astype(int)
     return float((rgb.max(1) - rgb.min(1)).mean())
+
+
+def yuv(rgb: np.ndarray) -> bytes:
+    """Картинка RGB (uint8) → кадр yuv420p по BT.709, tv-диапазон: так снято видео и так его несёт прокси."""
+    h, w, _ = rgb.shape
+    return subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{w}x{h}", "-i", "-",
+         "-vf", "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p", "-f", "rawvideo", "-pix_fmt", "yuv420p", "-"],
+        input=rgb.tobytes(), check=True, capture_output=True,
+    ).stdout
+
+
+def through(frame: bytes, size: tuple[int, int], vf: str) -> bytes:
+    """Кадр yuv420p через фильтры `vf` (кадр 0 — время 0)."""
+    w, h = size
+    return subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "yuv420p", "-s", f"{w}x{h}", "-r", "30",
+         "-i", "-", "-vf", vf, "-f", "rawvideo", "-pix_fmt", "yuv420p", "-"],
+        input=frame, check=True, capture_output=True,
+    ).stdout
+
+
+def shown(frame: bytes, size: tuple[int, int]) -> np.ndarray:
+    """Что покажет плеер: yuv420p (BT.709, tv-диапазон) → RGB 0..1, по точке кадра."""
+    w, h = size
+    plane = np.frombuffer(frame, np.uint8).astype(float)
+    y = plane[: w * h].reshape(h, w)
+    u, v = (plane[w * h + k * w * h // 4: w * h + (k + 1) * w * h // 4].reshape(h // 2, w // 2).repeat(2, 0).repeat(2, 1)
+            for k in (0, 1))
+    luma, pb, pr = (y - 16) / 219, (u - 128) / 224, (v - 128) / 224
+    return np.clip(np.stack([luma + 1.5748 * pr, luma - 0.1873 * pb - 0.4681 * pr, luma + 1.8556 * pb], -1), 0, 1)
+
+
+def css_bw(rgb: np.ndarray) -> np.ndarray:
+    """CSS grayscale(1) brightness(B) contrast(C) по Filter Effects: на значениях sRGB 0..1 — яркость по 0.2126, 0.7152,
+    0.0722, затем ×B, затем (x − 0,5)·C + 0,5; после каждой функции — в [0, 1]."""
+    grey = np.clip(rgb @ np.array([0.2126, 0.7152, 0.0722]), 0, 1)
+    grey = np.clip(grey * BW_CSS_BRIGHTNESS, 0, 1)
+    return np.clip((grey - 0.5) * BW_CSS_CONTRAST + 0.5, 0, 1)
+
+
+HUES = ((255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (0, 255, 255), (255, 0, 255), (255, 128, 0), (224, 172, 140))
+
+
+@needs_ffmpeg
+def test_the_editor_css_filter_shows_the_ungraded_proxy_as_the_final_shows_a_bw_frame():
+    """Прокси редактора — без цветокора (editor._proxy), и на ч/б-кадре плеер красит его CSS-фильтром grayscale(1)
+    brightness(B) contrast(C). Рампа серого (все 256 уровней) и цвета (8 оттенков по 16 яркостей), квадратами 16×16:
+    финал — настоящие COLOR и ч/б движка — и CSS на прокси расходятся не больше чем на 4/255."""
+    colours = [(g, g, g) for g in range(256)] + [tuple(round(c * k / 15) for c in hue) for hue in HUES for k in range(16)]
+    side, cols = 16, 32
+    rows = -(-len(colours) // cols)
+    rgb = np.zeros((rows * side, cols * side, 3), np.uint8)
+    for i, colour in enumerate(colours):
+        rgb[i // cols * side: (i // cols + 1) * side, i % cols * side: (i % cols + 1) * side] = colour
+    size = (cols * side, rows * side)
+    proxy = yuv(rgb)
+    final = through(proxy, size, f"{COLOR},{looks_filter({'looks': [{'t0': 0.0, 't1': 1.0, 'look': 'bw'}]}, WHOLE)}")
+    centres = tuple(np.array([(i // cols * side + side // 2, i % cols * side + side // 2) for i in range(len(colours))]).T)
+    want = css_bw(shown(proxy, size)[centres])
+    got = shown(final, size)[centres]
+    assert np.abs(got - got[:, :1]).max() == 0, "ч/б-кадр финала — серый"
+    error = np.abs(got[:, 0] - want)
+    assert error.max() <= 4 / 255, (error.max() * 255, colours[int(error.argmax())])
 
 
 @needs_ffmpeg

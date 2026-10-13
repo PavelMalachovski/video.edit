@@ -38,6 +38,27 @@ test('commitFiles survives a concurrent push and never forces', () => withFake(a
   assert.ok(fake.patches.length >= 2 && fake.patches.every((p: { force?: boolean }) => p.force === false), JSON.stringify(fake.patches));
 }));
 
+test('commitFiles with files from the head: they are made again after a concurrent push, and a refusal stops the commit', () => withFake(async ({ fake, gh }) => {
+  fake.commit('claude/job-d', { 'jobs/d/n.txt': '1' }, 'start');
+  fake.onBeforePatch = (branch: string) => {
+    fake.onBeforePatch = null;
+    fake.commit(branch, { 'jobs/d/n.txt': '2' }, 'other tab');
+  };
+  const seen: string[] = [];
+  await commitFiles(gh, 'claude/job-d', async (head) => {
+    const n = Number(fake.read(head, 'jobs/d/n.txt'));
+    seen.push(String(n));
+    return { 'jobs/d/n.txt': String(n + 10) };
+  }, 'web(d): add');
+  assert.deepEqual(seen, ['1', '2'], 'второй раз — от новой головы');
+  assert.equal(fake.read('claude/job-d', 'jobs/d/n.txt'), '12');
+  const before = await getHead(gh, 'claude/job-d');
+  await assert.rejects(commitFiles(gh, 'claude/job-d', async () => {
+    throw new Error('ревизия не та');
+  }, 'web(d): no'), /ревизия не та/);
+  assert.equal(await getHead(gh, 'claude/job-d'), before, 'отказ — коммита нет');
+}));
+
 test('commitFiles without base fails on a missing branch', () => withFake(async ({ gh }) => {
   const err = await commitFiles(gh, 'claude/job-none', { 'x.txt': 'x' }, 'm').then(() => null, (e: unknown) => e);
   assert.ok(err instanceof GitHubError);

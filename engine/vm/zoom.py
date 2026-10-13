@@ -59,14 +59,29 @@ def _steps(zooms: Iterable[dict], tl: Timeline, trans: float) -> list[Step]:
         raise ValueError(f"trans must be positive, got {trans!r}")
     # в один момент финала могут попасть несколько ступеней (момент в вырезке встаёт на начало отрезка): тогда
     # действует та, что позже в исходнике
-    marks = sorted(
-        ((_start(z, tl), float(z["t"]), _target(z), max(0.0, float(z.get("over", trans)))) for z in zooms),
-        key=lambda m: (m[0], m[1]),
-    )
+    zooms = list(zooms)
+    marks = [(_start(z, tl), 1, float(z["t"]), _target(z), max(0.0, float(z.get("over", trans)))) for z in zooms]
+    marks += _run_marks(zooms, tl, trans)
     steps: list[Step] = []
-    for start, _, target, over in marks:
+    for start, _, _, target, over in sorted(marks, key=lambda m: m[:3]):
         steps.append((start, _level(steps, start), target, over))
     return steps
+
+
+def _run_marks(zooms: list[dict], tl: Timeline, trans: float) -> list[tuple[float, int, float, float, float]]:
+    """Куски переставлены руками: в начале каждой серии кусков — крупность, какая у её первого момента по порядку
+    исходника (иначе переставленный кусок взял бы крупность того, что стоит перед ним). По порядку — ничего."""
+    starts, last = [], None
+    for src0, src1, t0 in tl.segments[1 if tl.teaser else 0:]:
+        run = tl.run_of((src0 + src1) / 2)
+        if run != last:
+            starts.append((t0, src0))
+        last = run
+    if len(starts) < 2 or not zooms:
+        return []
+    plain = tl.in_source_order()
+    levels = _steps(zooms, plain, trans)
+    return [(t0, 0, src0, _level(levels, plain.to_final_snap(src0)), 0.0) for t0, src0 in starts]
 
 
 def _level(steps: list[Step], t: float) -> float:

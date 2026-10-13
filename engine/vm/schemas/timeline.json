@@ -1,0 +1,243 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://video.edit/schemas/timeline.json",
+  "title": "timeline.json — правки Павла руками в редакторе на странице (пишет страница; vm render и vm check кладут их поверх edit.json)",
+  "type": "object",
+  "required": ["rev", "edits"],
+  "additionalProperties": false,
+  "properties": {
+    "rev": { "description": "Ревизия: страница прибавляет 1 на каждое сохранение.", "type": "integer", "minimum": 1 },
+    "at": { "description": "Когда сохранено (ISO 8601).", "type": "string" },
+    "edits": {
+      "description": "Правки кусков по порядку, времена — по исходнику: cut — вырезать отрезок t0–t1, restore — вернуть его, move — переставить, split — граница куска в редакторе (на ролик не влияет).",
+      "type": "array",
+      "maxItems": 2000,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["op", "t0", "t1"],
+            "additionalProperties": false,
+            "properties": {
+              "op": { "const": "cut" },
+              "t0": { "type": "number", "minimum": 0 },
+              "t1": { "type": "number", "minimum": 0 }
+            }
+          },
+          {
+            "description": "Вернуть вырезанное: к куску, что перед ним в исходнике; next — к куску после него (край тянут влево).",
+            "type": "object",
+            "required": ["op", "t0", "t1"],
+            "additionalProperties": false,
+            "properties": {
+              "op": { "const": "restore" },
+              "t0": { "type": "number", "minimum": 0 },
+              "t1": { "type": "number", "minimum": 0 },
+              "next": { "type": "boolean" }
+            }
+          },
+          {
+            "description": "Переставить: оставленное в [t0, t1] — перед моментом исходника before (null — в конец ролика).",
+            "type": "object",
+            "required": ["op", "t0", "t1", "before"],
+            "additionalProperties": false,
+            "properties": {
+              "op": { "const": "move" },
+              "t0": { "type": "number", "minimum": 0 },
+              "t1": { "type": "number", "minimum": 0 },
+              "before": { "type": ["number", "null"], "minimum": 0 }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["op", "t"],
+            "additionalProperties": false,
+            "properties": {
+              "op": { "const": "split" },
+              "t": { "type": "number", "minimum": 0 }
+            }
+          }
+        ]
+      }
+    },
+    "voice": { "description": "Голос (звук исходника): громкость после выравнивания к −14 LUFS и без звука.", "$ref": "#/$defs/Level" },
+    "music": { "$ref": "#/$defs/Music" },
+    "sounds": {
+      "description": "Звуки: insert:<номер вставки в edit.json>, teaser — на стыке тизера, transition:<номер перехода>, end — карточка.",
+      "type": "object",
+      "propertyNames": { "pattern": "^(insert:\\d+|transition:\\d+|teaser|end)$" },
+      "additionalProperties": { "$ref": "#/$defs/Level" }
+    },
+    "text": {
+      "description": "Текст и вставки (фаза 5) поверх edit.json: хук — один, его правка сильнее пересчёта сессии; титр, акценты и вставки — по месту блока в речи (at — [t0, t1], как их записала сессия): сессия передвинула блок — правка к нему не относится. Времена — по исходнику. off — блока нет в ролике.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hook": {
+          "description": "Хук: until — где кончается (по исходнику, как edit.hook.until), text — текст.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "until": { "type": "number", "exclusiveMinimum": 0 },
+            "text": { "$ref": "#/$defs/Line" },
+            "off": { "const": true }
+          }
+        },
+        "cta": {
+          "description": "Титр с кодовым словом: время, строки, слово.",
+          "type": "object",
+          "required": ["at"],
+          "additionalProperties": false,
+          "properties": {
+            "at": { "$ref": "#/$defs/At" },
+            "t0": { "type": "number", "minimum": 0 },
+            "t1": { "type": "number", "minimum": 0 },
+            "lines": { "type": "array", "minItems": 1, "maxItems": 3, "items": { "$ref": "#/$defs/Line" } },
+            "word": { "$ref": "#/$defs/Line" },
+            "off": { "const": true }
+          }
+        },
+        "accents": {
+          "description": "Акцентные фразы: время (края — по словам: слова в нём не идут в субтитры), текст строк (столько же строк, вид строки — как был) и место на кадре (x, y — центр блока, px кадра; вместе, в безопасной зоне).",
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "required": ["at"],
+            "additionalProperties": false,
+            "dependentRequired": { "x": ["y"], "y": ["x"] },
+            "properties": {
+              "at": { "$ref": "#/$defs/At" },
+              "t0": { "type": "number", "minimum": 0 },
+              "t1": { "type": "number", "minimum": 0 },
+              "lines": { "type": "array", "minItems": 1, "maxItems": 3, "items": { "$ref": "#/$defs/Line" } },
+              "x": { "type": "number", "minimum": 60, "maximum": 890 },
+              "y": { "type": "number", "minimum": 120, "maximum": 1530 },
+              "off": { "const": true }
+            }
+          }
+        },
+        "inserts": {
+          "description": "Вставки: время, текст (у текстовых), место и ширина на кадре (x, y — левый верхний угол, w — ширина, px кадра; вместе, в безопасной зоне, как рамки answers.insertBoxes; у fullscreen не применяются), off — выключена (остаётся в списке: номера звуков insert:<n> те же).",
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "required": ["at"],
+            "additionalProperties": false,
+            "dependentRequired": { "x": ["y", "w"], "y": ["x", "w"], "w": ["x", "y"] },
+            "properties": {
+              "at": { "$ref": "#/$defs/At" },
+              "t0": { "type": "number", "minimum": 0 },
+              "t1": { "type": "number", "minimum": 0 },
+              "text": { "$ref": "#/$defs/Line" },
+              "x": { "type": "number", "minimum": 60, "maximum": 810 },
+              "y": { "type": "number", "minimum": 120, "maximum": 1490 },
+              "w": { "type": "number", "minimum": 80, "maximum": 830 },
+              "off": { "const": true }
+            }
+          }
+        },
+        "end": {
+          "description": "Финальная карточка: строки (1–2) и ник; пустой ник — без ника; off — карточки нет.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "lines": { "type": "array", "minItems": 1, "maxItems": 2, "items": { "$ref": "#/$defs/Line" } },
+            "handle": { "type": "string", "maxLength": 60 },
+            "off": { "const": true }
+          }
+        }
+      }
+    },
+    "words": {
+      "description": "Слова субтитров, исправленные Павлом: слово edit.words с ровно этими t0 и t1 получает text; пустой — слова нет в субтитрах. Эмодзи в субтитрах нельзя.",
+      "type": "array",
+      "maxItems": 5000,
+      "items": {
+        "type": "object",
+        "required": ["t0", "t1", "text"],
+        "additionalProperties": false,
+        "properties": {
+          "t0": { "type": "number", "minimum": 0 },
+          "t1": { "type": "number", "minimum": 0 },
+          "text": { "type": "string", "maxLength": 60 }
+        }
+      }
+    },
+    "zoom": {
+      "description": "Сила зума, которую Павел выбрал в редакторе: доля от зума монтажа (уровень 1 + (уровень − 1) · zoom, четыре знака); 0 — без зума, 1 — как у монтажа. Нет — как у монтажа.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1.5
+    },
+    "looks": {
+      "description": "Ч/б-куски, которые Павел убрал в редакторе: кусок edit.looks с ровно этим [t0, t1] (at) — без ч/б (остаётся в списке выключенным).",
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "required": ["at", "off"],
+        "additionalProperties": false,
+        "properties": { "at": { "$ref": "#/$defs/At" }, "off": { "const": true } }
+      }
+    },
+    "transitions": {
+      "description": "Переходы, которые Павел поменял в редакторе: переход edit.transitions с ровно этим t (at) — другого вида (kind) или убран (off; остаётся в списке: номера звуков transition:<n> те же).",
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "required": ["at"],
+        "additionalProperties": false,
+        "properties": {
+          "at": { "type": "number", "minimum": 0 },
+          "kind": { "enum": ["flash", "zoom", "blur"] },
+          "off": { "const": true }
+        }
+      }
+    },
+    "dim": {
+      "description": "Затемнение фона, которое Павел выбрал в редакторе: насколько темнее фон за человеком (доля, как edit.json dim); 0 — без затемнения. Нет — как у монтажа.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 0.8
+    },
+    "teaser": {
+      "description": "Павел убрал тизер в редакторе (false); нет поля — как у монтажа.",
+      "const": false
+    },
+    "speed": {
+      "description": "Скорость ролика, которую Павел выбрал в редакторе (как edit.json speed); нет — как у монтажа.",
+      "type": "number",
+      "minimum": 0.8,
+      "maximum": 1.5
+    }
+  },
+  "$defs": {
+    "At": { "description": "[t0, t1] блока в edit.json — как его записала сессия.", "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "number", "minimum": 0 } },
+    "Line": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "Level": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "gainDb": { "description": "дБ к громкости, что дал монтаж: −6 — тише вдвое по громкости.", "type": "number", "minimum": -40, "maximum": 12 },
+        "muted": { "type": "boolean" }
+      }
+    },
+    "Music": {
+      "description": "Музыка: другой трек из библиотеки (file — assets/music/…; в ролике без музыки он появится с громкостью −14 дБ), громкость (gainDb — дБ от громкости голоса, как в edit.json), без звука, где начинается в ролике (at, с ролика) и с какого места трека (from, с трека), нарастание и затухание (с).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "file": { "type": "string", "pattern": "^assets/music/[^/]+\\.(mp3|wav|m4a|aac|ogg|flac)$" },
+        "gainDb": { "type": "number", "minimum": -40, "maximum": 0 },
+        "muted": { "type": "boolean" },
+        "at": { "type": "number", "minimum": 0 },
+        "from": { "type": "number", "minimum": 0 },
+        "fadeIn": { "type": "number", "minimum": 0, "maximum": 10 },
+        "fadeOut": { "type": "number", "minimum": 0, "maximum": 10 }
+      }
+    }
+  }
+}

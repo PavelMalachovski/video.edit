@@ -1,8 +1,9 @@
 'use client';
-// Экран «4 · Готово»: ролик на чёрной сцене, скачивание видео и субтитров, итоги Claude и «Поправить» (шаг fix, новая
+// Экран «4 · Готово»: ролик на светлой сцене, скачивание видео и субтитров, итоги Claude и «Поправить» (шаг fix, новая
 // версия ролика).
 import { useState, type ReactNode } from 'react';
 import { captionCopy, captionFold, parseCaption, type Caption } from '@/lib/caption.ts';
+import { errorText } from '@/lib/client.ts';
 import { mmss } from '@/lib/format.ts';
 import { abLabels, type AnswersFile, type Check, type FixFile, type ResultFile } from '@/lib/jobfiles.ts';
 import { MAX_NOTE } from '@/lib/jobs.ts';
@@ -47,6 +48,32 @@ function CaptionCard({ caption }: { caption: Caption }) {
       <button type="button" className="btn ghost" onClick={() => void copy()}><CopyIcon />{copied === 'ok' ? 'Скопировано' : 'Скопировать подпись'}</button>
       {copied === 'fail' ? <div className="err small">Не получилось скопировать — выделите текст и скопируйте вручную</div> : null}
       {caption.ad ? <AdText text={caption.ad} /> : null}
+    </div>
+  );
+}
+
+/** «Мой стиль»: как смонтирован этот ролик (стиль, скорость, затемнение, музыка) — в «Мой бренд»; новые ролики начнут с
+ *  него. Что сохранять, сервер берёт из ветки задачи, а не со страницы. */
+function SaveLook({ jobId }: { jobId: string }) {
+  const [state, setState] = useState<{ kind: 'idle' | 'busy' | 'done' } | { kind: 'error'; text: string }>({ kind: 'idle' });
+  async function save() {
+    setState({ kind: 'busy' });
+    try {
+      const r = await fetch('/api/brand/look', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job: jobId }) });
+      setState(r.ok ? { kind: 'done' } : { kind: 'error', text: await errorText(r, 'Не получилось сохранить') });
+    } catch {
+      setState({ kind: 'error', text: 'Нет связи — попробуйте ещё раз' });
+    }
+  }
+  return (
+    <div className="card" data-save-look>
+      <div className="caps">Мой стиль</div>
+      <div className="muted small">Шрифты, цвета, места и размеры текста, скорость, затемнение фона и музыка этого ролика — в «Мой бренд»: следующие ролики начнутся с них.</div>
+      <button type="button" className="btn ghost" disabled={state.kind === 'busy'} onClick={() => void save()}>
+        {state.kind === 'done' ? 'Сохранено в «Мой бренд»' : 'Сохранить стиль ролика в «Мой бренд»'}
+      </button>
+      <div role="status" className="sr-only">{state.kind === 'done' ? 'Стиль сохранён в «Мой бренд»' : ''}</div>
+      {state.kind === 'error' ? <div className="err small" role="alert">{state.text}</div> : null}
     </div>
   );
 }
@@ -139,6 +166,7 @@ export default function Result({ view, result, answers, fixes, onAct, notice }: 
         </div>
       ) : null}
       {caption ? <CaptionCard caption={caption} /> : null}
+      <SaveLook jobId={view.id} />
       {result?.checklist ? <Checklist items={result.checklist} caption={Boolean(caption)} /> : null}
       {result ? (
         <>

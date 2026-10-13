@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://video.edit/schemas/editor.json",
+  "title": "editor.json — файлы для редактора на странице (пишет vm prepare): прокси, лента кадров, волна",
+  "type": "object",
+  "required": ["duration", "proxy", "film", "peaks"],
+  "additionalProperties": false,
+  "properties": {
+    "duration": { "description": "Длина исходника source.mp4, с.", "type": "number", "exclusiveMinimum": 0 },
+    "proxy": {
+      "description": "Прокси-видео: путь от папки задачи (out/ — Action переносит его в черновик релиза, страница берёт оттуда по имени), размер кадра, ключевой кадр каждые key с. null — прокси нет: исходник слишком длинный, редактор показывает дорожки без видео.",
+      "type": ["object", "null"],
+      "required": ["file", "width", "height", "key"],
+      "additionalProperties": false,
+      "properties": {
+        "file": { "const": "out/proxy.mp4" },
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 },
+        "key": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "film": {
+      "description": "Лента кадров одной картинкой: n кадров w×h подряд слева направо, кадр k — на времени k·step исходника.",
+      "type": "object",
+      "required": ["file", "step", "w", "h", "n"],
+      "additionalProperties": false,
+      "properties": {
+        "file": { "const": "film.jpg" },
+        "step": { "type": "number", "exclusiveMinimum": 0 },
+        "w": { "type": "integer", "minimum": 1 },
+        "h": { "type": "integer", "minimum": 1 },
+        "n": { "type": "integer", "minimum": 1, "maximum": 1000 }
+      }
+    },
+    "peaks": {
+      "description": "Волна звука исходника: perS пиков в секунду, data — base64 байтов 0–255 (255 — громкий голос).",
+      "type": "object",
+      "required": ["perS", "data"],
+      "additionalProperties": false,
+      "properties": {
+        "perS": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "data": { "type": "string", "pattern": "^[A-Za-z0-9+/]*={0,2}$" }
+      }
+    },
+    "videos": {
+      "description": "Из каких видео задачи склеен исходник, по порядку: имя файла, как у Павла, и где он в source.mp4 (t0–t1, с). Нет — задача без папки in/.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "required": ["name", "t0", "t1"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "t0": { "type": "number", "minimum": 0 },
+          "t1": { "type": "number", "exclusiveMinimum": 0 }
+        }
+      }
+    }
+  }
+}

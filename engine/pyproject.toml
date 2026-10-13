@@ -30,4 +30,5 @@ pythonpath = ["."]
 testpaths = ["tests"]
 markers = [
     "slow: needs models or long media",
+    "realclip: the real 30 s clip (REALCLIP_JOB) — every feature on real footage",
 ]

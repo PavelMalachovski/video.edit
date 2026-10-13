@@ -1,0 +1,20 @@
+[
+  {
+    "rule": "js/xss-through-dom",
+    "file": "web/app/uploader.tsx",
+    "code": "v.src = url;",
+    "why": "url — адрес blob: своего же файла (URL.createObjectURL) для чтения длительности видео: не HTML и не javascript:"
+  },
+  {
+    "rule": "js/xss-through-dom",
+    "file": "web/app/uploader.tsx",
+    "code": "<img src={url} alt=\"\" />",
+    "why": "url — адрес blob: своей же картинки-вставки (URL.createObjectURL) для миниатюры: не HTML и не javascript:"
+  },
+  {
+    "rule": "js/xss-through-dom",
+    "file": "web/app/brand/brand-form.tsx",
+    "code": "src={logo.url}",
+    "why": "logo.url — адрес blob: выбранного логотипа (URL.createObjectURL) или свой /api/brand/logo: не HTML и не javascript:"
+  }
+]

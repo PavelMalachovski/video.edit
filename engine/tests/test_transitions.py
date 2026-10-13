@@ -1,4 +1,5 @@
 """Переходы на смене сцены: место во времени финала, фильтры вспышки и смаза, толчок зума и звук свуша."""
+import math
 import shutil
 import subprocess
 
@@ -8,7 +9,16 @@ import pytest
 from vm.job import Job
 from vm.render import _sounds, timeline
 from vm.timeline import Timeline
-from vm.transitions import HALF, PUNCH, marks, picture_chains, warnings
+from vm.transitions import (
+    HALF,
+    PUNCH,
+    Mark,
+    blur_sigma,
+    flash_alpha,
+    marks,
+    picture_chains,
+    warnings,
+)
 from vm.zoom import zoom_at, zoom_filter
 
 needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="нужен ffmpeg")
@@ -127,3 +137,103 @@ def test_the_blur_smears_most_at_the_seam():
     assert sharpness(out[30]) < 0.5 * sharpness(plain[30])
     assert sharpness(out[30]) < sharpness(out[27]) < sharpness(plain[27])
     assert np.array_equal(out[20], plain[20]) and np.array_equal(out[40], plain[40])
+
+
+# ---------- вспышка и смаз по кадрам: что ffmpeg рисует на кадре n финала (превью редактора повторяет) ----------
+
+def test_the_flash_is_a_white_frame_a_quarter_whiter_each_frame_and_only_in_its_window():
+    """Белый кадр вспышки — 9 кадров с альфой 0, 64, 127, 191, 255, 191, 128, 64, 0 из 255 (fade ffmpeg считает в целых
+    кадрах: 0,12 с → 4 кадра); первый стоит на кадре int(30 · (стык − 0,12)), виден — только в окне стык ± 0,12 с."""
+    assert [round(flash_alpha(1.0, n) * 255) for n in range(25, 36)] == [0, 0, 64, 127, 191, 255, 191, 128, 64, 0, 0]
+    assert [round(flash_alpha(1.02, n) * 255) for n in range(26, 37)] == [0, 0, 64, 127, 191, 255, 191, 128, 64, 0, 0], \
+        "начало окна 0,9 — ровно кадр 27: белый кадр с него, и его первый кадр прозрачный"
+    assert flash_alpha(1.0, 0) == flash_alpha(1.0, 200) == 0.0
+
+
+def test_white_frame_stamps_are_cut_to_whole_frames_as_setpts_does():
+    """setpts отбрасывает дробь метки: 4,1 / (1/30) = 122,99999999999999 — белый кадр стартует с кадра 122, а у его
+    кадра 6 метка уже 129 (122,99… + 6 в double округлилось вверх): кадр 128 показывает кадр 5 белого ещё раз."""
+    assert [round(flash_alpha(4.22, n) * 255) for n in range(122, 132)] == [0, 64, 127, 191, 255, 191, 191, 128, 64, 0]
+
+
+def test_blur_steps_add_up_as_blurs_in_a_row():
+    """Смаз на кадре — ступени gblur, чьё окно захватывает время кадра n · (1/30): размытия подряд складываются, sigma —
+    корень из суммы квадратов."""
+    assert [blur_sigma(1.0, n) for n in range(26, 35)] == pytest.approx(
+        [0, 8, math.hypot(8, 14), math.hypot(8, 14, 24), math.hypot(8, 14, 24), math.hypot(8, 14, 24), math.hypot(8, 14), 8, 0])
+
+
+def test_blur_window_edges_are_inclusive_and_read_as_ffmpeg_reads_them():
+    """Края окна enable — включительно, с шестью знаками, как их пишет picture_chains; время кадра — n · (1/30) в double."""
+    assert blur_sigma(1.12, 30) == 8, "край окна 1,0 — ровно время кадра 30: кадр размыт"
+    assert blur_sigma(3.58, 111) == 8, "верхний край 3,7: кадр 111 (3,6999999999999997) — внутри"
+    assert blur_sigma(3.82, 111) == 0, "нижний край 3,7, а время кадра 111 чуть меньше: кадр не размыт"
+
+
+def luma(chains: list[str], size: tuple[int, int], seconds: float, draw: str = "") -> np.ndarray:
+    """Яркость Y (yuv420p, как в финале) кадров чёрного lavfi-клипа (и что на нём нарисует `draw`) после цепочек `chains`
+    от `[in]` к `[out]`; на входе цепочек — 30 к/с и метки кадров n/30, как после fps=30 рендера."""
+    w, h = size
+    graph = ";".join(["[0:v]fps=30,format=yuv420p[in]", *(chains or ["[in]null[out]"])])
+    raw = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", f"color=c=black:s={w}x{h}:r=30:d={seconds}{draw}",
+         "-filter_complex", graph, "-map", "[out]", "-f", "rawvideo", "-pix_fmt", "yuv420p", "-"],
+        check=True, capture_output=True,
+    ).stdout
+    return np.frombuffer(raw, np.uint8).reshape(-1, w * h * 3 // 2)[:, : w * h].reshape(-1, h, w).astype(int)
+
+
+FLASHES = (1.0, 2.02, 3.82, 4.22, 6.0, 6.1, 8.32)
+
+
+@needs_ffmpeg
+def test_flash_alpha_is_the_white_ffmpeg_lays_on_every_frame():
+    """Белое поверх чёрного (yuv420p, tv-диапазон: 16 — чёрный, 235 — белый): на каждом кадре белизна (Y − 16) / 219 —
+    это flash_alpha. Стыки: 1,0 (окно с 0,88 — между кадрами), 2,02 (с 1,9 — ровно кадр 57), 3,82 (с 3,7, а время кадра
+    111 в double чуть меньше — он вне окна), 4,22 (метки белого кадра сбиваются на кадр), 6,0 и 6,1 (окна внахлёст: белое
+    поверх белого — 1 − (1 − a)(1 − b)), 8,32."""
+    items = [Mark(t, "flash", None, t) for t in FLASHES]
+    y = luma(picture_chains(items, "[in]", "[out]", (32, 32), 30), (32, 32), seconds=9.0)
+    assert len(y) == 270
+    for n, frame in enumerate(y):
+        assert frame.min() == frame.max(), n
+        alphas = [flash_alpha(t, n) for t in FLASHES]
+        want = 1 - math.prod(1 - a for a in alphas)
+        if want == 0:
+            assert frame[0, 0] == 16, f"кадр {n} не тронут"
+            continue
+        tolerance = (0.5 if sum(a > 0 for a in alphas) == 1 else 1.0) / 219  # полуровня на каждое наложение
+        assert abs((frame[0, 0] - 16) / 219 - want) <= tolerance + 1e-9, (n, frame[0, 0], want)
+
+
+def spread(frame: np.ndarray) -> float:
+    """Ширина размытого перепада по x, px: СКО производной яркости (у гауссова размытия перепада — его sigma)."""
+    d = np.clip(np.diff(frame.mean(axis=0)), 0, None)
+    x = np.arange(len(d))
+    middle = (d * x).sum() / d.sum()
+    return math.sqrt((d * (x - middle) ** 2).sum() / d.sum())
+
+
+BLURS = (1.12, 2.02, 3.82, 5.08, 7.48)
+
+
+@needs_ffmpeg
+def test_blur_sigma_is_how_wide_ffmpeg_smears_a_sharp_edge_on_every_frame():
+    """Перепад чёрное → белое посередине кадра шириной 1080: размыты ровно кадры с blur_sigma > 0, и ширина перепада —
+    blur_sigma (gblur — приближение гаусса, до 3 %), растёт вместе с ней. Стыки: 1,12 (край окна 1,0 — ровно кадр 30),
+    2,02, 3,82 (край 3,7 — время кадра 111 чуть меньше: не размыт), 5,08, 7,48 (край ступени 7,4 — кадр 222 без неё)."""
+    edge = ",drawbox=x=540:y=0:w=540:h=8:color=white:t=fill"
+    out = luma(picture_chains([Mark(t, "blur", None, t) for t in BLURS], "[in]", "[out]", (1080, 8), 30), (1080, 8), 8.0, edge)
+    plain = luma([], (1080, 8), 8.0, edge)
+    assert len(out) == len(plain) == 240 and spread(plain[0]) == 0
+    widths = {}
+    for n, (frame, sharp) in enumerate(zip(out, plain, strict=True)):
+        sigma = math.hypot(*(blur_sigma(t, n) for t in BLURS))
+        if sigma == 0:
+            assert np.array_equal(frame, sharp), f"кадр {n} не размыт"
+            continue
+        assert abs(spread(frame) / sigma - 1) < 0.03, (n, spread(frame), sigma)
+        widths.setdefault(round(sigma, 6), []).append(spread(frame))
+    levels = sorted(widths)
+    assert levels == pytest.approx([8, math.hypot(8, 14), math.hypot(8, 14, 24)])
+    assert max(widths[levels[0]]) < min(widths[levels[1]]) and max(widths[levels[1]]) < min(widths[levels[2]])

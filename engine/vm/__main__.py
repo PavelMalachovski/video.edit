@@ -97,9 +97,10 @@ def _status(args: argparse.Namespace) -> None:
 def _fetch(args: argparse.Namespace) -> None:
     job = _job(args)
     _stepper(job, args.state, args.status)("Скачиваю видео", "Забираю загруженные файлы")
-    files = fetch(job)
+    files = fetch(job, originals=args.originals)
     for name, path in files.items():
-        print(f"{name}: {path.relative_to(job.root)} ({path.stat().st_size / 1024 / 1024:.1f} МБ)")
+        ready = " — готовый исходник из черновика: vm prepare не нормализует видео заново" if name == "source.mp4" else ""
+        print(f"{name}: {path.relative_to(job.root)} ({path.stat().st_size / 1024 / 1024:.1f} МБ){ready}")
 
 
 def _prepare(args: argparse.Namespace) -> None:
@@ -523,6 +524,9 @@ def _parser() -> argparse.ArgumentParser:
         sub.add_argument("--status", action="store_true", help="писать фазы в status.json и пушить")
         sub.add_argument("--state", choices=["analyzing", "rendering"], default="analyzing",
                          help="состояние задачи в status.json: analyzing (analyze, restyle) или rendering (render, fix)")
+    commands.choices["fetch"].add_argument(
+        "--originals", action="store_true", help="видео Павла, даже если в черновике есть готовый исходник (для prepare --redo)"
+    )
     commands.choices["prepare"].add_argument("--redo", action="store_true", help="всё заново, в том числе распознавание")
     commands.choices["prepare"].add_argument(
         "--lang", help="язык ролика по ответу Павла (код или название): другой, чем в language.json, — распознать заново"

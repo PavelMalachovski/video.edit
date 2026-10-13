@@ -145,6 +145,7 @@
   шрифт что рисует, `_hand_word`; таблица символов — `getBestCmap` fontTools) ↔ `web/lib/fontchars.ts` (`fontChars` —
   cmap того же файла, `missingLetters`, `typedText`, `handWord`), раздел `letters` общей фикстуры (по всем шрифтам
   каталога).
+- Готовый исходник задачи в черновике (нормализация один раз на задачу): `engine/vm/source.py` (`key`, `asset`, `describe`, `NORMALIZE` — подними, если меняешь `media.normalize`) ↔ `.github/scripts/job-source.sh` (Action job-source: куски `<ассет>.part-NNNNN` и последним `source-<ключ>.json`) и `_ready` в `engine/vm/fetch.py`.
 - Языки: `engine/vm/lang.py` (коды, названия, чем распознавать) и `setup/cloud-setup.sh` (какие модели ставятся).
 - Затемнение фона: `engine/vm/matte.py` (`MODEL`) и `setup/cloud-setup.sh` (откуда ставится модель, её sha256); маска
   идёт кадр в кадр со склейкой — `segment_frames` в `engine/vm/render.py`, общий с `_cut`.

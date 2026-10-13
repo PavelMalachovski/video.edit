@@ -1,0 +1,35 @@
+# Готовый исходник задачи (engine/vm/source.py): как только у задачи появился job.json (страница запустила анализ),
+# видео Павла из черновика job-<id> приводятся к 1080×1920, 30 к/с, SDR тем же движком, что в сессии, и исходник
+# ложится в тот же черновик. Сессии render и fix берут его вместо 4K-видео (vm fetch) и не нормализуют заново: на
+# 4,4 минуты видео это 5–8 минут каждой сессии. Ключ — видео и озвучка задачи: «Повторить без озвучки» меняет job.json,
+# и здесь делается новый исходник; есть уже — выход через полминуты. Вручную — для задачи, начатой до этого workflow.
+name: job-source
+on:
+  push:
+    branches: ['claude/job-*']
+    paths: ['jobs/*/job.json']
+  workflow_dispatch:
+    inputs:
+      job:
+        description: 'id задачи, например 261012-091256-w7eu'
+        required: true
+permissions:
+  contents: write
+concurrency:
+  group: job-source-${{ inputs.job || github.ref_name }}
+  cancel-in-progress: false
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Normalize the job's videos once, into its draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          JOB: ${{ inputs.job }}
+        run: bash .github/scripts/job-source.sh

@@ -278,6 +278,59 @@ def test_fetch_twice_downloads_once(tmp_path, github):
     assert github.downloads - first == 1, "only manifest.json again — the joined file is already there"
 
 
+def ready_job(tmp_path, body: bytes, **extra):
+    """Задача с job.json (по нему — ключ готового исходника) для fetch."""
+    from vm import source
+
+    job = Job(tmp_path / "jobs" / "abc")
+    job.write("job.json", {"id": "abc", "name": "a.mov", "size": len(body), "type": "video/quicktime", "duration": 3,
+                           "createdAt": "2026-10-13T10:10:10Z", "brief": "", "uploads": [], "runs": [], **extra})
+    return job, source.asset(job)
+
+
+def ready_files(name: str, ready: bytes, size: int = 3000, **over) -> dict[str, bytes]:
+    """Готовый исходник в черновике, как его кладёт Action job-source: куски и (последним) описание."""
+    import hashlib
+
+    pieces = parts(name, ready, size)
+    info = {"size": len(ready), "sha256": hashlib.sha256(ready).hexdigest(), "parts": len(pieces), "normalize": 1, **over}
+    return {**pieces, name.removesuffix(".mp4") + ".json": json.dumps(info).encode()}
+
+
+def test_fetch_takes_the_ready_source_instead_of_the_videos(tmp_path, github, capsys):
+    """Action job-source уже сделал исходник: качается он, а не видео Павла (2 ГБ 4K) — prepare не нормализует заново."""
+    body = random.Random(31).randbytes(9000)
+    ready = random.Random(32).randbytes(7000)
+    job, name = ready_job(tmp_path, body)
+    github.draft("job-abc", {**parts("source", body, 3000), "manifest.json": manifest("a.mov", body, 3), **ready_files(name, ready)})
+    assert main(["fetch", str(job.root)]) == 0
+    assert job.path("source.mp4").read_bytes() == ready
+    assert not job.path("in/source.mov").exists(), "видео Павла не качалось"
+    assert "готовый исходник" in capsys.readouterr().out
+    assert main(["fetch", str(job.root), "--originals"]) == 0, "для vm prepare --redo — видео Павла"
+    assert job.path("in/source.mov").read_bytes() == body
+
+
+@pytest.mark.parametrize("trouble", ["other inputs", "no json yet", "bad sha256", "part lost"])
+def test_fetch_takes_the_videos_when_the_ready_source_does_not_fit(tmp_path, github, trouble):
+    body = random.Random(33).randbytes(9000)
+    ready = random.Random(34).randbytes(7000)
+    job, name = ready_job(tmp_path, body)
+    files = ready_files(name, ready)
+    if trouble == "other inputs":  # исходник с озвучкой, а её убрали («Повторить без озвучки»)
+        files = ready_files("source-0123456789ab.mp4", ready)
+    elif trouble == "no json yet":  # Action ещё грузит куски
+        files.pop(name.removesuffix(".mp4") + ".json")
+    elif trouble == "bad sha256":
+        files = ready_files(name, ready, sha256="0" * 64)
+    else:
+        files.pop(f"{name}.part-00001")
+    github.draft("job-abc", {**parts("source", body, 3000), "manifest.json": manifest("a.mov", body, 3), **files})
+    assert main(["fetch", str(job.root)]) == 0
+    assert job.path("in/source.mov").read_bytes() == body
+    assert not job.path("source.mp4").exists(), "битый или чужой исходник не остаётся"
+
+
 def test_fetch_without_a_draft_names_it(tmp_path, github, capsys):
     assert main(["fetch", str(tmp_path / "jobs" / "abc")]) == 1
     assert "job-abc" in capsys.readouterr().err

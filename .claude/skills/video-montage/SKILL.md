@@ -249,7 +249,7 @@ description: Монтаж вертикальных роликов Павла в 
 | Команда | Что делает |
 |---|---|
 | `vm status --state S --phase "…" --message "…" [--needs answers] [--error "…"] [--push]` | `status.json`; с `--push` — коммит и пуш только его |
-| `vm fetch [--status] [--state S]` | загруженное Павлом из черновика `job-<job>` → `in/` |
+| `vm fetch [--status] [--state S] [--originals]` | загруженное Павлом из черновика `job-<job>` → `in/`; готовый исходник задачи (его кладёт в черновик Action job-source, пока идёт анализ) — сразу в `source.mp4` вместо видео Павла: тогда `vm prepare` их не нормализует. `--originals` — видео Павла всегда (перед `vm prepare --redo`) |
 | `vm prepare [--status] [--state S] [--redo] [--lang L]` | `source.mp4`, `language.json`, `words.json`, `reference.txt`, `speech.json`, `cuts.json`, `sheet.png`, файлы редактора (`editor.json`, `film.jpg`, `out/proxy.mp4`) — только недостающее; печатает сводку (язык и насколько уверен), предупреждения о нераспознанной речи и текст по фразам. `--lang` — язык ролика (код или название): другой, чем в `language.json`, — распознаёт заново |
 | `vm frames --at T… [--grid]` | кадры исходника → `look/` (с `--grid` — сетка 10×10 и подпись времени) |
 | `vm preview --at T [--out q-<id>.jpg] [--mark x,y,w,h]` | кадр для превью → `frame.png`; с `--out` — картинка к вопросу, `--mark` — жёлтая рамка (где встанет вставка) |
@@ -470,7 +470,7 @@ description: Монтаж вертикальных роликов Павла в 
 
 ## Шаг render
 1. `vm fetch --status --state rendering` и `vm prepare --status --state rendering` — восстановят `source.mp4`
-   (речь заново не распознаётся).
+   (речь заново не распознаётся; готовый исходник из черновика — без нормализации, за минуту вместо пяти).
 2. Ответы из `answers.json` — в `edit.json`:
    - `language` — если ответ не тот язык, что в `language.json`: `vm prepare --lang <ответ> --state rendering`
      распознает речь заново, и слова черновика надо собрать заново по новому `words.json` (как в шаге analyze, п. 3;

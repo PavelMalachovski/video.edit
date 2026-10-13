@@ -9,6 +9,11 @@
 авторизует GitHub для video.edit (`GITHUB_TOKEN` там — заглушка `proxy-injected`; настоящий токен из окружения
 передаётся заголовком, и curl не отдаёт его на чужой хост при переходе на подписанную ссылку ассета). Обрыв
 соединения (прокси сессии такое умеет) или зависший кусок curl повторяет сам.
+
+Готовый исходник (`vm.source`: его кладёт в черновик Action job-source) с ключом этой задачи — качается он, сразу в
+`source.mp4`, а видео Павла — нет: `vm prepare` не нормализует их заново. Чужой ключ (другие видео, другая озвучка),
+нет описания (Action ещё грузит), не сошлись куски или sha256 — видео Павла, как без него. `originals` — видео Павла
+всегда (для `vm prepare --redo`).
 """
 import json
 import os
@@ -18,6 +23,7 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from . import source as ready_source
 from .job import Job
 
 PART = re.compile(r"^(?P<file>.+)\.part-(?P<n>\d{5})$")
@@ -131,8 +137,33 @@ def _answer_uploads(job: Job) -> list[str]:
     return sorted({Path(rel).name for rel in uploads.values() if isinstance(rel, str) and rel.startswith("in/uploads/upload-")})
 
 
-def fetch(job: Job) -> dict[str, Path]:
-    """Скачать и склеить входные файлы задачи. → {имя группы: путь} (source и upload-*)."""
+def _ready(api: str, repo: str, job: Job, named: dict[str, dict], groups: dict[str, list[tuple[int, dict]]]) -> Path | None:
+    """Готовый исходник этой задачи из черновика → `source.mp4`; нет его или он не годится — None (и файла нет)."""
+    name = ready_source.asset(job) if job.path("job.json").is_file() else None
+    about = named.get(name.removesuffix(".mp4") + ".json") if name else None
+    if about is None:
+        return None
+    dest = job.path("source.mp4")
+    try:
+        info = json.loads(_curl(_asset_url(api, repo, about), accept="application/octet-stream"))
+        pieces = [a for _, a in sorted(groups.get(name, []), key=lambda p: p[0])]
+        numbers = sorted(n for n, _ in groups.get(name, []))
+        if numbers != list(range(info["parts"])) or sum(a["size"] for a in pieces) != info["size"]:
+            raise FetchError(f"{name}: куски не те, что в описании")
+        if not (dest.is_file() and dest.stat().st_size == info["size"]):
+            _join(api, repo, pieces, dest, job.path(f"work/fetch/{name}"))
+            if ready_source.describe(dest, info["parts"])["sha256"] != info["sha256"]:
+                raise FetchError(f"{name}: sha256 не сошёлся")
+    except (FetchError, json.JSONDecodeError, KeyError, TypeError) as err:
+        dest.unlink(missing_ok=True)
+        print(f"готовый исходник не взял ({err}) — качаю видео", flush=True)
+        return None
+    return dest
+
+
+def fetch(job: Job, originals: bool = False) -> dict[str, Path]:
+    """Скачать и склеить входные файлы задачи. → {имя группы: путь} (source и upload-*; готовый исходник —
+    `source.mp4` вместо видео). `originals` — видео Павла, даже если готовый исходник есть."""
     api, repo, tag = _api(), _repo(job), f"job-{job.id}"
     release = _release(api, repo, tag)
     if release is None:
@@ -161,8 +192,11 @@ def fetch(job: Job) -> dict[str, Path]:
     for a in assets:
         if m := PART.match(a["name"]):
             groups.setdefault(m["file"], []).append((int(m["n"]), a))
+    files: dict[str, Path] = {}
+    if not originals and (made := _ready(api, repo, job, named, groups)):
+        files["source.mp4"] = made
     targets: dict[str, tuple[Path, int | None, int | None]] = {}
-    for v in videos:
+    for v in videos if not files else []:
         ext = Path(str(v.get("name") or "")).suffix.lower() or ".mp4"
         targets[v["asset"]] = (job.path(f"in/{v['asset']}{ext}"), v.get("size"), v.get("parts"))
     for up in uploads:
@@ -186,7 +220,6 @@ def fetch(job: Job) -> dict[str, Path]:
             raise FetchError(f"{name}: куски вместе {total} байт, а по манифесту {size}")
         plan.append((name, dest, total, [a for _, a in pieces]))
 
-    files: dict[str, Path] = {}
     for name, dest, total, pieces in plan:
         if not (dest.is_file() and dest.stat().st_size == total):
             _join(api, repo, pieces, dest, job.path(f"work/fetch/{name}"))

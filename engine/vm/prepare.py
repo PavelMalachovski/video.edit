@@ -27,12 +27,13 @@ from .job import Job, _atomic_write
 from .media import (
     contact_sheet,
     extract_wav,
-    normalize,
     probe,
     scene_cuts,
     source_parts,
     voice_seconds,
 )
+from .source import make as make_source
+from .source import voice as _voice
 
 SHEET_THUMBS = 60  # кадров на контактном листе — не больше, иначе лист выходит в десятки тысяч пикселей
 PHRASE_GAP = 0.6  # с — пауза, после которой сводка начинает новую строку текста
@@ -65,20 +66,6 @@ def _engine(code: str, have: dict[str, bool], hint: str = "") -> str:
 def _brief(job: Job) -> str:
     path = job.path("job.json")
     return str(json.loads(path.read_text(encoding="utf-8")).get("brief") or "") if path.is_file() else ""
-
-
-def _voice(job: Job) -> tuple[Path, str] | None:
-    """Озвучка Павла — upload `kind: "audio"` в job.json: (файл, как он назывался у Павла); нет — None. В job.json есть,
-    а файла нет — ValueError: без неё ролик собрался бы со звуком видео."""
-    path = job.path("job.json")
-    uploads = json.loads(path.read_text(encoding="utf-8")).get("uploads") or [] if path.is_file() else []
-    up = next((u for u in uploads if isinstance(u, dict) and u.get("kind") == "audio"), None)
-    if up is None:
-        return None
-    file = job.path(str(up.get("file") or ""))
-    if not (file.is_file() and file.is_relative_to(job.path("in"))):
-        raise ValueError(f"озвучки {up.get('name')} нет ({up.get('file')}) — сначала vm fetch {job.root}")
-    return file, str(up.get("name") or file.name)
 
 
 def _voice_line(name: str, voice: float, video: float) -> str:
@@ -206,20 +193,13 @@ def prepare(
             _engine(told, have)
     notes = []
 
-    if redo or not source.is_file():
+    if redo or not source.is_file():  # готовый исходник из черновика (vm fetch, Action job-source) — не нормализуем
         parts = source_parts(job.path("in"))
-        if not parts:
-            raise ValueError(f"{job.path('in')}: нет видео — сначала python -m vm fetch {job.root}")
-        meta = job.read("job.json") if job.path("job.json").is_file() else {}
-        present = {p.name for p in parts}
-        if lost := [v.get("name") or v.get("file") for v in meta.get("videos") or []
-                    if isinstance(v, dict) and Path(str(v.get("file", ""))).name not in present]:
-            raise ValueError(f"нет видео задачи: {', '.join(map(str, lost))} — сначала python -m vm fetch {job.root}")
-        voice = _voice(job)
+        voice = _voice(job) if parts else None
         step("Готовлю видео", "Привожу к 1080×1920, 30 к/с, SDR" + (" и ставлю озвучку" if voice else ""))
         if voice:
             notes.append(_voice_line(voice[1], voice_seconds(voice[0]), sum(probe(p).duration for p in parts)))
-        info = normalize(parts, source, voice=voice[0] if voice else None)
+        info = make_source(job)
         if len(parts) > 1:
             marks = editor.video_marks(job, parts, info.duration)
             notes.append("Видео по порядку: " + ", ".join(f"{v['name']} {_clock(v['t0'])}–{_clock(v['t1'])}" for v in marks))

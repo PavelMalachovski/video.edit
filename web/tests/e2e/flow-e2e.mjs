@@ -189,6 +189,19 @@ async function shot(page, name) {
   if (process.env.E2E_SHOTS) await page.screenshot({ path: path.join(process.env.E2E_SHOTS, `${name}.png`), fullPage: true });
 }
 
+/** Цвет точки окна (px CSS) — без библиотек: у первой точки PNG фильтр строки её не меняет, хватает распаковать IDAT. */
+async function pixel(page, x, y) {
+  const png = await page.screenshot({ clip: { x, y, width: 1, height: 1 }, scale: 'css' });
+  const idat = [];
+  for (let i = 8; i < png.length;) {
+    const len = png.readUInt32BE(i);
+    if (png.toString('ascii', i + 4, i + 8) === 'IDAT') idat.push(png.subarray(i + 8, i + 8 + len));
+    i += 12 + len;
+  }
+  const raw = zlib.inflateSync(Buffer.concat(idat));
+  return [raw[1], raw[2], raw[3]];
+}
+
 // ---------- сегменты ----------
 
 /** Видео как с телефона: настоящий MOV (картинка и звук, заголовок в начале) длиной `seconds`, дополненный до `bytes`
@@ -214,6 +227,10 @@ const segments = [
   ['login', async ({ page }) => {
     await page.goto(`${APP}/`);
     check(page.url().endsWith('/login'), `нет перехода на вход: ${page.url()}`);
+    // светлая тема, как у редактора: фон и схема страницы
+    const theme = await page.evaluate(() => ({ bg: getComputedStyle(document.body).backgroundColor, scheme: getComputedStyle(document.documentElement).colorScheme }));
+    check(theme.bg === 'rgb(243, 244, 241)' && theme.scheme === 'light', `светлая тема сайта: ${JSON.stringify(theme)}`);
+    await shot(page, 'login');
     await page.fill('#password', 'wrong');
     await page.click('button[type=submit]');
     check((await page.textContent('body')).includes('Неверный пароль'), 'неверный пароль принят');
@@ -236,6 +253,11 @@ const segments = [
     await page.fill('#signature', 'Пишите в директ — отвечу лично');
     await page.fill('#hashtags', '#монтаж reels');
     await page.waitForFunction(() => document.querySelector('iframe')?.contentWindow?.layoutBoxes?.().hook);
+    // под слоем виден кадр (BACKDROP — тёмный градиент), а не белая подложка iframe: схемы страницы и шаблона совпадают
+    await page.locator('.preview').scrollIntoViewIfNeeded();
+    const brandBox = await page.locator('.preview').boundingBox();
+    const backdrop = await pixel(page, brandBox.x + brandBox.width / 2, brandBox.y + brandBox.height / 2);
+    check(backdrop[0] + backdrop[1] + backdrop[2] < 3 * 128, `превью бренда: под слоем — кадр, а не белая подложка (${backdrop.join(', ')})`);
     await shot(page, 'brand');
     await page.getByRole('button', { name: 'Сохранить' }).click();
     await page.getByText('Сохранено').waitFor();
@@ -544,6 +566,11 @@ const segments = [
     await solo.close();
     check(isDeepStrictEqual(inPage, alone), `рамки превью ${JSON.stringify(inPage)} ≠ шаблона ${JSON.stringify(alone)}`);
     await page.evaluate(() => window.scrollTo(0, 0));
+    // под слоем крупного превью виден кадр (frame.png — полупрозрачный красный на тёмном --frame), а не белая подложка
+    // iframe; точка — справа на середине кадра: там ни текста, ни вставок, ни ручек
+    const stageBox = await page.locator('.stage .preview').boundingBox();
+    const framePx = await pixel(page, stageBox.x + (1050 * stageBox.width) / 1080, stageBox.y + (960 * stageBox.width) / 1080);
+    check(framePx[0] > 100 && framePx[1] < 100, `крупное превью: под слоем — кадр, а не белая подложка (${framePx.join(', ')})`);
     await shot(page, 'previews');
 
     await page.getByLabel('Ни один не подходит? Скажи, что поменять').fill('без плашки');
@@ -1513,7 +1540,7 @@ const segments = [
     await until(async () => (await dimSlider.inputValue()) === '0.5', 3000, async () => `затемнение: ${await dimSlider.inputValue()}`);
     // финальная карточка: щелчок по хвосту — её панель; убрать — хвост короче, карточка — тенью после стоп-кадра;
     // щелчок по тени — вернуть (как у монтажа)
-    await page.locator('.ed-row.video .ed-tail.card').first().click();
+    await page.locator('.ed-row.video .ed-tail.endcard').first().click();
     const endPanel = page.locator('.ed-insp[data-block=end]');
     await endPanel.getByRole('button', { name: 'Убрать карточку' }).click();
     const ghostCard = page.locator('.ed-row.video .ed-tail.ghost[data-kind=end]');

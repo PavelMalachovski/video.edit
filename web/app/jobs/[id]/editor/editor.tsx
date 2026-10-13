@@ -1172,14 +1172,14 @@ export default function Editor({ id }: { id: string }) {
                 {ghost !== null ? <span className="ed-ghost" style={{ left: X(ghost) }} /> : null}
                 {dropAt !== null ? <span className="ed-drop" style={{ left: X(dropAt) }} aria-hidden="true" /> : null}
                 {tracks.tail > 0 ? ( // стоп-кадр и карточка: щелчок — панель карточки (убранная — тенью дальше)
-                  <div className={`ed-tail${cardShown ? ' card' : ''}${cardShown && sel?.kind === 'end' ? ' sel' : ''}`}
+                  <div className={`ed-tail${cardShown ? ' endcard' : ''}${cardShown && sel?.kind === 'end' ? ' sel' : ''}`}
                     style={{ left: X(duration), width: Math.max(2, X(tracks.tail)) }} title={`${T(cardShown ? 'tail' : 'still')} · ${sec(tracks.tail)}`}
                     onClick={() => { if (cardShown && clicks.click()) setSel({ kind: 'end' }); }}>
                     <span>{T(cardShown ? 'tail' : 'still')}</span>
                   </div>
                 ) : null}
                 {draft?.end && hand.text?.end?.off ? ( // убранная карточка — тенью после стоп-кадра: её можно вернуть
-                  <div className={`ed-tail card ghost${sel?.kind === 'end' ? ' sel' : ''}`} data-kind="end"
+                  <div className={`ed-tail endcard ghost${sel?.kind === 'end' ? ' sel' : ''}`} data-kind="end"
                     style={{ left: X(duration + tracks.tail), width: Math.max(8, X(draft.end.seconds)) }} title={`${T('endCard')} · ${T('removed')}`}
                     onClick={() => { if (clicks.click()) setSel({ kind: 'end' }); }}>
                     <span>{T('endCard')}</span>

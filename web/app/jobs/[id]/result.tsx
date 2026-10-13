@@ -1,5 +1,5 @@
 'use client';
-// Экран «4 · Готово»: ролик на чёрной сцене, скачивание видео и субтитров, итоги Claude и «Поправить» (шаг fix, новая
+// Экран «4 · Готово»: ролик на светлой сцене, скачивание видео и субтитров, итоги Claude и «Поправить» (шаг fix, новая
 // версия ролика).
 import { useState, type ReactNode } from 'react';
 import { captionCopy, captionFold, parseCaption, type Caption } from '@/lib/caption.ts';

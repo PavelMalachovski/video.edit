@@ -1425,15 +1425,21 @@ const segments = [
     const hit = (t) => page.locator(`.ed-layer .ed-hit[data-target="${t}"]`);
     const edSpec = async () => JSON.parse((await page.locator('.ed-layer iframe').getAttribute('data-spec')) ?? '{}');
     const inline = page.locator('.ed-inline');
-    // щёлкнул титр на кадре (ручки у него нет — фокус остаётся на прозрачной кнопке): пробел — пуск, а не поле текста
+    // щёлкнул титр на кадре (ручки у него нет — фокус остаётся на прозрачной кнопке): пробел — пуск, а не поле текста.
+    // Пуск — подменённый play() видео: он только считает запуски, ролик не уходит вперёд и не сбивает проверки дальше
+    const editorVideo = page.locator('video[data-editor-video]');
+    await editorVideo.evaluate((v) => {
+      v.dataset.plays = '0';
+      v.play = () => { v.dataset.plays = String(Number(v.dataset.plays) + 1); return Promise.reject(new Error('e2e: без пуска')); };
+    });
     const [, ctaM, ctaS] = /(\d+):(\d+(?:\.\d+)?)/.exec((await textBlocks.nth(2).getAttribute('title')) ?? '') ?? [];
     await seekTo(Number(ctaM) * 60 + Number(ctaS) + 0.1);
     await hit('cta').click();
     await page.locator('.ed-insp[data-block=cta]').waitFor({ timeout: 3000 });
     await page.keyboard.press('Space');
+    await until(async () => (await editorVideo.getAttribute('data-plays')) === '1', 3000, 'пробел после щелчка по титру на кадре — пуск');
     check(await inline.count() === 0, 'пробел после щелчка по титру на кадре открыл поле текста вместо пуска');
-    const pauseBtn = page.getByRole('button', { name: 'Пауза' });
-    if (await pauseBtn.count()) await pauseBtn.click();
+    await editorVideo.evaluate((v) => { delete v.play; delete v.dataset.plays; });
     await seekTo(0.3); // только хук: «вот» — с 0,5 с, стикер — после хука
     await hit('hook').click();
     await page.locator('.ed-insp[data-block=hook]').waitFor({ timeout: 3000 });

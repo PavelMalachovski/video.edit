@@ -785,7 +785,7 @@ export default function Editor({ id }: { id: string }) {
         return;
       }
       if (mod || e.altKey || e.repeat) return;
-      if (e.code === 'Space' && !el?.closest('button, a')) {
+      if (e.code === 'Space' && !el?.closest('button:not(.ed-hit), a')) { // кнопка кадра после щелчка — фокус у неё, пробел — пуск
         e.preventDefault();
         if (playing) pause();
         else void play();
@@ -861,6 +861,10 @@ export default function Editor({ id }: { id: string }) {
   const [clicks] = useState(clickGuard); // щелчок после перетаскивания — не выбор; новое нажатие — новый жест
   const grab = (e: React.PointerEvent, d: Drag) => {
     e.stopPropagation();
+    // нажатие отменено — фокус сам из поля текста на кадре не уйдёт: уводим его, и поле сохраняет набранное (или говорит,
+    // почему нет) до того, как жест сменит выбор или правки
+    const field = document.activeElement;
+    if (field instanceof HTMLElement && field.closest('.ed-inline')) field.blur();
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
     setDrag(d);
@@ -1158,7 +1162,7 @@ export default function Editor({ id }: { id: string }) {
               ) : null}
               {tracks ? (
                 <Layer clock={clock} events={events} spec={spec} width={frameW} pick={framePick} onPlace={canPlace && placeRef ? doPlace : undefined}
-                  handleText={handleText} picked={picked} styleMove={styleMove} onText={selHasText ? openText : null} canText={!editing && textGate && selHasText}
+                  handleText={handleText} picked={picked} styleMove={styleMove} onText={selHasText ? openText : null} canText={textGate && selHasText} textOpen={Boolean(editing)}
                   textLabel={T('editText')} names={frameNames} onTarget={pickOnFrame} lowNote={frameNote ? null : T('subLow')}
                   onBox={editing ? onInlineBox : undefined} />
               ) : null}
@@ -1169,7 +1173,7 @@ export default function Editor({ id }: { id: string }) {
                   <div className="ed-caption">{T('sample')}</div>
                 </div>
               ) : notice ? <div className="ed-notice">{notice}</div> : null}
-              {frameNote ? <div className="ed-caption top" role="status">{frameNote}</div> : null}
+              {frameNote ? <div className="ed-caption at-top" role="status">{frameNote}</div> : null}
             </div>
             {editing ? (
               <InlineText key={editing.seq} T={T} fields={editing.fields} label={(f) => fieldLabel(T, f)} box={inlineBox ?? editing.box} scale={frameW / 1080}

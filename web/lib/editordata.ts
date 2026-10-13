@@ -99,8 +99,8 @@ export type EditorData = {
   library: string[]; // треки библиотеки в ветке задачи (assets/music/…): другой трек — из них
   rev: number; // ревизия timeline.json в ветке (нет — 0): от неё сохраняется следующая
   brandLook: BrandLook | null; // «Мой стиль» из копии бренда задачи: до монтажа стиль начинается с него, как на «Превью»
-  // пока Claude монтирует новый стиль из редактора — прошлый выбор (fix.json, styleFrom): ролик ещё в нём, и новый ляжет
-  // поверх него (vm style --onto); иначе — null
+  // пока Claude монтирует новый стиль из редактора (или этот монтаж сорвался) — прошлый выбор (fix.json, styleFrom): ролик
+  // ещё в нём, и новый ляжет поверх него (vm style --onto); иначе — null
   styleFrom: StyleChoice | null;
 };
 
@@ -187,7 +187,9 @@ export async function loadEditor(gh: GH, id: string): Promise<EditorData | null>
     library,
     ...timelineOf(timeline),
     brandLook: parseLook(f?.job?.brand?.look),
-    styleFrom: loaded.view.screen === 'working' ? f?.fix?.fixes.at(-1)?.styleFrom ?? null : null,
+    // монтирует правку или она сорвалась — ролик ещё в прошлом стиле; вышла новая версия (result) — уже в новом
+    styleFrom: loaded.view.screen === 'working' || (loaded.view.screen === 'error' && loaded.view.step === 'fix')
+      ? f?.fix?.fixes.at(-1)?.styleFrom ?? null : null,
   };
 }
 

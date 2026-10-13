@@ -294,6 +294,12 @@ test('while Claude mounts a new style from the editor, the editor knows the styl
   const working = await loadEditor(gh, ID);
   assert.equal(working?.screen, 'working');
   assert.deepEqual(working?.styleFrom, was, 'ролик ещё в прошлом стиле: новый ляжет поверх него (vm style --onto)');
+  // монтаж нового стиля сорвался: answers.json — уже новый, edit.json — ещё прошлый; кадр — как в панели «Стиль»
+  fake.commit(`claude/job-${ID}`, { [`${DIR}/status.json`]: JSON.stringify({ state: 'error', phase: 'Ошибка', message: 'упал рендер', at: fix.at }) });
+  const failed = await loadEditor(gh, ID);
+  assert.equal(failed?.screen, 'error');
+  assert.deepEqual(failed?.styleFrom, was, 'правка не вышла — ролик всё ещё в прошлом стиле');
+  fake.commit(`claude/job-${ID}`, { [`${DIR}/status.json`]: JSON.stringify({ state: 'queued', phase: 'В очереди', message: '…', at: fix.at }) });
   const { style: _style, styleFrom: _from, ...textOnly } = fix;
   fake.commit(`claude/job-${ID}`, { [`${DIR}/fix.json`]: JSON.stringify({ fixes: [textOnly] }) });
   assert.equal((await loadEditor(gh, ID))?.styleFrom, null, 'правка без нового стиля — null');

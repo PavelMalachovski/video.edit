@@ -159,12 +159,13 @@ function targets(b: Boxes): { target: FrameTarget; box: Box }[] {
  *  ниже и размер), иначе — пунктир; ✎ и касание ручки — его текст (`onText`). Рамка — где шаблон нарисовал блок в
  *  последний раз: пока его тащат, ручка не пропадает между перерисовками. */
 export function Layer({ clock, events, spec, width, pick = null, onPlace, handleText, picked, styleMove = null, onText = null, canText = false, textLabel,
-  names, onTarget, lowNote = null, onBox }: {
+  textOpen = false, names, onTarget, lowNote = null, onBox }: {
   clock: Clock; events: LayerEvent[] | null; spec: StyleSpec | null; width: number;
   pick?: FramePick | null; onPlace?: (place: Place) => void; handleText?: HandleText; picked?: MutableRefObject<PickedBox | null>;
   styleMove?: StyleMove | null; // хук или субтитры: ручка тянет стиль (нет — только рамка)
   onText?: ((box: Box) => void) | null; // текст выбранного блока на кадре: касание ручки, Enter или F2 на ней, ✎
   canText?: boolean; textLabel?: string; // ✎ — текст можно править; его подпись
+  textOpen?: boolean; // поле текста открыто: ✎ не видно, но он на месте — поле закрыли клавишей или кнопкой, фокус вернётся к нему
   names?: Record<FrameTarget['kind'], string>; // имена нарисованного — для экранного чтеца
   onTarget?: (target: FrameTarget, box: Box, ev: { t0: number; t1: number }) => void;
   lowNote?: string | null; // выбраны субтитры, а они ниже безопасной зоны Reels — подпись на кадре
@@ -241,12 +242,12 @@ export function Layer({ clock, events, spec, width, pick = null, onPlace, handle
       {box && !handle ? <div className="ed-outline" style={place(box)} aria-hidden="true" /> : null}
       {handle}
       {box && onText && canText ? (
-        <button type="button" className="ed-pencil" aria-label={textLabel} title={textLabel} onClick={() => onText(box)}
+        <button type="button" className={`ed-pencil${textOpen ? ' open' : ''}`} aria-label={textLabel} title={textLabel} onClick={() => onText(box)}
           style={{ left: box.x * scale, top: Math.max(0, box.y * scale - 24) }}>
           <PencilIcon size={13} />
         </button>
       ) : null}
-      {lowNote && pick?.kind === 'sub' && underCaption(drawn?.boxes.sub) ? <div className="ed-caption top">{lowNote}</div> : null}
+      {lowNote && pick?.kind === 'sub' && underCaption(drawn?.boxes.sub) ? <div className="ed-caption at-top">{lowNote}</div> : null}
     </div>
   );
 }

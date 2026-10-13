@@ -26,7 +26,7 @@ test('the proxy (login check) runs everywhere except login, static files and the
   }
 });
 
-test('a route outside the proxy checks the login cookie itself', async () => {
+test('authorized(): the login cookie as the proxy checks it — the chunk route outside the proxy calls it first (e2e: no login — 401)', async () => {
   process.env.SESSION_SECRET = 'test-secret';
   const cookie = `${SESSION_COOKIE}=${await signSession('test-secret')}`;
   assert.equal(await authorized(new Request('http://x/api/jobs/1/parts/0', { headers: { cookie: `a=1; ${cookie}; b=2` } })), true);

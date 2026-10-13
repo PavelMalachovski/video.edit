@@ -29,7 +29,8 @@ export function jsonWithEtag(data: unknown, request: Request): Response {
 
 /** Заголовки кэша для файла коммита: `v` — sha головы ветки (40 hex), его содержимое не меняется — браузер держит день,
  *  CDN Vercel — год (Vercel-CDN-Cache-Control видит только он; proxy.ts со входом стоит до его кэша); без sha — не
- *  кэшировать. Повторный запрос из кэша CDN функцию не запускает — трафика Fast Origin Transfer нет. */
+ *  кэшировать. Повторный запрос из кэша CDN функцию не запускает — трафика Fast Origin Transfer нет. Без `private`:
+ *  ответ с private, no-cache или no-store CDN Vercel не кэширует (по его правилам), а чужие кэши HTTPS не видят. */
 export function commitCache(v: string | null): Record<string, string> {
-  return v && /^[0-9a-f]{40}$/.test(v) ? { 'Cache-Control': 'private, max-age=86400', 'Vercel-CDN-Cache-Control': 'max-age=31536000' } : { 'Cache-Control': 'no-store' };
+  return v && /^[0-9a-f]{40}$/.test(v) ? { 'Cache-Control': 'max-age=86400', 'Vercel-CDN-Cache-Control': 'max-age=31536000' } : { 'Cache-Control': 'no-store' };
 }

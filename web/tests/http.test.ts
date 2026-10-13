@@ -68,7 +68,8 @@ test('a poll with the same JSON gets 304 and no body — the page keeps what it 
 
 test('a file of a commit (v = its sha) is cached by the browser and by Vercel\'s CDN — the function is not run again', () => {
   const sha = 'a'.repeat(40);
-  assert.deepEqual(commitCache(sha), { 'Cache-Control': 'private, max-age=86400', 'Vercel-CDN-Cache-Control': 'max-age=31536000' });
+  // без private: по правилам Vercel ответ с private, no-cache или no-store его CDN не кэширует
+  assert.deepEqual(commitCache(sha), { 'Cache-Control': 'max-age=86400', 'Vercel-CDN-Cache-Control': 'max-age=31536000' });
   for (const v of [null, '', 'main', 'a'.repeat(39), `${sha}x`]) assert.deepEqual(commitCache(v), { 'Cache-Control': 'no-store' }, String(v));
 });
 

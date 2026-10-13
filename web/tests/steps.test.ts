@@ -4,7 +4,7 @@ import { getHead } from '../lib/branch.ts';
 import { findReleaseByTag } from '../lib/github.ts';
 import { appendFix } from '../lib/jobfiles.ts';
 import { fireText } from '../lib/routine.ts';
-import { backStep, deleteJob, retryStep, runStep, startJob, startScript, type Deps } from '../lib/steps.ts';
+import { backStep, deleteJob, retryStep, retryWithoutVoice, runStep, startJob, startScript, type Deps } from '../lib/steps.ts';
 import { withFake } from './helpers.ts';
 
 const ID = '261010-070509-abcd';
@@ -81,6 +81,29 @@ test('retry fires the last step with attempt + 1', () => withFake(async ({ fake,
   assert.deepEqual(fake.fires.map((f) => [f.step, f.attempt]), [['analyze', 1], ['analyze', 2]]);
   assert.deepEqual(read(fake, `claude/job-${ID}`, 'job.json').runs.map((x: { attempt: number }) => x.attempt), [1, 2]);
   await assert.rejects(runStep(d, ID, 'render', {}, { retry: true }), /последн/);
+}));
+
+test('retry without the voice drops the voice upload and what analyze made from it, then fires analyze again', () => withFake(async ({ fake, gh, routine }) => {
+  // в «Озвучку» попала песня: анализ сорвался — повтор без неё, видео заново не загружается
+  const voice = { asset: 'upload-voice.m4a', name: 'Sleepwalker.m4a', size: 5, type: 'audio/x-m4a', parts: 1 };
+  fake.addAsset(`job-${ID}`, 'manifest.json', JSON.stringify({ ...MANIFEST, uploads: [...MANIFEST.uploads, voice] }));
+  const d: Deps = { gh, routine, now: () => NOW };
+  await startJob(d, ID);
+  const branch = `claude/job-${ID}`;
+  assert.deepEqual(read(fake, branch, 'job.json').uploads.map((u: { kind: string }) => u.kind), ['image', 'audio']);
+  const made = ['words.json', 'cuts.json', 'speech.json', 'language.json', 'reference.txt', 'editor.json', 'film.jpg'];
+  fake.commit(branch, {
+    ...Object.fromEntries(made.map((name) => [`jobs/${ID}/${name}`, '[]'])),
+    [`jobs/${ID}/status.json`]: JSON.stringify({ state: 'error', phase: 'Ошибка', message: 'В «Озвучке» песня', at: NOW.toISOString() }),
+  }, 'session');
+  const r = await retryWithoutVoice(d, ID);
+  assert.equal(r.attempt, 2);
+  assert.deepEqual(fake.fires.map((f) => [f.step, f.attempt]), [['analyze', 1], ['analyze', 2]]);
+  const job = read(fake, branch, 'job.json');
+  assert.deepEqual(job.uploads.map((u: { asset: string }) => u.asset), ['upload-i1.png'], 'вставка осталась, озвучки нет');
+  for (const name of made) assert.equal(fake.read(branch, `jobs/${ID}/${name}`), null, `${name} — от песни, его нет`);
+  assert.equal(read(fake, branch, 'status.json').state, 'queued');
+  await assert.rejects(retryWithoutVoice(d, ID), /озвучки нет/i);
 }));
 
 test('startJob refuses a second start', () => withFake(async ({ fake, gh, routine }) => {

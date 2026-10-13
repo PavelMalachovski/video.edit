@@ -83,6 +83,12 @@ test('delivered version wins over a later error status', () => {
   assert.deepEqual(v.final, { mp4: 'final.mp4', srt: null });
 });
 
+test('the view knows whether the job has a voice upload', () => {
+  const voice = { file: 'in/uploads/upload-voice.m4a', asset: 'upload-voice.m4a', name: 'Голос.m4a', size: 1, type: 'audio/x-m4a', kind: 'audio' as const };
+  assert.equal(deriveView(release(), files({ job: { ...job(), uploads: [voice] }, status: status('error') }), T0).voice, true);
+  assert.equal(deriveView(release(), files({ status: status('error') }), T0).voice, false);
+});
+
 test('canRun allows each action only from its screen', () => {
   const allowed: Record<Screen, Action[]> = {
     uploading: ['delete'],
@@ -102,6 +108,12 @@ test('canRun allows each action only from its screen', () => {
       if (why !== null) assert.ok(why.length > 5, why);
     }
   }
+  // «Повторить без озвучки» — только когда сорвался анализ задачи с озвучкой
+  const failed = { ...deriveView(release(), null, T0), screen: 'error' as Screen, stuck: null, step: 'analyze' as const };
+  assert.match(canRun(failed, 'unvoice') ?? '', /озвучки нет/i);
+  assert.equal(canRun({ ...failed, voice: true }, 'unvoice'), null);
+  assert.notEqual(canRun({ ...failed, voice: true, step: 'render' }, 'unvoice'), null);
+  assert.notEqual(canRun({ ...failed, voice: true, screen: 'questions' }, 'unvoice'), null);
   const stuck = { ...deriveView(release(), null, T0), screen: 'working' as Screen, stuck: 'session' as const };
   assert.equal(canRun(stuck, 'retry'), null);
   assert.equal(canRun(stuck, 'delete'), null);

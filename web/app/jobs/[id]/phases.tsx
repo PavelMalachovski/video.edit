@@ -1,7 +1,7 @@
 'use client';
 // Состояние шага на странице задачи: идёт (фаза, текст, полоса), «завис», ошибка, не запущен, ещё загружается.
 import { useState } from 'react';
-import type { Action, JobView } from '@/lib/jobview.ts';
+import { canRun, type Action, type JobView } from '@/lib/jobview.ts';
 import type { Step } from '@/lib/routine.ts';
 import type { Act } from './job';
 
@@ -65,7 +65,9 @@ export default function Phases({ view, repo, onAction }: { view: JobView; repo: 
       <div className="card bad">
         <b>{status?.message ?? 'Шаг не получился'}</b>
         {status?.error ? <div className="mono muted small pre">{status.error}</div> : null}
-        <ActionButton label="Повторить" action="retry" onAction={onAction} primary />
+        {/* сорвался анализ задачи с озвучкой (в неё попала песня и т. п.) — повтор без неё, видео заново не грузить */}
+        {canRun(view, 'unvoice') === null ? <ActionButton label="Повторить без озвучки" action="unvoice" onAction={onAction} primary /> : null}
+        <ActionButton label="Повторить" action="retry" onAction={onAction} primary={canRun(view, 'unvoice') !== null} />
         {view.step && BACK[view.step] ? <ActionButton label={BACK[view.step]!} action="back" onAction={onAction} /> : null}
         {session}
         {previous}

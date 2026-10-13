@@ -345,8 +345,23 @@ const segments = [
     await session(ctx, { 'status.json': { state: 'error', phase: 'Ошибка', message: 'Не удалось расшифровать', at: iso(), error: 'GigaAM: нет памяти' } });
     await page.getByText('Не удалось расшифровать').waitFor({ timeout: 7000 });
     await shot(page, 'phases-error');
+    check(await page.getByRole('button', { name: 'Повторить без озвучки' }).count() === 0, 'озвучки в задаче нет — и кнопки без неё нет');
     await page.getByRole('button', { name: 'Повторить', exact: true }).click();
     await until(async () => (await fires()).some((f) => f.step === 'analyze' && f.attempt === 3), 10_000, 'повтор шага');
+
+    // в «Озвучку» попала песня — анализ сорвался: повтор без неё, видео заново не загружать
+    const job = JSON.parse((await branchFile(ctx, 'job.json')) ?? '{}');
+    const voice = { file: 'in/uploads/upload-voice.m4a', asset: 'upload-voice.m4a', name: 'Песня.m4a', size: 5, type: 'audio/x-m4a', kind: 'audio' };
+    await session(ctx, { 'job.json': { ...job, uploads: [...job.uploads, voice] }, 'words.json': [],
+      'status.json': { state: 'error', phase: 'Ошибка', message: 'В «Озвучке» песня — нажми «Повторить без озвучки»', at: iso(), error: 'voice is a song' } });
+    await page.getByText('В «Озвучке» песня').waitFor({ timeout: 7000 });
+    await shot(page, 'phases-error-voice');
+    await page.getByRole('button', { name: 'Повторить без озвучки' }).click();
+    await until(async () => (await fires()).some((f) => f.step === 'analyze' && f.attempt === 4), 10_000, 'повтор без озвучки');
+    const unvoiced = JSON.parse((await branchFile(ctx, 'job.json')) ?? '{}');
+    check(!unvoiced.uploads.some((u) => u.kind === 'audio'), `озвучка осталась в job.json: ${JSON.stringify(unvoiced.uploads)}`);
+    check(unvoiced.uploads.length === job.uploads.length, 'вставки задачи остались');
+    check(await branchFile(ctx, 'words.json') === null, 'слова от песни убраны — анализ расслышит звук видео заново');
   }],
 
   ['questions', async (ctx) => {

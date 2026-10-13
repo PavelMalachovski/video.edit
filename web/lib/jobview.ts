@@ -46,8 +46,10 @@ export type JobView = {
   /** Готовый ролик; `b` — вторая версия A/B-теста, если она тоже доставлена. */
   final: { mp4: string; srt: string | null; b?: { mp4: string; srt: string | null }; ad?: { mp4: string; srt: string | null }; cover?: string } | null;
   previous: string | null;
+  /** В задаче есть озвучка (`kind: audio`): сорвался анализ — можно повторить его без неё, не загружая видео заново. */
+  voice: boolean;
 };
-export type Action = 'start' | 'answers' | 'restyle' | 'fix' | 'retry' | 'back' | 'delete';
+export type Action = 'start' | 'answers' | 'restyle' | 'fix' | 'retry' | 'unvoice' | 'back' | 'delete';
 
 /** Ответ `GET /api/jobs/<id>`: экран и файлы ветки, которые нужны странице задачи. */
 export type JobData = {
@@ -179,6 +181,7 @@ export function deriveView(release: Release, files: JobFiles | null, now: number
     version,
     final: null,
     previous: older.length ? older.reduce((a, b) => ((b[1] ?? 0) > (a[1] ?? 0) ? b : a))[0] : null,
+    voice: (job?.uploads ?? []).some((u) => u.kind === 'audio'),
   };
   if (!files || runs.length === 0) {
     return { ...view, screen: release.assets.some((a) => a.name === 'manifest.json') ? 'not_started' : 'uploading' };
@@ -242,6 +245,9 @@ export function canRun(v: JobView, a: Action): string | null {
       return v.screen === 'result' ? null : 'Поправить можно готовый ролик';
     case 'retry':
       return v.screen === 'error' || v.stuck ? null : 'Повторять нечего: шаг идёт';
+    case 'unvoice':
+      if (!v.voice) return 'Озвучки нет — повторите шаг';
+      return v.screen === 'error' && v.step === 'analyze' ? null : 'Без озвучки повторяется только сорвавшийся анализ';
     case 'back':
       return v.screen === 'error' && (v.step === 'restyle' || v.step === 'render' || v.step === 'fix') ? null : 'Вернуться некуда: шаг можно только повторить';
     case 'delete':

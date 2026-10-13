@@ -21,13 +21,15 @@ async function readJob(gh: GH, id: string): Promise<JobFile | null> {
 /**
  * Запуск шага: `files` (имена от папки задачи), job.json с новой записью `runs` и статус «queued» — одним коммитом,
  * затем запуск рутины. Сбой запуска — статус ошибки с её текстом и та же ошибка дальше. `opts.job` — старт: job.json
- * ещё нет, ветка создаётся от master (удалённую задачу другие шаги не воскрешают).
+ * ещё нет, ветка создаётся от master (удалённую задачу другие шаги не воскрешают); `opts.base` — job.json ветки, уже
+ * поправленный вызвавшим (повтор без озвучки). Имя файла → null в `files` — файл из ветки убирается.
  */
-export async function runStep(d: Deps, id: string, step: Step, files: FileMap, opts: { retry?: boolean; job?: JobFile } = {}): Promise<{ attempt: number; sessionUrl: string }> {
+export async function runStep(d: Deps, id: string, step: Step, files: FileMap,
+  opts: { retry?: boolean; job?: JobFile; base?: JobFile } = {}): Promise<{ attempt: number; sessionUrl: string }> {
   const now = () => (d.now ?? (() => new Date()))();
   const dir = jobDir(id);
   const branch = jobBranch(id);
-  const job = opts.job ?? (await readJob(d.gh, id));
+  const job = opts.job ?? opts.base ?? (await readJob(d.gh, id)); // base — job.json ветки, уже поправленный вызвавшим
   if (!job) throw new Error('Задача не найдена: в ветке нет job.json');
   const last = job.runs.at(-1);
   if (opts.retry && last?.step !== step) throw new Error(`Повторить можно только последний шаг (${last?.step ?? 'шагов не было'})`);
@@ -89,6 +91,21 @@ export async function retryStep(d: Deps, id: string): Promise<{ attempt: number;
   const last = job?.runs.at(-1);
   if (!last) return startJob(d, id);
   return runStep(d, id, last.step, {}, { retry: true });
+}
+
+/** Что анализ сделал из звука задачи: с озвучкой — из неё; без неё повтор должен расслышать звук видео заново. */
+const FROM_SOUND = ['words.json', 'cuts.json', 'speech.json', 'language.json', 'reference.txt', 'editor.json', 'film.jpg'];
+
+/**
+ * Анализ сорвался из-за озвучки (в неё попала песня, чужая запись): тот же анализ без неё — видео уже в черновике, загружать
+ * его заново не нужно. Из job.json уходит озвучка, из ветки — сделанное по её звуку (слова, паузы, язык, файлы редактора).
+ */
+export async function retryWithoutVoice(d: Deps, id: string): Promise<{ attempt: number; sessionUrl: string }> {
+  const job = await readJob(d.gh, id);
+  if (!job) throw new Error('Задача не найдена: в ветке нет job.json');
+  if (!job.uploads.some((u) => u.kind === 'audio')) throw new Error('Озвучки нет — повторите шаг');
+  const unvoiced = { ...job, uploads: job.uploads.filter((u) => u.kind !== 'audio') };
+  return runStep(d, id, 'analyze', Object.fromEntries(FROM_SOUND.map((name) => [name, null])), { retry: true, base: unvoiced });
 }
 
 /**

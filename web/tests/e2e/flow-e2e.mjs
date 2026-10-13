@@ -73,7 +73,11 @@ async function session(ctx, files) {
     out[`jobs/${ctx.jobId}/${rel}`] = Buffer.isBuffer(value) ? { base64: value.toString('base64') }
       : typeof value === 'string' || value === null ? value : `${JSON.stringify(value, null, 2)}\n`;
   }
-  return fakeJson('/__commit', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ branch: `claude/job-${ctx.jobId}`, files: out, message: 'session' }) });
+  const done = await fakeJson('/__commit', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ branch: `claude/job-${ctx.jobId}`, files: out, message: 'session' }) });
+  // пока шаг не идёт, страница задачи спрашивает раз в 30 с; а вкладку, которую снова показали, — сразу: так тест не
+  // ждёт следующего опроса (как Павел, вернувшийся к вкладке)
+  await ctx.page?.evaluate(() => document.dispatchEvent(new Event('visibilitychange'))).catch(() => undefined);
+  return done;
 }
 
 /** Ждать, пока `fn` не вернёт истину (или не истечёт `ms`). `what` — что ждали; функция — с тем, что было на деле. */

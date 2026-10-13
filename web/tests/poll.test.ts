@@ -10,3 +10,9 @@ test('polls every 5 s, waits retryAfter after 429, 15 s after other failures', (
   assert.equal(nextDelay({ ok: false, status: 502 }), 15_000);
   assert.equal(nextDelay({ ok: false, status: 0 }), 15_000); // нет сети
 });
+
+test('nothing is running — once in 30 s: the job changes only when Pavel acts (that polls at once) or a step starts', () => {
+  assert.equal(nextDelay({ ok: true, idle: true }), 30_000);
+  assert.equal(nextDelay({ ok: true, idle: false }), 5000);
+  assert.equal(nextDelay({ ok: false, status: 502 }), 15_000);
+});

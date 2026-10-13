@@ -4,7 +4,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buildAnswers, loadDraft, saveDraft, type Draft } from '@/lib/answers.ts';
-import { errorText, message, post, storage } from '@/lib/client.ts';
+import { errorText, message, post, statusText, storage } from '@/lib/client.ts';
 import { mmss } from '@/lib/format.ts';
 import { stepIndex, type Action, type JobData } from '@/lib/jobview.ts';
 import { nextDelay } from '@/lib/poll.ts';
@@ -27,6 +27,8 @@ export default function Job({ id }: { id: string }) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const busy = useRef(false);
   const again = useRef(false);
+  const etag = useRef<string | null>(null); // ETag последнего ответа опроса: то же содержимое — 304 без тела
+  const shown = useRef<string | null>(null); // экран из последнего ответа — по нему пауза до следующего опроса
   const alive = useRef(true);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [localUrls, setLocalUrls] = useState<Record<string, string>>({});
@@ -43,21 +45,28 @@ export default function Job({ id }: { id: string }) {
     busy.current = true;
     let delay: number;
     try {
-      const r = await fetch(`/api/jobs/${id}`, { cache: 'no-store' });
+      // то же, что в прошлый раз, — 304 без тела (ETag): трафик Vercel не тратится на одинаковые ответы
+      const r = await fetch(`/api/jobs/${id}`, { cache: 'no-store', headers: etag.current ? { 'If-None-Match': etag.current } : {} });
       if (r.status === 404) {
         setMissing(true);
         return;
       }
-      if (r.ok) {
-        setData((await r.json()) as JobData);
+      if (r.ok || r.status === 304) {
+        let screen = shown.current;
+        if (r.status !== 304) {
+          const next = (await r.json()) as JobData;
+          etag.current = r.headers.get('ETag');
+          shown.current = screen = next.view.screen;
+          setData(next);
+        }
         setWait(null);
         setTrouble('');
-        delay = nextDelay({ ok: true });
+        delay = nextDelay({ ok: true, idle: screen !== 'working' && screen !== 'uploading' });
       } else {
         const body = (await r.json().catch(() => null)) as { error?: unknown; retryAfter?: unknown } | null;
         delay = nextDelay({ ok: false, status: r.status, retryAfter: typeof body?.retryAfter === 'number' ? body.retryAfter : undefined });
         if (r.status === 429) setWait(Math.round(delay / 1000));
-        else setTrouble(typeof body?.error === 'string' ? body.error : `Сервер ответил ${r.status}`);
+        else setTrouble(r.status !== 402 && typeof body?.error === 'string' ? body.error : statusText(r.status, 'Сервер ответил'));
       }
     } catch {
       delay = nextDelay({ ok: false, status: 0 });

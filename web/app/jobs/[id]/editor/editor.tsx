@@ -13,7 +13,7 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { musicBeats } from '@/lib/beats.ts';
 import { blockRoom, finalEdges, hookUntil, sourceSpan, stackRows } from '@/lib/blocks.ts';
-import { storage } from '@/lib/client.ts';
+import { statusText, storage } from '@/lib/client.ts';
 import { createClock } from '@/lib/clock.ts';
 import { editorGates, layerUrl, type EditorData } from '@/lib/editordata.ts';
 import { sameJson } from '@/lib/equal.ts';
@@ -95,7 +95,7 @@ export default function Editor({ id }: { id: string }) {
     try {
       const r = await fetch(`/api/jobs/${id}/editor`, { cache: 'no-store' });
       const body = await r.json().catch(() => null);
-      if (!r.ok) throw new Error(typeof body?.error === 'string' ? body.error : `HTTP ${r.status}`);
+      if (!r.ok) throw new Error(r.status !== 402 && typeof body?.error === 'string' ? body.error : statusText(r.status, 'HTTP'));
       setData(body as EditorData);
       setError('');
       return body as EditorData;
@@ -126,7 +126,7 @@ export default function Editor({ id }: { id: string }) {
       });
       const body = await r.json().catch(() => null);
       if (r.ok) return { ok: true, rev: body.timeline.rev };
-      const error = typeof body?.error === 'string' ? body.error : `HTTP ${r.status}`;
+      const error = r.status !== 402 && typeof body?.error === 'string' ? body.error : statusText(r.status, 'HTTP');
       return { ok: false, conflict: r.status === 409 && typeof body?.rev === 'number', error };
     }, EMPTY, 0);
   }
@@ -946,7 +946,7 @@ export default function Editor({ id }: { id: string }) {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'fix', editor }),
       });
       const body = await r.json().catch(() => null);
-      if (!r.ok) throw new Error(typeof body?.error === 'string' ? body.error : `HTTP ${r.status}`);
+      if (!r.ok) throw new Error(r.status !== 402 && typeof body?.error === 'string' ? body.error : statusText(r.status, 'HTTP'));
       setMount({ state: 'started' });
       pause();
       void load();

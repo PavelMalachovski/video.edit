@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ConfigError, env } from '../lib/env.ts';
-import { errorResponse } from '../lib/http.ts';
+import { commitCache, errorResponse, jsonWithEtag } from '../lib/http.ts';
 import { GitHubError } from '../lib/github.ts';
 import { RoutineError } from '../lib/routine.ts';
 
@@ -49,3 +49,25 @@ test('routine error keeps its message with 502', async () => {
   assert.equal((await r.json()).error, 'Рутина отклонила запуск: проверьте ROUTINE_TOKEN в Vercel');
 });
 
+
+test('a poll with the same JSON gets 304 and no body — the page keeps what it has (Vercel traffic)', async () => {
+  const data = { view: { screen: 'result' }, head: 'abc' };
+  const first = jsonWithEtag(data, new Request('http://x/api/jobs/1'));
+  assert.equal(first.status, 200);
+  const etag = first.headers.get('ETag');
+  assert.ok(etag && /^"[0-9a-f]{16,}"$/.test(etag), String(etag));
+  assert.deepEqual(await first.json(), data);
+  const again = jsonWithEtag(data, new Request('http://x/api/jobs/1', { headers: { 'If-None-Match': etag } }));
+  assert.equal(again.status, 304);
+  assert.equal(await again.text(), '');
+  assert.equal(again.headers.get('ETag'), etag);
+  const changed = jsonWithEtag({ ...data, head: 'def' }, new Request('http://x/api/jobs/1', { headers: { 'If-None-Match': etag } }));
+  assert.equal(changed.status, 200, 'другое содержимое — другой ETag');
+  assert.notEqual(changed.headers.get('ETag'), etag);
+});
+
+test('a file of a commit (v = its sha) is cached by the browser and by Vercel\'s CDN — the function is not run again', () => {
+  const sha = 'a'.repeat(40);
+  assert.deepEqual(commitCache(sha), { 'Cache-Control': 'private, max-age=86400', 'Vercel-CDN-Cache-Control': 'max-age=31536000' });
+  for (const v of [null, '', 'main', 'a'.repeat(39), `${sha}x`]) assert.deepEqual(commitCache(v), { 'Cache-Control': 'no-store' }, String(v));
+});

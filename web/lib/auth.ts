@@ -27,3 +27,10 @@ export async function verifySession(token: string | undefined, secret: string, n
   for (let i = 0; i < want.length; i++) diff |= want.charCodeAt(i) ^ sig.charCodeAt(i);
   return diff === 0;
 }
+
+/** Запрос с действующей cookie входа — для маршрутов, мимо которых proxy.ts не ходит (куски загрузки: иначе Vercel считал
+ *  бы их трафик дважды). */
+export async function authorized(request: Request): Promise<boolean> {
+  const cookie = (request.headers.get('cookie') ?? '').split(';').map((c) => c.trim()).find((c) => c.startsWith(`${SESSION_COOKIE}=`));
+  return verifySession(cookie?.slice(SESSION_COOKIE.length + 1), process.env.SESSION_SECRET ?? '');
+}

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { errorResponse } from '@/lib/http.ts';
+import { commitCache, errorResponse } from '@/lib/http.ts';
 import { getHead, readRaw } from '@/lib/branch.ts';
 import { audioPaths, imageType, isJobId, jobBranch, resolveJobPath } from '@/lib/jobs.ts';
 import { gh } from '@/lib/env.ts';
@@ -28,11 +28,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     }
     if (!r) return NextResponse.json({ error: 'Файла нет' }, { status: 404 });
     return new Response(r.body, {
-      headers: {
-        'Content-Type': type,
-        'X-Content-Type-Options': 'nosniff',
-        'Cache-Control': v ? 'private, max-age=86400' : 'no-store',
-      },
+      headers: { 'Content-Type': type, 'X-Content-Type-Options': 'nosniff', ...commitCache(v) },
     });
   } catch (e) {
     return errorResponse(e);

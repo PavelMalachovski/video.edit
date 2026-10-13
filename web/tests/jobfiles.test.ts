@@ -442,3 +442,12 @@ test('the style choice takes the hook look and the bar\'s place and thickness, w
   assert.deepEqual(style.hookMode.enum, [...HOOK_MODES]);
   assert.deepEqual(style.barPos.enum, [...BAR_POSITIONS]);
 });
+
+test('the style choice takes the shade kind next to the editor\'s choices (the editor sends it with «Монтировать»)', () => {
+  const base = { variant: 'A', font: 'montserrat', hand: 'caveat', colors: { text: '#FFFFFF', accent: '#FFD400', bar: '#FFD400' } };
+  const ok = { ...base, subMode: 'soft', subWords: 4, subShade: 0.6, subShadeKind: 'shadow', hookMode: 'accent', barPos: 'top', barHeight: 10 };
+  assert.deepEqual(parseStyle(ok), ok);
+  for (const bad of [{ subShadeKind: 'glow' }, { subShadeKind: 1 }, { subShadeKind: '' }, { subShadeKind: null }]) {
+    assert.equal(typeof parseStyle({ ...base, ...bad }), 'string', JSON.stringify(bad));
+  }
+});

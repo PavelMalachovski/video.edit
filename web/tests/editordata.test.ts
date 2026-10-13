@@ -164,6 +164,15 @@ test('«Монтировать» from the editor: a fix with the saved revision 
   assert.ok('error' in unmounted && unmounted.status === 409, 'стиль меняется у смонтированного ролика');
 });
 
+test('«Монтировать» from the editor: the shade and its kind go into answers.json with the new style; an unknown kind is refused', () => {
+  const style = { ...ANSWERS.style, subMode: 'soft' as const, subShade: 0.6, subShadeKind: 'plate' as const };
+  const r = editorFix({ editor: { style } }, { rev: 0, answers: ANSWERS, fix: null }, NOW);
+  assert.ok('files' in r);
+  assert.deepEqual(JSON.parse(r.files['answers.json'] ?? '{}').style, style);
+  const bad = editorFix({ editor: { style: { ...style, subShadeKind: 'glow' } } }, { rev: 0, answers: ANSWERS, fix: null }, NOW);
+  assert.ok('error' in bad && bad.status === 400 && bad.error.includes('subShadeKind'), JSON.stringify(bad));
+});
+
 // ---------- что примет движок задачи ----------
 
 const SCHEMA_NOW = readFileSync(new URL('../../engine/vm/schemas/timeline.json', import.meta.url), 'utf8');

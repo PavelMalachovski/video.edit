@@ -94,7 +94,8 @@ def test_sizes_pavel_set_stay():
 
 
 def test_the_shade_under_the_subtitles_pavel_set_stays_and_a_fix_can_turn_it_on():
-    assert "subShade" in section("Шаг render")
+    render = section("Шаг render")
+    assert "subShade" in render and "subShadeKind" in render and "subtitles.shadeKind" in render
     fix = section("Шаг fix")
     assert "subtitles.shade" in fix and "0,8" in fix
 

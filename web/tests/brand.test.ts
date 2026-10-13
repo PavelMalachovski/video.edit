@@ -96,7 +96,8 @@ test('a job without a saved brand has no brand field', () => withFake(async ({ f
 
 const STYLE = {
   variant: 'B', font: 'rubik', hand: 'caveat', colors: { text: '#FFFFFF', accent: '#FF5C8A', bar: '#FFD23F' },
-  subY: 1300, subSize: 70, hookY: 400, hookSize: 90, subShade: 0.3, subWords: 4, subMode: 'soft', hookMode: 'plate', barPos: 'top', barHeight: 10,
+  subY: 1300, subSize: 70, hookY: 400, hookSize: 90, subShade: 0.3, subShadeKind: 'shadow', subWords: 4, subMode: 'soft', hookMode: 'plate', barPos: 'top',
+  barHeight: 10,
 } as const;
 const FROM = { job: '261013-101010-abcd', title: 'IMG_1.MOV', at: '2026-10-13T10:10:10.000Z' };
 

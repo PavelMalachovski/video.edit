@@ -278,13 +278,17 @@ def test_fetch_twice_downloads_once(tmp_path, github):
     assert github.downloads - first == 1, "only manifest.json again — the joined file is already there"
 
 
-def ready_job(tmp_path, body: bytes, **extra):
-    """Задача с job.json (по нему — ключ готового исходника) для fetch."""
+def ready_job(tmp_path, body: bytes, analyzed: bool = True, **extra):
+    """Задача с job.json (по нему — ключ готового исходника) для fetch; `analyzed` — анализ уже в ветке (editor.json
+    есть: шаги render и fix)."""
     from vm import source
 
     job = Job(tmp_path / "jobs" / "abc")
     job.write("job.json", {"id": "abc", "name": "a.mov", "size": len(body), "type": "video/quicktime", "duration": 3,
                            "createdAt": "2026-10-13T10:10:10Z", "brief": "", "uploads": [], "runs": [], **extra})
+    if analyzed:
+        job.write("editor.json", {"duration": 3.0, "proxy": None, "film": {"file": "film.jpg", "step": 1.0, "w": 54, "h": 96, "n": 3},
+                                  "peaks": {"perS": 10, "data": ""}})
     return job, source.asset(job)
 
 
@@ -309,6 +313,18 @@ def test_fetch_takes_the_ready_source_instead_of_the_videos(tmp_path, github, ca
     assert "готовый исходник" in capsys.readouterr().out
     assert main(["fetch", str(job.root), "--originals"]) == 0, "для vm prepare --redo — видео Павла"
     assert job.path("in/source.mov").read_bytes() == body
+
+
+def test_fetch_takes_the_videos_for_the_analysis_even_with_the_ready_source(tmp_path, github):
+    """Анализ (editor.json ещё нет: первый запуск, повтор после сбоя, «Повторить без озвучки») качает видео Павла даже
+    при готовом исходнике: по ним prepare размечает, где какое видео (editor.json.videos, «Видео по порядку»)."""
+    body = random.Random(35).randbytes(9000)
+    ready = random.Random(36).randbytes(7000)
+    job, name = ready_job(tmp_path, body, analyzed=False)
+    github.draft("job-abc", {**parts("source", body, 3000), "manifest.json": manifest("a.mov", body, 3), **ready_files(name, ready)})
+    assert main(["fetch", str(job.root)]) == 0
+    assert job.path("in/source.mov").read_bytes() == body
+    assert not job.path("source.mp4").exists(), "исходник анализ делает сам — из видео"
 
 
 @pytest.mark.parametrize("trouble", ["other inputs", "no json yet", "bad sha256", "part lost"])
@@ -916,6 +932,10 @@ def test_validate_leaves_uploads_alone_until_fetch(tmp_path, capsys):
     assert main(["validate", str(job.root)]) == 0
     assert "in/uploads/upload-i1.png" in capsys.readouterr().out
     job.path("in/source.mov").write_bytes(b"mov")  # после vm fetch — проверяются
+    assert main(["validate", str(job.root)]) == 1
+    assert "in/uploads/upload-i1.png" in capsys.readouterr().err
+    job.path("in/source.mov").unlink()  # vm fetch взял готовый исходник: видео Павла в in/ нет, а source.mp4 есть
+    job.path("source.mp4").write_bytes(b"mp4")
     assert main(["validate", str(job.root)]) == 1
     assert "in/uploads/upload-i1.png" in capsys.readouterr().err
 

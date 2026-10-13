@@ -142,11 +142,11 @@ CHECKED = ("status.json", "questions.json", "answers.json", "styles.json", "revi
 def _files(job: Job, name: str, data: dict, unchecked: set[str] | None = None) -> list[str]:
     """Файлы, на которые ссылаются данные и которых нет: картинки вопросов и кадр превью — от папки задачи (так их
     берёт страница); вставки, звуки и музыка edit.json — от папки задачи или корня репозитория (так их берёт рендер).
-    Файлы `in/…` появляются только после `vm fetch` (шаг restyle идёт без него): пока исходника `in/source.*` нет, их
-    не проверить — они попадают в `unchecked`, а не в потерянные. Сама папка `in/` — ещё не признак: в ней с первого
-    коммита лежит копия логотипа бренда (`in/brand/`)."""
+    Файлы `in/…` появляются только после `vm fetch` (шаг restyle идёт без него): пока нет ни видео `in/source.*`, ни
+    `source.mp4` (готовый исходник fetch кладёт сразу туда), их не проверить — они попадают в `unchecked`, а не в
+    потерянные. Сама папка `in/` — ещё не признак: в ней с первого коммита лежит копия логотипа бренда (`in/brand/`)."""
     lost = []
-    fetched = any(job.path("in").glob("source.*"))
+    fetched = any(job.path("in").glob("source.*")) or job.path("source.mp4").is_file()
 
     def need(field: str, rel: str, render: bool = False) -> None:
         if render and not fetched and rel.startswith("in/"):

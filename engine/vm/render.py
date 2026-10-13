@@ -389,7 +389,8 @@ def _matte(job: Job, tl: Timeline) -> tuple[Path | None, str | None]:
     folder = job.path("work/matte")
     folder.mkdir(parents=True, exist_ok=True)
     parts = [folder / f"{key.hexdigest()[:12]}-{a}-{b}.mkv" for a, b in plan]
-    if todo := [(unit, part) for unit, part in zip(plan, parts, strict=True) if not part.is_file()]:
+    # тизер ровно по кадрам куска — тот же отрезок дважды: его файл считает один поток
+    if todo := list({part: (unit, part) for unit, part in zip(plan, parts, strict=True) if not part.is_file()}.values()):
         frames = sum(b - a for (a, b), _ in todo)
         print(f"затемнение фона: маска на {frames} кадров (~{max(1, round(frames * 0.06 / 60))} мин)", flush=True)
     whole = folder / f"{key.hexdigest()[:12]}-{hashlib.sha1(json.dumps(plan).encode()).hexdigest()[:12]}.mkv"

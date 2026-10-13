@@ -189,6 +189,26 @@ def test_pieces_already_matted_are_not_matted_again(tmp_path, monkeypatch):
 
 
 @needs_ffmpeg
+def test_a_teaser_with_the_very_frames_of_a_piece_is_matted_once(tmp_path, monkeypatch):
+    """Тизер ровно по кадрам куска (фраза начинает кусок, его конец подрезан по её последнему слову): в плане два
+    одинаковых отрезка — их файл пишет один поток, а не два наперегонки (второй терял переименованный файл, и ролик
+    выходил без затемнения)."""
+    from vm.job import Job
+    from vm.render import _matte
+
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    count_video(job.path("source.mp4"))
+    monkeypatch.setattr(matte, "unavailable", lambda: None)
+    monkeypatch.setattr(matte, "_rvm", lambda threads=None: Mean())
+    tl = Timeline([(0.0, 1.0), (1.5, 2.2)], 1.0, teaser=(1.5, 2.2))
+    assert segment_frames(tl) == [(45, 66), (0, 30), (45, 66)]
+    path, note = _matte(job, tl)
+    assert note is None
+    assert [round(v / 2) for v in read_gray(path, 32, 56).mean(axis=(1, 2))] == [*range(45, 66), *range(30), *range(45, 66)]
+
+
+@needs_ffmpeg
 def test_pieces_are_matted_by_several_workers_each_with_its_own_model(tmp_path):
     """Отрезки считаются параллельно: у каждого потока — своя модель (своя сессия onnxruntime на свои ядра), а файл
     каждого отрезка — тот же, что посчитал бы один поток."""

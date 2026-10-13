@@ -11,9 +11,10 @@
 соединения (прокси сессии такое умеет) или зависший кусок curl повторяет сам.
 
 Готовый исходник (`vm.source`: его кладёт в черновик Action job-source) с ключом этой задачи — качается он, сразу в
-`source.mp4`, а видео Павла — нет: `vm prepare` не нормализует их заново. Чужой ключ (другие видео, другая озвучка),
-нет описания (Action ещё грузит), не сошлись куски или sha256 — видео Павла, как без него. `originals` — видео Павла
-всегда (для `vm prepare --redo`).
+`source.mp4`, а видео Павла — нет: `vm prepare` не нормализует их заново. Только когда анализ уже в ветке (есть
+`editor.json`: шаги render и fix) — анализу нужны сами видео: по ним prepare размечает, где какое (`editor.json.videos`,
+«Видео по порядку» сводки). Чужой ключ (другие видео, другая озвучка), нет описания (Action ещё грузит), не сошлись
+куски или sha256 — видео Павла, как без него. `originals` — видео Павла всегда (для `vm prepare --redo`).
 """
 import json
 import os
@@ -163,7 +164,7 @@ def _ready(api: str, repo: str, job: Job, named: dict[str, dict], groups: dict[s
 
 def fetch(job: Job, originals: bool = False) -> dict[str, Path]:
     """Скачать и склеить входные файлы задачи. → {имя группы: путь} (source и upload-*; готовый исходник —
-    `source.mp4` вместо видео). `originals` — видео Павла, даже если готовый исходник есть."""
+    `source.mp4` вместо видео, если анализ уже в ветке). `originals` — видео Павла, даже если готовый исходник есть."""
     api, repo, tag = _api(), _repo(job), f"job-{job.id}"
     release = _release(api, repo, tag)
     if release is None:
@@ -193,7 +194,8 @@ def fetch(job: Job, originals: bool = False) -> dict[str, Path]:
         if m := PART.match(a["name"]):
             groups.setdefault(m["file"], []).append((int(m["n"]), a))
     files: dict[str, Path] = {}
-    if not originals and (made := _ready(api, repo, job, named, groups)):
+    analyzed = job.path("editor.json").is_file()  # без анализа в ветке — видео: по ним prepare размечает, где какое
+    if not originals and analyzed and (made := _ready(api, repo, job, named, groups)):
         files["source.mp4"] = made
     targets: dict[str, tuple[Path, int | None, int | None]] = {}
     for v in videos if not files else []:

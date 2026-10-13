@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { buildAnswers, DIM, dimPercent, pick, pictureAsset, setDimPercent, type Draft, type LocalUpload } from '@/lib/answers.ts';
 import { RESERVED, type Question, type Review } from '@/lib/jobfiles.ts';
 import { MAX_ANSWER_IMAGE_BYTES } from '@/lib/jobs.ts';
-import { planChunks, runUpload } from '@/lib/uploader.ts';
+import { planChunks, runUpload, UploadStopped } from '@/lib/uploader.ts';
 
 const PICTURE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
 
@@ -64,8 +64,9 @@ export default function Questions({ jobId, releaseId, questions, review, draft, 
         },
       });
       onDraft((d) => (d.uploads[q.id]?.asset === asset ? { ...d, uploads: { ...d.uploads, [q.id]: { ...local, done: true } } } : d));
-    } catch {
-      setErrors((e) => ({ ...e, [q.id]: `${file.name}: не загрузилась — выберите её ещё раз` }));
+    } catch (err) {
+      const why = err instanceof UploadStopped ? err.message : 'не загрузилась — выберите её ещё раз';
+      setErrors((e) => ({ ...e, [q.id]: `${file.name}: ${why}` }));
     } finally {
       setLoading(({ [q.id]: _, ...rest }) => rest);
     }

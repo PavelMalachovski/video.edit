@@ -7,7 +7,7 @@ export function post(url: string, body: unknown): Promise<Response> {
 }
 
 /** Vercel поставил сайт на паузу (бесплатный лимит трафика исчерпан): на любой запрос — 402 и своя HTML-страница. */
-export const PAUSED = 'Vercel поставил сайт на паузу: закончился бесплатный лимит трафика. Пока его не включат (тариф Pro или новый месяц), ничего не сохранится — правки останутся в этой вкладке';
+export const PAUSED = 'Vercel поставил сайт на паузу: закончился бесплатный лимит трафика. Пока паузу не снимут (тариф Pro или когда Vercel снимет её сам), ничего не сохранится — правки останутся в этой вкладке';
 
 /** Код ответа словами: 402 — пауза Vercel, остальное — `fallback` и код. */
 export const statusText = (status: number, fallback: string): string => (status === 402 ? PAUSED : `${fallback} (${status})`);
@@ -20,6 +20,9 @@ export async function errorText(r: Response, fallback: string): Promise<string> 
 }
 
 export const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+/** Ошибка слоя превью (шаблон в iframe: файл не дался — `<файл>: HTTP <код>`) — пауза Vercel словами, остальное как есть. */
+export const layerError = (text: string): string => (/\bHTTP 402\b/.test(text) ? PAUSED : text);
 
 /** localStorage, если браузер его даёт (в приватном режиме Safari доступ может бросить). */
 export function storage(): Storage | null {

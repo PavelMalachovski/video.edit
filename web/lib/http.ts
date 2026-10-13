@@ -21,7 +21,9 @@ export function jsonWithEtag(data: unknown, request: Request): Response {
   const body = JSON.stringify(data);
   const etag = `"${createHash('sha1').update(body).digest('hex')}"`;
   const headers = { ETag: etag, 'Cache-Control': 'no-store' };
-  if (request.headers.get('If-None-Match') === etag) return new Response(null, { status: 304, headers });
+  // сравнение слабое (RFC 9110): CDN, сжимая ответ, может вернуть его как W/"…", браузер — списком
+  const sent = (request.headers.get('If-None-Match') ?? '').split(',').map((t) => t.trim().replace(/^W\//, ''));
+  if (sent.includes(etag)) return new Response(null, { status: 304, headers });
   return new Response(body, { headers: { ...headers, 'Content-Type': 'application/json' } });
 }
 

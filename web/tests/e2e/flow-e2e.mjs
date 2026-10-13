@@ -315,6 +315,16 @@ const segments = [
       await page.setInputFiles('#voice', voice);
       await page.getByRole('button', { name: 'Продолжить загрузку' }).waitFor();
       await shot(page, 'upload-resume');
+      // Vercel поставил сайт на паузу (402 и своя HTML-страница): кусок не повторяется шесть раз, новые не начинаются,
+      // причина — словами; пауза снята — «Продолжить загрузку» идёт с того же места
+      const isPart = (u) => /\/api\/jobs\/[^/]+\/parts\/\d+$/.test(u.pathname);
+      let paused = 0;
+      await page.route(isPart, (route) => { paused += 1; return route.fulfill({ status: 402, contentType: 'text/html', body: '<html>402: PAYMENT_REQUIRED</html>' }); });
+      await page.getByRole('button', { name: 'Продолжить загрузку' }).click();
+      await page.locator('.err').getByText('Vercel поставил сайт на паузу').waitFor({ timeout: 15_000 });
+      check(paused >= 1 && paused <= 2, `на паузе — без повторов: ${paused} запросов кусков`);
+      await shot(page, 'upload-paused');
+      await page.unroute(isPart);
       await page.getByRole('button', { name: 'Продолжить загрузку' }).click();
     }
 

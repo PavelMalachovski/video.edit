@@ -91,11 +91,19 @@ export default function Editor({ id }: { id: string }) {
   };
 
   // данные: сразу и снова, пока черновика или прокси ещё нет (сессия пишет, Action переносит прокси в релиз) или Claude монтирует
+  const last = useRef<{ etag: string; data: EditorData } | null>(null); // то же содержимое — 304 без тела (трафик Vercel)
   const load = useCallback(async (): Promise<EditorData | null> => {
     try {
-      const r = await fetch(`/api/jobs/${id}/editor`, { cache: 'no-store' });
+      const was = last.current;
+      const r = await fetch(`/api/jobs/${id}/editor`, { cache: 'no-store', headers: was ? { 'If-None-Match': was.etag } : {} });
+      if (r.status === 304 && was) {
+        setError('');
+        return was.data;
+      }
       const body = await r.json().catch(() => null);
       if (!r.ok) throw new Error(r.status !== 402 && typeof body?.error === 'string' ? body.error : statusText(r.status, 'HTTP'));
+      const etag = r.headers.get('ETag');
+      last.current = etag ? { etag, data: body as EditorData } : null;
       setData(body as EditorData);
       setError('');
       return body as EditorData;

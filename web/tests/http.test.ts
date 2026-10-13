@@ -71,3 +71,11 @@ test('a file of a commit (v = its sha) is cached by the browser and by Vercel\'s
   assert.deepEqual(commitCache(sha), { 'Cache-Control': 'private, max-age=86400', 'Vercel-CDN-Cache-Control': 'max-age=31536000' });
   for (const v of [null, '', 'main', 'a'.repeat(39), `${sha}x`]) assert.deepEqual(commitCache(v), { 'Cache-Control': 'no-store' }, String(v));
 });
+
+test('the ETag compares weakly (RFC 9110): a CDN that compresses may send it back as W/"…" or in a list — still 304', () => {
+  const data = { view: { screen: 'result' }, head: 'abc' };
+  const etag = jsonWithEtag(data, new Request('http://x/api/jobs/1')).headers.get('ETag')!;
+  const ask = (sent: string) => jsonWithEtag(data, new Request('http://x/api/jobs/1', { headers: { 'If-None-Match': sent } })).status;
+  for (const sent of [`W/${etag}`, `"other", ${etag}`, ` ${etag} `, `W/"x",W/${etag}`]) assert.equal(ask(sent), 304, sent);
+  for (const sent of ['"other"', 'W/"other"', etag.slice(0, -2) + '"', '']) assert.equal(ask(sent), 200, sent);
+});

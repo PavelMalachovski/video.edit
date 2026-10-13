@@ -5,6 +5,7 @@
 // Рисуется только последнее: пока шаблон занят, новые состояния не копятся в очередь — после текущего он нарисует самое
 // свежее (в редакторе слой меняется до 30 раз в секунду).
 import { useEffect, useRef, useState } from 'react';
+import { layerError } from '@/lib/client.ts';
 import type { StyleSpec } from '@/lib/jobfiles.ts';
 import type { OverlayState } from '@/lib/style.ts';
 
@@ -50,7 +51,7 @@ export default function PreviewFrame({ frameUrl, spec, state, progress = null, w
           setError('');
           boxes.current?.(win.layoutBoxes?.(), d.state);
         },
-        (e: unknown) => live.current && setError(e instanceof Error ? e.message : String(e)),
+        (e: unknown) => live.current && setError(layerError(e instanceof Error ? e.message : String(e))),
       ).finally(() => {
         job.current.busy = false;
         const next = job.current.next;

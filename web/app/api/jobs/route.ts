@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { errorResponse } from '@/lib/http.ts';
+import { errorResponse, jsonWithEtag } from '@/lib/http.ts';
 import { createDraftRelease, listAllAssets, listReleases } from '@/lib/github.ts';
 import { listHeads } from '@/lib/branch.ts';
 import { deriveView, readJobFiles, type Screen } from '@/lib/jobview.ts';
@@ -42,7 +42,7 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
 }
 
 // Список задач для «Мои видео»: в работе и ждущие ответа — вверху, внутри групп — новые выше.
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const g = gh();
     const releases = (await listReleases(g)).filter((r) => r.tag_name.startsWith('job-') && isJobId(r.tag_name.slice(4)));
@@ -56,7 +56,7 @@ export async function GET() {
       return { jobId: id, kind: v.kind, title: v.title, createdAt: v.createdAt, duration: v.duration, screen: v.screen, phase: v.status?.phase ?? null, stuck: v.stuck };
     });
     rows.sort((a, b) => ORDER[a.screen] - ORDER[b.screen] || b.createdAt.localeCompare(a.createdAt));
-    return NextResponse.json(rows);
+    return jsonWithEtag(rows, request); // опрос списка с тем же содержимым — 304 без тела
   } catch (e) {
     return errorResponse(e);
   }

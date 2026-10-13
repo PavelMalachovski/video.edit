@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { PAUSED } from '../lib/client.ts';
 import {
-  clearPending, loadPending, matchPending, planChunks, resumeDone, runUpload, sameSelection, savePending, type Pending, type PutResult,
+  clearPending, FATAL, loadPending, matchPending, planChunks, resumeDone, runUpload, sameSelection, savePending, UploadStopped, type Pending, type PutResult,
 } from '../lib/uploader.ts';
 import { blockedStorage, memoryStorage } from './helpers.ts';
 
@@ -66,6 +67,47 @@ test('gives up after maxRetries and names the failed parts', async () => {
   await assert.rejects(
     runUpload({ parts: 2, put: async (i) => (i === 1 ? { ok: false, status: 502 } : { ok: true }), concurrency: 1, minGapMs: 0, maxRetries: 3, ...c }),
     /part 1/);
+});
+
+test('stops at once on an answer no retry can fix: Vercel paused the site (402), signed out (401), a bad or too big part', async () => {
+  assert.deepEqual([...FATAL].sort((a, b) => a - b), [400, 401, 402, 404, 413]);
+  for (const status of FATAL) {
+    const c = clock();
+    let puts = 0;
+    await assert.rejects(
+      runUpload({ parts: 6, put: async () => { puts += 1; return { ok: false, status }; }, concurrency: 2, minGapMs: 0, ...c }),
+      (e: unknown) => e instanceof UploadStopped && e.status === status, String(status));
+    assert.ok(puts <= 2, `${status}: ${puts} запросов — без повторов и без новых кусков`);
+    assert.equal(c.now(), 0, `${status}: без пауз перед повторами`);
+  }
+});
+
+test('after a fatal answer no new part starts; the parts already sent stay done for «Продолжить загрузку»', async () => {
+  const c = clock();
+  const started: number[] = [];
+  const progress: number[] = [];
+  await assert.rejects(runUpload({
+    parts: 10, put: async (i) => { started.push(i); return i === 1 ? { ok: false, status: 402 } : { ok: true }; },
+    concurrency: 2, minGapMs: 0, onProgress: (n) => progress.push(n), ...c,
+  }), UploadStopped);
+  assert.ok(started.length <= 3, started.join(', '));
+  assert.ok(progress.length >= 1, 'кусок 0 загрузился до остановки');
+});
+
+test('a stopped upload says why in words: the paused site — as everywhere on the page; signed out — sign in and go on', () => {
+  assert.equal(new UploadStopped(402).message, PAUSED);
+  assert.match(new UploadStopped(401).message, /[Вв]ход/);
+  assert.match(new UploadStopped(413).message, /413/);
+  assert.ok(new UploadStopped(400) instanceof Error);
+});
+
+test('server errors and a lost connection are still retried', async () => {
+  for (const status of [0, 429, 500, 502, 503, 504]) {
+    const c = clock();
+    let calls = 0;
+    const r = await runUpload({ parts: 1, put: async () => (++calls === 1 ? { ok: false, status } : { ok: true }), concurrency: 1, minGapMs: 0, rateLimitWaitMs: 10, ...c });
+    assert.equal(r.retries, 1, String(status));
+  }
 });
 
 // ---------- куски, продолжение после перезагрузки ----------

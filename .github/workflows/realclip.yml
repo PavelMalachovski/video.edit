@@ -1,0 +1,62 @@
+# Каждая фича — на настоящем ролике: 30 секунд говорящей головы с iPhone монтируются движком с настройками Павла (стиль,
+# места текста, вставка и акцент на кадре, затемнение, зум, ч/б, переход, скорость, тизер, музыка, карточка, обложка);
+# проверки — по кадрам, звуку и раскладке слоя (engine/tests/test_realclip.py), листы кадров — артефактом прогона
+# (видео Павла в git не кладём). На PR в master, каждую ночь и вручную: прогон — около 15 минут.
+name: realclip
+on:
+  pull_request:
+    branches: [master]
+  schedule:
+    - cron: '47 3 * * *'
+  workflow_dispatch:
+permissions:
+  contents: write  # черновик realclip-30s с роликом создаётся один раз
+concurrency:
+  group: realclip-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  PLAYWRIGHT_BROWSERS_PATH: /opt/pw-browsers
+  PW_VERSION: 1.56.1
+jobs:
+  realclip:
+    name: every feature on the real 30 s clip
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      REALCLIP_JOB: ${{ github.workspace }}/realclip/261013-000000-rc30
+      REALCLIP_OUT: ${{ github.workspace }}/realclip-out
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: ffmpeg and Python packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg >/dev/null
+          python -m pip install -q numpy jsonschema onnxruntime pillow fonttools pytest
+      - name: Matte model (the same file as setup/cloud-setup.sh)
+        run: |
+          eval "$(grep -E '^MATTE(_URL|_SHA256)?=' setup/cloud-setup.sh)"
+          mkdir -p ~/.cache/vm
+          curl -sSL --retry 3 -o ~/.cache/vm/"$MATTE" "$MATTE_URL"
+          echo "$MATTE_SHA256  $HOME/.cache/vm/$MATTE" | sha256sum -c
+      - run: bash .github/scripts/ci-playwright.sh
+      - name: The clip
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/realclip-clip.sh
+      - name: Every feature on it
+        working-directory: engine
+        run: python -m pytest -q -m realclip tests/test_realclip.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: realclip-sheets
+          path: ${{ github.workspace }}/realclip-out/*.png
+          retention-days: 14
+          if-no-files-found: warn

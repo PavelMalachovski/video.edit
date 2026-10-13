@@ -31,6 +31,10 @@
   Порты заняты остатком прошлого прогона — `pgrep -af '[n]ext start|[f]ake-github'`.
 - Движок: `cd engine && python3 -m pytest -q -m "not slow"`; медленные — `-m slow` (~4 мин); `ruff check .` — из `engine/`.
 - Шаблон: `cd template && npm test`.
+- Настоящий ролик (30 с говорящей головы): `REALCLIP_JOB=<папка задачи> python -m pytest -m realclip tests/test_realclip.py`
+  из `engine/` — каждая фича, настроенная руками, видна в смонтированном ролике; папку готовит
+  `python -m tests.realclip_prepare <задача с source.mp4> <папка>`. На GitHub — workflow `realclip` (PR в `master`,
+  ночь, вручную): ролик — архивом в черновике `realclip-30s`, листы кадров — артефактом (видео Павла в git не кладём).
 - CI на GitHub (`.github/workflows/ci.yml`) гоняет всё это сам: на каждый пуш, на PR в `master` и каждую ночь на
   `master`. e2e — в Chromium и в Safari (WebKit, iPhone 13: `E2E_BROWSER=webkit`); шаблон — ещё «Safari рисует как
   рендер» (`template/tests/safari.test.mjs`, без WebKit локально пропускается); shellcheck и actionlint; поиск

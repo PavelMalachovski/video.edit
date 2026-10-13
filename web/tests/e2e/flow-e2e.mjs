@@ -1449,6 +1449,7 @@ const segments = [
     await page.locator('.ed-pic-panel').getByText('50 %').first().waitFor({ timeout: 3000 });
     await seekTo(1.6);
     await until(async () => Math.abs((await zoom()) - (1 + (z0 - 1) / 2)) < 0.002, 3000, async () => `зум вполовину: было ${z0}, стало ${await zoom()}`);
+    const z1 = await zoom();
 
     // ч/б-кусок: выбрать на дорожке — убрать; кадр в цвете, на дорожке — тень
     await look.click();

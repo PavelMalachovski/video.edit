@@ -6,7 +6,7 @@ import { commitFiles, listDir, readText } from './branch.ts';
 import { badSymbols, hasEmoji, MUSIC_FILE, parseTimeline, typedTexts, type HandEdits, type TimelineFile } from './edits.ts';
 import { sameJson } from './equal.ts';
 import type { GH } from './github.ts';
-import { appendFix, parseStyle, type AnswersFile, type FixFile, type Released, type Styles } from './jobfiles.ts';
+import { appendFix, parseStyle, type AnswersFile, type FixFile, type Released, type StyleChoice, type Styles } from './jobfiles.ts';
 import { jobBranch, jobDir } from './jobs.ts';
 import { loadJob, readJobText, type Screen } from './jobview.ts';
 import type { BeatsFile } from './beats.ts';
@@ -99,6 +99,9 @@ export type EditorData = {
   library: string[]; // треки библиотеки в ветке задачи (assets/music/…): другой трек — из них
   rev: number; // ревизия timeline.json в ветке (нет — 0): от неё сохраняется следующая
   brandLook: BrandLook | null; // «Мой стиль» из копии бренда задачи: до монтажа стиль начинается с него, как на «Превью»
+  // пока Claude монтирует новый стиль из редактора — прошлый выбор (fix.json, styleFrom): ролик ещё в нём, и новый ляжет
+  // поверх него (vm style --onto); иначе — null
+  styleFrom: StyleChoice | null;
 };
 
 const MUSIC_DIR = 'assets/music';
@@ -184,6 +187,7 @@ export async function loadEditor(gh: GH, id: string): Promise<EditorData | null>
     library,
     ...timelineOf(timeline),
     brandLook: parseLook(f?.job?.brand?.look),
+    styleFrom: loaded.view.screen === 'working' ? f?.fix?.fixes.at(-1)?.styleFrom ?? null : null,
   };
 }
 

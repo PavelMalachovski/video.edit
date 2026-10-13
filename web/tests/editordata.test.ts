@@ -280,3 +280,24 @@ test('a picture Pavel uploaded is found whole or by its parts, in order (uploads
   assert.equal(pictureType('upload-i1.png'), 'image/png');
   assert.equal(pictureType('upload-q-x.jpeg'), 'image/jpeg');
 });
+
+test('while Claude mounts a new style from the editor, the editor knows the style the video is still in (the last fix\'s styleFrom)', () => withFake(async ({ fake, gh }) => {
+  const was = { variant: 'B', font: 'rubik', hand: 'caveat', colors: { text: '#FFFFFF', accent: '#FF5C8A', bar: '#FFFFFF' }, subY: 1300 };
+  const fix = { text: 'Правки в редакторе', at: '2026-10-12T14:59:00Z', version: 2, timeline: 3, style: true, styleFrom: was };
+  fake.addAsset(`job-${ID}`, 'manifest.json', '{}');
+  fake.commit(`claude/job-${ID}`, {
+    [`${DIR}/job.json`]: JSON.stringify({ ...JOB, runs: [...JOB.runs, { step: 'fix', attempt: 1, at: fix.at }] }),
+    [`${DIR}/status.json`]: JSON.stringify({ state: 'queued', phase: 'В очереди', message: '…', at: fix.at }),
+    [`${DIR}/fix.json`]: JSON.stringify({ fixes: [fix] }), [`${DIR}/answers.json`]: JSON.stringify(ANSWERS), [`${DIR}/edit.json`]: JSON.stringify(EDIT),
+    [`${DIR}/out/released.json`]: released('final.mp4'),
+  });
+  const working = await loadEditor(gh, ID);
+  assert.equal(working?.screen, 'working');
+  assert.deepEqual(working?.styleFrom, was, 'ролик ещё в прошлом стиле: новый ляжет поверх него (vm style --onto)');
+  const { style: _style, styleFrom: _from, ...textOnly } = fix;
+  fake.commit(`claude/job-${ID}`, { [`${DIR}/fix.json`]: JSON.stringify({ fixes: [textOnly] }) });
+  assert.equal((await loadEditor(gh, ID))?.styleFrom, null, 'правка без нового стиля — null');
+  fake.commit(`claude/job-${ID}`, { [`${DIR}/fix.json`]: JSON.stringify({ fixes: [fix] }), [`${DIR}/out/released.json`]: released('final.mp4', 'final-v2.mp4') });
+  const done = await loadEditor(gh, ID);
+  assert.ok(done?.screen === 'result' && done.styleFrom === null, 'новая версия готова — ролик уже в новом стиле');
+}));

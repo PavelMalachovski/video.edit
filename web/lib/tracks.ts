@@ -412,6 +412,22 @@ export function findBlock(t: Tracks, kind: 'hook' | 'cta' | 'accent' | 'insert',
   return list.find((c) => c.ref?.kind === kind && (kind === 'hook' || kind === 'cta' || ('n' in c.ref && c.ref.n === n))) ?? null;
 }
 
+/** Клип, дольше всех идущий в промежутке события слоя [t0, t1): что на кадре сейчас (группа субтитров, акцент) — по нему
+ *  касание кадра выбирает блок. Края событий — на целых кадрах, края групп — нет: по перекрытию, а не по началу. Ничего —
+ *  null. */
+export function clipAt(clips: readonly Clip[], t0: number, t1: number): Clip | null {
+  let best: Clip | null = null;
+  let most = 0;
+  for (const c of clips) {
+    const o = Math.min(c.t1, t1) - Math.max(c.t0, t0);
+    if (o > most + 1e-9) {
+      most = o;
+      best = c;
+    }
+  }
+  return best;
+}
+
 // ---------- правки руками ----------
 
 /** Черновик с правками Павла (timeline.json): куски — как их вырежет движок (applyKeep — apply_keep), музыка — с его

@@ -84,6 +84,19 @@ export function clampTo(key: Adjustable, x: number): number {
   const { range, step } = ADJUST[key];
   return Math.min(range.max, Math.max(range.min, Number((Math.round(x / step) * step).toFixed(6))));
 }
+/** Субтитры или хук — что тянут на кадре (ручкой на «Превью» и в редакторе). */
+export type TextPart = 'sub' | 'hook';
+/** Место и размер субтитров или хука в стиле — от них тянет ручка (центр блока субтитров, центр строки хука капсом — так
+ *  их ставит шаблон; у хука без места — HOOK_Y_DEFAULT) и их пределы (ADJUST). */
+export function textPlace(spec: StyleSpec, part: TextPart) {
+  return part === 'sub' ? { y: spec.subtitles.y, size: spec.subtitles.size, range: SUB_Y, sizes: SUB_SIZE }
+    : { y: spec.hook.y ?? HOOK_Y_DEFAULT, size: spec.hook.size, range: HOOK_Y, sizes: HOOK_SIZE };
+}
+/** Выбор с новым местом и/или размером субтитров или хука — с шагом и в пределах ADJUST (как ползунки «Стиля»). */
+export function placeText(c: StyleChoice, part: TextPart, to: { y?: number; size?: number }): StyleChoice {
+  const [yk, sk] = part === 'sub' ? (['subY', 'subSize'] as const) : (['hookY', 'hookSize'] as const);
+  return { ...c, ...(to.y !== undefined ? { [yk]: clampTo(yk, to.y) } : {}), ...(to.size !== undefined ? { [sk]: clampTo(sk, to.size) } : {}) };
+}
 export const clampSubY = (y: number): number => clampTo('subY', y);
 /** Субтитры ниже безопасной зоны Reels (низ рамки ниже 1530): там их может закрыть подпись к ролику — страница скажет. */
 export const underCaption = (b: { y: number; h: number } | null | undefined): boolean => !!b && b.y + b.h > INSERT_ZONE.y1;

@@ -729,3 +729,30 @@ def test_mp4_boxes_of_a_broken_file_is_an_error(tmp_path):
     bad.write_bytes(b"\x00\x00\x00\x08ftyp" + b"\x00\x00\x10\x00moov")  # коробка moov заявлена длиннее файла
     with pytest.raises(MediaError, match="MP4"):
         media.mp4_boxes(bad)
+
+
+def test_a_hung_ffmpeg_is_stopped_with_a_clear_error():
+    """Зависший ffmpeg (битый файл, сеть) не держит сессию монтажа: потолок времени, процесс остановлен, ошибка — словами."""
+    import time
+
+    from vm import media
+
+    start = time.monotonic()
+    with pytest.raises(media.MediaError, match="не уложился в 0 с — остановлен"):
+        media._run(["sleep", "30"], timeout=0.3)
+    assert time.monotonic() - start < 5
+
+
+def test_normalizing_a_long_video_gets_time_by_its_length(monkeypatch, tmp_path):
+    """Нормализация длинного 4K — минуты: её потолок — по длине видео, не меньше общего."""
+    from vm import media
+
+    seen = []
+    monkeypatch.setattr(media, "_run", lambda cmd, timeout=media.FFMPEG_TIMEOUT: seen.append(timeout) or None)
+    info = media.Probe(1080, 1920, 0, 30.0, 1200.0, False, True, None)
+    monkeypatch.setattr(media, "_inspect", lambda part: (info, media._Streams(0, 1, 1200.0)))
+    monkeypatch.setattr(media, "probe", lambda out: "probe")
+    out = tmp_path / "source.mp4"
+    with pytest.raises(media.MediaError):  # _run подменён — файла нет, _atomic об этом скажет
+        media.normalize([tmp_path / "a.mov"], out)
+    assert seen and seen[0] >= 4 * 1200 and seen[0] >= media.FFMPEG_TIMEOUT

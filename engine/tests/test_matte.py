@@ -239,6 +239,7 @@ def test_a_failing_matte_leaves_the_video_undimmed_with_a_note(tmp_path, monkeyp
     job.root.mkdir(parents=True)
     count_video(job.path("source.mp4"))
     monkeypatch.setattr(matte, "unavailable", lambda: None)
+    monkeypatch.setattr(matte, "_rvm", lambda threads=None: Mean())  # файла модели может не быть (CI): ломается не она
 
     def fail(*args, **kwargs):
         raise Boom("модель сломалась")
@@ -263,3 +264,18 @@ def test_the_real_model_gives_a_half_size_matte_per_frame(tmp_path):
     )
     out = matte.write_mattes(source, [(0, 12)], tmp_path / "matte.mkv")
     assert read_gray(out, 540, 960).shape == (12, 960, 540)
+
+
+@needs_ffmpeg
+def test_a_decoder_that_goes_silent_is_stopped(tmp_path, monkeypatch):
+    """Декодер кадров для маски замолчал (битый исходник) — через STALL с он остановлен и рендер узнаёт об этом, а не
+    ждёт вечно (иначе сессию пришлось бы останавливать руками)."""
+    import time
+
+    source = count_video(tmp_path / "count.mp4")
+    monkeypatch.setattr(matte, "STALL", 0.5)
+    monkeypatch.setattr(matte, "_decoder", lambda source, first, count, size: ["sleep", "30"])
+    start = time.monotonic()
+    with pytest.raises(RuntimeError, match="молчит"):
+        list(matte._frames(source, 0, 10, (32, 56)))
+    assert time.monotonic() - start < 5

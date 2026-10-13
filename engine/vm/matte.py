@@ -18,6 +18,7 @@
 """
 import math
 import os
+import select
 import subprocess
 import threading
 from collections.abc import Callable, Iterator
@@ -34,6 +35,7 @@ WARMUP = 8  # кадров перед отрезком: память модел�
 RATIO = 0.5  # downsample_ratio модели для кадра 540×960 (совет авторов: 0,4–0,5 для HD и меньше)
 WORKERS = 4  # потоков маски (не больше ядер и отрезков): на 4 ядрах рутины 51 мс на кадр против 75 у одной сессии
 STRIDE = 2  # модель видит каждый второй кадр отрезка (и последний); маска между ними — среднее соседних
+STALL = 120  # с — столько декодер кадров может молчать; дольше — завис (битый исходник), он останавливается
 
 Predict = Callable[[np.ndarray, object], tuple[np.ndarray, object]]
 
@@ -99,24 +101,45 @@ def matte_size(width: int, height: int) -> tuple[int, int]:
     return max(2, width // 4 * 2), max(2, height // 4 * 2)
 
 
+def _decoder(source: Path, first: int, count: int, size: tuple[int, int]) -> list[str]:
+    """ffmpeg, что отдаёт кадры для маски сырым RGB в stdout (подменяется в тестах)."""
+    w, h = size
+    return ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-ss", f"{max(0.0, (first - 0.5) / FPS):.6f}",
+            "-i", str(source), "-an", "-frames:v", str(count), "-vf", f"scale={w}:{h}", "-fps_mode", "passthrough",
+            "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]
+
+
+def _read(fd: int, size: int, proc: subprocess.Popen) -> bytes:
+    """Ровно `size` байт из трубы (меньше — кадры кончились). Молчит дольше STALL с — процесс остановлен, RuntimeError:
+    рендер узнаёт о зависшем декодере, а не ждёт вечно."""
+    chunks, got = [], 0
+    while got < size:
+        if not select.select([fd], [], [], STALL)[0]:
+            proc.kill()
+            raise RuntimeError(f"декодер кадров для маски молчит {STALL:g} с — остановлен")
+        chunk = os.read(fd, min(size - got, 1 << 20))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        got += len(chunk)
+    return b"".join(chunks)
+
+
 def _frames(source: Path, first: int, count: int, size: tuple[int, int]) -> Iterator[np.ndarray]:
     """`count` кадров исходника с номера `first` (RGB, размер `size`). Начало — посередине перед кадром: кадр
     `first` (его время `first`/30) берётся, предыдущий — нет, как `trim=start_frame` склейки. Кадры — как есть, без
     добивки: со звуком AAC (как в source.mp4) перемотка давала видео начало чуть позже нуля, и выход с постоянной
     частотой повторял первый кадр — маска отставала на кадр."""
     w, h = size
-    proc = subprocess.Popen(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-ss", f"{max(0.0, (first - 0.5) / FPS):.6f}",
-         "-i", str(source), "-an", "-frames:v", str(count), "-vf", f"scale={w}:{h}", "-fps_mode", "passthrough",
-         "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
-        stdout=subprocess.PIPE,
-    )
+    proc = subprocess.Popen(_decoder(source, first, count, size), stdout=subprocess.PIPE, bufsize=0)
     frame = w * h * 3
     try:
-        while len(buf := proc.stdout.read(frame)) == frame:
+        while len(buf := _read(proc.stdout.fileno(), frame, proc)) == frame:
             yield np.frombuffer(buf, np.uint8).reshape(h, w, 3)
     finally:
         proc.stdout.close()
+        if proc.poll() is None:  # кадров хватило раньше конца или ошибка выше — декодер дальше не нужен
+            proc.kill()
         proc.wait()
 
 

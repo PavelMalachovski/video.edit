@@ -21,19 +21,26 @@ class GitError(RuntimeError):
     """Команда git не удалась (после всех повторов) или push() отказался что-то коммитить."""
 
 
+GIT_TIMEOUT = 900  # с — потолок одной команды git (пуш 2 ГБ кусками — минуты): зависшая сеть не держит сессию вечно
+
+
 def _git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
     # LC_ALL=C — сообщения git по-английски (по ним узнаём отказ); без запроса пароля — сессия не интерактивна
     env = {**os.environ, "LC_ALL": "C", "GIT_TERMINAL_PROMPT": "0"}
-    done = subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        env=env,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-    )
+    try:
+        done = subprocess.run(
+            ["git", *args],
+            cwd=cwd,
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=GIT_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:  # процесс уже остановлен; для push — как сетевая ошибка: повтор с паузой
+        done = subprocess.CompletedProcess(["git", *args], 124, "", f"git {args[0]} не ответил за {GIT_TIMEOUT} с — остановлен")
     if check and done.returncode != 0:
         raise GitError(f"git {args[0]} failed: {(done.stderr or done.stdout).strip()}")
     return done

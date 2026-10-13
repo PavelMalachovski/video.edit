@@ -27,6 +27,7 @@ BT709 = ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt7
 GRID_CELL = (108, 192)  # 10×10 клеток на кадре 1080×1920: по клетке можно назвать, куда указывает палец
 THUMB_WIDTH = 180  # колонка контактного листа: 6 колонок — ровно 1080 px
 STDERR_LINES = 8  # столько последних строк ffmpeg/ffprobe попадает в сообщение об ошибке
+FFMPEG_TIMEOUT = 1800  # с — потолок одного ffmpeg/ffprobe: зависший (битый файл) не держит сессию монтажа вечно
 LAST_FRAME_SLACK = 0.001  # на столько t может выйти за конец клипа из-за округления, оставаясь последним кадром
 # кадр не 9:16 — по центру на своей размытой копии во весь кадр 1080×1920: так его кладёт финал (render), так же его
 # показывают кадры превью и обложка (`vm preview`, `render_cover`)
@@ -78,7 +79,7 @@ class _Streams:
 # ---------- запуск ffmpeg / ffprobe ----------
 
 
-def _run(cmd: list[str]) -> subprocess.CompletedProcess:
+def _run(cmd: list[str], timeout: float = FFMPEG_TIMEOUT) -> subprocess.CompletedProcess:
     try:
         done = subprocess.run(
             cmd,
@@ -88,17 +89,20 @@ def _run(cmd: list[str]) -> subprocess.CompletedProcess:
             encoding="utf-8",
             errors="replace",
             check=False,
+            timeout=timeout,
         )
     except FileNotFoundError:
         raise MediaError(f"{cmd[0]} not found (is ffmpeg installed?)") from None
+    except subprocess.TimeoutExpired:  # subprocess.run уже остановил процесс
+        raise MediaError(f"{cmd[0]} не уложился в {timeout:.0f} с — остановлен") from None
     if done.returncode != 0:
         tail = "\n".join(done.stderr.strip().splitlines()[-STDERR_LINES:])
         raise MediaError(f"{cmd[0]} failed (exit {done.returncode}): {tail}")
     return done
 
 
-def _ffmpeg(*args) -> None:
-    _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y", *map(str, args)])
+def _ffmpeg(*args, timeout: float = FFMPEG_TIMEOUT) -> None:
+    _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y", *map(str, args)], timeout=timeout)
 
 
 @contextmanager
@@ -335,6 +339,8 @@ def normalize(parts: Sequence[PathLike], out: PathLike, voice: PathLike | None =
             "-r", FPS, "-fps_mode", "cfr",
             "-c:a", "aac", "-b:a", "192k", "-ar", AUDIO_RATE, "-ac", 2,
             tmp,
+            # 4K HEVC с iPhone — ~1 с на секунду видео на 4 ядрах: потолок — вчетверо, не меньше общего
+            timeout=max(FFMPEG_TIMEOUT, 4 * sum(streams.seconds for _, streams in inspected)),
         )  # fmt: skip
     return probe(out)
 

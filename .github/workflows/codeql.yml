@@ -1,12 +1,11 @@
 # Поиск уязвимостей в коде (CodeQL от GitHub): страница (TypeScript), движок (Python) и сами workflow. Находки — в логе
 # задания, и оно на них падает (загрузке во вкладку Security нужен включённый в настройках code scanning — не нужно).
-# На пуши (кроме веток задач), PR в master и раз в неделю — новые правила CodeQL.
+# На PR в master, если менялся код (минуты Actions: прогон — ~10 мин), раз в неделю — новые правила CodeQL — и вручную.
 name: codeql
 on:
-  push:
-    branches-ignore: ['claude/job-*', 'ci-screens/**']
   pull_request:
     branches: [master]
+    paths: ['web/**', 'template/**', 'engine/**', 'setup/**', '.github/**']
   schedule:
     - cron: '41 4 * * 1'
   workflow_dispatch:

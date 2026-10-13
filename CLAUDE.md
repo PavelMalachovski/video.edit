@@ -149,13 +149,14 @@
   шрифт что рисует, `_hand_word`; таблица символов — `getBestCmap` fontTools) ↔ `web/lib/fontchars.ts` (`fontChars` —
   cmap того же файла, `missingLetters`, `typedText`, `handWord`), раздел `letters` общей фикстуры (по всем шрифтам
   каталога).
-- Готовый исходник задачи в черновике (нормализация один раз на задачу): `engine/vm/source.py` (`key`, `asset`, `describe`, `NORMALIZE` — подними, если меняешь `media.normalize`) ↔ `.github/scripts/job-source.sh` (Action job-source: куски `<ассет>.part-NNNNN` и последним `source-<ключ>.json`) и `_ready` в `engine/vm/fetch.py`.
+- Готовый исходник задачи в черновике (нормализация один раз на задачу): `engine/vm/source.py` (`key`, `asset`, `describe`, `NORMALIZE` — подними, если меняешь `media.normalize`) ↔ `.github/scripts/job-source.sh` (Action job-source: куски `<ассет>.part-NNNNN` и последним `source-<ключ>.json`; сбой — метка `source-<ключ>.failed`) и `_ready` в `engine/vm/fetch.py` (берёт его только после анализа — есть `editor.json`).
 - Языки: `engine/vm/lang.py` (коды, названия, чем распознавать) и `setup/cloud-setup.sh` (какие модели ставятся).
 - Затемнение фона: `engine/vm/matte.py` (`MODEL`) и `setup/cloud-setup.sh` (откуда ставится модель, её sha256); маска
   идёт кадр в кадр со склейкой — `segment_frames` в `engine/vm/render.py`, общий с `_cut`.
 - Бренд Павла: поля и проверка — `web/lib/brand.ts`, как их берёт монтаж — SKILL.md (стиль A, `job.json.brand`); «Мой
-  стиль» (`look`: `lookFromJob`, `parseLook`) — из стиля и ответов ролика ↔ `brandChoice`, `loadChoice`, `loadSpeed` в
-  `web/lib/style.ts` и `initialDraft` в `web/lib/answers.ts` (с него — превью и ответы новой задачи).
+  стиль» (`look`: `lookFromJob` — скорость, затемнение и музыка, какими их собрал `edits.apply` движка; `parseLook`) ↔
+  `brandChoice`, `loadChoice`, `loadSpeed` в `web/lib/style.ts`, `initialDraft` в `web/lib/answers.ts` и `brandLook`
+  редактора (`loadEditor`) — с него превью, редактор до монтажа и ответы новой задачи.
 - Эмодзи: правило деления текста — `engine/vm/emoji.py` (`runs`) и `template/emoji.js` (`emojiRuns`), общая фикстура
   `engine/tests/fixtures/emoji-runs.json`; картинки и список — `template/emoji/` (собирает `python3 -m vm.emoji`).
 - Сценарий до съёмки: схема `engine/vm/schemas/script.json` и `web/lib/script.ts` (типы; ТЗ «Снять по сценарию» —

@@ -11,6 +11,7 @@
 import json
 import os
 import subprocess
+import sys
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -53,15 +54,33 @@ class Mark:
     code = 1
 
 
+def busy(job: Job) -> str | None:
+    """Какая команда идёт в фоне (её pid жив) или None."""
+    running = _read(job.path(RUNNING))
+    if running is None or not _alive(int(running.get("pid", 0))):
+        return None
+    return str(running.get("command"))
+
+
 @contextmanager
 def mark(job: Job, name: str) -> Iterator[Mark]:
-    """Команда `name` идёт: `work/running.json` с её pid; кончилась — `work/done.json` с кодом (`Mark.code`)."""
+    """Команда `name` идёт: `work/running.json` с её pid; кончилась — `work/done.json` с кодом (`Mark.code`). В фоне
+    уже идёт другая (`vm matte --detach`, а сессия тем временем зовёт `vm prepare`) — место её: эта не отмечается."""
     m = Mark()
+    running = _read(job.path(RUNNING))
+    if running is not None and int(running.get("pid", 0)) != os.getpid() and _alive(int(running.get("pid", 0))):
+        yield m
+        return
     job.path(DONE).unlink(missing_ok=True)
     _write(job.path(RUNNING), {"command": name, "pid": os.getpid(), "started": _now()})
     try:
         yield m
     finally:
+        for stream in (sys.stdout, sys.stderr):  # вывод — в лог раньше отметки о конце: vm wait читает его сразу
+            try:
+                stream.flush()
+            except (OSError, ValueError):
+                pass
         _write(job.path(DONE), {"command": name, "code": m.code, "ended": _now()})
         job.path(RUNNING).unlink(missing_ok=True)
 

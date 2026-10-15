@@ -519,9 +519,10 @@ def looks_filter(edit: dict, tl: Timeline) -> str:
 
 
 def colour_chains(head: str, spans: list[tuple[int, int, str]], out: str) -> list[str]:
-    """Цепочки графа для фильтров кусков, кроме ч/б (`looks.rgb_chain`, RGB 16 бит): поток `head` режется по кадрам на
-    куски (`trim`), куски окон идут через свой фильтр, и всё склеивается обратно (`concat`) — кадры вне окон не
-    меняются ни на бит, и перевод в RGB стоит только на кадрах окон. Окон нет — одна цепочка `head` → `out`."""
+    """Цепочки графа для фильтров кусков, кроме ч/б (`looks.rgb_chain`, RGB 16 бит): поток `head` (30 к/с от нуля, после
+    fps) режется по кадрам на куски (`trim`), куски окон идут через свой фильтр, и всё склеивается обратно (`concat`,
+    время кадров — по номеру) — кадры вне окон не меняются ни на бит, и перевод в RGB стоит только на кадрах окон. Окон
+    нет — одна цепочка `head` → `out`."""
     pieces: list[tuple[int, int | None, str | None]] = []
     pos = 0
     for a, b, look in spans:
@@ -539,7 +540,9 @@ def colour_chains(head: str, spans: list[tuple[int, int, str]], out: str) -> lis
         trim = f"trim=start_frame={a}" + (f":end_frame={b}" if b is not None else "")
         grade = rgb_chain(look) if look else "format=yuv420p"
         chains.append(f"[lk{i}]{trim},setpts=PTS-STARTPTS,{grade}[lp{i}]")
-    chains.append("".join(f"[lp{i}]" for i in range(len(pieces))) + f"concat=n={len(pieces)}:v=1:a=0{out}")
+    # время кадров — заново по номеру, как после fps=30: concat ffmpeg 6.1 ставит кусок после куска в один кадр на тот же
+    # момент, и fps зума дальше выкинул бы кадр — всё после него шло бы на кадр раньше звука и текста
+    chains.append("".join(f"[lp{i}]" for i in range(len(pieces))) + f"concat=n={len(pieces)}:v=1:a=0,settb=1/{FPS},setpts=N{out}")
     return chains
 
 

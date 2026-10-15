@@ -619,6 +619,9 @@ def main(argv: list[str] | None = None) -> int:
     name = argv[0] if argv else ""
     if getattr(args, "detach", False):
         job = Job(args.jobdir)
+        if other := background.busy(job):  # два рендера писали бы одни файлы
+            print(f"error: в фоне уже идёт vm {other} — дождись её: vm wait {args.jobdir}", file=sys.stderr)
+            return 1
         background.detach(job, name, [sys.executable, "-m", "vm", *[a for a in argv if a != "--detach"]])
         print(f"vm {name} идёт в фоне (вывод — work/{name}.log); её конец — vm wait {args.jobdir}")
         return 0

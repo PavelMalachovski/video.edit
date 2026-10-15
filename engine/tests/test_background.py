@@ -15,11 +15,11 @@ def job_at(tmp_path) -> Job:
     return Job(root)
 
 
-def child(job: Job, body: str) -> list[str]:
-    """Команда-образец: отмечает себя, как команды движка (`background.mark`), и делает `body`."""
+def child(job: Job, body: str, name: str = "render") -> list[str]:
+    """Команда-образец `name`: отмечает себя, как команды движка (`background.mark`), и делает `body`."""
     return [sys.executable, "-c", "\n".join([
         "import sys, time", "from vm import background", "from vm.job import Job",
-        f"with background.mark(Job({str(job.root)!r}), 'render') as m:",
+        f"with background.mark(Job({str(job.root)!r}), {name!r}) as m:",
         *[f"    {line}" for line in body.splitlines()],
         "    m.code = 0",
     ])]
@@ -72,3 +72,40 @@ def test_cli_detach_lets_the_session_go_and_wait_waits(tmp_path, capsys):
     assert main(["wait", str(job.root), "--max", "60"]) == 1
     out = capsys.readouterr().out
     assert "error:" in out and "vm render: ошибка (код 1)" in out
+
+
+def test_a_command_run_in_the_session_meanwhile_does_not_take_the_place_of_the_one_in_the_background(tmp_path, capsys):
+    """`vm matte --detach` идёт, а сессия тем временем запускает `vm prepare` (долгая команда, но не в фоне): её отметки не
+    занимают место фоновой — `vm wait` ждёт маску и отдаёт её вывод и код, а не код prepare."""
+    job = job_at(tmp_path)
+    background.detach(job, "matte", child(job, "time.sleep(1.5)\nprint('маска готова', flush=True)", "matte"))
+    assert main(["prepare", str(job.root)]) == 1, "prepare падает сразу: видео нет"
+    capsys.readouterr()
+    said = []
+    assert background.wait(job, 20, said.append, poll=0.05) == 0
+    assert "маска готова" in said[0] and said[-1] == "vm matte: готово"
+
+
+def test_a_second_detach_while_one_runs_is_refused(tmp_path, capsys):
+    """Вторая фоновая команда, пока первая жива, — отказ: два рендера писали бы одни файлы."""
+    job = job_at(tmp_path)
+    background.detach(job, "render", child(job, "time.sleep(2)"))
+    assert main(["render", str(job.root), "--detach"]) == 1
+    assert "уже идёт vm render" in capsys.readouterr().err
+    assert background.wait(job, 20, lambda _: None, poll=0.05) == 0
+
+
+def test_the_output_is_in_the_log_before_the_command_counts_as_done(tmp_path, monkeypatch):
+    """Вывод без flush (PYTHONUNBUFFERED нет) — в логе раньше, чем отметка о конце: `vm wait` не отдаёт сводку без конца."""
+    job = job_at(tmp_path)
+    monkeypatch.delenv("PYTHONUNBUFFERED", raising=False)
+    body = "\n".join([
+        "import time", "from vm import background", "from vm.job import Job",
+        f"with background.mark(Job({str(job.root)!r}), 'render') as m:",
+        "    print('итог: всё в порядке')", "    m.code = 0",
+        "time.sleep(1)",  # процесс ещё жив, сводка — в буфере
+    ])
+    background.detach(job, "render", [sys.executable, "-c", body])
+    said = []
+    assert background.wait(job, 20, said.append, poll=0.02) == 0
+    assert "итог: всё в порядке" in said[0]

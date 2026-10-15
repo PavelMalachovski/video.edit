@@ -290,6 +290,30 @@ def test_css_text_of_each_look_is_what_the_page_draws():
 
 
 @needs_ffmpeg
+def test_a_one_frame_piece_or_gap_does_not_shift_the_frames_after_it():
+    """Кусок фильтра или промежуток между кусками в один кадр (свои куски на соседних фразах с паузой в 40 мс; поздний
+    кусок оставил от раннего один кадр): concat ffmpeg 6.1 ставил следующий кусок на тот же момент, `fps=30` зума дальше
+    выкидывал кадр — и всё после него шло на кадр раньше звука и текста. Кадры — те же, что без фильтров, на своих
+    местах; кадров столько же."""
+    def frames(graph: str) -> np.ndarray:
+        raw = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=s=64x96:r=30:d=2",
+             "-filter_complex", graph, "-map", "[out]", "-f", "rawvideo", "-pix_fmt", "yuv420p", "-"],
+            check=True, capture_output=True,
+        ).stdout
+        return np.frombuffer(raw, np.uint8).reshape(-1, 64 * 96 * 3 // 2)
+
+    plain = frames("[0:v]format=yuv420p,fps=30[out]")
+    spans = [(10, 11, "sepia"), (12, 20, "cold"), (20, 21, "warm"), (22, 40, "film")]  # кусок в кадр, промежуток в кадр
+    graded = frames(";".join([*colour_chains("[0:v]format=yuv420p", spans, "[lk]"), "[lk]fps=30[out]"]))
+    assert len(graded) == len(plain) == 60
+    outside = [n for n in range(60) if not any(a <= n < b for a, b, _ in spans)]
+    assert outside == [*range(10), 11, 21, *range(40, 60)]
+    assert all((graded[n] == plain[n]).all() for n in outside), "кадры вне кусков — на своих местах"
+    assert all((graded[n] != plain[n]).any() for n in (10, 12, 19, 20, 22, 39))
+
+
+@needs_ffmpeg
 def test_colour_looks_grade_only_their_frames_the_rest_stay_bit_exact(tmp_path):
     """Фильтр в RGB — только на кадрах своего окна (граф режет поток по кадрам и склеивает обратно): кадры вне окон —
     байт в байт как без фильтров, кадры в окне — в его цвете; кадров столько же."""

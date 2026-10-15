@@ -170,7 +170,9 @@
 - Готовый исходник задачи в черновике (нормализация один раз на задачу): `engine/vm/source.py` (`key`, `asset`, `describe`, `NORMALIZE` — подними, если меняешь `media.normalize`) ↔ `.github/scripts/job-source.sh` (Action job-source: куски `<ассет>.part-NNNNN` и последним `source-<ключ>.json`; сбой — метка `source-<ключ>.failed`) и `_ready` в `engine/vm/fetch.py` (берёт его только после анализа — есть `editor.json`).
 - Языки: `engine/vm/lang.py` (коды, названия, чем распознавать) и `setup/cloud-setup.sh` (какие модели ставятся).
 - Затемнение фона: `engine/vm/matte.py` (`MODEL`) и `setup/cloud-setup.sh` (откуда ставится модель, её sha256); маска
-  идёт кадр в кадр со склейкой — `segment_frames` в `engine/vm/render.py`, общий с `_cut`.
+  идёт кадр в кадр со склейкой — `segment_frames` в `engine/vm/render.py`, общий с `_cut`. Маска прошлой сессии —
+  `out/matte-<ключ>.*` рендера (`matte.keep`; ключ — `matte.job_key`: входы исходника и всё, от чего зависит маска)
+  → черновик → `vm fetch` (`_matte_cache`) → `work/matte/cache-<ключ>.*` → `matte.restore` в `render._matte`.
 - Бренд Павла: поля и проверка — `web/lib/brand.ts`, как их берёт монтаж — SKILL.md (стиль A, `job.json.brand`); «Мой
   стиль» (`look`: `lookFromJob` — скорость, затемнение и музыка, какими их собрал `edits.apply` движка; `parseLook`) ↔
   `brandChoice`, `loadChoice`, `loadSpeed` в `web/lib/style.ts`, `initialDraft` в `web/lib/answers.ts` и `brandLook`

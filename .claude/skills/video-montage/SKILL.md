@@ -249,7 +249,7 @@ description: Монтаж вертикальных роликов Павла в 
 | Команда | Что делает |
 |---|---|
 | `vm status --state S --phase "…" --message "…" [--needs answers] [--error "…"] [--push]` | `status.json`; с `--push` — коммит и пуш только его |
-| `vm fetch [--status] [--state S] [--originals] [--detach]` | загруженное Павлом из черновика `job-<job>` → `in/`; после анализа (есть `editor.json`) готовый исходник задачи (его кладёт в черновик Action job-source, пока идёт анализ) — сразу в `source.mp4` вместо видео Павла: тогда `vm prepare` их не нормализует. Анализу — сами видео (по ним `vm prepare` размечает, где какое). `--originals` — видео Павла всегда (перед `vm prepare --redo`) |
+| `vm fetch [--status] [--state S] [--originals] [--detach]` | загруженное Павлом из черновика `job-<job>` → `in/`; после анализа (есть `editor.json`) готовый исходник задачи (его кладёт в черновик Action job-source, пока идёт анализ) — сразу в `source.mp4` вместо видео Павла: тогда `vm prepare` их не нормализует. Анализу — сами видео (по ним `vm prepare` размечает, где какое). После анализа — и маску затемнения фона прошлого рендера (`work/matte/`): рендер берёт из неё готовые куски. `--originals` — видео Павла всегда (перед `vm prepare --redo`) |
 | `vm prepare [--status] [--state S] [--redo] [--lang L] [--detach]` | `source.mp4`, `language.json`, `words.json`, `reference.txt`, `speech.json`, `cuts.json`, `sheet.png`, файлы редактора (`editor.json`, `film.jpg`, `out/proxy.mp4`) — только недостающее; печатает сводку (язык и насколько уверен), предупреждения о нераспознанной речи и текст по фразам. `--lang` — язык ролика (код или название): другой, чем в `language.json`, — распознаёт заново |
 | `vm frames --at T… [--grid]` | кадры исходника → `look/` (с `--grid` — сетка 10×10 и подпись времени) |
 | `vm preview --at T [--out q-<id>.jpg] [--mark x,y,w,h]` | кадр для превью → `frame.png`; с `--out` — картинка к вопросу, `--mark` — жёлтая рамка (где встанет вставка) |
@@ -293,6 +293,7 @@ description: Монтаж вертикальных роликов Павла в 
 | `result.json` | `vm render` и ты | `durations`, `missing`, `qa`, `checklist` (чек-лист по гайду), `ab` (проверка второй версии) и `ad` (проверка версии для рекламы) пишет render; `done`, `unsure` и `caption` (подпись к посту, с рекламой — и её текст `caption.ad`) — ты |
 | `language.json` | `vm prepare` | язык ролика: `code`, `name`, `source` (`brief` — `ЯЗЫК:` в ТЗ, `answer` — `--lang`, `detected` — по речи, `default`), `sure`, `votes` (язык окон записи) |
 | `editor.json`, `film.jpg`, `out/proxy.mp4` | `vm prepare` | для редактора на странице (бета): прокси-видео 540×960 (уходит с `vm push` в черновик релиза, как ролик), лента кадров и волна звука — по исходнику; не трогай |
+| `out/matte-<ключ>.mkv`, `.json` | `vm render` | маска затемнения фона по кускам ролика (только когда посчитано новое): уходит с `vm push --outputs` в черновик, следующий `vm fetch` кладёт её в `work/matte/` — правка не считает её заново; не трогай |
 | `words.json`, `reference.txt`, `speech.json`, `cuts.json` | `vm prepare` | слова с временем (сырые — исправленные живут в `edit.json`), сплошной текст Whisper, где речь по VAD, плотная резка и `joins` — резкие смены кадра в исходнике (места для переходов) |
 
 Схемы всех файлов — `engine/vm/schemas/`. После записи — `vm validate`. Времена в `edit.json` — по исходнику.

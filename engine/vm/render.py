@@ -386,23 +386,27 @@ def _matte(job: Job, tl: Timeline) -> tuple[Path | None, str | None]:
         return None, f"затемнение фона: {reason} — ролик без него"
     source = job.path("source.mp4")
     plan = segment_frames(tl)
-    stat = source.stat()
-    key = hashlib.sha1(json.dumps([stat.st_size, stat.st_mtime_ns, matte.MODEL, matte.WARMUP, matte.RATIO]).encode())
+    key = matte.job_key(job)
     folder = job.path("work/matte")
     folder.mkdir(parents=True, exist_ok=True)
-    parts = [folder / f"{key.hexdigest()[:12]}-{a}-{b}.mkv" for a, b in plan]
+    parts = [folder / f"{key}-{a}-{b}.mkv" for a, b in plan]
     # тизер ровно по кадрам куска — тот же отрезок дважды: его файл считает один поток
-    if todo := list({part: (unit, part) for unit, part in zip(plan, parts, strict=True) if not part.is_file()}.values()):
+    unique = list({part: (unit, part) for unit, part in zip(plan, parts, strict=True)}.values())
+    matte.restore(folder / f"cache-{key}", [(unit, part) for unit, part in unique if not part.is_file()])  # из прошлой сессии
+    if todo := [(unit, part) for unit, part in unique if not part.is_file()]:
         frames = sum(b - a for (a, b), _ in todo)
         print(f"затемнение фона: маска на {frames} кадров (~{max(1, round(frames * 0.06 / 60))} мин)", flush=True)
-    whole = folder / f"{key.hexdigest()[:12]}-{hashlib.sha1(json.dumps(plan).encode()).hexdigest()[:12]}.mkv"
+    whole = folder / f"{key}-{hashlib.sha1(json.dumps(plan).encode()).hexdigest()[:12]}.mkv"
     try:
         matte.write_parts(source, todo)
         if not whole.is_file():
             matte.join(parts, whole)
+        if todo:  # посчитано новое — маска плана в out/: Action унесёт её в черновик, правки возьмут готовое
+            matte.keep([part for _, part in unique], [unit for unit, _ in unique], job.path("out") / f"matte-{key}")
     except Exception as err:  # noqa: BLE001 — и исключения onnxruntime: ролик без затемнения лучше, чем никакого
         return None, f"затемнение фона: не получилось ({str(err)[:200]}) — ролик без него"
     return whole, None
+
 
 
 def segment_frames(tl: Timeline) -> list[tuple[int, int]]:

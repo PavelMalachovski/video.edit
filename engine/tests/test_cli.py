@@ -327,6 +327,41 @@ def test_fetch_takes_the_videos_for_the_analysis_even_with_the_ready_source(tmp_
     assert not job.path("source.mp4").exists(), "исходник анализ делает сам — из видео"
 
 
+def test_fetch_brings_the_matte_of_the_last_render(tmp_path, github):
+    """Маска затемнения фона прошлого рендера (render кладёт её в out/, Action — в черновик) → work/matte/cache-<ключ>.*:
+    правка берёт из неё готовые отрезки, а не считает минуты заново. Маска другого исходника (ключ не тот) не качается;
+    уже скачанная — второй раз тоже."""
+    from vm import matte
+
+    body = random.Random(37).randbytes(9000)
+    ready = random.Random(38).randbytes(7000)
+    job, name = ready_job(tmp_path, body)
+    key = matte.job_key(job)
+    github.draft("job-abc", {**parts("source", body, 3000), "manifest.json": manifest("a.mov", body, 3), **ready_files(name, ready),
+                             f"matte-{key}.mkv": b"mask" * 100, f"matte-{key}.json": b'{"plan": [[0, 100]]}',
+                             "matte-0123456789ab.mkv": b"other", "matte-0123456789ab.json": b'{"plan": []}'})
+    assert main(["fetch", str(job.root)]) == 0
+    assert sorted(p.name for p in job.path("work/matte").iterdir()) == [f"cache-{key}.json", f"cache-{key}.mkv"]
+    assert job.path(f"work/matte/cache-{key}.mkv").read_bytes() == b"mask" * 100
+    assert job.path(f"work/matte/cache-{key}.json").read_bytes() == b'{"plan": [[0, 100]]}'
+    first = github.downloads
+    assert main(["fetch", str(job.root)]) == 0
+    assert github.downloads - first == 2, "снова только manifest.json и описание исходника"
+
+
+def test_fetch_for_the_analysis_brings_no_matte(tmp_path, github):
+    """Анализ (editor.json ещё нет) не рендерит — маска ему не нужна."""
+    from vm import matte
+
+    body = random.Random(39).randbytes(9000)
+    job, _ = ready_job(tmp_path, body, analyzed=False)
+    key = matte.job_key(job)
+    github.draft("job-abc", {**parts("source", body, 3000), "manifest.json": manifest("a.mov", body, 3),
+                             f"matte-{key}.mkv": b"mask", f"matte-{key}.json": b'{"plan": []}'})
+    assert main(["fetch", str(job.root)]) == 0
+    assert not job.path("work/matte").exists()
+
+
 @pytest.mark.parametrize("trouble", ["other inputs", "no json yet", "bad sha256", "part lost"])
 def test_fetch_takes_the_videos_when_the_ready_source_does_not_fit(tmp_path, github, trouble):
     body = random.Random(33).randbytes(9000)

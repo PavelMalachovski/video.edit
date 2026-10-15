@@ -24,6 +24,7 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from . import matte
 from . import source as ready_source
 from .job import Job
 
@@ -162,6 +163,27 @@ def _ready(api: str, repo: str, job: Job, named: dict[str, dict], groups: dict[s
     return dest
 
 
+def _matte_cache(api: str, repo: str, job: Job, named: dict[str, dict]) -> None:
+    """Маска затемнения фона прошлого рендера (`out/matte-<ключ>.*`, Action унёс её в черновик) → `work/matte/cache-<ключ>.*`:
+    рендер возьмёт из неё готовые отрезки (`matte.restore`). Нет её или не скачалась — не беда: рендер посчитает."""
+    key = matte.job_key(job)
+    assets = [named.get(f"matte-{key}{ext}") for ext in (".json", ".mkv")]
+    if None in assets:
+        return
+    folder = job.path("work/matte")
+    folder.mkdir(parents=True, exist_ok=True)
+    for asset, ext in zip(assets, (".json", ".mkv"), strict=True):
+        dest = folder / f"cache-{key}{ext}"
+        if dest.is_file() and dest.stat().st_size == asset["size"]:
+            continue
+        try:
+            _curl(_asset_url(api, repo, asset), dest, accept="application/octet-stream")
+        except FetchError as err:
+            dest.unlink(missing_ok=True)
+            print(f"маску фона прошлого рендера не взял ({err}) — рендер посчитает её", flush=True)
+            return
+
+
 def fetch(job: Job, originals: bool = False) -> dict[str, Path]:
     """Скачать и склеить входные файлы задачи. → {имя группы: путь} (source и upload-*; готовый исходник —
     `source.mp4` вместо видео, если анализ уже в ветке). `originals` — видео Павла, даже если готовый исходник есть."""
@@ -197,6 +219,8 @@ def fetch(job: Job, originals: bool = False) -> dict[str, Path]:
     analyzed = job.path("editor.json").is_file()  # без анализа в ветке — видео: по ним prepare размечает, где какое
     if not originals and analyzed and (made := _ready(api, repo, job, named, groups)):
         files["source.mp4"] = made
+    if analyzed and job.path("job.json").is_file():  # рендер и правки: маска фона прошлого рендера
+        _matte_cache(api, repo, job, named)
     targets: dict[str, tuple[Path, int | None, int | None]] = {}
     for v in videos if not files else []:
         ext = Path(str(v.get("name") or "")).suffix.lower() or ".mp4"

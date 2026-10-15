@@ -169,6 +169,8 @@
   каталога).
 - Готовый исходник задачи в черновике (нормализация один раз на задачу): `engine/vm/source.py` (`key`, `asset`, `describe`, `NORMALIZE` — подними, если меняешь `media.normalize`) ↔ `.github/scripts/job-source.sh` (Action job-source: куски `<ассет>.part-NNNNN` и последним `source-<ключ>.json`; сбой — метка `source-<ключ>.failed`) и `_ready` в `engine/vm/fetch.py` (берёт его только после анализа — есть `editor.json`).
 - Языки: `engine/vm/lang.py` (коды, названия, чем распознавать) и `setup/cloud-setup.sh` (какие модели ставятся).
+- Что шаг читает с диска окружения (модели, Chromium слоя, модель маски) — то же заранее читает прогрев
+  `engine/vm/warm.py` (`paths`; его запускает `vm fetch`): новая модель или браузер — и туда.
 - Затемнение фона: `engine/vm/matte.py` (`MODEL`) и `setup/cloud-setup.sh` (откуда ставится модель, её sha256); маска
   идёт кадр в кадр со склейкой — `segment_frames` в `engine/vm/render.py`, общий с `_cut`. Маска прошлой сессии —
   `out/matte-<ключ>.*` рендера (`matte.keep`; ключ — `matte.job_key`: входы исходника и всё, от чего зависит маска)

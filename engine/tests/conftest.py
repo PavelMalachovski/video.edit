@@ -26,6 +26,12 @@ import soundfile
 
 CACHE = Path(__file__).parent / ".cache"
 
+
+@pytest.fixture(autouse=True)
+def _no_warm_up(monkeypatch):
+    """`vm fetch` в тестах не запускает прогрев файлов окружения (`vm.warm`) отдельным процессом."""
+    monkeypatch.setenv("VM_WARM", "0")
+
 # кодирование коротких клипов: быстро; метки BT.709 — как у SDR-видео с iPhone
 H264 = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "18", "-pix_fmt", "yuv420p"]
 BT709 = ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709"]

@@ -349,6 +349,23 @@ def test_fetch_brings_the_matte_of_the_last_render(tmp_path, github):
     assert github.downloads - first == 2, "снова только manifest.json и описание исходника"
 
 
+def test_fetch_starts_warming_what_the_step_reads_next(tmp_path, github, monkeypatch):
+    """`vm fetch` — первая команда шага: пока качается видео, отдельный процесс читает модели (анализ: editor.json ещё
+    нет) или Chromium и модель маски (рендер, правки)."""
+    from vm import warm
+
+    started = []
+    monkeypatch.setattr(warm, "start", lambda analyze: started.append(analyze))
+    body = random.Random(40).randbytes(6000)
+    github.draft("job-abc", {**parts("source", body, 3000), "manifest.json": manifest("a.mov", body, 2)})
+    job, _ = ready_job(tmp_path, body, analyzed=False)
+    assert main(["fetch", str(job.root)]) == 0
+    job.write("editor.json", {"duration": 3.0, "proxy": None, "film": {"file": "film.jpg", "step": 1.0, "w": 54, "h": 96, "n": 3},
+                              "peaks": {"perS": 10, "data": ""}})
+    assert main(["fetch", str(job.root)]) == 0
+    assert started == [True, False]
+
+
 def test_fetch_for_the_analysis_brings_no_matte(tmp_path, github):
     """Анализ (editor.json ещё нет) не рендерит — маска ему не нужна."""
     from vm import matte
@@ -1108,7 +1125,7 @@ def test_prepare_listens_to_the_speech_while_it_makes_the_editor_files(heard, mo
     язык, потом редактор."""
     from vm import asr, editor
 
-    job, calls, votes, _ = heard
+    job, calls, _, _ = heard
     made, seen = threading.Event(), []
     make, reference = editor.make, asr.reference
 

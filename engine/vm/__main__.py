@@ -26,7 +26,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import background, edits, fonts, matte
+from . import background, edits, fonts, matte, warm
 from .fetch import fetch
 from .git import MAX_FILE_BYTES, GitError, push
 from .job import Job, set_status, states, validate
@@ -98,6 +98,7 @@ def _status(args: argparse.Namespace) -> None:
 
 def _fetch(args: argparse.Namespace) -> None:
     job = _job(args)
+    warm.start(analyze=not job.path("editor.json").is_file())  # пока качается видео — модели или Chromium с диска
     _stepper(job, args.state, args.status)("Скачиваю видео", "Забираю загруженные файлы")
     files = fetch(job, originals=args.originals)
     for name, path in files.items():

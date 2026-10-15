@@ -4,7 +4,7 @@
 // transitions.marks): блок на дорожке — ровно там, где его нарисует ролик. Правки Павла руками (timeline.json) —
 // поверх черновика, как их положит движок. И файлы редактора от vm prepare (editor.json): прокси, лента кадров, волна.
 import { snapEdit } from './beats.ts';
-import { applyKeep, applyPicture, applyText, SLIVER, type At, type HandEdits, type LookFix, type TextEdits, type TransitionFix, type WordFix } from './edits.ts';
+import { applyKeep, applyPicture, applyText, SLIVER, type At, type HandEdits, type LookFix, type LookRef, type TextEdits, type TransitionFix, type WordFix } from './edits.ts';
 import type { StyleSpec } from './jobfiles.ts';
 import { FPS, frameOf, hookEnd, insertSpans, layerBlocks, renderTimeline, type AccentSpec, type InsertSpec, type OverlayEdit } from './overlay.ts';
 import { roundHalfEven } from './pyround.ts';
@@ -79,9 +79,11 @@ export type Clip = Span & {
 /** Из чего слой строит события (как его увидит монтаж) и его шкала: и кадр редактора, и дорожки — из них; ч/б-куски и
  *  переходы (с правками Павла) — для картинки плеера. */
 export type Layer = { edit: OverlayEdit & { zooms: Draft['zooms']; looks?: Draft['looks']; transitions?: Draft['transitions'] }; tl: Timeline };
-/** Ч/б-кусок на дорожке «Картинка» (время ролика): `at` — его [t0, t1] в edit.looks (по нему правка), `off` — Павел его
- *  убрал (тень на своём месте). У куска с копией в тизере — два окна с тем же `at`. */
-export type LookMark = Span & { at: At; off: boolean };
+/** Кусок с фильтром на дорожке «Картинка» (время ролика): `ref` — какой кусок правят (кусок сессии — по месту `at`, его
+ *  [t0, t1] в edit.looks; свой кусок Павла — по номеру среди своих, `own`); `look` — фильтр сейчас, `was` — у сессии
+ *  (у своего — тот же); `src` — где он в исходнике сейчас (с краями Павла); `off` — Павел его убрал (тень на своём месте);
+ *  `teaser` — окно его копии в тизере (у куска с копией — два окна с тем же `ref`). */
+export type LookMark = Span & { ref: LookRef; at?: At; look: string; was: string; src: [number, number]; off: boolean; teaser: boolean };
 /** Переход на дорожке «Картинка»: стык в ролике `t`, вид сейчас и у сессии (`was`), `at` — его t в edit.transitions (по
  *  нему правка), `off` — Павел его убрал. */
 export type TransitionItem = { t: number; kind: string; was: string; at: number; off: boolean };
@@ -374,9 +376,18 @@ export function draftTracks(d: Draft, { style = PLAIN, sourceDuration, splits = 
   }
   inserts.sort((a, b) => a.t0 - b.t0);
 
-  // ч/б — кадры, где ролик чёрно-белый (look_windows: край у склейки — на склейке; копия в тизере); убранные — тенью там же
-  const looks: LookMark[] = (pic.looks ?? []).flatMap((l) => lookWindows([{ ...l, off: false }], tl)
-    .map(([a, b]) => ({ t0: a / FPS, t1: b / FPS, at: [l.t0, l.t1] as At, off: Boolean(l.off) }))).sort((a, b) => a.t0 - b.t0);
+  // куски с фильтром — их кадры (look_windows: край у склейки — на склейке; копия в тизере); убранные — тенью там же. Куски
+  // сессии — первые в списке (applyPicture их не переставляет), свои куски Павла — после них
+  const session = d.looks ?? [];
+  const teaserEnd = tl.teaser ? (tl.teaser[1] - tl.teaser[0]) / tl.speed : 0;
+  const looks: LookMark[] = (pic.looks ?? []).flatMap((l, i) => {
+    const mine = i >= session.length;
+    const ref: LookRef = mine ? { own: i - session.length } : { at: [Number(session[i].t0), Number(session[i].t1)] };
+    return lookWindows([{ ...l, off: false }], tl).map(([a, b]): LookMark => ({
+      t0: a / FPS, t1: b / FPS, ref, ...('at' in ref ? { at: ref.at } : {}), look: l.look ?? 'bw', was: mine ? l.look ?? 'bw' : session[i].look ?? 'bw',
+      src: [Number(l.t0), Number(l.t1)], off: Boolean(l.off), teaser: teaserEnd > 0 && b / FPS <= teaserEnd + 1e-6,
+    }));
+  }).sort((a, b) => a.t0 - b.t0);
   // переходы — на стыке, у самого начала и конца ролика их нет (transitions.marks); убранные — тенью там же
   const marks = transitionMarks(pic.transitions ?? [], tl);
   const transitions: TransitionItem[] = (pic.transitions ?? []).flatMap((x, n) => transitionMarks([{ ...x, off: false }], tl)

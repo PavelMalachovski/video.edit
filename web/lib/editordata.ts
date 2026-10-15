@@ -22,23 +22,30 @@ export const isMediaName = (x: string): x is MediaName => (MEDIA_NAMES as readon
  *  правки руками вообще (схемы нет — задача до редактора: её движок timeline.json не читает), `move` — перестановка
  *  кусков (фаза 4), `text` — текст и вставки, слова субтитров (фаза 5), `picture` — сила зума, ч/б-куски, переходы и
  *  затемнение фона, `track` — другой трек музыки, `card` — текст финальной карточки, `video` — скорость ролика и тизер,
- *  `place` — место вставок и акцентов на кадре (фаза 5в). */
-export type Abilities = { edits: boolean; move: boolean; text: boolean; picture: boolean; track: boolean; card: boolean; video: boolean; place: boolean };
+ *  `place` — место вставок и акцентов на кадре (фаза 5в), `looks` — свои куски ч/б и фильтров Павла, края и фильтр
+ *  кусков сессии. */
+export type Abilities = {
+  edits: boolean; move: boolean; text: boolean; picture: boolean; track: boolean; card: boolean; video: boolean; place: boolean;
+  looks: boolean; // свои куски ч/б и фильтров, края и фильтр кусков сессии
+};
 export const ENGINE_SCHEMA = 'engine/vm/schemas/timeline.json';
-const ALL: Abilities = { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true };
-const NONE: Abilities = { edits: false, move: false, text: false, picture: false, track: false, card: false, video: false, place: false };
+const ALL: Abilities = { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: true };
+const NONE: Abilities = { edits: false, move: false, text: false, picture: false, track: false, card: false, video: false, place: false, looks: false };
 
 /**
  * Что Павел правит в редакторе. `editable` — правки сохраняются (у задачи есть черновик, сессия не работает, её движок
  * правки знает); `mounted` — монтаж уже был (есть answers.json); `a` — что примет движок задачи. До монтажа — только то,
- * чего не выбирают «Превью» и вопросы: куски, сила зума (ложится на любой зум монтажа), громкости. Скорость, затемнение
- * фона, трек, тизер, ч/б-куски и переходы (`marks`), текст, карточка и места на кадре — после него: до монтажа их
- * выбирают ответы, и правка руками молча перебила бы ответ или потеряла бы своё место.
+ * чего не выбирают «Превью» и вопросы: куски, сила зума (ложится на любой зум монтажа), громкости, куски с фильтром
+ * (`looks`: свои куски Павла и правки кусков сессии держатся за их место). Скорость, затемнение фона, трек, тизер,
+ * переходы (`marks`), текст, карточка и места на кадре — после него: до монтажа их выбирают ответы, и правка руками
+ * молча перебила бы ответ или потеряла бы своё место.
  */
 export function editorGates(editable: boolean, mounted: boolean, a: Abilities = ALL) {
   const after = editable && mounted;
   return {
     move: editable && a.move, zoom: editable && a.picture, marks: after && a.picture, track: after && a.track,
+    // старый движок кусков руками не знает — только убрать и вернуть кусок сессии, после монтажа
+    looks: editable && (a.looks || (mounted && a.picture)), lookHand: editable && a.looks,
     speed: after && a.video, teaser: after && a.video, text: after && a.text, card: after && a.card, place: after && a.text && a.place,
   };
 }
@@ -56,6 +63,7 @@ export function abilitiesOf(schema: string | null): Abilities {
       edits: true, move: ops.includes('move'), text: 'text' in props && 'words' in props, picture: ['zoom', 'looks', 'transitions', 'dim'].every((k) => k in props),
       track: 'file' in (parsed.$defs?.Music?.properties ?? {}), card: 'end' in text, video: 'teaser' in props && 'speed' in props,
       place: 'x' in (text.inserts?.items?.properties ?? {}),
+      looks: 't0' in ((props.looks as { items?: { properties?: object } } | undefined)?.items?.properties ?? {}),
     };
   } catch {
     return ALL;
@@ -69,6 +77,9 @@ export function refusedBy(a: Abilities, hand: HandEdits): string | null {
   if (!a.text && (hand.text || hand.words)) return 'Эта задача создана до правок текста в редакторе: её движок их не примет — текст здесь правится через «Поправить»';
   if (!a.picture && (hand.zoom !== undefined || hand.looks || hand.transitions || hand.dim !== undefined)) {
     return 'Эта задача создана до правок картинки в редакторе: её движок их не примет — зум, ч/б, переходы и фон здесь правятся через «Поправить»';
+  }
+  if (!a.looks && hand.looks?.some((f) => f.at === undefined || f.t0 !== undefined || f.look !== undefined)) {
+    return 'Эта задача создана до своих кусков ч/б и фильтров: её движок их не примет — в ней куски только убираются и возвращаются';
   }
   if (!a.track && hand.music?.file !== undefined) return 'Эта задача создана до выбора трека в редакторе: её движок его не примет — трек здесь меняется через «Поправить»';
   if (!a.card && hand.text?.end) return 'Эта задача создана до правок финальной карточки в редакторе: её движок их не примет — карточка здесь правится через «Поправить»';

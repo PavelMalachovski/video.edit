@@ -83,10 +83,14 @@
   `cd engine && python3 -m tests.shared_events` (устарела — падает быстрый тест движка).
 - Картинка ролика в редакторе: `engine/vm/zoom.py` (`zoom_at`, `cut_frame`), `engine/vm/transitions.py` (`marks`, `HALF`,
   `PUNCH`, `BLUR`; вспышка и смаз по кадру — `flash_alpha`, `blur_sigma`: так их рисует `picture_chains`, проверено по
-  пикселям ffmpeg), `look_windows` и `BW_CSS_BRIGHTNESS`, `BW_CSS_CONTRAST` в `engine/vm/render.py` ↔ `web/lib/zoom.ts`
-  (`flashAlpha`, `blurSigma`) и `web/lib/picture.ts` (`pictureAt`, `BW_FILTER` — ч/б с цветокором на прокси без него),
-  разделы `look` и `bwFilter` той же фикстуры; шкала времени ролика — `render._layers` ↔ `Bar` в
-  `web/app/jobs/[id]/editor/frame.tsx`.
+  пикселям ffmpeg), `look_windows`, `look_spans` (фильтр каждого кадра: поздний кусок сильнее — `looks.paint`) и
+  `BW_CSS_BRIGHTNESS`, `BW_CSS_CONTRAST` в `engine/vm/render.py` ↔ `web/lib/zoom.ts` (`flashAlpha`, `blurSigma`,
+  `lookWindows`, `lookSpans`) и `web/lib/picture.ts` (`pictureAt`, `BW_FILTER` — ч/б с цветокором на прокси без него),
+  разделы `look` и `bwFilter` той же фикстуры; фильтры руками (сепия, тёплый, холодный, плёнка) — цепочки CSS filter
+  `LOOKS` в `engine/vm/looks.py` (движок считает их в RGB 16 бит только на кадрах своих окон — `render.colour_chains`;
+  каждая функция, кроме последней, не выводит цвет за [0, 1]) ↔ `LOOK_CSS` в `web/lib/picture.ts`, раздел `lookFilters`
+  (что браузер рисует их так же — проверено в Chromium по модели Filter Effects); шкала времени ролика —
+  `render._layers` ↔ `Bar` в `web/app/jobs/[id]/editor/frame.tsx`.
 - Доли музыки: `engine/vm/beats.py` (`beat_times`, `snap_edit`, `played`) и `beats.json` (пишет `render.on_beats`) ↔
   `web/lib/beats.ts` (`beatTimes`, `snapEdit`, `musicBeats`) и `parseBeats` в `web/lib/editordata.ts`, раздел `beats`.
 - Текст и вставки руками (`timeline.json` → `text`, `words`): `engine/vm/edits.py` (`apply_text`) и схема
@@ -101,10 +105,14 @@
   `web/lib/blocktext.ts` — одна проверка у полей панелей блоков и у поля текста на кадре — и `parseSave` в
   `web/lib/editordata.ts`).
 - Картинка руками (`timeline.json` → `zoom`, `looks`, `transitions`, `dim`): `engine/vm/edits.py` (`apply_picture`,
-  `_moments`) и схема `engine/vm/schemas/timeline.json` (выключенное — `off` в схеме `edit.json`) ↔ `web/lib/edits.ts`
-  (`applyPicture`, `setZoom`, `setLook`, `setTransition`, `setDim`, `TRANSITION_KINDS`, `LIMITS`, `parseTimeline`),
-  раздел `picture` общей фикстуры; выключенное пропускают `look_windows`, `transitions._placed` (и свуш перехода),
-  `snap_edit` ↔ `lookWindows`, `transitionMarks`, `snapEdit`, `draftTracks`; старая задача — `abilitiesOf` (`picture`).
+  `_moments`; куски с фильтром — `_hand_looks`: кусок сессии по `at` убран, с другими краями или фильтром, свои куски
+  Павла — в конце списка; смена крупности на краях — `_shot_edges`, `SHOTS`) и схема `engine/vm/schemas/timeline.json`
+  (выключенное — `off`, фильтры — `look` в схеме `edit.json`; `KINDS` в `engine/vm/looks.py`) ↔ `web/lib/edits.ts`
+  (`applyPicture`, `handLooks`, `shotEdges`, `setZoom`, `setLook`, `addLook`, `setLookEdges`, `setLookKind`,
+  `removeLook`, `LOOK_KINDS`, `setTransition`, `setDim`, `TRANSITION_KINDS`, `LIMITS`, `parseTimeline`), раздел `picture`
+  общей фикстуры; выключенное пропускают `look_windows`, `transitions._placed` (и свуш перехода), `snap_edit` ↔
+  `lookWindows`, `transitionMarks`, `snapEdit`, `draftTracks`; свой кусок ставится на фразу под бегунком — `phraseAt` в
+  `web/lib/subs.ts` (фразы — как `subs._phrases`); старая задача — `abilitiesOf` (`picture`, `looks`).
 - Трек и карточка руками: `music.file` — `edits.apply` (`MUSIC_FIELDS`, `MUSIC_DB` — трек в ролике без музыки) и образец
   `$defs.Music.file` схемы ↔ `MUSIC_FILE`, `setTrack` в `web/lib/edits.ts`, `withHandEdits` в `web/lib/tracks.ts`,
   `musicMix` в `web/lib/sound.ts`, библиотека и проверка трека при сохранении — `musicLibrary` в

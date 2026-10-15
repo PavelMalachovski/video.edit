@@ -446,10 +446,25 @@ ul.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:
 .ed-clip.sub { background: color-mix(in srgb, var(--e-sub) 30%, white); border: 1px solid var(--e-sub); }
 .ed-clip.text { background: color-mix(in srgb, var(--e-text) 20%, white); border: 1px solid var(--e-text); }
 .ed-clip.ins { background: color-mix(in srgb, var(--e-ins) 20%, white); border: 1px solid var(--e-ins); }
-/* дорожка «Картинка»: линия крупности (зум и толчки), ч/б-куски и переходы — их нажимают */
+/* дорожка «Картинка»: линия крупности (зум и толчки), куски с фильтром (ч/б, сепия, тёплый, холодный, плёнка) и переходы —
+   их нажимают; выбранный кусок тянут за края или целиком */
 .ed-zoomline { position: absolute; inset: 0; color: color-mix(in srgb, var(--e-select) 45%, transparent); pointer-events: none; }
-.ed-clip.bw { cursor: pointer; color: #fff; background: #4B4F48; border: 1px solid #2B2E29; }
-.ed-clip.bw.ghost { color: var(--e-ink); }
+.ed-clip.look { cursor: pointer; color: #fff; background: #4B4F48; border: 1px solid #2B2E29; }
+.ed-clip.look.sepia { background: #7A5F42; border-color: #54402B; }
+.ed-clip.look.warm { background: #B9773E; border-color: #8A5427; }
+.ed-clip.look.cold { background: #4E6585; border-color: #33465F; }
+.ed-clip.look.film { color: var(--e-ink); background: #D9CBB0; border-color: #A8977A; }
+.ed-clip.look.ghost { color: var(--e-ink); }
+.ed-clip.look.grab { cursor: grab; touch-action: none; }
+.ed-clip.look .ed-handle::after { background: #fff; }
+.ed-look.sepia { background: repeating-linear-gradient(135deg, rgba(122, 95, 66, .4) 0 6px, transparent 6px 12px); }
+.ed-look.warm { background: repeating-linear-gradient(135deg, rgba(185, 119, 62, .4) 0 6px, transparent 6px 12px); }
+.ed-look.cold { background: repeating-linear-gradient(135deg, rgba(78, 101, 133, .4) 0 6px, transparent 6px 12px); }
+.ed-look.film { background: repeating-linear-gradient(135deg, rgba(168, 151, 122, .45) 0 6px, transparent 6px 12px); }
+.ed-mode.look-sepia[aria-pressed='true'] { background: #7A5F42; border-color: #54402B; color: #fff; }
+.ed-mode.look-warm[aria-pressed='true'] { background: #B9773E; border-color: #8A5427; color: #fff; }
+.ed-mode.look-cold[aria-pressed='true'] { background: #4E6585; border-color: #33465F; color: #fff; }
+.ed-mode.look-film[aria-pressed='true'] { background: #D9CBB0; border-color: #A8977A; color: var(--e-ink); }
 .ed-clip.tr { cursor: pointer; justify-content: center; padding: 0 2px; font-weight: 700; z-index: 3; border: 1px solid var(--e-ink); } /* поверх ч/б-куска, и выбранного */
 .ed-clip.tr.sel { z-index: 4; }
 .ed-clip.tr.ghost { text-decoration: none; } /* зачёркнутая «С» похожа на «€» — убранный переход и так пунктиром */

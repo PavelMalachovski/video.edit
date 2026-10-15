@@ -21,8 +21,8 @@ import { createClock } from '@/lib/clock.ts';
 import { editorGates, layerUrl, type EditorData } from '@/lib/editordata.ts';
 import { sameJson } from '@/lib/equal.ts';
 import {
-  commit, cutSpan, EMPTY, initHistory, moveSpan, placeBlock, redo, restoreSpan, setBlock, setCta, setHook, setLook, setMusic, setTransition, setVoice, splitAt,
-  trimEnd, trimStart, undo, type HandEdits, type History, type Place, type TransitionKind,
+  addLook, commit, cutSpan, EMPTY, initHistory, moveSpan, placeBlock, redo, removeLook, restoreSpan, setBlock, setCta, setHook, setLook, setLookEdges, setMusic,
+  setTransition, setVoice, splitAt, trimEnd, trimStart, undo, type HandEdits, type History, type Place, type TransitionKind,
 } from '@/lib/edits.ts';
 import { tenths } from '@/lib/format.ts';
 import { loadLang, saveLang, tr, type Key, type Lang } from '@/lib/i18n.ts';
@@ -36,6 +36,7 @@ import {
   allowedFonts, finalStyle, loadChoice, loadInsertBoxes, mergeStyle, placedInserts, placeText, sampleState, saveChoice, textPlace, type TextPart,
 } from '@/lib/style.ts';
 import { clickGuard, dragTo, type Drag, type DragView } from '@/lib/drag.ts';
+import { phraseAt } from '@/lib/subs.ts';
 import { Saver, type PutResult } from '@/lib/saver.ts';
 import { audioUrl, levelsOf, musicMix } from '@/lib/sound.ts';
 import {
@@ -51,7 +52,7 @@ import { Bar, Layer, Picture, pickKey, type FramePick, type FrameTarget, type Ha
 import { InlineText } from './inline';
 import { Mixer, type MixPlan } from './mixer';
 import { Inspector, StylePanel, type Selection } from './panels';
-import { KIND_NAMES, PicturePick, PictureSection, VideoSection } from './picturepanel';
+import { KIND_NAMES, LOOK_NAMES, PicturePick, PictureSection, sameLook, VideoSection } from './picturepanel';
 
 const HEAD = 112; // px — колонка с именами дорожек
 const MAX_WIDTH = 30_000; // px — ширина дорожек
@@ -69,6 +70,7 @@ const NOTE_MS = 4000; // подпись на кадре (почему текст
 
 type SaveState = { state: 'idle' | 'saving' | 'saved' | 'error' | 'conflict'; error?: string };
 type BlockDrag = Extract<Drag, { kind: 'block' }>;
+type LookDrag = Extract<Drag, { kind: 'look' }>;
 /** Правки из timeline.json — без ревизии и времени. */
 const handOf = (data: EditorData | null): HandEdits => {
   if (!data?.timeline) return EMPTY;
@@ -161,7 +163,9 @@ export default function Editor({ id }: { id: string }) {
   const canText = gates.text;
   const textNote = !data?.draft ? null : !mounted ? T('textAfterMount') : !data.abilities.text ? T('textOld') : null;
   const canZoom = gates.zoom;
-  const canMarks = gates.marks; // ч/б-куски, переходы и затемнение фона
+  const canMarks = gates.marks; // переходы и затемнение фона
+  const canLook = gates.looks; // убрать и вернуть кусок с фильтром (и до монтажа)
+  const canShape = gates.lookHand; // свои куски, края и фильтр кусков (старый движок их не знает)
   const pictureNote = !data?.draft ? null : !data.abilities.picture ? T('pictureOld') : !mounted ? T('pictureAfterMount') : null;
   const canTrack = gates.track;
   const trackNote = !editable || !data?.draft ? null : !data.abilities.track ? T('trackOld') : !mounted ? T('trackAfterMount') : null;
@@ -736,17 +740,25 @@ export default function Editor({ id }: { id: string }) {
     else setSel(next);
   };
   const frameNames = useMemo(() => ({ hook: T('hook'), cta: T('cta'), accent: T('accent'), insert: T('insert'), sub: T('subtitles'), end: T('endCard') }), [T]);
-  // ч/б-кусок или переход, выбранный на дорожке «Картинка»: Delete — убрать (вид перехода, если Павел его менял, остаётся)
-  const selLook = sel?.kind === 'look' ? tracks?.looks.find((l) => l.at[0] === sel.at[0] && l.at[1] === sel.at[1]) ?? null : null;
+  // кусок с фильтром или переход, выбранный на дорожке «Картинка»: Delete — убрать (свой кусок — удалить; вид перехода,
+  // если Павел его менял, остаётся)
+  const selLook = sel?.kind === 'look' ? tracks?.looks.find((l) => sameLook(l.ref, sel.ref)) ?? null : null;
   const selTransition = sel?.kind === 'transition' ? tracks?.transitions.find((x) => x.at === sel.at) ?? null : null;
   const doRemovePicture = useCallback(() => {
+    if (selLook && !selLook.off) {
+      if ('own' in selLook.ref) {
+        if (canShape) {
+          edit(removeLook(hand, selLook.ref.own));
+          setSel(null);
+        }
+      } else if (canLook) edit(setLook(hand, selLook.ref.at, true));
+    }
     if (!canMarks) return;
-    if (selLook && !selLook.off) edit(setLook(hand, selLook.at, true));
     if (selTransition && !selTransition.off) {
       const kind = selTransition.kind !== selTransition.was ? selTransition.kind as TransitionKind : undefined;
       edit(setTransition(hand, selTransition.at, { kind, off: true }));
     }
-  }, [canMarks, selLook, selTransition, edit, hand]);
+  }, [canMarks, canLook, canShape, selLook, selTransition, edit, hand]);
   const doRestore = (c: { src0: number; src1: number }) => edit(restoreSpan(hand, c.src0, c.src1));
   // переставить кусок перед куском `slot`; выбранным остаётся он — на новом месте, плейхед — в его начало
   const follow = useRef<number | null>(null); // момент исходника внутри переставленного куска
@@ -897,6 +909,20 @@ export default function Editor({ id }: { id: string }) {
     else if (ref.kind === 'accent') edit(setBlock(hand, 'accents', ref.at, ref.occurrence, span));
     else if (ref.kind === 'insert') edit(setBlock(hand, 'inserts', ref.at, ref.occurrence, span));
   };
+  /** Кусок с фильтром растянули или передвинули: где он теперь в исходнике (как его прочтёт движок) — в правку. */
+  const commitLook = (d: LookDrag) => {
+    if (!tracks) return;
+    const span = sourceSpan(tracks.layer.tl, d.a, d.b);
+    if (!span) {
+      setHint(T('inTeaser'));
+      return;
+    }
+    if (span.t1 <= span.t0) {
+      setHint(T('noRoom'));
+      return;
+    }
+    edit(setLookEdges(hand, d.ref, span.t0, span.t1));
+  };
   const onDragEnd = (e: React.PointerEvent) => {
     if (!drag || !tracks) return;
     e.stopPropagation();
@@ -919,6 +945,10 @@ export default function Editor({ id }: { id: string }) {
       if (!released.moved) return; // щелчок — выбор (onClick блока)
       clicks.dragged();
       commitBlock(released);
+    } else if (released.kind === 'look') {
+      if (!released.moved) return; // щелчок — выбор (onClick куска)
+      clicks.dragged();
+      commitLook(released);
     } else if (!released.moved) { // щелчок по музыке — выбрать и встать туда
       setSel({ kind: 'music' });
       const box = lanes.current?.querySelector('.ed-row.music .ed-lane')?.getBoundingClientRect();
@@ -945,6 +975,25 @@ export default function Editor({ id }: { id: string }) {
       floor: c.ref.kind === 'hook' ? 0 : room.floor, max: room.max,
     });
   };
+  // кусок с фильтром тянут так же: выбранный — за край (растянуть) или целиком; копия в тизере не тянется (она — копия
+  // фразы с её места), начало — не раньше конца тизера
+  const lookFloor = tracks?.layer.tl.teaser ? (tracks.layer.tl.teaser[1] - tracks.layer.tl.teaser[0]) / tracks.layer.tl.speed : 0;
+  const grabLook = (e: React.PointerEvent<HTMLElement>, l: Tracks['looks'][number], mode: LookDrag['mode'], picked: boolean) => {
+    if (!canShape || l.off || l.teaser || e.button !== 0 || !picked) return;
+    grab(e, { kind: 'look', ref: l.ref, mode, x0: e.clientX, t0: l.t0, t1: l.t1, a: l.t0, b: l.t1, moved: false, floor: lookFloor, max: duration });
+  };
+  // свой кусок ч/б на фразу под бегунком (как её делят субтитры): выбран сразу — фильтр и края правятся тут же
+  const doAddLook = useCallback(() => {
+    if (!tracks || !canShape) return;
+    const p = phraseAt(tracks.layer.edit.words ?? [], tracks.layer.tl, now.current);
+    if (!p) {
+      setHint(T('noPhrase'));
+      return;
+    }
+    const own = (hand.looks ?? []).filter((f) => f.at === undefined).length;
+    edit(addLook(hand, p.t0, p.t1));
+    setSel({ kind: 'look', ref: { own } });
+  }, [tracks, canShape, hand, edit, T]);
   // щелчок по блоку или группе субтитров — выбрать и встать на её начало (кадр её покажет)
   const pickClip = (c: Clip) => {
     if (!clicks.click()) return;
@@ -1197,7 +1246,8 @@ export default function Editor({ id }: { id: string }) {
             <EndPanel T={T} draft={draft} hand={hand} editable={canCard} note={editable ? cardNote : null} onEdit={edit} letters={letters} />
           ) : null}
           {tracks && (sel?.kind === 'look' || sel?.kind === 'transition') ? (
-            <PicturePick T={T} sel={sel} tracks={tracks} hand={hand} editable={canMarks} note={editable ? pictureNote : null} onEdit={edit} sec={sec} />
+            <PicturePick T={T} sel={sel} tracks={tracks} hand={hand} editable={sel.kind === 'look' ? canLook : canMarks} shape={canShape}
+              note={editable ? (sel.kind === 'look' && canLook ? null : pictureNote) : null} onEdit={edit} sec={sec} />
           ) : null}
           {tracks ? (
             <Inspector T={T} sel={sel} tracks={tracks} hand={hand} mix={mix} editable={editable} canMove={canMove} splitHere={splitHere} videos={videos}
@@ -1213,7 +1263,7 @@ export default function Editor({ id }: { id: string }) {
           ) : null}
           {tracks ? (
             <PictureSection T={T} tracks={tracks} hand={hand} dim={draft?.dim ?? 0} canZoom={canZoom} canDim={canMarks} note={editable ? pictureNote : null}
-              onEdit={edit} />
+              onEdit={edit} onAddLook={canShape ? doAddLook : null} />
           ) : null}
           {tracks && draft ? (
             <VideoSection T={T} hand={hand} speed={draft.speed} teaser={Boolean(draft.teaser)} canSpeed={canSpeed} canTeaser={canTeaser}
@@ -1317,7 +1367,7 @@ export default function Editor({ id }: { id: string }) {
                     </div>
                   );
                 })}
-                {tracks.looks.filter((c) => !c.off).map((c, i) => <div key={`l${i}`} className="ed-look" style={{ left: X(c.t0), width: Math.max(2, X(c.t1 - c.t0)) }} title={T('bw')} />)}
+                {tracks.looks.filter((c) => !c.off).map((c, i) => <div key={`l${i}`} className={`ed-look ${c.look}`} style={{ left: X(c.t0), width: Math.max(2, X(c.t1 - c.t0)) }} title={T(LOOK_NAMES[c.look as keyof typeof LOOK_NAMES] ?? 'bw')} />)}
                 {tracks.cuts.map((c, i) => (
                   // две метки на одном стыке (куски переставлены) — «＋» каждой в том куске, к которому вернётся вырезанное
                   <span key={`c${i}`} style={{ left: X(c.at) }} title={T('cutPart', { s: sec(c.src1 - c.src0) })}
@@ -1348,13 +1398,22 @@ export default function Editor({ id }: { id: string }) {
               <Row name={T('picture')} cls="pic" width={width} onSeek={onLanes}>
                 <canvas ref={zoomLine} className="ed-zoomline" aria-hidden="true" />
                 {tracks.looks.map((l, i) => {
-                  const picked = sel?.kind === 'look' && sel.at[0] === l.at[0] && sel.at[1] === l.at[1];
+                  const picked = sel?.kind === 'look' && sameLook(sel.ref, l.ref);
+                  const dragging = drag?.kind === 'look' && sameLook(drag.ref, l.ref) && drag.moved && !l.teaser ? drag : null;
+                  const [a, b] = dragging ? [dragging.a, dragging.b] : [l.t0, l.t1];
+                  const handles = picked && canShape && !l.off && !l.teaser;
+                  const name = T(LOOK_NAMES[l.look as keyof typeof LOOK_NAMES] ?? 'bw');
                   return (
-                    <div key={`l${i}`} data-kind="look" data-at={`${l.at[0]}-${l.at[1]}`}
-                      className={`ed-clip bw${l.off ? ' ghost' : ''}${picked ? ' sel' : ''}`} style={{ left: X(l.t0), width: Math.max(8, X(l.t1 - l.t0)) }}
-                      title={`${T('look')} · ${tenths(l.t0)}–${tenths(l.t1)}${l.off ? ` · ${T('removed')}` : ''}`}
-                      onClick={() => { if (clicks.click()) { setSel({ kind: 'look', at: l.at }); seek(l.t0); } }}>
-                      <span>{T('bw')}</span>
+                    <div key={`l${i}`} data-kind="look" data-look={l.look} data-own={'own' in l.ref ? l.ref.own : undefined}
+                      data-at={'at' in l.ref ? `${l.ref.at[0]}-${l.ref.at[1]}` : undefined}
+                      className={`ed-clip look ${l.look}${l.off ? ' ghost' : ''}${picked ? ' sel' : ''}${handles ? ' grab' : ''}`}
+                      style={{ left: X(a), width: Math.max(8, X(b - a)) }}
+                      title={`${'own' in l.ref ? T('lookOwn') : T('look')} · ${name} · ${tenths(a)}–${tenths(b)}${l.off ? ` · ${T('removed')}` : ''}`}
+                      onPointerDown={(e) => grabLook(e, l, 'move', picked)} {...dragProps}
+                      onClick={() => { if (clicks.click()) { setSel({ kind: 'look', ref: l.ref }); seek(l.t0); } }}>
+                      {handles ? <span className="ed-handle start" aria-hidden="true" onPointerDown={(e) => grabLook(e, l, 'start', picked)} {...dragProps} /> : null}
+                      <span>{name}</span>
+                      {handles ? <span className="ed-handle end" aria-hidden="true" onPointerDown={(e) => grabLook(e, l, 'end', picked)} {...dragProps} /> : null}
                     </div>
                   );
                 })}

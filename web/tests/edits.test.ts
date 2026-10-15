@@ -5,6 +5,7 @@ import {
   applyKeep, applyText, blockPlace, commit, cutSpan, EMPTY, initHistory, LIMITS, moveSpan, parseTimeline, pieces, placeBlock, redo, restoreSpan, setBlock, setCta, setHook,
   setMusic, setSound, setVoice, setWord, snapTo, splitAt, trimEnd, trimStart, undo, type Edit, type TextEdits, type WordFix, badSymbols, blockFix, hasEmoji,
   setLook, setTransition, setZoom, TRANSITION_KINDS, setDim, setTrack, setEnd, MUSIC_FILE, setTeaser, setSpeed,
+  LOOK_KINDS, addLook, setLookEdges, setLookKind, removeLook,
 } from '../lib/edits.ts';
 import { INSERT_W, INSERT_ZONE } from '../lib/jobfiles.ts';
 
@@ -266,13 +267,19 @@ test('symbols the video\'s font will not draw are refused as the engine font che
   assert.equal(badSymbols('сердце ❤'), '❤', '❤ без U+FE0F — буква, которой нет в шрифтах');
 });
 
-test('parseTimeline takes picture edits as the schema does: zoom strength, b/w pieces off, transitions of another kind or off', () => {
-  const ok = { rev: 1, edits: [], zoom: 0.5, looks: [{ at: [1, 2.5], off: true }], transitions: [{ at: 3.2, kind: 'blur' }, { at: 5, off: true }] };
+test('parseTimeline takes picture edits as the schema does: zoom strength, pieces with filters, transitions of another kind or off', () => {
+  const ok = {
+    rev: 1, edits: [], zoom: 0.5, transitions: [{ at: 3.2, kind: 'blur' }, { at: 5, off: true }],
+    looks: [{ at: [1, 2.5], off: true }, { at: [3, 4], t0: 2.8, t1: 4.2 }, { at: [5, 6], look: 'sepia' }, { at: [7, 8], t0: 7.1, t1: 8, look: 'cold' },
+      { t0: 9, t1: 10.5, look: 'film' }, { at: [1, 2], off: true, look: 'bw' }],
+  };
   assert.deepEqual(parseTimeline(ok), ok);
   for (const bad of [
     { ...ok, zoom: 2 }, { ...ok, zoom: -0.1 }, { ...ok, zoom: '1' }, { ...ok, zoom: null },
     { ...ok, looks: [{ at: [1, 2] }] }, { ...ok, looks: [{ at: [1, 2], off: false }] }, { ...ok, looks: [{ at: [1], off: true }] },
-    { ...ok, looks: [{ at: [1, 2], off: true, look: 'bw' }] }, { ...ok, looks: {} },
+    { ...ok, looks: [{ t0: 1, t1: 2 }] }, { ...ok, looks: [{ t0: 1, t1: 2, look: 'sepia', off: true }] }, { ...ok, looks: [{ t0: 1, look: 'bw' }] },
+    { ...ok, looks: [{ at: [1, 2], look: 'neon' }] }, { ...ok, looks: [{ at: [1, 2], t0: 1.5 }] }, { ...ok, looks: [{ t0: -1, t1: 2, look: 'bw' }] },
+    { ...ok, looks: {} },
     { ...ok, transitions: [{ at: -1 }] }, { ...ok, transitions: [{ at: 1, kind: 'wipe' }] }, { ...ok, transitions: [{ at: 1, off: false }] },
     { ...ok, transitions: [{ kind: 'flash' }] }, { ...ok, transitions: [{ at: 1, sfx: null }] },
     { ...ok, looks: Array(LIMITS.blocks + 1).fill({ at: [1, 2], off: true }) }, { ...ok, transitions: Array(LIMITS.blocks + 1).fill({ at: 1, off: true }) },
@@ -280,6 +287,32 @@ test('parseTimeline takes picture edits as the schema does: zoom strength, b/w p
   const p = SCHEMA.properties;
   assert.deepEqual([p.zoom.minimum, p.zoom.maximum, p.looks.maxItems, p.transitions.maxItems], [LIMITS.zoom.min, LIMITS.zoom.max, LIMITS.blocks, LIMITS.blocks]);
   assert.deepEqual(p.transitions.items.properties.kind.enum, [...TRANSITION_KINDS]);
+  assert.deepEqual(p.looks.items.properties.look.enum, [...LOOK_KINDS]);
+});
+
+test('pieces with filters by hand: own pieces by their number, edges and filter of a session piece, back to the session', () => {
+  let h = addLook(EMPTY, 2.0004, 3.5);
+  assert.deepEqual(h.looks, [{ t0: 2, t1: 3.5, look: 'bw' }], 'свой кусок — ч/б, края до тысячной');
+  h = addLook(h, 6, 7, 'film');
+  h = setLookKind(h, { own: 0 }, 'sepia');
+  h = setLookEdges(h, { own: 1 }, 5.5, 7.25);
+  assert.deepEqual(h.looks, [{ t0: 2, t1: 3.5, look: 'sepia' }, { t0: 5.5, t1: 7.25, look: 'film' }]);
+  h = setLookEdges(h, { at: [10, 12] }, 9.6, 12.4);
+  h = setLookKind(h, { at: [10, 12] }, 'cold');
+  assert.deepEqual(h.looks?.at(-1), { at: [10, 12], t0: 9.6, t1: 12.4, look: 'cold' }, 'кусок сессии: края и фильтр в одной правке');
+  h = setLookEdges(h, { at: [10, 12] }, 10, 12);
+  assert.deepEqual(h.looks?.at(-1), { at: [10, 12], look: 'cold' }, 'края как у сессии — правки краёв нет, фильтр остаётся');
+  h = setLookKind(h, { at: [10, 12] }, 'bw');
+  assert.equal(h.looks?.length, 2, 'фильтр как у сессии — правки куска нет совсем');
+  h = setLookEdges(h, { at: [10, 12] }, 9, 12);
+  h = setLook(h, [10, 12], true);
+  assert.deepEqual(h.looks?.at(-1), { at: [10, 12], off: true }, 'убран — его края уходят');
+  h = removeLook(removeLook(h, 0), 0);
+  assert.deepEqual(h.looks, [{ at: [10, 12], off: true }], 'свои куски убраны по номеру');
+  assert.ok(!('looks' in setLook(h, [10, 12], false)), 'всё как у сессии — поля нет');
+  assert.deepEqual(parseTimeline({ rev: 1, edits: [], looks: addLook(addLook(EMPTY, 1, 2, 'warm'), 3, 4).looks }), {
+    rev: 1, edits: [], looks: [{ t0: 1, t1: 2, look: 'warm' }, { t0: 3, t1: 4, look: 'bw' }] }, 'что пишут правки — принимает схема');
+  assert.deepEqual([...LOOK_KINDS], ['bw', 'sepia', 'warm', 'cold', 'film']);
 });
 
 test('picture setters: zoom strength within the limits (as the session — no field), a b/w piece off and back, a transition of another kind or off', () => {

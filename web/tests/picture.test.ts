@@ -19,7 +19,7 @@ test('the picture at a moment: zoom to the face, b/w frames, flash, blur, a full
   assert.equal(pictureAt(m, 0.5).zoom, 1, 'до первой ступени — без зума');
   assert.ok(near(pictureAt(m, 3).zoom, 1.1), 'ступень по смыслу — 1,1');
   assert.ok(pictureAt(m, 4.0).zoom > 1.1 + 0.2, `на стыке — толчок перехода zoom: ${pictureAt(m, 4.0).zoom}`);
-  assert.ok(pictureAt(m, 2.5).bw && !pictureAt(m, 1.9).bw && !pictureAt(m, 3.1).bw, 'ч/б — кадры куска 2–3');
+  assert.ok(pictureAt(m, 2.5).look === 'bw' && pictureAt(m, 1.9).look === null && pictureAt(m, 3.1).look === null, 'ч/б — кадры куска 2–3');
   assert.equal(pictureAt(m, 7.0).flash, 1, 'вспышка — белый кадр на стыке');
   assert.equal(pictureAt(m, 6.9).flash, 64 / 255, 'кадр 207 — первый кадр белого после прозрачного, как fade альфы ffmpeg');
   assert.equal(pictureAt(m, 7.06).flash, 191 / 255, 'кадр 211 — на четверть прозрачнее');
@@ -37,9 +37,19 @@ test('the picture follows Pavel\'s picture edits: zoom half as strong, a b/w pie
   const m = pictureModel(draftTracks(DRAFT, { sourceDuration: 9, fixes }).layer, { face: DRAFT.face });
   assert.ok(near(pictureAt(m, 3).zoom, 1.05), 'ступень 1,1 — вполовину');
   assert.ok(near(pictureAt(m, 4.0).zoom, 1.125) && near(pictureAt(m, 3.95).zoom, 1.05), 'на стыке — сразу ступень 1,25 вполовину, толчка нет: переход убран');
-  assert.ok(!pictureAt(m, 2.5).bw, 'ч/б-кусок убран — в цвете');
+  assert.equal(pictureAt(m, 2.5).look, null, 'ч/б-кусок убран — в цвете');
   assert.equal(pictureAt(m, 7.0).flash, 0, 'вместо вспышки — смаз');
   assert.ok(near(pictureAt(m, 7.0).blur, Math.sqrt(8 ** 2 + 14 ** 2 + 24 ** 2)));
+});
+
+test('pieces by hand and other filters show on their frames; the later piece wins where pieces meet', () => {
+  const fixes = { looks: [{ at: [2, 3] as [number, number], look: 'sepia' as const }, { t0: 2.5, t1: 3.5, look: 'cold' as const }, { t0: 6, t1: 7, look: 'film' as const }] };
+  const m = pictureModel(draftTracks(DRAFT, { sourceDuration: 9, fixes }).layer, { face: DRAFT.face });
+  assert.equal(pictureAt(m, 2.2).look, 'sepia', 'кусок сессии — другим фильтром');
+  assert.equal(pictureAt(m, 2.8).look, 'cold', 'свой кусок — позже в списке, на общих кадрах сильнее');
+  assert.equal(pictureAt(m, 3.4).look, 'cold');
+  assert.equal(pictureAt(m, 5.5).look, 'film', 'исходник 6–7 с — ролик 5–6 с');
+  assert.equal(pictureAt(m, 3.9).look, null);
 });
 
 const model = (flashes: number[], blurs: number[]): PictureModel => ({ level: () => 1, face: { x: 0.5, y: 0.5 }, looks: [], flashes, blurs, covers: [] });

@@ -8,9 +8,9 @@ import type { Timeline } from './timeline.ts';
 
 const FPS = 30;
 export const TRANS = 0.45; // с — длина перехода ступени по умолчанию
-const MIN_LEVEL = 1.0;
-const MAX_LEVEL = 1.16; // зум по смыслу
-const MAX_SHOT = 1.3; // смена крупности и наезд (ступень со своим over)
+export const MIN_LEVEL = 1.0;
+export const MAX_LEVEL = 1.16; // зум по смыслу
+export const MAX_SHOT = 1.3; // смена крупности и наезд (ступень со своим over)
 export const HALF = 0.12; // с — половина перехода на стыке
 export const PUNCH = 0.25; // толчок зума: на стыке картинка крупнее в 1,25 раза
 export const BLUR: readonly [number, number][] = [[8, 1.0], [14, 2 / 3], [24, 1 / 3]]; // смаз: sigma по x, px; доля полуокна
@@ -144,26 +144,56 @@ export function blurSigma(join: number, n: number, fps = FPS): number {
 
 const nearEdge = (x: number, lo: number, hi: number) => (x - lo <= TO_CUT ? lo : hi - x <= TO_CUT ? hi : x);
 
-/** Ч/б-куски — кадры финала [первый, после последнего]: фраза на своём месте и её копия в тизере; край у склейки — на
- *  склейке (render.look_windows). */
-export function lookWindows(looks: readonly { t0: number; t1: number; off?: boolean }[], tl: Timeline): [number, number][] {
+type LookPiece = { t0: number; t1: number; look?: string; off?: boolean };
+
+/** Кадры финала одного куска [первый, после последнего]: на своём месте и копия в тизере, если фраза туда попала; край у
+ *  склейки — на склейке (render._piece_windows). */
+function pieceWindows(look: LookPiece, tl: Timeline): [number, number][] {
+  const t0 = Number(look.t0);
+  const t1 = Number(look.t1);
+  if (t1 <= t0) return [];
+  const spans: [number, number][] = [tl.span(t0, t1, true)];
+  const teaser = tl.teaser;
+  if (teaser && Math.max(t0, teaser[0]) < Math.min(t1, teaser[1])) {
+    const [lo, hi] = teaser;
+    spans.push([tl.teaserFinal(nearEdge(Math.max(t0, lo), lo, hi)) as number, tl.teaserFinal(nearEdge(Math.min(t1, hi), lo, hi)) as number]);
+  }
   const windows: [number, number][] = [];
-  for (const look of looks) {
-    if (look.off) continue; // убранный Павлом в редакторе — в цвете
-    const t0 = Number(look.t0);
-    const t1 = Number(look.t1);
-    if (t1 <= t0) continue;
-    const spans: [number, number][] = [tl.span(t0, t1, true)];
-    const teaser = tl.teaser;
-    if (teaser && Math.max(t0, teaser[0]) < Math.min(t1, teaser[1])) {
-      const [lo, hi] = teaser;
-      spans.push([tl.teaserFinal(nearEdge(Math.max(t0, lo), lo, hi)) as number, tl.teaserFinal(nearEdge(Math.min(t1, hi), lo, hi)) as number]);
-    }
-    for (const [a, b] of spans) {
-      const first = cutFrame(a);
-      const after = cutFrame(b);
-      if (after > first) windows.push([first, after]);
-    }
+  for (const [a, b] of spans) {
+    const first = cutFrame(a);
+    const after = cutFrame(b);
+    if (after > first) windows.push([first, after]);
   }
   return windows;
+}
+
+/** Куски с фильтром (любым) — кадры финала [первый, после последнего] по каждому куску; убранный Павлом — в цвете
+ *  (render.look_windows). */
+export function lookWindows(looks: readonly LookPiece[], tl: Timeline): [number, number][] {
+  return looks.filter((look) => !look.off).flatMap((look) => pieceWindows(look, tl));
+}
+
+/** Какой фильтр на каких кадрах финала: [первый, после последнего, фильтр] без перекрытий — кусок, что позже в списке
+ *  (свой кусок Павла — после кусков сессии), сильнее на общих кадрах; соседние окна одного фильтра — одно окно
+ *  (render.look_spans, looks.paint). */
+export function lookSpans(looks: readonly LookPiece[], tl: Timeline): [number, number, string][] {
+  let spans: [number, number, string][] = [];
+  for (const look of looks) {
+    if (look.off) continue;
+    for (const [a, b] of pieceWindows(look, tl)) {
+      const rest: [number, number, string][] = [];
+      for (const [x, y, k] of spans) {
+        if (x < a) rest.push([x, Math.min(y, a), k]);
+        if (y > b) rest.push([Math.max(x, b), y, k]);
+      }
+      spans = [...rest.filter(([x, y]) => y > x), [a, b, look.look ?? 'bw']];
+    }
+  }
+  const out: [number, number, string][] = [];
+  for (const [x, y, k] of [...spans].sort((p, q) => p[0] - q[0] || p[1] - q[1] || (p[2] < q[2] ? -1 : p[2] > q[2] ? 1 : 0))) {
+    const last = out.at(-1);
+    if (last && last[1] === x && last[2] === k) last[1] = y;
+    else out.push([x, y, k]);
+  }
+  return out;
 }

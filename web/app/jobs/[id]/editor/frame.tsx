@@ -9,7 +9,7 @@ import type { Clock } from '@/lib/clock.ts';
 import type { Place } from '@/lib/edits.ts';
 import type { StyleSpec } from '@/lib/jobfiles.ts';
 import { eventIndexAt, FPS, type LayerEvent } from '@/lib/overlay.ts';
-import { BW_FILTER, pictureAt, type Cover, type PictureModel } from '@/lib/picture.ts';
+import { lookFilter, pictureAt, type Cover, type PictureModel } from '@/lib/picture.ts';
 import { INSERT_W, moveBox, moveCentre, resizeBox, underCaption, type BoxExt } from '@/lib/style.ts';
 import { BoxHandle, DragHandle, type Box } from '../../../handles';
 import { PencilIcon } from '../../../icons';
@@ -82,9 +82,10 @@ export function Picture({ clock, model, video, src, duration, width, playing, ur
       if (v) {
         v.style.transformOrigin = `${(p.face.x * 100).toFixed(2)}% ${(p.face.y * 100).toFixed(2)}%`;
         v.style.transform = p.zoom > 1 + 1e-6 ? `scale(${p.zoom.toFixed(5)})` : '';
-        v.style.filter = p.bw ? BW_FILTER : '';
+        v.style.filter = lookFilter(p.look);
         v.dataset.zoom = p.zoom.toFixed(4); // для проверок e2e: что видно на кадре
-        v.dataset.bw = p.bw ? '1' : '';
+        v.dataset.bw = p.look === 'bw' ? '1' : '';
+        v.dataset.look = p.look ?? '';
       }
       if (pic.current) pic.current.style.filter = p.blur > 0 ? `blur(${((p.blur * width) / 1080).toFixed(2)}px)` : '';
       if (flash.current) flash.current.style.opacity = p.flash > 0 ? p.flash.toFixed(3) : '0';

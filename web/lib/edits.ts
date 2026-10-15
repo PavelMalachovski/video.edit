@@ -4,6 +4,8 @@
 // overlay-events.json (text). Времена — секунды исходника, кроме music.at (секунда ролика).
 
 import { pyRound } from './pyround.ts';
+import { TO_CUT } from './timeline.ts';
+import { MAX_LEVEL, MAX_SHOT, MIN_LEVEL } from './zoom.ts';
 
 /** Правка кусков (секунды исходника): вырезать; вернуть (к куску перед ним в исходнике, `next` — к куску после него);
  *  переставить оставленное в [t0, t1] перед моментом `before` (null — в конец); разрез — только граница на экране. */
@@ -30,8 +32,16 @@ export type EndFix = { lines?: string[]; handle?: string; off?: true };
 export type TextEdits = { hook?: HookFix; cta?: CtaFix; accents?: AccentFix[]; inserts?: InsertFix[]; end?: EndFix };
 /** Слово субтитров с ровно этими t0, t1 получает текст Павла; пустой — слова нет в субтитрах. */
 export type WordFix = { t0: number; t1: number; text: string };
-/** Ч/б-кусок по месту `at` — убран; переход по своему `t` (`at`) — другого вида или убран. */
-export type LookFix = { at: At; off: true };
+/** Фильтры кусков (edit.json looks.look): ч/б эталона и фильтры руками — сепия, тёплый, холодный, плёнка (KINDS движка,
+ *  vm/looks.py; порядок кнопок в редакторе). */
+export const LOOK_KINDS = ['bw', 'sepia', 'warm', 'cold', 'film'] as const;
+export type LookKind = (typeof LOOK_KINDS)[number];
+/** Кусок с фильтром руками: кусок сессии по месту `at` — убран (`off`), с другими краями (`t0`, `t1` — время исходника)
+ *  или другим фильтром (`look`); без `at` — свой кусок Павла (`t0`, `t1`, `look`). Переход по своему `t` (`at`) —
+ *  другого вида или убран. */
+export type LookFix = { at?: At; off?: true; t0?: number; t1?: number; look?: LookKind };
+/** Какой кусок правят: кусок сессии — по месту `at` в edit.looks, свой — по номеру среди своих (`own`). */
+export type LookRef = { at: At } | { own: number };
 /** Виды переходов (edit.json, transitions.kind): вспышка, толчок зумом, смаз. */
 export const TRANSITION_KINDS = ['flash', 'zoom', 'blur'] as const;
 export type TransitionKind = (typeof TRANSITION_KINDS)[number];
@@ -283,16 +293,18 @@ type PictureBase = {
   transitions?: readonly { t: number; kind: string; sfx?: string | null; off?: boolean }[] | null;
 };
 
-/** Картинка руками поверх edit — как apply_picture движка: сила зума — доля от зума монтажа (1 + (уровень − 1) · zoom,
- *  четыре знака), ч/б-кусок по месту `at` — выключен, переход по своему `t` — другого вида или выключен; выключенное
- *  остаётся в списке (номера звуков переходов те же); затемнение фона — своё (0 — без него). Правок нет — тот же edit. */
+/** Картинка руками поверх edit — как apply_picture движка: куски с фильтром — кусок сессии по месту `at` убран (`off`,
+ *  остаётся в списке), с другими краями или фильтром; свой кусок Павла — в конце списка; на краях своего куска и куска с
+ *  другими краями — смена крупности (shotEdges). Сила зума — доля от зума монтажа (1 + (уровень − 1) · zoom, четыре
+ *  знака), в том числе у смен крупности кусков; переход по своему `t` — другого вида или выключен; выключенное остаётся в
+ *  списке (номера звуков переходов те же); затемнение фона — своё (0 — без него). Правок нет — тот же edit. */
 export function applyPicture<T extends PictureBase>(edit: T, zoom?: number, looks?: readonly LookFix[], transitions?: readonly TransitionFix[],
   dim?: number): T {
   if (zoom === undefined && !looks?.length && !transitions?.length && dim === undefined) return edit;
-  const out: T = { ...edit };
+  let out: T = { ...edit };
   if (dim !== undefined) out.dim = dim > 0 ? dim : null;
-  if (zoom !== undefined) out.zooms = (edit.zooms ?? []).map((z) => ({ ...z, level: pyRound(1 + (Number(z.level) - 1) * zoom, 4) }));
-  if (looks?.length) out.looks = anchored(edit.looks ?? [], looks, 'looks', (item) => ({ ...item, off: true })) as T['looks'];
+  if (looks?.length) out = handLooks(out, looks);
+  if (zoom !== undefined) out.zooms = (out.zooms ?? []).map((z) => ({ ...z, level: pyRound(1 + (Number(z.level) - 1) * zoom, 4) }));
   if (transitions?.length) {
     const list = [...(edit.transitions ?? [])];
     const used = new Set<number>();
@@ -305,6 +317,62 @@ export function applyPicture<T extends PictureBase>(edit: T, zoom?: number, look
     out.transitions = list;
   }
   return out;
+}
+
+type ZoomStep = { t: number; level: number; over?: number };
+type LookItem = Span2 & { look: string; off?: boolean };
+const SHOTS = [1.25, 1.0, 1.15] as const; // план куска с фильтром руками: крупный, общий, средний (SHOTS движка)
+const SHOT_STEP = 0.1; // «видно отличается»: разница планов не меньше
+
+/** Куски с фильтром руками поверх edit (edits._hand_looks): правки кусков сессии по `at`, затем свои куски Павла; у куска
+ *  с новыми краями смены крупности сессии на старых краях уходят, на новых — shotEdges. */
+function handLooks<T extends PictureBase>(edit: T, looks: readonly LookFix[]): T {
+  let zooms: ZoomStep[] = [...(edit.zooms ?? [])];
+  const moved: [LookItem, LookItem][] = [];
+  const pieces = anchored(edit.looks ?? [], looks.filter((c): c is LookFix & { at: At } => c.at !== undefined), 'looks', (item, c, name) => {
+    if (c.off) return { ...item, off: true };
+    let next: LookItem = { ...item, ...(c.look !== undefined ? { look: c.look } : {}) };
+    if (c.t0 !== undefined) {
+      next = timed(name, { ...next, t0: Number(c.t0), t1: Number(c.t1) });
+      moved.push([item, next]);
+    }
+    return next;
+  }) as LookItem[];
+  for (const [old] of moved) {
+    zooms = zooms.filter((z) => !(sharp(z) && [Number(old.t0), Number(old.t1)].some((e) => Math.abs(Number(z.t) - e) <= TO_CUT + EPS)));
+  }
+  for (const [, next] of moved) zooms = shotEdges(zooms, next.t0, next.t1);
+  looks.filter((c) => c.at === undefined).forEach((c, i) => {
+    const own = timed(`looks[own ${i}]`, { t0: Number(c.t0), t1: Number(c.t1), look: c.look as string });
+    pieces.push(own);
+    zooms = shotEdges(zooms, own.t0, own.t1);
+  });
+  return { ...edit, looks: pieces, zooms } as T;
+}
+
+const sharp = (z: ZoomStep): boolean => z.over !== undefined && Number(z.over) === 0;
+
+/** План в момент `t` исходника по ступеням до него (edits._plan_at): уровень последней, в своих пределах; нет — 1.0. */
+function planAt(zooms: readonly ZoomStep[], t: number): number {
+  let level = MIN_LEVEL;
+  for (const z of [...zooms].sort((a, b) => Number(a.t) - Number(b.t))) {
+    if (Number(z.t) > t + EPS) break;
+    level = Math.min(z.over !== undefined ? MAX_SHOT : MAX_LEVEL, Math.max(MIN_LEVEL, Number(z.level)));
+  }
+  return level;
+}
+
+/** Смена крупности на краях куска [t0, t1], как вторая камера (edits._shot_edges): на его время план один — из SHOTS
+ *  первый, что отличается от плана до куска и после него хотя бы на SHOT_STEP (нет такого — самый далёкий от обоих);
+ *  ступени внутри и не дальше TO_CUT от краёв уходят; после куска — план, какой был бы без него. */
+function shotEdges(zooms: readonly ZoomStep[], t0: number, t1: number): ZoomStep[] {
+  const before = planAt(zooms, t0 - TO_CUT);
+  const after = planAt(zooms, t1 + TO_CUT);
+  const gap = (s: number) => Math.min(Math.abs(s - before), Math.abs(s - after));
+  const inside = SHOTS.find((s) => gap(s) >= SHOT_STEP - EPS) ?? SHOTS.reduce((best, s) => (gap(s) > gap(best) ? s : best));
+  const rest = zooms.filter((z) => !(t0 - TO_CUT - EPS < Number(z.t) && Number(z.t) < t1 + TO_CUT + EPS));
+  const edges: ZoomStep[] = [{ t: t0, level: inside, over: 0 }, { t: t1, level: after, over: 0 }];
+  return [...rest, ...edges].sort((a, b) => Number(a.t) - Number(b.t));
 }
 
 // ---------- правки ----------
@@ -524,12 +592,60 @@ export function setZoom(h: HandEdits, zoom: number | null): HandEdits {
   return z === 1 ? rest : { ...rest, zoom: z };
 }
 
-/** Ч/б-кусок edit.looks с местом `at` ([t0, t1], как его записала сессия): `off` — убран из ролика; иначе — как у сессии. */
-export function setLook(h: HandEdits, at: At, off: boolean): HandEdits {
-  const rest = (h.looks ?? []).filter((f) => !sameAt(f.at, at));
-  const looks: LookFix[] = off ? [...rest, { at: [at[0], at[1]], off: true }] : rest;
+const lookAt = (f: LookFix, at: At): boolean => f.at !== undefined && sameAt(f.at, at);
+
+function withLooks(h: HandEdits, looks: LookFix[]): HandEdits {
   const { looks: _old, ...base } = h;
   return looks.length ? { ...base, looks } : base;
+}
+
+/** Свои куски Павла по порядку — номер среди своих (`own`); `f` — новая правка этого куска. */
+function mapOwn(h: HandEdits, own: number, f: (x: LookFix) => LookFix): LookFix[] {
+  let k = -1;
+  return (h.looks ?? []).map((x) => (x.at === undefined && ++k === own ? f(x) : x));
+}
+
+/** Кусок сессии edit.looks с местом `at` ([t0, t1], как его записала сессия): `off` — убран из ролика; иначе — как у
+ *  сессии (его другие края и фильтр тоже уходят). */
+export function setLook(h: HandEdits, at: At, off: boolean): HandEdits {
+  const rest = (h.looks ?? []).filter((f) => !lookAt(f, at));
+  return withLooks(h, off ? [...rest, { at: [at[0], at[1]], off: true }] : rest);
+}
+
+/** Свой кусок Павла [t0, t1] (время исходника) с фильтром `look` — в конце списка: его номер среди своих — последний. */
+export function addLook(h: HandEdits, t0: number, t1: number, look: LookKind = 'bw'): HandEdits {
+  return withLooks(h, [...(h.looks ?? []), { t0: round3(t0), t1: round3(t1), look }]);
+}
+
+/** Новые края куска (время исходника): свой — t0, t1; кусок сессии — правка его места (края как у сессии — правки
+ *  краёв нет; его фильтр Павла остаётся). */
+export function setLookEdges(h: HandEdits, ref: LookRef, t0: number, t1: number): HandEdits {
+  const a = round3(t0);
+  const b = round3(t1);
+  if ('own' in ref) return withLooks(h, mapOwn(h, ref.own, (f) => ({ ...f, t0: a, t1: b })));
+  const list = h.looks ?? [];
+  const old = list.find((f) => lookAt(f, ref.at) && !f.off);
+  const same = a === ref.at[0] && b === ref.at[1];
+  const fix: LookFix = { at: [ref.at[0], ref.at[1]], ...(same ? {} : { t0: a, t1: b }), ...(old?.look ? { look: old.look } : {}) };
+  const rest = list.filter((f) => !lookAt(f, ref.at));
+  return withLooks(h, fix.t0 !== undefined || fix.look !== undefined ? [...rest, fix] : rest);
+}
+
+/** Фильтр куска: своего — новый; куска сессии — `look` (тот же, что у сессии, `was`, — правки фильтра нет; его края
+ *  Павла остаются). */
+export function setLookKind(h: HandEdits, ref: LookRef, look: LookKind, was = 'bw'): HandEdits {
+  if ('own' in ref) return withLooks(h, mapOwn(h, ref.own, (f) => ({ ...f, look })));
+  const list = h.looks ?? [];
+  const old = list.find((f) => lookAt(f, ref.at) && !f.off);
+  const fix: LookFix = { at: [ref.at[0], ref.at[1]], ...(old?.t0 !== undefined ? { t0: old.t0, t1: old.t1 } : {}), ...(look !== was ? { look } : {}) };
+  const rest = list.filter((f) => !lookAt(f, ref.at));
+  return withLooks(h, fix.t0 !== undefined || fix.look !== undefined ? [...rest, fix] : rest);
+}
+
+/** Убрать свой кусок Павла (номер среди своих). */
+export function removeLook(h: HandEdits, own: number): HandEdits {
+  let k = -1;
+  return withLooks(h, (h.looks ?? []).filter((f) => f.at !== undefined || ++k !== own));
 }
 
 /** Переход edit.transitions с моментом `at` (его t): другого вида (`kind`) и/или убран (`off`); ни того ни другого или
@@ -631,7 +747,12 @@ function parsePicture({ zoom, looks, transitions, dim }: Record<string, unknown>
   if (dim !== undefined && !(isNum(dim) && dim >= LIMITS.dim.min && dim <= LIMITS.dim.max)) return false;
   const list = (v: unknown, ok: (o: Record<string, unknown>) => boolean) => v === undefined
     || (Array.isArray(v) && v.length <= LIMITS.blocks && v.every((o) => isObj(o) && ok(o)));
-  if (!list(looks, (o) => onlyKeys(o, ['at', 'off']) && isAt(o.at) && o.off === true)) return false;
+  if (!list(looks, (o) => onlyKeys(o, ['at', 'off', 't0', 't1', 'look']) && (o.at === undefined || isAt(o.at))
+    && (o.off === undefined || o.off === true) && (o.t0 === undefined) === (o.t1 === undefined)
+    && (o.t0 === undefined || (isNum(o.t0) && o.t0 >= 0 && isNum(o.t1) && o.t1 >= 0))
+    && (o.look === undefined || (LOOK_KINDS as readonly unknown[]).includes(o.look))
+    && (o.at !== undefined ? o.off === true || o.t0 !== undefined || o.look !== undefined
+      : o.t0 !== undefined && o.look !== undefined && o.off === undefined))) return false;
   return list(transitions, (o) => onlyKeys(o, ['at', 'kind', 'off']) && isNum(o.at) && o.at >= 0
     && (o.kind === undefined || (TRANSITION_KINDS as readonly unknown[]).includes(o.kind)) && (o.off === undefined || o.off === true));
 }

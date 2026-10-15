@@ -387,11 +387,13 @@ def test_edit_takes_accent_phrases(job):
         job.write("edit.json", broken)
 
 
-def test_edit_takes_black_and_white_pieces(job):
+def test_edit_takes_black_and_white_pieces_and_the_filters_set_by_hand(job):
+    """Сессия пишет только ч/б; сепию, тёплый, холодный и плёнку ставит Павел в редакторе — edit.json с его правками
+    (`edits.edit_of`, его проверяет рендер) их принимает."""
     edit = make_edit()
-    edit["looks"] = [{"t0": 2.0, "t1": 4.5, "look": "bw"}]
+    edit["looks"] = [{"t0": 2.0, "t1": 4.5, "look": "bw"}, {"t0": 5.0, "t1": 6.0, "look": "sepia"}]
     job.write("edit.json", edit)
-    edit["looks"] = [{"t0": 2.0, "t1": 4.5, "look": "sepia"}]
+    edit["looks"] = [{"t0": 2.0, "t1": 4.5, "look": "neon"}]
     with pytest.raises(ValueError, match=r"looks\[0\]\.look"):
         job.write("edit.json", edit)
 

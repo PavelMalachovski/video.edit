@@ -12,6 +12,7 @@ import pytest
 import shared_events
 
 from vm.asr import Word
+from vm.looks import LOOKS, css_filter
 from vm.overlay import FPS, build_overlay_events, insert_spans
 from vm.render import BW_CSS_BRIGHTNESS, BW_CSS_CONTRAST, RenderError
 from vm.subs import build_sub_events
@@ -544,7 +545,7 @@ def test_the_render_timeline_refuses_what_the_shared_fixture_refuses(bad):
 @pytest.mark.parametrize("case", SHARED["look"], ids=lambda c: c["name"])
 def test_zoom_transitions_and_looks_match_the_shared_fixture(case):
     got = json.loads(json.dumps(shared_events.look_case(case)))
-    assert got == {k: case[k] for k in ("zoom", "marks", "looks", "flash", "blur")}
+    assert got == {k: case[k] for k in ("zoom", "marks", "looks", "spans", "flash", "blur")}
 
 
 def test_the_shared_fixture_has_flash_and_blur_by_frame_and_the_bw_filter_of_the_engine():
@@ -555,6 +556,7 @@ def test_the_shared_fixture_has_flash_and_blur_by_frame_and_the_bw_filter_of_the
     assert all(any(0 < a < 1 for _, a in f["frames"]) and f["frames"][0][1] == f["frames"][-1][1] == 0 for f in flashes)
     assert all(max(s for _, s in b["frames"]) > 28 and b["frames"][0][1] == b["frames"][-1][1] == 0 for b in blurs)
     assert SHARED["bwFilter"] == {"brightness": BW_CSS_BRIGHTNESS, "contrast": BW_CSS_CONTRAST}
+    assert SHARED["lookFilters"] == {look: css_filter(look) for look in LOOKS}, "фильтры превью — те же, что у движка"
 
 
 @pytest.mark.parametrize("case", SHARED["beats"], ids=lambda c: c["name"])

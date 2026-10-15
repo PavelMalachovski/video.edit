@@ -275,12 +275,60 @@ def test_switched_off_bw_pieces_and_transitions_are_not_in_the_video():
     assert [m.source for m in transitions.marks(out, tl)] == [4.5]
 
 
+def test_own_piece_by_hand_comes_after_the_sessions_and_changes_the_shot_on_its_edges():
+    """Свой кусок Павла (`t0`, `t1`, `look` без `at`) — в конце списка, поверх кусков сессии. На краях — смена
+    крупности, как у кусков сессии: на его время план один — из 1.25, 1.00, 1.15 первый, что отличается от плана до куска
+    и после него хотя бы на 0,1; смены монтажа внутри и в 0,25 с от краёв уходят; после куска — план, какой был бы без
+    него."""
+    edit = {**PICTURE_EDIT, "zooms": [{"t": 1.0, "level": 1.12}, {"t": 6.4, "level": 1.15, "over": 0},
+                                      {"t": 7.1, "level": 1.0, "over": 0}, {"t": 7.6, "level": 1.25, "over": 0}]}
+    out = edits.apply(edit, {"rev": 1, "edits": [], "looks": [{"t0": 6.5, "t1": 7.5, "look": "sepia"}]})
+    assert out["looks"] == [*PICTURE_EDIT["looks"], {"t0": 6.5, "t1": 7.5, "look": "sepia"}]
+    assert out["zooms"] == [{"t": 1.0, "level": 1.12}, {"t": 6.5, "level": 1.0, "over": 0}, {"t": 7.5, "level": 1.25, "over": 0}], \
+        "до куска 1.12, после — 1.25: внутри общий план"
+    plain = edits.apply(PICTURE_EDIT, {"rev": 1, "edits": [], "looks": [{"t0": 6.5, "t1": 7.5, "look": "bw"}]})
+    assert plain["zooms"][-2:] == [{"t": 6.5, "level": 1.0, "over": 0}, {"t": 7.5, "level": 1.2, "over": 0}], \
+        "до и после — 1.2 (смена на 4,0): внутри общий"
+    calm = edits.apply({**PICTURE_EDIT, "zooms": []}, {"rev": 1, "edits": [], "looks": [{"t0": 2.0, "t1": 3.0, "look": "film"}]})
+    assert calm["zooms"] == [{"t": 2.0, "level": 1.25, "over": 0}, {"t": 3.0, "level": 1.0, "over": 0}], "без зума — крупный и обратно"
+
+
+def test_moving_the_edges_of_a_session_piece_moves_its_shot_changes():
+    """Края куска сессии потянули (`at` + новые `t0`, `t1`): смены крупности сессии на старых краях (резкие, до 0,25 с от
+    края) уходят, на новых — как у своего куска. Только другой фильтр (`look`) зум не трогает."""
+    edit = {**PICTURE_EDIT, "zooms": [{"t": 1.0, "level": 1.0, "over": 0}, {"t": 2.0, "level": 1.25, "over": 0},
+                                      {"t": 3.0, "level": 1.0, "over": 0}, {"t": 4.0, "level": 1.2, "over": 0}]}
+    out = edits.apply(edit, {"rev": 1, "edits": [], "looks": [{"at": [2.0, 3.0], "t0": 1.6, "t1": 3.4}]})
+    assert out["looks"][0] == {"t0": 1.6, "t1": 3.4, "look": "bw"}
+    assert out["zooms"] == [{"t": 1.0, "level": 1.0, "over": 0}, {"t": 1.6, "level": 1.25, "over": 0},
+                            {"t": 3.4, "level": 1.0, "over": 0}, {"t": 4.0, "level": 1.2, "over": 0}]
+    tinted = edits.apply(edit, {"rev": 1, "edits": [], "looks": [{"at": [5.0, 6.0], "look": "cold"}]})
+    assert tinted["looks"][1] == {"t0": 5.0, "t1": 6.0, "look": "cold"} and tinted["zooms"] == edit["zooms"]
+    gone = edits.apply(edit, {"rev": 1, "edits": [], "looks": [{"at": [2.0, 3.0], "off": True}]})
+    assert gone["zooms"] == edit["zooms"], "убранный кусок: смены на его краях остаются обычными склейками"
+
+
+def test_zoom_strength_by_hand_also_scales_the_shots_of_own_pieces():
+    out = edits.apply({**PICTURE_EDIT, "zooms": []}, {"rev": 1, "edits": [], "zoom": 0.5, "looks": [{"t0": 2.0, "t1": 3.0, "look": "bw"}]})
+    assert out["zooms"] == [{"t": 2.0, "level": 1.125, "over": 0}, {"t": 3.0, "level": 1.0, "over": 0}]
+
+
+def test_an_own_piece_ending_before_it_starts_is_an_error():
+    with pytest.raises(ValueError, match="looks"):
+        edits.apply(PICTURE_EDIT, {"rev": 1, "edits": [], "looks": [{"t0": 3.0, "t1": 3.0, "look": "bw"}]})
+    with pytest.raises(ValueError, match="looks"):
+        edits.apply(PICTURE_EDIT, {"rev": 1, "edits": [], "looks": [{"at": [2.0, 3.0], "t0": 2.5, "t1": 2.0}]})
+
+
 @pytest.mark.parametrize("bad", [{"zoom": 1.6}, {"zoom": -0.1}, {"looks": [{"at": [1.0, 2.0]}]}, {"transitions": [{"at": 1.0, "kind": "spin"}]},
-                                 {"transitions": [{"at": 1.0, "off": False}]}])
+                                 {"transitions": [{"at": 1.0, "off": False}]}, {"looks": [{"t0": 1.0, "t1": 2.0}]},
+                                 {"looks": [{"t0": 1.0, "t1": 2.0, "look": "sepia", "off": True}]}, {"looks": [{"t0": 1.0, "look": "bw"}]},
+                                 {"looks": [{"at": [1.0, 2.0], "look": "neon"}]}, {"looks": [{"at": [1.0, 2.0], "t0": 1.5}]}])
 def test_picture_edits_go_through_the_schema(tmp_path, bad):
     job = Job(tmp_path / "j")
     job.root.mkdir()
-    job.write("timeline.json", {"rev": 1, "edits": [], "zoom": 1.5, "looks": [{"at": [1.0, 2.0], "off": True}],
+    job.write("timeline.json", {"rev": 1, "edits": [], "zoom": 1.5, "looks": [{"at": [1.0, 2.0], "off": True},
+                                {"at": [3.0, 4.0], "t0": 2.8, "t1": 4.2}, {"at": [5.0, 6.0], "look": "sepia"}, {"t0": 7.0, "t1": 8.0, "look": "film"}],
                                 "transitions": [{"at": 1.0, "kind": "flash"}, {"at": 2.0, "off": True}]})
     with pytest.raises(ValueError):
         job.write("timeline.json", {"rev": 1, "edits": [], **bad})

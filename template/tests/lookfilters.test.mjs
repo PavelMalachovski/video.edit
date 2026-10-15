@@ -1,9 +1,10 @@
 // Фильтры кусков в редакторе (ч/б и фильтры руками: сепия, тёплый, холодный, плёнка) — CSS filter на <video> прокси;
 // движок считает те же функции по Filter Effects (на значениях sRGB, после каждой — в [0, 1]: engine/vm/looks.py,
-// test_looks.py). Здесь — что браузеры рисуют их именно так: Chromium (редактор на компьютере) — как движок, WebKit
-// (Safari на iPhone Павла) — так же, но с округлением до 8 бит после каждой функции (на холодном фильтре это до 2,3/255
-// от финала: тёмно-серый 32 — 14,15,21 вместо 13,1, 14,3, 18,7). Фильтры — из общей фикстуры (bwFilter, lookFilters).
-// WebKit нет — его часть пропускается; в CI он стоит, а REQUIRE_WEBKIT=1 не даёт пропустить молча.
+// test_looks.py). Здесь — что браузеры рисуют их именно так: Chromium (редактор на компьютере) — как движок (≤2/255),
+// WebKit (Safari на iPhone Павла) — с 8-битными промежуточными значениями, поэтому чуть дальше: холодный на тёмно-сером
+// 32 — 14,15,21 вместо 13,1, 14,3, 18,7, сепия на 224,172,140 — 188,165,127 вместо 188,1, 166,1, 126,5; допуск ему —
+// 4/255 (1,6 % — глазу не видно). Фильтры — из общей фикстуры (bwFilter, lookFilters). WebKit нет — его часть
+// пропускается; в CI он стоит, а REQUIRE_WEBKIT=1 не даёт пропустить молча.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { after, before, test } from 'node:test';
@@ -40,8 +41,8 @@ function matrix(name, v) {
     [0.213 - c * 0.213 - s * 0.787, 0.715 - c * 0.715 + s * 0.715, 0.072 + c * 0.928 + s * 0.072]];
 }
 
-/** Цвет 0..255 через CSS filter `css` по модели движка; `bytes` — после каждой функции до 8 бит, как рисует WebKit. */
-function model(rgb, css, bytes = false) {
+/** Цвет 0..255 через CSS filter `css` по модели движка. */
+function model(rgb, css) {
   let x = rgb.map((c) => c / 255);
   for (const [, name, num] of css.matchAll(/([a-z-]+)\(([-\d.]+)(?:deg)?\)/g)) {
     const v = Number(num);
@@ -49,20 +50,11 @@ function model(rgb, css, bytes = false) {
     else if (name === 'contrast') x = x.map((c) => (c - 0.5) * v + 0.5);
     else x = matrix(name, v).map((row) => row[0] * x[0] + row[1] * x[1] + row[2] * x[2]);
     x = x.map((c) => Math.min(1, Math.max(0, c)));
-    if (bytes) x = x.map((c) => Math.round(c * 255) / 255);
   }
   return x.map((c) => c * 255);
 }
 
-test('rounding to 8 bits after each function (WebKit) keeps the preview within 2.5/255 of the final', () => {
-  for (const [look, css] of Object.entries(FILTERS)) {
-    for (const colour of COLOURS) {
-      const exact = model(colour, css);
-      const error = Math.max(...model(colour, css, true).map((b, k) => Math.abs(b - exact[k])));
-      assert.ok(error <= 2.5, `${look}, rgb(${colour}): ${error.toFixed(2)}`);
-    }
-  }
-});
+const MOST = { chromium: 2, webkit: 4 }; // /255 — насколько браузер может отойти от модели движка
 
 /** Можно ли здесь запустить WebKit; в CI (REQUIRE_WEBKIT) — обязан. */
 async function webkitAvailable() {
@@ -114,13 +106,14 @@ async function drawn(name) {
 for (const name of Object.keys(engines)) {
   test(`${name} draws the b/w and filter pieces as the engine counts them`, { skip: engines[name] ? false : 'WebKit не установлен (в CI он ставится)' }, async () => {
     const got = await drawn(name);
+    const off = []; // все расхождения сверх допуска — сразу, а не первое
     Object.entries(FILTERS).forEach(([look, css], r) => {
       COLOURS.forEach((colour, c) => {
-        const want = model(colour, css, name === 'webkit');
+        const want = model(colour, css);
         const error = Math.max(...want.map((w, k) => Math.abs(w - got[r][c][k])));
-        const most = name === 'webkit' ? 1 : 2;
-        assert.ok(error <= most, `${name}, ${look} (${css}), rgb(${colour}): ${got[r][c]} вместо ${want.map((w) => w.toFixed(1))}`);
+        if (error > MOST[name]) off.push(`${look}, rgb(${colour}): ${got[r][c]} вместо ${want.map((w) => w.toFixed(1))}`);
       });
     });
+    assert.deepStrictEqual(off, [], `${name} рисует фильтры не как движок (допуск ${MOST[name]}/255)`);
   });
 }

@@ -1696,18 +1696,19 @@ const segments = [
 
     // свой кусок ч/б — на фразу под бегунком (её слова — как в субтитрах: «Привет,» убрано на шаге текста, «это» стало
     // «вот», «мой» — «свой»; фраза — «вот свой», до паузы перед «новый»), потом фильтр «Сепия» и край правее; на кадре —
-    // сепия, на краях — смена крупности, как у кусков монтажа
-    await seekTo(0.5);
+    // сепия, на краях — смена крупности, как у кусков монтажа. Бегунок — в середине фразы (финал 0,5–0,95): seekTo
+    // попадает с допуском ±0,15 с, а на узкой шкале iPhone клик у её начала давал кадр до куска
+    await seekTo(0.75);
     await page.locator('.ed-pic-panel').getByRole('button', { name: '＋ Ч/б на фразу' }).click();
     const own = row.locator('.ed-clip[data-kind=look][data-own="0"]');
     await own.waitFor({ timeout: 3000 });
     const ownPanel = page.locator('.ed-insp[aria-label="Ч/б-кусок"]');
     await ownPanel.getByRole('heading', { name: 'Свой кусок' }).waitFor({ timeout: 3000 });
-    await seekTo(0.5);
-    await until(async () => (await v.getAttribute('data-look')) === 'bw', 3000, 'свой кусок — ч/б на кадре');
+    await seekTo(0.75);
+    await until(async () => (await v.getAttribute('data-look')) === 'bw', 3000, async () => `свой кусок — ч/б на кадре: ${await v.getAttribute('data-look')}`);
     await ownPanel.getByRole('button', { name: 'Сепия' }).click();
     await until(async () => (await own.getAttribute('data-look')) === 'sepia', 3000, 'кусок — сепия');
-    await seekTo(0.5);
+    await seekTo(0.75);
     await until(async () => (await v.getAttribute('data-look')) === 'sepia', 3000, async () => `сепия на кадре: ${await v.getAttribute('data-look')}`);
     check((await v.evaluate((el) => el.style.filter)).includes('sepia(1)'), 'кадр красит CSS-фильтр сепии');
     const before = await own.boundingBox();

@@ -45,6 +45,7 @@ class Fake:
         self.release_pages = 0
         self.ids: dict[str, int] = {}
         self.cut_once: set[int] = set()  # эти ассеты в первый раз отдаются наполовину и рвут соединение
+        self.ranges: list[tuple[int, str]] = []  # (ассет, Range) — запросы диапазонов
         self._next = 100
 
     def draft(self, tag: str, files: dict[str, bytes]) -> None:
@@ -97,7 +98,14 @@ def github(monkeypatch):
             if m := re.fullmatch(r"/blob/(\d+)", url.path):
                 fake.downloads += 1
                 body = fake.blobs[int(m[1])]
-                self.send_response(200)
+                if span := re.fullmatch(r"bytes=(\d+)-(\d+)", self.headers.get("Range") or ""):  # как хранилище GitHub
+                    fake.ranges.append((int(m[1]), span[0]))
+                    first, last = int(span[1]), min(int(span[2]), len(body) - 1)
+                    self.send_response(206)
+                    self.send_header("Content-Range", f"bytes {first}-{last}/{len(body)}")
+                    body = body[first : last + 1]
+                else:
+                    self.send_response(200)
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 if int(m[1]) in fake.cut_once:
@@ -313,6 +321,27 @@ def test_fetch_takes_the_ready_source_instead_of_the_videos(tmp_path, github, ca
     assert "готовый исходник" in capsys.readouterr().out
     assert main(["fetch", str(job.root), "--originals"]) == 0, "для vm prepare --redo — видео Павла"
     assert job.path("in/source.mov").read_bytes() == body
+
+
+def test_fetch_takes_a_big_piece_in_ranges_side_by_side(tmp_path, github, monkeypatch):
+    """Готовый исходник лежит кусками по 256 МБ: целый кусок одним соединением шёл и 111 с, когда соседний — 4 с, и
+    держал весь fetch (2 ГБ — 111 с; диапазонами по 16 МБ в 16 соединений — 9 с). Большой кусок качается диапазонами
+    `RANGE` параллельно; оборванный диапазон — заново, остальные — нет."""
+    from vm import fetch as fetch_mod
+
+    monkeypatch.setattr(fetch_mod, "RANGE", 1000)
+    body = random.Random(41).randbytes(9000)
+    ready = random.Random(42).randbytes(7000)
+    job, name = ready_job(tmp_path, body)
+    github.draft("job-abc", {**parts("source", body, 3000), "manifest.json": manifest("a.mov", body, 3),
+                             **ready_files(name, ready, size=3500)})
+    piece = github.ids[f"{name}.part-00000"]
+    github.cut_once = {piece}
+    assert main(["fetch", str(job.root)]) == 0
+    assert job.path("source.mp4").read_bytes() == ready
+    asked = [r for i, r in github.ranges if i == piece]
+    assert sorted(set(asked)) == ["bytes=0-999", "bytes=1000-1999", "bytes=2000-2999", "bytes=3000-3499"]
+    assert len(asked) == 5, "оборванный диапазон — ещё раз"
 
 
 def test_fetch_takes_the_videos_for_the_analysis_even_with_the_ready_source(tmp_path, github):

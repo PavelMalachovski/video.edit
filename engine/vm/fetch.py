@@ -31,11 +31,16 @@ from .job import Job
 PART = re.compile(r"^(?P<file>.+)\.part-(?P<n>\d{5})$")
 VIDEO_ASSET = re.compile(r"^source(-([2-9]|10))?$")  # видео задачи по порядку: source, source-2 … source-10
 PLACEHOLDERS = {"", "proxy-injected"}
-PARALLEL = 8
+PARALLEL = 16  # запросов разом: 2 ГБ диапазонами по 16 МБ — 9 с (по 8 — 16 с)
+# байт на запрос: кусок больше (готовый исходник лежит по 256 МБ) качается диапазонами параллельно — целый кусок одним
+# соединением шёл и 111 с, когда соседний — 4 с, и держал весь fetch
+RANGE = 16 * 1024 * 1024
 TIMEOUT = 1800  # с на один запрос со всеми повторами (кусок 4 МБ качается секунды; потолок — от зависания)
 # повторять любую ошибку, в том числе обрыв посреди куска; медленнее 1 КБ/с минуту — зависло, повторить
 RETRY = ["--retry", "5", "--retry-all-errors", "--retry-delay", "2", "--connect-timeout", "20",
          "--speed-limit", "1024", "--speed-time", "60"]
+# медленнее 512 КБ/с 10 с — соединение неудачное (соседние идут десятками МБ/с): заново, другим; вся сеть такая — без порога
+SLOW = ["--speed-limit", str(512 * 1024), "--speed-time", "10"]
 
 
 class FetchError(RuntimeError):
@@ -61,9 +66,13 @@ def _repo(job: Job) -> str:
     return f"{m[1]}/{m[2]}"
 
 
-def _curl(url: str, out: Path | None = None, accept: str = "application/vnd.github+json") -> bytes:
-    cmd = ["curl", "-sS", "-f", "-L", *RETRY, "--noproxy", "127.0.0.1,localhost",
+def _curl(url: str, out: Path | None = None, accept: str = "application/vnd.github+json",
+          span: tuple[int, int] | None = None, slow: bool = False) -> bytes:
+    """GET `url` (в файл `out` или → байты); `span` — диапазон байт (первый, последний); `slow` — порог скорости SLOW."""
+    cmd = ["curl", "-sS", "-f", "-L", *RETRY, *(SLOW if slow else []), "--noproxy", "127.0.0.1,localhost",
            "-H", f"Accept: {accept}", "-H", "X-GitHub-Api-Version: 2022-11-28"]
+    if span is not None:
+        cmd += ["-r", f"{span[0]}-{span[1]}"]
     token = os.environ.get("GITHUB_TOKEN", "")
     if token not in PLACEHOLDERS:
         cmd += ["-H", f"Authorization: Bearer {token}"]
@@ -104,20 +113,34 @@ def _asset_url(api: str, repo: str, asset: dict) -> str:
 
 
 def _join(api: str, repo: str, pieces: list[dict], dest: Path, work: Path) -> None:
-    """Куски — параллельно во временную папку (куски нужного размера от прошлого запуска не качаются заново),
-    затем подряд в dest (через временное имя)."""
+    """Куски — параллельно во временную папку (кусок больше `RANGE` — диапазонами; скачанное нужного размера от прошлого
+    запуска не качается заново), затем подряд в dest (через временное имя)."""
     work.mkdir(parents=True, exist_ok=True)
-    paths = [work / f"{i:05d}" for i in range(len(pieces))]
+    spans: list[tuple[dict, tuple[int, int] | None, Path, int]] = []  # (кусок, диапазон, файл, байт)
+    for i, piece in enumerate(pieces):
+        size = piece["size"]
+        if size <= RANGE:
+            spans.append((piece, None, work / f"{i:05d}", size))
+            continue
+        for k, first in enumerate(range(0, size, RANGE)):
+            last = min(size, first + RANGE) - 1
+            spans.append((piece, (first, last), work / f"{i:05d}-{k:05d}", last - first + 1))
 
-    def get(i: int) -> None:
-        if paths[i].is_file() and paths[i].stat().st_size == pieces[i]["size"]:
+    def get(item: tuple[dict, tuple[int, int] | None, Path, int]) -> None:
+        piece, span, path, size = item
+        if path.is_file() and path.stat().st_size == size:
             return
-        _curl(_asset_url(api, repo, pieces[i]), paths[i], accept="application/octet-stream")
-        if paths[i].stat().st_size != pieces[i]["size"]:
-            raise FetchError(f"{pieces[i]['name']}: скачано {paths[i].stat().st_size} байт вместо {pieces[i]['size']}")
+        url = _asset_url(api, repo, piece)
+        try:
+            _curl(url, path, accept="application/octet-stream", span=span, slow=True)
+        except FetchError:  # медленнее порога на всех повторах — вся сеть такая: без порога
+            _curl(url, path, accept="application/octet-stream", span=span)
+        if path.stat().st_size != size:
+            raise FetchError(f"{piece['name']}: скачано {path.stat().st_size} байт вместо {size}")
 
     with ThreadPoolExecutor(PARALLEL) as pool:
-        list(pool.map(get, range(len(pieces))))
+        list(pool.map(get, spans))
+    paths = [path for _, _, path, _ in spans]
     dest.parent.mkdir(parents=True, exist_ok=True)
     partial = dest.with_name(f".{dest.name}.partial")
     try:
@@ -177,7 +200,7 @@ def _matte_cache(api: str, repo: str, job: Job, named: dict[str, dict]) -> None:
         if dest.is_file() and dest.stat().st_size == asset["size"]:
             continue
         try:
-            _curl(_asset_url(api, repo, asset), dest, accept="application/octet-stream")
+            _join(api, repo, [asset], dest, job.path(f"work/fetch/{asset['name']}"))
         except FetchError as err:
             dest.unlink(missing_ok=True)
             print(f"маску фона прошлого рендера не взял ({err}) — рендер посчитает её", flush=True)

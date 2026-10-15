@@ -42,13 +42,13 @@ def _browser() -> list[Path]:
 
 def paths(analyze: bool) -> list[Path]:
     """Файлы шага по порядку надобности (папки — всеми файлами): анализу — Whisper (слушает первым), модель слов для
-    русского (GigaAM), VAD, библиотеки распознавания, Chromium (`vm preview` в конце) и Parakeet (не русский ролик —
-    последним); рендеру — Chromium, модель маски и onnxruntime."""
+    русского (GigaAM), VAD, библиотеки распознавания, модель маски (`vm matte`), Chromium (`vm preview` в конце) и
+    Parakeet (не русский ролик — последним); рендеру — Chromium, модель маски и onnxruntime."""
     wanted: list[Path | None] = []
     if analyze:
         wanted += [asr._model("ASR_REF_MODEL", asr.WHISPER), asr._model("ASR_MODEL", asr.GIGAAM),
-                   asr._model("VAD_MODEL", asr.SILERO), _package("sherpa_onnx"), *_browser(),
-                   asr._model("PARAKEET_MODEL", asr.PARAKEET)]
+                   asr._model("VAD_MODEL", asr.SILERO), _package("sherpa_onnx"), matte.model_path(),
+                   _package("onnxruntime"), *_browser(), asr._model("PARAKEET_MODEL", asr.PARAKEET)]
     else:
         wanted += [*_browser(), matte.model_path(), _package("onnxruntime")]
     if node := shutil.which("node"):

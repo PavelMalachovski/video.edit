@@ -173,8 +173,9 @@
   `engine/vm/warm.py` (`paths`; его запускает `vm fetch`): новая модель или браузер — и туда.
 - Затемнение фона: `engine/vm/matte.py` (`MODEL`) и `setup/cloud-setup.sh` (откуда ставится модель, её sha256); маска
   идёт кадр в кадр со склейкой — `segment_frames` в `engine/vm/render.py`, общий с `_cut`. Маска прошлой сессии —
-  `out/matte-<ключ>.*` рендера (`matte.keep`; ключ — `matte.job_key`: входы исходника и всё, от чего зависит маска)
-  → черновик → `vm fetch` (`_matte_cache`) → `work/matte/cache-<ключ>.*` → `matte.restore` в `render._matte`.
+  `out/matte-<ключ>.*` анализа (`vm matte`: по плотной резке, куски рендера внутри её кусков) или рендера
+  (`matte.keep`; ключ — `matte.job_key`: входы исходника и всё, от чего зависит маска) → черновик → `vm fetch`
+  (`_matte_cache`) → `work/matte/cache-<ключ>.*` → `matte.restore` в `render._matte`.
 - Бренд Павла: поля и проверка — `web/lib/brand.ts`, как их берёт монтаж — SKILL.md (стиль A, `job.json.brand`); «Мой
   стиль» (`look`: `lookFromJob` — скорость, затемнение и музыка, какими их собрал `edits.apply` движка; `parseLook`) ↔
   `brandChoice`, `loadChoice`, `loadSpeed` в `web/lib/style.ts`, `initialDraft` в `web/lib/answers.ts` и `brandLook`

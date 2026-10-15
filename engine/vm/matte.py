@@ -33,6 +33,7 @@ from pathlib import Path
 import numpy as np
 
 from . import source as ready_source
+from .git import MAX_FILE_BYTES
 from .job import Job
 from .media import FPS, probe
 
@@ -42,6 +43,7 @@ RATIO = 0.5  # downsample_ratio модели для кадра 540×960 (сов�
 WORKERS = 4  # потоков маски (не больше ядер и отрезков): на 4 ядрах рутины 51 мс на кадр против 75 у одной сессии
 STRIDE = 2  # модель видит каждый второй кадр отрезка (и последний); маска между ними — среднее соседних
 STALL = 120  # с — столько декодер кадров может молчать; дольше — завис (битый исходник), он останавливается
+MAX_KEEP = MAX_FILE_BYTES  # маска больше в out/ не кладётся: в git не ляжет и сломала бы пуш задачи
 
 Predict = Callable[[np.ndarray, object], tuple[np.ndarray, object]]
 
@@ -281,10 +283,11 @@ def job_key(job: Job) -> str:
     return cache_key(f"{stat.st_size}-{stat.st_mtime_ns}")
 
 
-def keep(parts: list[Path], plan: list[tuple[int, int]], out: Path) -> None:
+def keep(parts: list[Path], plan: list[tuple[int, int]], out: Path) -> bool:
     """Маски отрезков `plan` (файлы `parts`) подряд → `out`.mkv (серое H.264, crf 12, без B-кадров: маска плавная — в
     разы легче ffv1, расхождение — уровень-другой из 255) и `out`.json с отрезками по порядку. Их уносит в черновик
-    Action (out/), следующая сессия берёт оттуда готовые отрезки (`restore`)."""
+    Action (out/), следующая сессия берёт оттуда готовые отрезки (`restore`). Вышло больше `MAX_KEEP` — не кладётся
+    (False)."""
     out.parent.mkdir(parents=True, exist_ok=True)
     listing = out.with_name(f".{out.name}.ffconcat")
     listing.write_text("ffconcat version 1.0\n" + "".join(f"file '{p.resolve()}'\n" for p in parts), encoding="utf-8")
@@ -296,11 +299,14 @@ def keep(parts: list[Path], plan: list[tuple[int, int]], out: Path) -> None:
              "-pix_fmt", "gray", "-color_range", "pc", str(part)],  # полный диапазон: иначе при чтении 16..235 растянут
             check=True, capture_output=True, timeout=600,
         )
+        if part.stat().st_size > MAX_KEEP:
+            return False
         os.replace(part, video)
     finally:
         listing.unlink(missing_ok=True)
         part.unlink(missing_ok=True)
     out.with_suffix(".json").write_text(json.dumps({"plan": [list(unit) for unit in plan]}), encoding="utf-8")
+    return True
 
 
 def _frames_in(path: Path) -> int:

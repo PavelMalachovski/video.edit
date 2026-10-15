@@ -48,11 +48,12 @@ def where(paths, cache, browsers) -> list[str]:
     return out
 
 
-def test_the_analysis_warms_whisper_first_then_the_word_model_vad_and_the_browser(tmp_path, monkeypatch):
-    """Анализ: Whisper слушает первым, потом модель слов (русская — GigaAM), VAD; Chromium — для `vm preview` в конце;
-    Parakeet (не русский ролик) — последним."""
+def test_the_analysis_warms_whisper_first_then_the_word_model_vad_matte_and_the_browser(tmp_path, monkeypatch):
+    """Анализ: Whisper слушает первым, потом модель слов (русская — GigaAM), VAD, модель маски (`vm matte`); Chromium —
+    для `vm preview` в конце; Parakeet (не русский ролик) — последним."""
     cache, browsers = environment(tmp_path, monkeypatch)
-    assert where(warm.paths(analyze=True), cache, browsers) == [asr.WHISPER, asr.GIGAAM, asr.SILERO, "browser", asr.PARAKEET]
+    assert where(warm.paths(analyze=True), cache, browsers) == [
+        asr.WHISPER, asr.GIGAAM, asr.SILERO, "rvm_mobilenetv3_fp32.onnx", "browser", asr.PARAKEET]
 
 
 def test_a_render_warms_the_browser_and_the_matte_model_only(tmp_path, monkeypatch):

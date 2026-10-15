@@ -53,6 +53,7 @@ from .render import (
     variant_ad,
     variant_b,
 )
+from .render import _matte as render_matte
 from .style import final_style, merge_style
 from .timeline import Timeline
 from .zoom import zoom_at
@@ -104,6 +105,24 @@ def _fetch(args: argparse.Namespace) -> None:
     for name, path in files.items():
         ready = " — готовый исходник из черновика: vm prepare не нормализует видео заново" if name == "source.mp4" else ""
         print(f"{name}: {path.relative_to(job.root)} ({path.stat().st_size / 1024 / 1024:.1f} МБ){ready}")
+
+
+def _matte_ahead(args: argparse.Namespace) -> None:
+    """Маска затемнения фона по плотной резке заранее (шаг analyze): рендер возьмёт свои куски из неё готовыми."""
+    job = _job(args)
+    if reason := matte.unavailable():
+        print(f"маска фона: {reason} — затемнения фона в ролике не будет")
+        return
+    if not (job.path("cuts.json").is_file() and job.path("source.mp4").is_file()):
+        raise ValueError("нет cuts.json или source.mp4 — сначала vm prepare")
+    keep = [(float(a), float(b)) for a, b in job.read("cuts.json")["keep"]]
+    _, note = render_matte(job, Timeline(keep, 1.0))
+    if note:
+        print(note)
+    elif list(job.path("out").glob(f"matte-{matte.job_key(job)}.*")):
+        print("маска фона по плотной резке — в out/: уйдёт с vm push в черновик, рендер возьмёт её готовой")
+    else:
+        print("маска фона посчитана, но в out/ не легла (больше 95 МБ): рендер посчитает свою")
 
 
 def _prepare(args: argparse.Namespace) -> None:
@@ -556,6 +575,9 @@ def _parser() -> argparse.ArgumentParser:
 
     command("check", _check, "до рендера: слой, проверка геометрии и контрольные кадры → look/check.png")
 
+    matte_ = command("matte", _matte_ahead, "маска затемнения фона по плотной резке заранее (analyze, фоном) → out/")
+    matte_.add_argument("--detach", action="store_true", help=DETACH)
+
     render_ = command("render", _render, "финал по edit.json → out/, qa/, result.json")
     render_.add_argument("--version", type=_version, help="номер версии: 1 — final, 2 и дальше → final-vN (правки)")
     render_.add_argument("--preset", default="veryfast", help="пресет x264: veryfast (crf 18 — втрое быстрее medium, не хуже по SSIM); для проверок — ultrafast")
@@ -571,7 +593,7 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-LONG = ("fetch", "prepare", "render")  # долгие команды: отмечают себя в work/ (background.mark), умеют --detach
+LONG = ("fetch", "prepare", "matte", "render")  # долгие команды: отмечают себя в work/ (background.mark), умеют --detach
 DETACH = "в фоне своим процессом (вывод — work/<команда>.log): сразу назад, конец ждёт `vm wait`"
 
 

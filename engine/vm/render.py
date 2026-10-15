@@ -1,7 +1,8 @@
 """Сборка финала по edit.json одной командой ffmpeg.
 
 Кадр: вырезка отрезков `keep` (по целым кадрам исходника; звук — с микро-фейдами 10 мс на стыках) → ускорение →
-лёгкий цветокор → ч/б-куски (`edit.looks`: на своих кадрах — без цвета и темнее, как в эталоне) → зум
+лёгкий цветокор → фильтры кусков (`edit.looks`: ч/б эталона — без цвета и темнее; сепия, тёплый, холодный, плёнка —
+функции CSS filter страницы, `looks.py`; каждый — на своих кадрах) → зум
 (якорь — лицо; в нём же толчок зума перехода) → у невертикального исходника фон из размытой копии кадра →
 полноэкранные перебивки (масштаб с обрезкой по центру, без своего звука) → переходы на смене сцены (вспышка, смаз —
 `transitions`) → стоп-кадр в конце (`hold` и финальная карточка
@@ -39,6 +40,7 @@ from . import beats, edits, matte, transitions
 from .asr import Word
 from .audio import MIN_MUSIC, QUIET_LUFS, audio_graph
 from .job import Job, validate
+from .looks import paint, rgb_chain
 from .media import (
     FILL,
     FRAME_TIME,
@@ -470,35 +472,71 @@ def _near_edge(x: float, lo: float, hi: float) -> float:
     return lo if x - lo <= TO_CUT else hi if hi - x <= TO_CUT else x
 
 
-def look_windows(edit: dict, tl: Timeline) -> list[tuple[int, int]]:
-    """Ч/б-куски (`edit.looks`) — кадры финала `(первый, после последнего)`: фраза на своём месте и её копия в тизере,
-    если она туда попала. Край куска не дальше `TO_CUT` от края отрезка (запас резки до слова) — ровно на склейке
-    (`Timeline.to_cut`), на её кадре (`cut_frame`), как смена камеры. Кусок без кадров (весь в вырезке, нулевой) не
-    нужен."""
+def _piece_windows(look: dict, tl: Timeline) -> list[tuple[int, int]]:
+    """Кадры финала одного куска `(первый, после последнего)`: на своём месте и копия в тизере, если фраза туда попала.
+    Край куска не дальше `TO_CUT` от края отрезка (запас резки до слова) — ровно на склейке (`Timeline.to_cut`), на её
+    кадре (`cut_frame`), как смена камеры. Кусок без кадров (весь в вырезке, нулевой) не нужен."""
+    t0, t1 = float(look["t0"]), float(look["t1"])
+    if t1 <= t0:
+        return []
+    spans = [tl.span(t0, t1, cut=True)]  # с места начала и до конца его серии (куски могут быть переставлены)
+    if tl.teaser and max(t0, tl.teaser[0]) < min(t1, tl.teaser[1]):
+        lo, hi = tl.teaser
+        spans.append((tl.teaser_final(_near_edge(max(t0, lo), lo, hi)), tl.teaser_final(_near_edge(min(t1, hi), lo, hi))))
     windows = []
-    for look in (x for x in edit.get("looks") or [] if not x.get("off")):  # убранный Павлом в редакторе — в цвете
-        t0, t1 = float(look["t0"]), float(look["t1"])
-        if t1 <= t0:
-            continue
-        spans = [tl.span(t0, t1, cut=True)]  # с места начала и до конца его серии (куски могут быть переставлены)
-        if tl.teaser and max(t0, tl.teaser[0]) < min(t1, tl.teaser[1]):
-            lo, hi = tl.teaser
-            spans.append((tl.teaser_final(_near_edge(max(t0, lo), lo, hi)), tl.teaser_final(_near_edge(min(t1, hi), lo, hi))))
-        for a, b in spans:
-            first, after = cut_frame(a), cut_frame(b)
-            if after > first:
-                windows.append((first, after))
+    for a, b in spans:
+        first, after = cut_frame(a), cut_frame(b)
+        if after > first:
+            windows.append((first, after))
     return windows
+
+
+def look_windows(edit: dict, tl: Timeline) -> list[tuple[int, int]]:
+    """Куски (`edit.looks`, любого фильтра) — кадры финала `(первый, после последнего)` по каждому куску (`_piece_windows`);
+    убранный Павлом в редакторе (`off`) — в цвете."""
+    return [w for look in edit.get("looks") or [] if not look.get("off") for w in _piece_windows(look, tl)]
+
+
+def look_spans(edit: dict, tl: Timeline) -> list[tuple[int, int, str]]:
+    """Какой фильтр на каких кадрах финала: `(первый, после последнего, фильтр)` без перекрытий — кусок, что позже в
+    списке (свой кусок Павла — после кусков сессии), сильнее на общих кадрах (`looks.paint`)."""
+    return paint([(a, b, look.get("look", "bw")) for look in edit.get("looks") or [] if not look.get("off")
+                  for a, b in _piece_windows(look, tl)])
 
 
 def looks_filter(edit: dict, tl: Timeline) -> str:
     """Фильтр ч/б-кусков во времени финала (ставится после ускорения и fps=30): включён на своих кадрах — границы
-    посередине между кадрами, как у перебивок; кусков нет — пустая строка."""
-    windows = look_windows(edit, tl)
+    посередине между кадрами, как у перебивок; кусков нет — пустая строка. Кадры, что взял другой фильтр, — не его."""
+    windows = [(a, b) for a, b, look in look_spans(edit, tl) if look == "bw"]
     if not windows:
         return ""
     enable = "+".join(f"gte(t,{(a - 0.5) / FPS:.6f})*lt(t,{(b - 0.5) / FPS:.6f})" for a, b in windows)
     return ",".join(f"{f}:enable='{enable}'" for f in BW)
+
+
+def colour_chains(head: str, spans: list[tuple[int, int, str]], out: str) -> list[str]:
+    """Цепочки графа для фильтров кусков, кроме ч/б (`looks.rgb_chain`, RGB 16 бит): поток `head` режется по кадрам на
+    куски (`trim`), куски окон идут через свой фильтр, и всё склеивается обратно (`concat`) — кадры вне окон не
+    меняются ни на бит, и перевод в RGB стоит только на кадрах окон. Окон нет — одна цепочка `head` → `out`."""
+    pieces: list[tuple[int, int | None, str | None]] = []
+    pos = 0
+    for a, b, look in spans:
+        if look == "bw" or b <= a:
+            continue
+        if a > pos:
+            pieces.append((pos, a, None))
+        pieces.append((a, b, look))
+        pos = b
+    if not pieces:
+        return [f"{head}{out}"]
+    pieces.append((pos, None, None))  # до конца потока (кадров может не остаться — concat это принимает)
+    chains = [f"{head},split={len(pieces)}" + "".join(f"[lk{i}]" for i in range(len(pieces)))]
+    for i, (a, b, look) in enumerate(pieces):
+        trim = f"trim=start_frame={a}" + (f":end_frame={b}" if b is not None else "")
+        grade = rgb_chain(look) if look else "format=yuv420p"
+        chains.append(f"[lk{i}]{trim},setpts=PTS-STARTPTS,{grade}[lp{i}]")
+    chains.append("".join(f"[lp{i}]" for i in range(len(pieces))) + f"concat=n={len(pieces)}:v=1:a=0{out}")
+    return chains
 
 
 def _picture(job, edit, tl, info, index, hold, missing, warnings, video="[vc]") -> tuple[list[str], list[str], set[int]]:
@@ -508,6 +546,10 @@ def _picture(job, edit, tl, info, index, hold, missing, warnings, video="[vc]") 
     inputs: list[str] = []
     cuts = transitions.marks(edit, tl)
     chain = f"{video}setpts=PTS/{edit['speed']:g},fps={FPS},{COLOR}"
+    colour = colour_chains(chain, look_spans(edit, tl), "[vlk]")
+    if len(colour) > 1:  # сепия, тёплый, холодный, плёнка — на своих кадрах, дальше — как обычно
+        chains += colour
+        chain = "[vlk]null"
     looks = looks_filter(edit, tl)
     if looks:
         chain += f",{looks}"

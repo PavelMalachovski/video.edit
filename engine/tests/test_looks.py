@@ -5,6 +5,7 @@ import subprocess
 import numpy as np
 import pytest
 
+from vm.looks import KINDS, LOOKS, css_filter, css_matrix, rgb_chain
 from vm.media import cut_frame
 from vm.render import (
     BW_CSS_BRIGHTNESS,
@@ -12,6 +13,8 @@ from vm.render import (
     COLOR,
     FPS,
     _cut,
+    colour_chains,
+    look_spans,
     look_windows,
     looks_filter,
 )
@@ -208,3 +211,105 @@ def test_cut_frame_is_where_ffmpeg_puts_a_jump_cut(tmp_path):
             shown = [round(v / 4) for v in np.frombuffer(raw, np.uint8).reshape(-1, 64 * 64).mean(1)]
             first = next(n for n, k in enumerate(shown) if k >= 45)  # 45 — первый кадр второго отрезка
             assert first == cut_frame(tl.segments[1][2]), (speed, frames, first)
+
+
+# --- Фильтры кусков руками: сепия, тёплый, холодный, плёнка (`look` ≠ "bw") -------------------------------------------
+
+def test_each_frame_gets_one_look_and_the_later_piece_wins():
+    """Куски могут перекрываться (свой кусок Павла поверх куска сессии): на общих кадрах — тот, что позже в списке."""
+    edit = {"looks": [{"t0": 1.0, "t1": 3.0, "look": "bw"}, {"t0": 2.0, "t1": 4.0, "look": "sepia"},
+                      {"t0": 5.0, "t1": 6.0, "look": "film", "off": True}]}
+    assert look_spans(edit, WHOLE) == [(30, 60, "bw"), (60, 120, "sepia")]
+    assert look_spans({"looks": [{"t0": 2.0, "t1": 4.0, "look": "sepia"}, {"t0": 2.5, "t1": 3.0, "look": "bw"}]}, WHOLE) == [
+        (60, 75, "sepia"), (75, 90, "bw"), (90, 120, "sepia")]
+    assert look_spans({"looks": [{"t0": 1.0, "t1": 2.0, "look": "warm"}, {"t0": 2.0, "t1": 3.0, "look": "warm"}]}, WHOLE) == [
+        (30, 90, "warm")], "соседние куски одного вида — одно окно"
+
+
+def test_the_bw_filter_skips_frames_another_look_took():
+    vf = looks_filter({"looks": [{"t0": 1.0, "t1": 3.0, "look": "bw"}, {"t0": 2.0, "t1": 4.0, "look": "cold"}]}, WHOLE)
+    assert "gte(t,0.983333)*lt(t,1.983333)" in vf and "2.98" not in vf
+    assert looks_filter({"looks": [{"t0": 1.0, "t1": 3.0, "look": "film"}]}, WHOLE) == "", "ч/б-кусков нет — фильтра ч/б нет"
+
+
+def css_chain(rgb: np.ndarray, chain) -> np.ndarray:
+    """CSS filter по Filter Effects на значениях sRGB 0..1: функции по порядку, после каждой — в [0, 1]."""
+    x = rgb
+    for name, value in chain:
+        if name == "brightness":
+            x = x * value
+        elif name == "contrast":
+            x = (x - 0.5) * value + 0.5
+        else:
+            x = x @ np.array(css_matrix(name, value)).T
+        x = np.clip(x, 0, 1)
+    return x
+
+
+def ramp() -> tuple[np.ndarray, tuple[int, int], tuple]:
+    """Рампа серого (все 256 уровней) и цвета (8 оттенков по 16 яркостей) квадратами 16×16 и центры квадратов."""
+    colours = [(g, g, g) for g in range(256)] + [tuple(round(c * k / 15) for c in hue) for hue in HUES for k in range(16)]
+    side, cols = 16, 32
+    rows = -(-len(colours) // cols)
+    rgb = np.zeros((rows * side, cols * side, 3), np.uint8)
+    for i, colour in enumerate(colours):
+        rgb[i // cols * side: (i // cols + 1) * side, i % cols * side: (i % cols + 1) * side] = colour
+    centres = tuple(np.array([(i // cols * side + side // 2, i % cols * side + side // 2) for i in range(len(colours))]).T)
+    return rgb, (cols * side, rows * side), centres
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("look", sorted(LOOKS))
+def test_a_colour_look_in_the_final_is_its_css_filter_on_the_frame(look):
+    """Кадр финала с фильтром = CSS-фильтр страницы (LOOK_CSS в web/lib/picture.ts) на том же кадре: движок считает те же
+    функции в RGB 16 бит. Рампа серого и цвета расходится не больше чем на 3/255 — из них ~2/255 даёт сам путь
+    yuv420p → RGB → yuv420p (8 бит на канал цветности), без всякого фильтра."""
+    rgb, size, centres = ramp()
+    frame = yuv(rgb)
+    want = css_chain(shown(frame, size)[centres], LOOKS[look])
+    got = shown(through(frame, size, rgb_chain(look)), size)[centres]
+    error = np.abs(got - want)
+    assert error.max() <= 3 / 255, (look, error.max() * 255)
+
+
+@pytest.mark.parametrize("look", sorted(LOOKS))
+def test_no_function_but_the_last_leaves_the_colour_cube(look):
+    """Браузер может склеить функции фильтра в одну матрицу и не резать цвет между ними: тогда он рисует то же, что
+    движок, только если ни одна функция, кроме последней, не выводит цвет за [0, 1] — проверка по углам куба RGB."""
+    corners = np.array([(r, g, b) for r in (0, 1) for g in (0, 1) for b in (0, 1)], float)
+    x = corners
+    for name, value in LOOKS[look][:-1]:
+        x = x * value if name == "brightness" else (x - 0.5) * value + 0.5 if name == "contrast" else x @ np.array(css_matrix(name, value)).T
+        assert x.min() >= -1e-9 and x.max() <= 1 + 1e-9, (look, name, x.min(), x.max())
+
+
+def test_css_text_of_each_look_is_what_the_page_draws():
+    assert css_filter("sepia") == "brightness(0.74) sepia(1) contrast(1.1)"
+    assert css_filter("cold").startswith("brightness(") and "hue-rotate(" in css_filter("cold") and "deg)" in css_filter("cold")
+    assert set(LOOKS) == {"sepia", "warm", "cold", "film"} and KINDS == ("bw", "sepia", "warm", "cold", "film")
+
+
+@needs_ffmpeg
+def test_colour_looks_grade_only_their_frames_the_rest_stay_bit_exact(tmp_path):
+    """Фильтр в RGB — только на кадрах своего окна (граф режет поток по кадрам и склеивает обратно): кадры вне окон —
+    байт в байт как без фильтров, кадры в окне — в его цвете; кадров столько же."""
+    def frames(graph: str) -> np.ndarray:
+        raw = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=s=64x96:r=30:d=2",
+             "-filter_complex", graph, "-map", "[out]", "-f", "rawvideo", "-pix_fmt", "yuv420p", "-"],
+            check=True, capture_output=True,
+        ).stdout
+        return np.frombuffer(raw, np.uint8).reshape(-1, 64 * 96 * 3 // 2)
+
+    plain = frames("[0:v]format=yuv420p,null[out]")
+    spans = [(10, 20, "sepia"), (40, 60, "cold")]
+    graded = frames(";".join(colour_chains("[0:v]format=yuv420p", spans, "[out]")))
+    assert len(graded) == len(plain) == 60
+    outside = [n for n in range(60) if not any(a <= n < b for a, b, _ in spans)]
+    assert all((graded[n] == plain[n]).all() for n in outside)
+    assert all((graded[n] != plain[n]).any() for n in (10, 19, 40, 59))
+    chroma = 64 * 96
+    u = graded[:, chroma: chroma + chroma // 4].astype(float).mean(1)
+    v = graded[:, chroma + chroma // 4:].astype(float).mean(1)
+    assert u[15] < 128 < v[15], "сепия — тёплая: синего меньше, красного больше"
+    assert u[50] > 128 > v[50], "холодный — синеватый"

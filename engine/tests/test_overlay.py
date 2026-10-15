@@ -450,6 +450,19 @@ def test_accent_follows_the_cuts_and_the_speed():
     assert at(events, (second + 0.5) / FPS)["accent"]["ages"][1] == pytest.approx(FRAME)
 
 
+def test_an_accent_whose_phrase_a_cut_left_a_remnant_of_is_not_shown():
+    """Павел вырезал в редакторе почти всю фразу акцента, от неё осталось 0,1 с: акцент вспыхивал на кадр-другой поверх
+    титра (правка 4 задачи 261015-095419-6ozb). Остаток короче MIN_ACCENT не показывается, а его слова, как и раньше,
+    в субтитры не идут: там нечего показать. Короткую фразу, которую никто не резал, это не трогает."""
+    edit = make_edit(words=SIX, style=SOFT_STYLE, keep=[[0.0, 2.0], [2.45, 10.0]], accents=[accent(1.9, 2.4, "чтобы", "выглядеть")])
+    events = build_overlay_events(edit, timeline(edit))
+    assert not any("accent" in e["state"] for e in events)
+    shown = {w for e in events for w in e["state"].get("sub", {}).get("words", [])}
+    assert "чтобы" not in shown and "выглядеть" not in shown
+    whole = make_edit(words=SIX, style=SOFT_STYLE, accents=[accent(1.9, 2.15, "чтобы")])  # 0,25 с — вся фраза
+    assert "accent" in at(build_overlay_events(whole, timeline(whole)), 2.0)
+
+
 def test_accent_words_are_kept_in_the_srt():
     from vm.subs import to_srt
 

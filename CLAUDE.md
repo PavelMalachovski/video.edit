@@ -79,7 +79,8 @@
 - Слой ролика (кадр редактора = финал): `engine/vm/subs.py` (`build_sub_events`) и `engine/vm/overlay.py`
   (`build_overlay_events`, `insert_spans`, `_hook_end`) ↔ `web/lib/subs.ts` (`buildSubEvents`, `subBlocks`) и
   `web/lib/overlay.ts` (`buildOverlayEvents`, `layerBlocks`, `insertSpans`, `hookEnd`); шкала монтажа на целых кадрах —
-  `render.timeline` ↔ `renderTimeline` (по ней и плеер: края кусков `play0`, `play1` в `draftTracks`). Общая фикстура `engine/tests/fixtures/overlay-events.json` — её пишет движок:
+  `render.timeline` ↔ `renderTimeline` (по ней и плеер: края кусков `play0`, `play1` в `draftTracks`); акцента от
+  остатка фразы после вырезки нет — `_remnant` ↔ `remnant` (`MIN_ACCENT`). Общая фикстура `engine/tests/fixtures/overlay-events.json` — её пишет движок:
   `cd engine && python3 -m tests.shared_events` (устарела — падает быстрый тест движка).
 - Картинка ролика в редакторе: `engine/vm/zoom.py` (`zoom_at`, `cut_frame`), `engine/vm/transitions.py` (`marks`, `HALF`,
   `PUNCH`, `BLUR`; вспышка и смаз по кадру — `flash_alpha`, `blur_sigma`: так их рисует `picture_chains`, проверено по

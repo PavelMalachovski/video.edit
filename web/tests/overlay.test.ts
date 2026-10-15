@@ -107,7 +107,9 @@ test('blocks on the tracks are exactly where the layer draws hook, title, accent
     const drawn = new Set(events.flatMap((e) => ((e.state.inserts as { n: number }[] | undefined) ?? []).map((i) => i.n)));
     assert.deepStrictEqual([...drawn].sort(), blocks.inserts.map((b) => b.n).sort(), `${c.name}: те же вставки`);
     if (blocks.accents.length === 1) near(seen((st) => 'accent' in st), blocks.accents[0], 'акцент');
-    assert.equal(blocks.accents.length, (c.edit.accents ?? []).length, `${c.name}: все акценты`);
+    // блок — у каждого акцента, что рисует слой (от остатка фразы после вырезки акцента нет — и блока нет)
+    const accents = new Set(events.flatMap((e) => ('accent' in e.state ? [JSON.stringify((e.state.accent as { lines: unknown }).lines)] : [])));
+    assert.equal(blocks.accents.length, accents.size, `${c.name}: все акценты`);
   }
 });
 

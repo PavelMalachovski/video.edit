@@ -151,6 +151,11 @@ class Timeline:
         k = self._next(t) if k is None else k
         return None if k is None else self._run[k]
 
+    @property
+    def speed(self) -> float:
+        """Во сколько раз финал быстрее исходника."""
+        return self._speed
+
     def span(self, t0: float, t1: float, cut: bool = False) -> tuple[float, float]:
         """Промежуток финала для промежутка исходника `[t0, t1]` (вставка, акцент, титр, ч/б): с места `t0`
         (`to_final_snap`, с `cut` — `to_cut`) и не дальше конца его серии — кусок, переставленный в другое место,

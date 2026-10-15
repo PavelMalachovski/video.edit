@@ -19,6 +19,7 @@ const ACCENT_ANIM: Record<string, number> = { blur: 0.25, track: 0.17, letters: 
 const TYPE_CPS = 30;
 const TYPE_CURSOR = 0.28;
 const ACCENT_LINGER = 0.3;
+const MIN_ACCENT = 0.4; // с финала — меньше от фразы акцента вырезка оставить может, а показать нечего: акцента нет
 const ACCENT_LEAVE = 4;
 const DONE = 99.0; // возраст строки, анимация которой кончилась
 const WORD_SLACK = 0.05;
@@ -242,9 +243,12 @@ function appearFrames(line: AccentLine, anim: string): number {
 function accentPieces(edit: OverlayEdit, tl: Timeline, subStarts: number[]): Piece[] {
   // по месту в ролике (куски могут стоять не по порядку исходника); фраза — до конца своей серии (Timeline.span)
   const key = (a: AccentSpec) => tl.toFinalSnap(Number(a.t0));
-  const accents = [...(edit.accents || [])].sort((a, b) => key(a) - key(b) || Number(a.t0) - Number(b.t0));
+  const sorted = [...(edit.accents || [])].sort((a, b) => key(a) - key(b) || Number(a.t0) - Number(b.t0));
   const words = edit.words || [];
-  const spans = accents.map((a) => tl.span(Number(a.t0), Number(a.t1)));
+  // от фразы, разрезанной вырезкой (правка в редакторе), осталось меньше MIN_ACCENT — акцент вспыхнул бы на кадр-другой
+  const placed = sorted.map((a) => [a, tl.span(Number(a.t0), Number(a.t1))] as const).filter(([a, span]) => !remnant(a, span, tl));
+  const accents = placed.map(([a]) => a);
+  const spans = placed.map(([, span]) => span);
   const starts = spans.map(([a]) => frameOf(a));
   return accents.map((accent, k) => {
     const start = starts[k];
@@ -263,6 +267,12 @@ function accentPieces(edit: OverlayEdit, tl: Timeline, subStarts: number[]): Pie
     const value = { lines, x: accent.x, y: accent.y, anim, out };
     return { start, stop, key: 'accent', value, accent: { frames, ends, leave, moving }, n: (edit.accents || []).indexOf(accent) };
   });
+}
+
+/** Вырезка оставила от фразы акцента меньше MIN_ACCENT финала (короткая фраза целиком — не остаток), как `_remnant`. */
+function remnant(accent: AccentSpec, span: readonly [number, number], tl: Timeline): boolean {
+  const shown = span[1] - span[0];
+  return shown < MIN_ACCENT && shown < (Number(accent.t1) - Number(accent.t0)) / tl.speed - 1 / FPS;
 }
 
 function accentState(piece: Piece, frame: number): Record<string, unknown> {

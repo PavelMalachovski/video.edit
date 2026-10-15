@@ -10,6 +10,9 @@ GigaAM для русского, Parakeet для 25 европейских язы
 работать нельзя, без Whisper и VAD — можно, но хуже. Язык второго этапа (своя письменность) — ошибка с понятным
 текстом.
 
+Распознавание (Whisper, модель слов, VAD — 2 ядра из 4) идёт своим потоком: пока оно слушает, основной ищет смены сцены,
+делает контактный лист и файлы редактора — им нужен только исходник (на 4K HEVC анализ на ~18 % короче).
+
 Делается только недостающее. `source.mp4` в git нет, поэтому каждая новая сессия (render, fix, restyle) запускает
 prepare, чтобы его восстановить; речь при этом заново не распознаётся: есть `words.json` — распознавание, план резки
 (если `cuts.json` есть) и контактный лист пропускаются. `redo=True` (`--redo`) делает всё заново, `language`
@@ -19,6 +22,7 @@ import json
 import math
 import re
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from . import asr, editor, lang
@@ -165,6 +169,15 @@ def _editor_files(job: Job) -> str:
     return f"Редактор (бета): out/proxy.mp4 ({size:.1f} МБ), film.jpg ({made['film']['n']} кадров), editor.json — уйдут с vm push"
 
 
+def _hear(wav: Path, told: str | None, have: dict[str, bool], brief: str, answer: str | None):
+    """Распознавание своим потоком (`prepare` тем временем делает то, чему нужен только исходник): Whisper — сплошной
+    текст и язык окон, язык ролика, слова моделью этого языка, речь по VAD. → (язык, модель, текст, слова, речь)."""
+    reference, votes = asr.reference(wav, told or "") if have["Whisper"] else ("", [])
+    spoken = lang.decide(brief, [] if told else votes, answer=answer)
+    how = _engine(spoken["code"], have, "" if told else ". Если язык другой — напиши его в ТЗ строкой «ЯЗЫК: …»")
+    return spoken, MODEL[how], reference, asr.transcribe(wav, spoken["code"]), asr.speech_spans(wav)
+
+
 def prepare(
     job: Job, step: Callable[[str, str], None] | None = None, redo: bool = False, language: str | None = None
 ) -> str:
@@ -209,19 +222,31 @@ def prepare(
         raise ValueError(f"source.mp4: непонятная длительность {info.duration!r}")
 
     reference = ""
+    plan_cuts = recognise or not cuts_path.is_file()
+    with ThreadPoolExecutor(1) as pool:
+        hearing = None
+        if recognise:
+            wav = extract_wav(source, job.path("work/source.wav"))
+            step("Расшифровываю", (f"Язык — {lang.name(told)}: слушаю речь" if told else "Слушаю речь и определяю язык")
+                 + "; пока — смены сцены и редактор")
+            hearing = pool.submit(_hear, wav, told, have, brief, answer)
+        # пока идёт распознавание (2 ядра из 4) — то, чему нужен только исходник
+        joins = scene_cuts(source) if plan_cuts else None
+        if recognise:
+            contact_sheet(source, job.path("sheet.png"), fps=min(1.0, SHEET_THUMBS / info.duration))
+        editor_note = None
+        if redo or not job.path("editor.json").is_file():  # для редактора на странице (бета); прокси уйдёт в релиз с push
+            if not recognise:
+                step("Готовлю редактор", "Прокси-видео, волна и лента кадров для редактора")
+            editor_note = _editor_files(job)
+        if hearing is not None:
+            if not hearing.done():
+                step("Расшифровываю", "Дослушиваю речь")
+            spoken, model, reference, words, speech = hearing.result()
     if recognise:
-        wav = extract_wav(source, job.path("work/source.wav"))
-        step("Расшифровываю", f"Язык — {lang.name(told)}: слушаю речь" if told else "Слушаю речь и определяю язык")
-        reference, votes = asr.reference(wav, told or "") if have["Whisper"] else ("", [])
-        spoken = lang.decide(brief, [] if told else votes, answer=answer)
-        how = _engine(spoken["code"], have, "" if told else ". Если язык другой — напиши его в ТЗ строкой «ЯЗЫК: …»")
-        model = MODEL[how]
-        step("Расшифровываю", f"Язык — {spoken['name']}: расставляю слова по времени")
-        words = asr.transcribe(wav, spoken["code"])
         job.write("language.json", spoken)
         asr.save_words(words, words_path)
         _atomic_write(job.path("reference.txt"), reference + ("\n" if reference else ""))
-        speech = asr.speech_spans(wav)
         _atomic_write(speech_path, json.dumps([list(span) for span in speech]) + "\n")
         notes += _language_lines(spoken, unknown)
         if model != "Whisper" and (warning := _coverage(words, reference, model)):
@@ -239,23 +264,19 @@ def prepare(
         notes.append(f"Язык: {spoken['name']} ({spoken['code']}, {SOURCE[spoken['source']]})")
         notes.append("Речь уже расшифрована (words.json) — распознавание не повторял; заново — --redo")
 
-    if recognise or not cuts_path.is_file():
-        step("Ищу паузы", "Отмечаю паузы и смены сцены")
+    if plan_cuts:
         speech = json.loads(speech_path.read_text(encoding="utf-8")) if speech_path.is_file() else []
         keep = [(round(a, 6), round(b, 6)) for a, b in plan_keep(words, info.duration, speech=speech)]
         kept = sum(b - a for a, b in keep)
         cuts = {"duration": round(info.duration, 3), "keep": [list(k) for k in keep], "cut_seconds": round(info.duration - kept, 3),
-                "joins": scene_cuts(source)}
+                "joins": joins}
         _write_cuts(cuts_path, cuts)
     else:
         cuts = json.loads(cuts_path.read_text(encoding="utf-8"))
         keep = [tuple(k) for k in cuts["keep"]]
         kept = sum(b - a for a, b in keep)
-    if recognise:
-        contact_sheet(source, job.path("sheet.png"), fps=min(1.0, SHEET_THUMBS / info.duration))
-    if redo or not job.path("editor.json").is_file():  # для редактора на странице (бета); прокси уйдёт в релиз с push
-        step("Готовлю редактор", "Прокси-видео, волна и лента кадров для редактора")
-        notes.append(_editor_files(job))
+    if editor_note:
+        notes.append(editor_note)
 
     cut_line = f"Слов: {len(words)}; плотная резка: {max(0, len(keep) - 1)} пауз, вырезано {cuts['cut_seconds']:.1f} с"
     speech_spans = json.loads(speech_path.read_text(encoding="utf-8")) if speech_path.is_file() else []

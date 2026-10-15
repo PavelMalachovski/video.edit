@@ -1102,6 +1102,36 @@ def test_prepare_tells_the_language_by_speech_and_writes_it_down(heard, capsys):
 
 
 @needs_ffmpeg
+def test_prepare_listens_to_the_speech_while_it_makes_the_editor_files(heard, monkeypatch, capsys):
+    """Распознавание (Whisper и GigaAM — 2 ядра из 4) идёт своим потоком, а тем временем — смены сцены, контактный лист
+    и файлы редактора: им нужен только исходник. Анализ ролика в 4,5 минуты — на 2–3 минуты короче. Сводка — как была:
+    язык, потом редактор."""
+    from vm import asr, editor
+
+    job, calls, votes, _ = heard
+    made, seen = threading.Event(), []
+    make, reference = editor.make, asr.reference
+
+    def making(j):
+        made.set()
+        return make(j)
+
+    def hearing(wav, language="ru"):
+        seen.append(made.wait(5))
+        return reference(wav, language)
+
+    monkeypatch.setattr(editor, "make", making)
+    monkeypatch.setattr(asr, "reference", hearing)
+    assert main(["prepare", str(job.root)]) == 0
+    assert seen == [True], "файлы редактора делались, пока шло распознавание"
+    assert calls == {"reference": [""], "transcribe": ["cs"]}
+    assert job.read("language.json")["code"] == "cs" and job.path("words.json").is_file() and job.path("sheet.png").is_file()
+    assert job.read("cuts.json")["keep"] and job.path("editor.json").is_file()
+    out = capsys.readouterr().out
+    assert out.index("Язык: чешский") < out.index("Редактор (бета)")
+
+
+@needs_ffmpeg
 def test_prepare_takes_the_language_from_the_brief(heard):
     job, calls, _, _ = heard
     brief(job, "ХУК: привет\nЯЗЫК: английский")

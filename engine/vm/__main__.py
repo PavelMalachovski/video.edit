@@ -20,6 +20,7 @@ prepare, render) команда уходит в фон своим процесс
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -116,6 +117,7 @@ def _matte_ahead(args: argparse.Namespace) -> None:
     if not (job.path("cuts.json").is_file() and job.path("source.mp4").is_file()):
         raise ValueError("нет cuts.json или source.mp4 — сначала vm prepare")
     keep = [(float(a), float(b)) for a, b in job.read("cuts.json")["keep"]]
+    os.nice(10)  # фоном: команды Claude в это время (vm check, vm preview) — первыми
     _, note = render_matte(job, Timeline(keep, 1.0))
     if note:
         print(note)

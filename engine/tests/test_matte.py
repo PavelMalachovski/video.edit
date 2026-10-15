@@ -279,8 +279,11 @@ def test_the_analysis_makes_the_matte_of_the_dense_cut_and_the_render_takes_it_r
     model = Mean()
     monkeypatch.setattr(matte, "unavailable", lambda: None)
     monkeypatch.setattr(matte, "_rvm", lambda threads=None: model)
+    niced = []
+    monkeypatch.setattr(os, "nice", niced.append)
     assert main(["matte", str(job.root)]) == 0
     assert "маска на 51 кадр" in capsys.readouterr().out
+    assert niced == [10], "уступает ядра командам Claude (vm check, vm preview), что идут в это время"
     kept = sorted(job.path("out").glob("matte-*"))
     assert json.loads(kept[0].read_text())["plan"] == [[0, 30], [45, 66]]
 

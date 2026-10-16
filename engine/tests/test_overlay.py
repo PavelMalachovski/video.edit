@@ -12,6 +12,7 @@ import pytest
 import shared_events
 
 from vm.asr import Word
+from vm.looks import LOOKS, css_filter
 from vm.overlay import FPS, build_overlay_events, insert_spans
 from vm.render import BW_CSS_BRIGHTNESS, BW_CSS_CONTRAST, RenderError
 from vm.subs import build_sub_events
@@ -449,6 +450,19 @@ def test_accent_follows_the_cuts_and_the_speed():
     assert at(events, (second + 0.5) / FPS)["accent"]["ages"][1] == pytest.approx(FRAME)
 
 
+def test_an_accent_whose_phrase_a_cut_left_a_remnant_of_is_not_shown():
+    """Павел вырезал в редакторе почти всю фразу акцента, от неё осталось 0,1 с: акцент вспыхивал на кадр-другой поверх
+    титра (правка 4 задачи 261015-095419-6ozb). Остаток короче MIN_ACCENT не показывается, а его слова, как и раньше,
+    в субтитры не идут: там нечего показать. Короткую фразу, которую никто не резал, это не трогает."""
+    edit = make_edit(words=SIX, style=SOFT_STYLE, keep=[[0.0, 2.0], [2.45, 10.0]], accents=[accent(1.9, 2.4, "чтобы", "выглядеть")])
+    events = build_overlay_events(edit, timeline(edit))
+    assert not any("accent" in e["state"] for e in events)
+    shown = {w for e in events for w in e["state"].get("sub", {}).get("words", [])}
+    assert "чтобы" not in shown and "выглядеть" not in shown
+    whole = make_edit(words=SIX, style=SOFT_STYLE, accents=[accent(1.9, 2.15, "чтобы")])  # 0,25 с — вся фраза
+    assert "accent" in at(build_overlay_events(whole, timeline(whole)), 2.0)
+
+
 def test_accent_words_are_kept_in_the_srt():
     from vm.subs import to_srt
 
@@ -544,7 +558,7 @@ def test_the_render_timeline_refuses_what_the_shared_fixture_refuses(bad):
 @pytest.mark.parametrize("case", SHARED["look"], ids=lambda c: c["name"])
 def test_zoom_transitions_and_looks_match_the_shared_fixture(case):
     got = json.loads(json.dumps(shared_events.look_case(case)))
-    assert got == {k: case[k] for k in ("zoom", "marks", "looks", "flash", "blur")}
+    assert got == {k: case[k] for k in ("zoom", "marks", "looks", "spans", "flash", "blur")}
 
 
 def test_the_shared_fixture_has_flash_and_blur_by_frame_and_the_bw_filter_of_the_engine():
@@ -555,6 +569,7 @@ def test_the_shared_fixture_has_flash_and_blur_by_frame_and_the_bw_filter_of_the
     assert all(any(0 < a < 1 for _, a in f["frames"]) and f["frames"][0][1] == f["frames"][-1][1] == 0 for f in flashes)
     assert all(max(s for _, s in b["frames"]) > 28 and b["frames"][0][1] == b["frames"][-1][1] == 0 for b in blurs)
     assert SHARED["bwFilter"] == {"brightness": BW_CSS_BRIGHTNESS, "contrast": BW_CSS_CONTRAST}
+    assert SHARED["lookFilters"] == {look: css_filter(look) for look in LOOKS}, "фильтры превью — те же, что у движка"
 
 
 @pytest.mark.parametrize("case", SHARED["beats"], ids=lambda c: c["name"])

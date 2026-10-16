@@ -6,7 +6,8 @@
 Папку задачи готовит tests/realclip_prepare.py; на GitHub — workflow realclip (на PR в master, ночью и вручную). Без
 REALCLIP_JOB тесты пропускаются. Рендеров четыре (кодек ultrafast — к фичам он отношения не имеет; маска затемнения
 общая): «как смонтировала сессия»; «стиль и места руками» (шрифт, цвета, субтитры, хук, шкала, вставка и акцент на
-кадре); «картинка руками» (затемнение, зум, ч/б, переход — как правки редактора в timeline.json); «время» (скорость,
+кадре); «картинка руками» (затемнение, зум, ч/б убран, свой кусок с сепией, переход — как правки редактора в
+timeline.json); «время» (скорость,
 тизер, музыка, карточка, обложка). На каждую проверку — лист кадров в REALCLIP_OUT: его смотрят глазами.
 """
 import json
@@ -159,9 +160,21 @@ def styled() -> Rendered:
     return render("style", change, hand)
 
 
+def own_piece(edit: dict) -> tuple[float, float]:
+    """Место своего куска Павла в первых 30 с: 2 с исходника внутри одного отрезка, не на кусках сессии и не в тизере."""
+    taken = [(x["t0"], x["t1"]) for x in edit.get("looks") or []] + ([(edit["teaser"]["t0"], edit["teaser"]["t1"])] if edit.get("teaser") else [])
+    for a, b in edit["keep"]:
+        for t0 in np.arange(max(a, 3.0) + 0.3, min(b, 30.0) - 2.3, 0.5):
+            if not any(t0 < y and x < t0 + 2.0 for x, y in taken):
+                return round(float(t0), 3), round(float(t0) + 2.0, 3)
+    pytest.skip("в первых 30 с нет места для своего куска")
+
+
 @pytest.fixture(scope="module")
 def picture(base: Rendered) -> Rendered:
     looks = [{"at": [x["t0"], x["t1"]], "off": True} for x in base.edit.get("looks") or []]
+    t0, t1 = own_piece(base.edit)
+    looks.append({"t0": t0, "t1": t1, "look": "sepia"})  # свой кусок Павла — сепия
     return render("pict", hand={"dim": 0.6, "zoom": 0, "looks": looks, "transitions": [{"at": FLASH_AT, "off": True}]})
 
 
@@ -260,6 +273,19 @@ def test_the_bw_piece_turned_off_by_hand_is_in_colour(base: Rendered, picture: R
     a, b = frame(base.final, t), frame(picture.final, t)
     sheet("picture-bw", [("ч/б у сессии", a), ("ч/б убран руками", b)])
     assert saturation(a) < 4 < saturation(b) - 4, f"насыщенность: {saturation(a):.1f} → {saturation(b):.1f}"
+
+
+def test_an_own_sepia_piece_by_hand_is_grey_and_warm(base: Rendered, picture: Rendered):
+    """Свой кусок Павла с фильтром «Сепия»: кадр без своего цвета, тёплый (красного больше, синего меньше) — как CSS-фильтр
+    сепии на странице; у сессии на этом месте кадр в цвете."""
+    t0, t1 = own_piece(base.edit)
+    t = picture.at((t0 + t1) / 2)
+    a, b = frame(base.final, base.at((t0 + t1) / 2)), frame(picture.final, t)
+    sheet("picture-sepia", [("у сессии", a), ("сепия руками", b)])
+    r, g, bl = (float(b[..., k].mean()) for k in range(3))
+    assert r > g > bl and r - bl > 15, f"сепия: R {r:.0f}, G {g:.0f}, B {bl:.0f}"
+    hue = b - b.mean(axis=2, keepdims=True)  # у сепии оттенок у всех точек один: тёплый
+    assert float(np.corrcoef(hue[..., 0].ravel(), hue[..., 2].ravel())[0, 1]) < 0, "красный и синий — в разные стороны"
 
 
 def test_zoom_at_zero_shows_the_frame_as_shot(base: Rendered, picture: Rendered):

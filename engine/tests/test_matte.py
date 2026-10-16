@@ -3,6 +3,7 @@
 Модель маски в большинстве тестов подменена: «маска» кадра — его средняя яркость, так по маске видно, какой кадр
 исходника в неё попал. С настоящей моделью (RobustVideoMatting, ставит setup/cloud-setup.sh) — отдельный тест.
 """
+import json
 import os
 import shutil
 import subprocess
@@ -186,6 +187,145 @@ def test_pieces_already_matted_are_not_matted_again(tmp_path, monkeypatch):
     assert path_a != path_b
     assert [round(v / 2) for v in read_gray(path_b, 32, 56).mean(axis=(1, 2))] == [*range(30), *range(45, 66)]
     assert [round(v / 2) for v in read_gray(path_a, 32, 56).mean(axis=(1, 2))] == [*range(48, 60), *range(30), *range(45, 66)]
+
+
+def shown_frames(path) -> list[int]:
+    return [round(v / 2) for v in read_gray(path, 32, 56).mean(axis=(1, 2))]
+
+
+@needs_ffmpeg
+def test_the_matte_is_kept_for_the_next_session_and_reused_there(tmp_path, monkeypatch):
+    """Маска одна на все правки ролика. Рендер, что посчитал новое, кладёт маску плана в out/ (matte-<ключ>.mkv — серое
+    H.264, и .json — его отрезки; Action уносит их в черновик). Следующая сессия (vm fetch кладёт их в work/matte)
+    берёт оттуда отрезки, что в них целиком есть, и считает только новые; ничего нового — out/ без маски."""
+    from vm.job import Job
+    from vm.render import _matte
+
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    count_video(job.path("source.mp4"))
+    model = Mean()
+    monkeypatch.setattr(matte, "unavailable", lambda: None)
+    monkeypatch.setattr(matte, "_rvm", lambda threads=None: model)
+    _, note = _matte(job, Timeline([(0.0, 1.0), (1.5, 2.2)], 1.0))
+    assert note is None
+    kept = sorted(job.path("out").glob("matte-*"))
+    assert [p.suffix for p in kept] == [".json", ".mkv"] and kept[0].stem == kept[1].stem
+    assert json.loads(kept[0].read_text())["plan"] == [[0, 30], [45, 66]]
+
+    # новая сессия: work/ нет, out/ унесён в черновик, vm fetch положил его в work/matte/cache-<ключ>.*
+    shutil.rmtree(job.path("work"))
+    (job.path("work/matte")).mkdir(parents=True)
+    key = kept[0].stem.removeprefix("matte-")
+    for p in kept:
+        shutil.move(p, job.path(f"work/matte/cache-{key}{p.suffix}"))
+    done = model.frames
+    path, note = _matte(job, Timeline([(0.1, 0.9), (1.5, 2.2), (2.5, 2.9)], 1.0))  # подрезан, тот же, новый
+    assert note is None
+    assert model.frames - done == len(range(0, 12, matte.STRIDE)) + 1 + matte.WARMUP, "посчитан только новый отрезок 75–87"
+    got = shown_frames(path)
+    assert len(got) == 24 + 21 + 12
+    assert got == [*range(3, 27), *range(45, 66), *range(75, 87)], "кадр в кадр (ровный серый H.264 хранит точно)"
+    assert sorted(p.name for p in job.path("out").glob("matte-*")) == [f"matte-{key}.json", f"matte-{key}.mkv"], "посчитано новое — маска плана снова в out/"
+    for p in job.path("out").glob("matte-*"):
+        p.unlink()
+    _matte(job, Timeline([(0.1, 0.9), (1.5, 2.2)], 1.0))
+    assert not list(job.path("out").glob("matte-*")), "всё взято готовым — грузить нечего"
+
+
+@needs_ffmpeg
+def test_a_broken_kept_matte_is_not_used(tmp_path, monkeypatch):
+    """Кэш короче своего описания (недокачан) — отрезки из него не берутся: маска считается заново, кадр в кадр."""
+    from vm.job import Job
+    from vm.render import _matte
+
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    count_video(job.path("source.mp4"))
+    monkeypatch.setattr(matte, "unavailable", lambda: None)
+    monkeypatch.setattr(matte, "_rvm", lambda threads=None: Mean())
+    _matte(job, Timeline([(0.0, 1.0)], 1.0))
+    kept = sorted(job.path("out").glob("matte-*"))
+    key = kept[0].stem.removeprefix("matte-")
+    shutil.rmtree(job.path("work"))
+    job.path("work/matte").mkdir(parents=True)
+    shutil.move(kept[0], job.path(f"work/matte/cache-{key}.json"))
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(kept[1]), "-frames:v", "10", "-c", "copy",
+                    str(job.path(f"work/matte/cache-{key}.mkv"))], check=True)
+    path, note = _matte(job, Timeline([(0.0, 1.0)], 1.0))
+    assert note is None and shown_frames(path) == list(range(30))
+
+
+def dense_job(tmp_path, keep):
+    """Задача после `vm prepare`: исходник (кадр n — серый 2n) и cuts.json с плотной резкой `keep`."""
+    from vm.job import Job
+
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    count_video(job.path("source.mp4"))
+    job.path("cuts.json").write_text(json.dumps({"duration": 3.0, "keep": keep, "cut_seconds": 1.0, "joins": []}), encoding="utf-8")
+    return job
+
+
+@needs_ffmpeg
+def test_the_analysis_makes_the_matte_of_the_dense_cut_and_the_render_takes_it_ready(tmp_path, monkeypatch, capsys):
+    """`vm matte` (шаг analyze, фоном, пока Claude смотрит кадры и пишет вопросы — ядра тогда свободны): маска по кускам
+    плотной резки (cuts.json keep) → out/ (уходит в черновик). Куски рендера лежат внутри них (на двух настоящих роликах
+    — все 44), и первый рендер маску не считает: −4 минуты на ролике в 2 минуты."""
+    from vm.__main__ import main
+    from vm.render import _matte
+
+    job = dense_job(tmp_path, [[0.0, 1.0], [1.5, 2.2]])
+    model = Mean()
+    monkeypatch.setattr(matte, "unavailable", lambda: None)
+    monkeypatch.setattr(matte, "_rvm", lambda threads=None: model)
+    niced = []
+    monkeypatch.setattr(os, "nice", niced.append)
+    assert main(["matte", str(job.root)]) == 0
+    assert "маска на 51 кадр" in capsys.readouterr().out
+    assert niced == [10], "уступает ядра командам Claude (vm check, vm preview), что идут в это время"
+    kept = sorted(job.path("out").glob("matte-*"))
+    assert json.loads(kept[0].read_text())["plan"] == [[0, 30], [45, 66]]
+
+    key = kept[0].stem.removeprefix("matte-")
+    shutil.rmtree(job.path("work"))
+    job.path("work/matte").mkdir(parents=True)
+    for p in kept:  # рендер — в новой сессии: vm fetch принёс маску из черновика
+        shutil.move(p, job.path(f"work/matte/cache-{key}{p.suffix}"))
+    done = model.frames
+    path, note = _matte(job, Timeline([(0.1, 0.9), (1.6, 2.2)], 1.0, teaser=(0.5, 0.8)))  # куски и тизер — внутри
+    assert note is None and model.frames == done, "маска вся готовая"
+    assert shown_frames(path) == [*range(15, 24), *range(3, 27), *range(48, 66)]
+    assert not list(job.path("out").glob("matte-*"))
+
+
+def test_matte_without_the_model_or_the_cut_plan_says_so(tmp_path, monkeypatch, capsys):
+    from vm.__main__ import main
+    from vm.job import Job
+
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    monkeypatch.setattr(matte, "unavailable", lambda: "нет модели rvm_mobilenetv3_fp32.onnx (setup/cloud-setup.sh)")
+    assert main(["matte", str(job.root)]) == 0, "без модели — не ошибка: ролик будет без затемнения"
+    assert "нет модели" in capsys.readouterr().out and not job.path("out").exists()
+    monkeypatch.setattr(matte, "unavailable", lambda: None)
+    assert main(["matte", str(job.root)]) == 1
+    assert "vm prepare" in capsys.readouterr().err
+
+
+@needs_ffmpeg
+def test_a_matte_too_big_for_git_is_not_kept(tmp_path, monkeypatch):
+    """Маска больше 95 МБ (очень длинный ролик) в git не ляжет и сломала бы пуш задачи — её нет в out/ (считается в
+    каждой сессии, как раньше)."""
+    from vm.render import _matte
+
+    job = dense_job(tmp_path, [[0.0, 1.0]])
+    monkeypatch.setattr(matte, "unavailable", lambda: None)
+    monkeypatch.setattr(matte, "_rvm", lambda threads=None: Mean())
+    monkeypatch.setattr(matte, "MAX_KEEP", 100)
+    path, note = _matte(job, Timeline([(0.0, 1.0)], 1.0))
+    assert note is None and shown_frames(path) == list(range(30))
+    assert not job.path("out").exists() or not list(job.path("out").iterdir())
 
 
 @needs_ffmpeg

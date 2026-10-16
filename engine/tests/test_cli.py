@@ -45,6 +45,7 @@ class Fake:
         self.release_pages = 0
         self.ids: dict[str, int] = {}
         self.cut_once: set[int] = set()  # эти ассеты в первый раз отдаются наполовину и рвут соединение
+        self.ranges: list[tuple[int, str]] = []  # (ассет, Range) — запросы диапазонов
         self._next = 100
 
     def draft(self, tag: str, files: dict[str, bytes]) -> None:
@@ -97,7 +98,14 @@ def github(monkeypatch):
             if m := re.fullmatch(r"/blob/(\d+)", url.path):
                 fake.downloads += 1
                 body = fake.blobs[int(m[1])]
-                self.send_response(200)
+                if span := re.fullmatch(r"bytes=(\d+)-(\d+)", self.headers.get("Range") or ""):  # как хранилище GitHub
+                    fake.ranges.append((int(m[1]), span[0]))
+                    first, last = int(span[1]), min(int(span[2]), len(body) - 1)
+                    self.send_response(206)
+                    self.send_header("Content-Range", f"bytes {first}-{last}/{len(body)}")
+                    body = body[first : last + 1]
+                else:
+                    self.send_response(200)
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 if int(m[1]) in fake.cut_once:
@@ -315,6 +323,27 @@ def test_fetch_takes_the_ready_source_instead_of_the_videos(tmp_path, github, ca
     assert job.path("in/source.mov").read_bytes() == body
 
 
+def test_fetch_takes_a_big_piece_in_ranges_side_by_side(tmp_path, github, monkeypatch):
+    """Готовый исходник лежит кусками по 256 МБ: целый кусок одним соединением шёл и 111 с, когда соседний — 4 с, и
+    держал весь fetch (2 ГБ — 111 с; диапазонами по 16 МБ в 16 соединений — 9 с). Большой кусок качается диапазонами
+    `RANGE` параллельно; оборванный диапазон — заново, остальные — нет."""
+    from vm import fetch as fetch_mod
+
+    monkeypatch.setattr(fetch_mod, "RANGE", 1000)
+    body = random.Random(41).randbytes(9000)
+    ready = random.Random(42).randbytes(7000)
+    job, name = ready_job(tmp_path, body)
+    github.draft("job-abc", {**parts("source", body, 3000), "manifest.json": manifest("a.mov", body, 3),
+                             **ready_files(name, ready, size=3500)})
+    piece = github.ids[f"{name}.part-00000"]
+    github.cut_once = {piece}
+    assert main(["fetch", str(job.root)]) == 0
+    assert job.path("source.mp4").read_bytes() == ready
+    asked = [r for i, r in github.ranges if i == piece]
+    assert sorted(set(asked)) == ["bytes=0-999", "bytes=1000-1999", "bytes=2000-2999", "bytes=3000-3499"]
+    assert len(asked) == 5, "оборванный диапазон — ещё раз"
+
+
 def test_fetch_takes_the_videos_for_the_analysis_even_with_the_ready_source(tmp_path, github):
     """Анализ (editor.json ещё нет: первый запуск, повтор после сбоя, «Повторить без озвучки») качает видео Павла даже
     при готовом исходнике: по ним prepare размечает, где какое видео (editor.json.videos, «Видео по порядку»)."""
@@ -325,6 +354,58 @@ def test_fetch_takes_the_videos_for_the_analysis_even_with_the_ready_source(tmp_
     assert main(["fetch", str(job.root)]) == 0
     assert job.path("in/source.mov").read_bytes() == body
     assert not job.path("source.mp4").exists(), "исходник анализ делает сам — из видео"
+
+
+def test_fetch_brings_the_matte_of_the_last_render(tmp_path, github):
+    """Маска затемнения фона прошлого рендера (render кладёт её в out/, Action — в черновик) → work/matte/cache-<ключ>.*:
+    правка берёт из неё готовые отрезки, а не считает минуты заново. Маска другого исходника (ключ не тот) не качается;
+    уже скачанная — второй раз тоже."""
+    from vm import matte
+
+    body = random.Random(37).randbytes(9000)
+    ready = random.Random(38).randbytes(7000)
+    job, name = ready_job(tmp_path, body)
+    key = matte.job_key(job)
+    github.draft("job-abc", {**parts("source", body, 3000), "manifest.json": manifest("a.mov", body, 3), **ready_files(name, ready),
+                             f"matte-{key}.mkv": b"mask" * 100, f"matte-{key}.json": b'{"plan": [[0, 100]]}',
+                             "matte-0123456789ab.mkv": b"other", "matte-0123456789ab.json": b'{"plan": []}'})
+    assert main(["fetch", str(job.root)]) == 0
+    assert sorted(p.name for p in job.path("work/matte").iterdir()) == [f"cache-{key}.json", f"cache-{key}.mkv"]
+    assert job.path(f"work/matte/cache-{key}.mkv").read_bytes() == b"mask" * 100
+    assert job.path(f"work/matte/cache-{key}.json").read_bytes() == b'{"plan": [[0, 100]]}'
+    first = github.downloads
+    assert main(["fetch", str(job.root)]) == 0
+    assert github.downloads - first == 2, "снова только manifest.json и описание исходника"
+
+
+def test_fetch_starts_warming_what_the_step_reads_next(tmp_path, github, monkeypatch):
+    """`vm fetch` — первая команда шага: пока качается видео, отдельный процесс читает модели (анализ: editor.json ещё
+    нет) или Chromium и модель маски (рендер, правки)."""
+    from vm import warm
+
+    started = []
+    monkeypatch.setattr(warm, "start", lambda analyze: started.append(analyze))
+    body = random.Random(40).randbytes(6000)
+    github.draft("job-abc", {**parts("source", body, 3000), "manifest.json": manifest("a.mov", body, 2)})
+    job, _ = ready_job(tmp_path, body, analyzed=False)
+    assert main(["fetch", str(job.root)]) == 0
+    job.write("editor.json", {"duration": 3.0, "proxy": None, "film": {"file": "film.jpg", "step": 1.0, "w": 54, "h": 96, "n": 3},
+                              "peaks": {"perS": 10, "data": ""}})
+    assert main(["fetch", str(job.root)]) == 0
+    assert started == [True, False]
+
+
+def test_fetch_for_the_analysis_brings_no_matte(tmp_path, github):
+    """Анализ (editor.json ещё нет) не рендерит — маска ему не нужна."""
+    from vm import matte
+
+    body = random.Random(39).randbytes(9000)
+    job, _ = ready_job(tmp_path, body, analyzed=False)
+    key = matte.job_key(job)
+    github.draft("job-abc", {**parts("source", body, 3000), "manifest.json": manifest("a.mov", body, 3),
+                             f"matte-{key}.mkv": b"mask", f"matte-{key}.json": b'{"plan": []}'})
+    assert main(["fetch", str(job.root)]) == 0
+    assert not job.path("work/matte").exists()
 
 
 @pytest.mark.parametrize("trouble", ["other inputs", "no json yet", "bad sha256", "part lost"])
@@ -1064,6 +1145,36 @@ def test_prepare_tells_the_language_by_speech_and_writes_it_down(heard, capsys):
     assert calls == {"reference": [""], "transcribe": ["cs"]}
     out = capsys.readouterr().out
     assert "Язык: чешский (cs, по речи)" in out and "ВНИМАНИЕ: язык" not in out
+
+
+@needs_ffmpeg
+def test_prepare_listens_to_the_speech_while_it_makes_the_editor_files(heard, monkeypatch, capsys):
+    """Распознавание (Whisper и GigaAM — 2 ядра из 4) идёт своим потоком, а тем временем — смены сцены, контактный лист
+    и файлы редактора: им нужен только исходник. Анализ ролика в 4,5 минуты — на 2–3 минуты короче. Сводка — как была:
+    язык, потом редактор."""
+    from vm import asr, editor
+
+    job, calls, _, _ = heard
+    made, seen = threading.Event(), []
+    make, reference = editor.make, asr.reference
+
+    def making(j):
+        made.set()
+        return make(j)
+
+    def hearing(wav, language="ru"):
+        seen.append(made.wait(5))
+        return reference(wav, language)
+
+    monkeypatch.setattr(editor, "make", making)
+    monkeypatch.setattr(asr, "reference", hearing)
+    assert main(["prepare", str(job.root)]) == 0
+    assert seen == [True], "файлы редактора делались, пока шло распознавание"
+    assert calls == {"reference": [""], "transcribe": ["cs"]}
+    assert job.read("language.json")["code"] == "cs" and job.path("words.json").is_file() and job.path("sheet.png").is_file()
+    assert job.read("cuts.json")["keep"] and job.path("editor.json").is_file()
+    out = capsys.readouterr().out
+    assert out.index("Язык: чешский") < out.index("Редактор (бета)")
 
 
 @needs_ffmpeg

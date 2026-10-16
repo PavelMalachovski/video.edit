@@ -1,29 +1,39 @@
 'use client';
-// Картинка ролика руками (timeline.json → zoom, looks, transitions): сила зума — ползунок; ч/б-кусок и переход, выбранные
-// на дорожке «Картинка», — убрать или вернуть, у перехода — другой вид. Монтаж кладёт это поверх edit.json сессии
-// (edits.apply_picture), кадр редактора показывает сразу.
-import { setDim, setLook, setSpeed, setTeaser, setTransition, setZoom, TRANSITION_KINDS, LIMITS, type At, type HandEdits, type TransitionKind } from '@/lib/edits.ts';
+// Картинка ролика руками (timeline.json → zoom, looks, transitions): сила зума — ползунок; кусок с фильтром и переход,
+// выбранные на дорожке «Картинка», — убрать или вернуть, у куска — другой фильтр, у перехода — другой вид; свой кусок ч/б
+// — на фразу под бегунком. Монтаж кладёт это поверх edit.json сессии (edits.apply_picture), кадр редактора показывает сразу.
+import {
+  LOOK_KINDS, removeLook, setDim, setLook, setLookKind, setSpeed, setTeaser, setTransition, setZoom, TRANSITION_KINDS, LIMITS,
+  type At, type HandEdits, type LookKind, type LookRef, type TransitionKind,
+} from '@/lib/edits.ts';
 import { tenths } from '@/lib/format.ts';
 import type { Key } from '@/lib/i18n.ts';
 import type { Tracks } from '@/lib/tracks.ts';
 
 type TFn = (k: Key, v?: Record<string, string | number>) => string;
 
-/** Выбранное на дорожке «Картинка»: ч/б-кусок по месту в edit.looks, переход по своему t. */
-export type PictureSel = { kind: 'look'; at: At } | { kind: 'transition'; at: number };
+/** Выбранное на дорожке «Картинка»: кусок с фильтром (кусок сессии — по месту в edit.looks, свой — по номеру), переход
+ *  по своему t. */
+export type PictureSel = { kind: 'look'; ref: LookRef } | { kind: 'transition'; at: number };
 
 export const KIND_NAMES: Record<TransitionKind, Key> = { flash: 'trFlash', zoom: 'trZoom', blur: 'trBlur' };
+export const LOOK_NAMES: Record<LookKind, Key> = { bw: 'bw', sepia: 'lookSepia', warm: 'lookWarm', cold: 'lookCold', film: 'lookFilm' };
 const sameAt = (a: At, b: At) => a[0] === b[0] && a[1] === b[1];
+/** Тот же кусок: кусок сессии — по месту, свой — по номеру. */
+export const sameLook = (a: LookRef, b: LookRef): boolean => ('own' in a ? 'own' in b && a.own === b.own : 'at' in b && sameAt(a.at, b.at));
+const refKey = (r: LookRef) => ('own' in r ? `own${r.own}` : `${r.at[0]}|${r.at[1]}`);
 const percent = (z: number) => `${Math.round(z * 100)} %`;
 
-/** Раздел «Картинка» справа: сила зума, затемнение фона (`dim` монтажа — из edit.json) и сколько ч/б-кусков и переходов в
- *  ролике. `note` — почему править нельзя. */
-export function PictureSection({ T, tracks, hand, dim, canZoom, canDim, note, onEdit }: {
+/** Раздел «Картинка» справа: сила зума, затемнение фона (`dim` монтажа — из edit.json), свой кусок ч/б на фразу под
+ *  бегунком (`onAddLook`; нельзя — его нет) и сколько кусков с фильтром и переходов в ролике. `note` — почему править
+ *  нельзя. */
+export function PictureSection({ T, tracks, hand, dim, canZoom, canDim, note, onEdit, onAddLook }: {
   T: TFn; tracks: Tracks; hand: HandEdits; dim: number; canZoom: boolean; canDim: boolean; note: string | null; onEdit: (next: HandEdits, key?: string) => void;
+  onAddLook: (() => void) | null;
 }) {
   const zoom = hand.zoom ?? 1;
   const shade = hand.dim ?? dim;
-  const looks = new Map(tracks.looks.map((l) => [`${l.at[0]}|${l.at[1]}`, l.off])); // копия в тизере — тот же кусок
+  const looks = new Map(tracks.looks.map((l) => [refKey(l.ref), l.off])); // копия в тизере — тот же кусок
   const bw = [...looks.values()];
   const tr = tracks.transitions;
   return (
@@ -49,6 +59,7 @@ export function PictureSection({ T, tracks, hand, dim, canZoom, canDim, note, on
       {hand.dim !== undefined ? (
         <button type="button" className="ed-btn" disabled={!canDim} onClick={() => onEdit(setDim(hand, null))}>{T('dimReset')}</button>
       ) : null}
+      {onAddLook ? <button type="button" className="ed-btn" data-act="add-look" title={T('lookAddT')} onClick={onAddLook}>{T('lookAdd')}</button> : null}
       <dl className="ed-facts">
         <dt>{T('bw')}</dt><dd className="mono">{T('ofTotal', { n: bw.filter((off) => !off).length, m: bw.length })}</dd>
         <dt>{T('transitions')}</dt><dd className="mono">{T('ofTotal', { n: tr.filter((x) => !x.off).length, m: tr.length })}</dd>
@@ -58,25 +69,41 @@ export function PictureSection({ T, tracks, hand, dim, canZoom, canDim, note, on
   );
 }
 
-/** Выбранный ч/б-кусок или переход: убрать, вернуть, другой вид перехода, «как у монтажа». */
-export function PicturePick({ T, sel, tracks, hand, editable, note, onEdit, sec }: {
-  T: TFn; sel: PictureSel; tracks: Tracks; hand: HandEdits; editable: boolean; note: string | null;
+/** Выбранный кусок с фильтром или переход: убрать, вернуть, другой фильтр или вид перехода, «как у монтажа»; свой кусок —
+ *  удалить. `editable` — убрать и вернуть кусок, переход; `shape` — фильтр куска и свои куски (старый движок их не знает). */
+export function PicturePick({ T, sel, tracks, hand, editable, shape, note, onEdit, sec }: {
+  T: TFn; sel: PictureSel; tracks: Tracks; hand: HandEdits; editable: boolean; shape: boolean; note: string | null;
   onEdit: (next: HandEdits, key?: string) => void; sec: (s: number) => string;
 }) {
   if (sel.kind === 'look') {
-    const marks = tracks.looks.filter((l) => sameAt(l.at, sel.at));
+    const ref = sel.ref;
+    const marks = tracks.looks.filter((l) => sameLook(l.ref, ref));
     if (!marks.length) return <p className="ed-note faint">{T('selectHint')}</p>;
-    const off = marks[0].off;
+    const m = marks.find((l) => !l.teaser) ?? marks[0];
+    const fixed = 'at' in ref && (hand.looks ?? []).some((f) => f.at !== undefined && sameAt(f.at, ref.at) && !f.off);
     return (
       <section className="ed-insp" aria-label={T('look')}>
-        <h2>{T('look')}{off ? ` · ${T('removed')}` : ''}</h2>
-        <p className="ed-note mono">{T('sourceSpan', { a: tenths(sel.at[0]), b: tenths(sel.at[1]), s: sec(sel.at[1] - sel.at[0]) })}</p>
-        <div className="ed-btns">
-          <button type="button" className={`ed-btn${off ? '' : ' bad'}`} disabled={!editable} onClick={() => onEdit(setLook(hand, sel.at, !off))}>
-            {off ? T('lookOn') : T('lookOff')}
-          </button>
+        <h2>{'own' in ref ? T('lookOwn') : T('look')}{m.off ? ` · ${T('removed')}` : ''}</h2>
+        <p className="ed-note mono">{T('sourceSpan', { a: tenths(m.src[0]), b: tenths(m.src[1]), s: sec(m.src[1] - m.src[0]) })}</p>
+        <div className="ed-modes" role="group" aria-label={T('lookKind')}>
+          {LOOK_KINDS.map((k) => (
+            <button key={k} type="button" className={`ed-mode look-${k}`} aria-pressed={!m.off && m.look === k} disabled={!shape || m.off}
+              onClick={() => onEdit(setLookKind(hand, ref, k, m.was))}>{T(LOOK_NAMES[k])}</button>
+          ))}
         </div>
-        <p className="ed-note faint">{note ?? T('lookHint')}</p>
+        <div className="ed-btns">
+          {'own' in ref ? (
+            <button type="button" className="ed-btn bad" disabled={!shape} onClick={() => onEdit(removeLook(hand, ref.own))}>{T('lookDelete')}</button>
+          ) : (
+            <button type="button" className={`ed-btn${m.off ? '' : ' bad'}`} disabled={!editable} onClick={() => onEdit(setLook(hand, ref.at, !m.off))}>
+              {m.off ? T('lookOn') : T('lookOff')}
+            </button>
+          )}
+          {fixed && 'at' in ref ? (
+            <button type="button" className="ed-btn" disabled={!editable} title={T('asSessionT')} onClick={() => onEdit(setLook(hand, ref.at, false))}>{T('asSession')}</button>
+          ) : null}
+        </div>
+        <p className="ed-note faint">{note ?? (shape ? T('lookHint') : T('lookHintOld'))}</p>
       </section>
     );
   }

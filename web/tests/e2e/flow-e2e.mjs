@@ -1694,6 +1694,33 @@ const segments = [
     await page.keyboard.press('Control+Shift+z');
     await until(async () => (await tr.getAttribute('class')).includes('ghost'), 3000, 'повтор снова убрал');
 
+    // свой кусок ч/б — на фразу под бегунком (её слова — как в субтитрах: «Привет,» убрано на шаге текста, «это» стало
+    // «вот», «мой» — «свой»; фраза — «вот свой», до паузы перед «новый»), потом фильтр «Сепия» и край правее; на кадре —
+    // сепия, на краях — смена крупности, как у кусков монтажа. Бегунок — в середине фразы (финал 0,5–0,95): seekTo
+    // попадает с допуском ±0,15 с, а на узкой шкале iPhone клик у её начала давал кадр до куска
+    await seekTo(0.75);
+    await page.locator('.ed-pic-panel').getByRole('button', { name: '＋ Ч/б на фразу' }).click();
+    const own = row.locator('.ed-clip[data-kind=look][data-own="0"]');
+    await own.waitFor({ timeout: 3000 });
+    const ownPanel = page.locator('.ed-insp[aria-label="Ч/б-кусок"]');
+    await ownPanel.getByRole('heading', { name: 'Свой кусок' }).waitFor({ timeout: 3000 });
+    await seekTo(0.75);
+    await until(async () => (await v.getAttribute('data-look')) === 'bw', 3000, async () => `свой кусок — ч/б на кадре: ${await v.getAttribute('data-look')}`);
+    await ownPanel.getByRole('button', { name: 'Сепия' }).click();
+    await until(async () => (await own.getAttribute('data-look')) === 'sepia', 3000, 'кусок — сепия');
+    await seekTo(0.75);
+    await until(async () => (await v.getAttribute('data-look')) === 'sepia', 3000, async () => `сепия на кадре: ${await v.getAttribute('data-look')}`);
+    check((await v.evaluate((el) => el.style.filter)).includes('sepia(1)'), 'кадр красит CSS-фильтр сепии');
+    const before = await own.boundingBox();
+    const end = own.locator('.ed-handle.end');
+    const grip = await end.boundingBox();
+    await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(grip.x + grip.width / 2 + 40, grip.y + grip.height / 2, { steps: 5 });
+    await page.mouse.up();
+    await until(async () => (await own.boundingBox()).width > before.width + 20, 3000, 'край куска — правее');
+    await shot(page, 'editor-look-own');
+
     // затемнение фона — ползунок (в превью маски человека нет — о нём сказано под ползунком)
     const dimSlider = page.getByRole('slider', { name: 'Затемнение фона' });
     await dimSlider.focus();
@@ -1734,25 +1761,53 @@ const segments = [
     await page.locator('.ed-save').getByText('Сохранено').waitFor({ timeout: 8000 });
     const tl = JSON.parse((await branchFile(ctx, 'timeline.json')) ?? '{}');
     engineValidate('timeline.json', tl);
-    check(tl.zoom === 0.5 && isDeepStrictEqual(tl.looks, [{ at: [1.6, 2.0], off: true }]) && isDeepStrictEqual(tl.transitions, [{ at: 1.6, kind: 'blur', off: true }]),
+    const mine = tl.looks?.[1];
+    check(tl.zoom === 0.5 && isDeepStrictEqual(tl.looks?.[0], { at: [1.6, 2.0], off: true }) && tl.looks?.length === 2 && mine?.look === 'sepia'
+      && mine.t0 === 0.7 && mine.t1 > 1.15 && isDeepStrictEqual(tl.transitions, [{ at: 1.6, kind: 'blur', off: true }]),
       `картинка в timeline.json: ${JSON.stringify({ zoom: tl.zoom, looks: tl.looks, transitions: tl.transitions })}`);
     check(tl.dim === 0.5 && tl.music?.file === 'assets/music/calm.wav' && isDeepStrictEqual(tl.text?.end, { lines: ['Пиши «план»'], handle: '@pavel.edit' }),
       `фон, трек и карточка в timeline.json: ${JSON.stringify({ dim: tl.dim, music: tl.music, end: tl.text?.end })}`);
     const engine = JSON.parse(execFileSync('python3', ['-c', [
-      'import json, sys', 'from vm import transitions', 'from vm.edits import apply', 'from vm.render import look_windows, timeline',
+      'import json, sys', 'from vm import transitions', 'from vm.edits import apply', 'from vm.render import look_spans, timeline',
       'from vm.zoom import TRANS, zoom_at',
       'd = json.load(sys.stdin)', 'e = apply(d["edit"], d["timeline"], d["duration"])', 'tl = timeline(e, d["duration"])',
       'marks = transitions.marks(e, tl)',
-      'print(json.dumps({"windows": look_windows(e, tl), "marks": [[m.t, m.kind] for m in marks],',
+      'print(json.dumps({"spans": look_spans(e, tl), "marks": [[m.t, m.kind] for m in marks],',
       '  "zoom": zoom_at(e["zooms"], tl, 1.6, TRANS, [m.t for m in marks if m.kind == "zoom"]),',
+      '  "inside": zoom_at(e["zooms"], tl, 0.5, TRANS, [m.t for m in marks if m.kind == "zoom"]),',
       '  "dim": e.get("dim"), "music": e["music"]["file"], "end": [e["end"]["lines"], e["end"].get("handle")]}))',
     ].join('\n')], { input: JSON.stringify({ edit, timeline: tl, duration: source }), env: { ...process.env, PYTHONPATH: path.resolve('../engine') } }).toString());
-    check(isDeepStrictEqual(engine.windows, []) && isDeepStrictEqual(engine.marks, []), `движок: ч/б и переход убраны — ${JSON.stringify(engine)}`);
+    check(engine.spans.length === 1 && engine.spans[0][2] === 'sepia' && isDeepStrictEqual(engine.marks, []),
+      `движок: кусок сессии и переход убраны, свой кусок — сепия: ${JSON.stringify(engine)}`);
+    const [first, after] = engine.spans[0];
+    for (const [t, want] of [[(first + 0.5) / 30, 'sepia'], [(after - 0.5) / 30, 'sepia'], [(after + 0.5) / 30, '']]) {
+      await seekTo(t);
+      await until(async () => (await v.getAttribute('data-look')) === want, 3000, async () => `кадр ${t.toFixed(3)} с: ${await v.getAttribute('data-look')}, у движка — ${want}`);
+    }
+    await seekTo(0.5);
+    await until(async () => Math.abs((await zoom()) - engine.inside) < 1e-3, 3000, async () => `план своего куска: на странице ${await zoom()}, у движка ${engine.inside}`);
+    check(engine.inside > 1.05, `на своём куске — крупнее (смена крупности): ${engine.inside}`);
     check(Math.abs(engine.zoom - z1) < 1e-4, `зум движка на 1,6 с ${engine.zoom}, на странице ${z1}`);
     check(engine.dim === 0.5 && engine.music === 'assets/music/calm.wav' && isDeepStrictEqual(engine.end, [['Пиши «план»'], '@pavel.edit']),
       `движок: фон, трек и карточка — ${JSON.stringify(engine)}`);
-    // задача старого движка (схема без картинки): ползунок закрыт, сервер правку не сохранит
+    // задача движка до своих кусков (куски сессии только убирались): своего куска на фразу нет, сервер его не сохранит
     const schema = JSON.parse(fs.readFileSync(path.resolve('../engine/vm/schemas/timeline.json'), 'utf8'));
+    const oldLooks = { type: 'object', required: ['at', 'off'], additionalProperties: false, properties: { at: { $ref: '#/$defs/At' }, off: { const: true } } };
+    await fakeJson('/__commit', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ branch: `claude/job-${ctx.jobId}`, message: 'engine before own looks',
+        files: { 'engine/vm/schemas/timeline.json': JSON.stringify({ ...schema, properties: { ...schema.properties, looks: { ...schema.properties.looks, items: oldLooks } } }) } }) });
+    await page.reload();
+    await row.locator('.ed-clip[data-kind=look]').first().waitFor({ timeout: 10_000 });
+    check(await page.locator('.ed-pic-panel').getByRole('button', { name: '＋ Ч/б на фразу' }).count() === 0, 'у старой задачи своего куска нет');
+    // запрос из страницы, а не page.request: тот берёт соединение, которое сервер уже закрыл по keep-alive
+    // (socket hang up), а fetch страницы открывает новое
+    const ownRefused = await page.evaluate(async ([url, base]) => {
+      const r = await fetch(url, { method: 'PUT', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ base, edits: [], looks: [{ t0: 0.3, t1: 1.15, look: 'bw' }] }) });
+      return { status: r.status, error: (await r.json()).error };
+    }, [`${APP}/api/jobs/${ctx.jobId}/timeline`, tl.rev]);
+    check(ownRefused.status === 409 && ownRefused.error?.includes('до своих кусков'), `старый движок: свой кусок не сохраняется (${JSON.stringify(ownRefused)})`);
+    // задача старого движка (схема без картинки): ползунок закрыт, сервер правку не сохранит
     const { zoom: _z, looks: _l, transitions: _t, ...props } = schema.properties;
     await fakeJson('/__commit', { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ branch: `claude/job-${ctx.jobId}`, files: { 'engine/vm/schemas/timeline.json': JSON.stringify({ ...schema, properties: props }) }, message: 'old engine' }) });

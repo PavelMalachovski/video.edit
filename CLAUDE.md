@@ -79,14 +79,19 @@
 - Слой ролика (кадр редактора = финал): `engine/vm/subs.py` (`build_sub_events`) и `engine/vm/overlay.py`
   (`build_overlay_events`, `insert_spans`, `_hook_end`) ↔ `web/lib/subs.ts` (`buildSubEvents`, `subBlocks`) и
   `web/lib/overlay.ts` (`buildOverlayEvents`, `layerBlocks`, `insertSpans`, `hookEnd`); шкала монтажа на целых кадрах —
-  `render.timeline` ↔ `renderTimeline` (по ней и плеер: края кусков `play0`, `play1` в `draftTracks`). Общая фикстура `engine/tests/fixtures/overlay-events.json` — её пишет движок:
+  `render.timeline` ↔ `renderTimeline` (по ней и плеер: края кусков `play0`, `play1` в `draftTracks`); акцента от
+  остатка фразы после вырезки нет — `_remnant` ↔ `remnant` (`MIN_ACCENT`). Общая фикстура `engine/tests/fixtures/overlay-events.json` — её пишет движок:
   `cd engine && python3 -m tests.shared_events` (устарела — падает быстрый тест движка).
 - Картинка ролика в редакторе: `engine/vm/zoom.py` (`zoom_at`, `cut_frame`), `engine/vm/transitions.py` (`marks`, `HALF`,
   `PUNCH`, `BLUR`; вспышка и смаз по кадру — `flash_alpha`, `blur_sigma`: так их рисует `picture_chains`, проверено по
-  пикселям ffmpeg), `look_windows` и `BW_CSS_BRIGHTNESS`, `BW_CSS_CONTRAST` в `engine/vm/render.py` ↔ `web/lib/zoom.ts`
-  (`flashAlpha`, `blurSigma`) и `web/lib/picture.ts` (`pictureAt`, `BW_FILTER` — ч/б с цветокором на прокси без него),
-  разделы `look` и `bwFilter` той же фикстуры; шкала времени ролика — `render._layers` ↔ `Bar` в
-  `web/app/jobs/[id]/editor/frame.tsx`.
+  пикселям ffmpeg), `look_windows`, `look_spans` (фильтр каждого кадра: поздний кусок сильнее — `looks.paint`) и
+  `BW_CSS_BRIGHTNESS`, `BW_CSS_CONTRAST` в `engine/vm/render.py` ↔ `web/lib/zoom.ts` (`flashAlpha`, `blurSigma`,
+  `lookWindows`, `lookSpans`) и `web/lib/picture.ts` (`pictureAt`, `BW_FILTER` — ч/б с цветокором на прокси без него),
+  разделы `look` и `bwFilter` той же фикстуры; фильтры руками (сепия, тёплый, холодный, плёнка) — цепочки CSS filter
+  `LOOKS` в `engine/vm/looks.py` (движок считает их в RGB 16 бит только на кадрах своих окон — `render.colour_chains`;
+  каждая функция, кроме последней, не выводит цвет за [0, 1]) ↔ `LOOK_CSS` в `web/lib/picture.ts`, раздел `lookFilters`
+  (что браузер рисует их так же — проверено в Chromium по модели Filter Effects); шкала времени ролика —
+  `render._layers` ↔ `Bar` в `web/app/jobs/[id]/editor/frame.tsx`.
 - Доли музыки: `engine/vm/beats.py` (`beat_times`, `snap_edit`, `played`) и `beats.json` (пишет `render.on_beats`) ↔
   `web/lib/beats.ts` (`beatTimes`, `snapEdit`, `musicBeats`) и `parseBeats` в `web/lib/editordata.ts`, раздел `beats`.
 - Текст и вставки руками (`timeline.json` → `text`, `words`): `engine/vm/edits.py` (`apply_text`) и схема
@@ -101,10 +106,14 @@
   `web/lib/blocktext.ts` — одна проверка у полей панелей блоков и у поля текста на кадре — и `parseSave` в
   `web/lib/editordata.ts`).
 - Картинка руками (`timeline.json` → `zoom`, `looks`, `transitions`, `dim`): `engine/vm/edits.py` (`apply_picture`,
-  `_moments`) и схема `engine/vm/schemas/timeline.json` (выключенное — `off` в схеме `edit.json`) ↔ `web/lib/edits.ts`
-  (`applyPicture`, `setZoom`, `setLook`, `setTransition`, `setDim`, `TRANSITION_KINDS`, `LIMITS`, `parseTimeline`),
-  раздел `picture` общей фикстуры; выключенное пропускают `look_windows`, `transitions._placed` (и свуш перехода),
-  `snap_edit` ↔ `lookWindows`, `transitionMarks`, `snapEdit`, `draftTracks`; старая задача — `abilitiesOf` (`picture`).
+  `_moments`; куски с фильтром — `_hand_looks`: кусок сессии по `at` убран, с другими краями или фильтром, свои куски
+  Павла — в конце списка; смена крупности на краях — `_shot_edges`, `SHOTS`) и схема `engine/vm/schemas/timeline.json`
+  (выключенное — `off`, фильтры — `look` в схеме `edit.json`; `KINDS` в `engine/vm/looks.py`) ↔ `web/lib/edits.ts`
+  (`applyPicture`, `handLooks`, `shotEdges`, `setZoom`, `setLook`, `addLook`, `setLookEdges`, `setLookKind`,
+  `removeLook`, `LOOK_KINDS`, `setTransition`, `setDim`, `TRANSITION_KINDS`, `LIMITS`, `parseTimeline`), раздел `picture`
+  общей фикстуры; выключенное пропускают `look_windows`, `transitions._placed` (и свуш перехода), `snap_edit` ↔
+  `lookWindows`, `transitionMarks`, `snapEdit`, `draftTracks`; свой кусок ставится на фразу под бегунком — `phraseAt` в
+  `web/lib/subs.ts` (фразы — как `subs._phrases`); старая задача — `abilitiesOf` (`picture`, `looks`).
 - Трек и карточка руками: `music.file` — `edits.apply` (`MUSIC_FIELDS`, `MUSIC_DB` — трек в ролике без музыки) и образец
   `$defs.Music.file` схемы ↔ `MUSIC_FILE`, `setTrack` в `web/lib/edits.ts`, `withHandEdits` в `web/lib/tracks.ts`,
   `musicMix` в `web/lib/sound.ts`, библиотека и проверка трека при сохранении — `musicLibrary` в
@@ -161,8 +170,13 @@
   каталога).
 - Готовый исходник задачи в черновике (нормализация один раз на задачу): `engine/vm/source.py` (`key`, `asset`, `describe`, `NORMALIZE` — подними, если меняешь `media.normalize`) ↔ `.github/scripts/job-source.sh` (Action job-source: куски `<ассет>.part-NNNNN` и последним `source-<ключ>.json`; сбой — метка `source-<ключ>.failed`) и `_ready` в `engine/vm/fetch.py` (берёт его только после анализа — есть `editor.json`).
 - Языки: `engine/vm/lang.py` (коды, названия, чем распознавать) и `setup/cloud-setup.sh` (какие модели ставятся).
+- Что шаг читает с диска окружения (модели, Chromium слоя, модель маски) — то же заранее читает прогрев
+  `engine/vm/warm.py` (`paths`; его запускает `vm fetch`): новая модель или браузер — и туда.
 - Затемнение фона: `engine/vm/matte.py` (`MODEL`) и `setup/cloud-setup.sh` (откуда ставится модель, её sha256); маска
-  идёт кадр в кадр со склейкой — `segment_frames` в `engine/vm/render.py`, общий с `_cut`.
+  идёт кадр в кадр со склейкой — `segment_frames` в `engine/vm/render.py`, общий с `_cut`. Маска прошлой сессии —
+  `out/matte-<ключ>.*` анализа (`vm matte`: по плотной резке, куски рендера внутри её кусков) или рендера
+  (`matte.keep`; ключ — `matte.job_key`: входы исходника и всё, от чего зависит маска) → черновик → `vm fetch`
+  (`_matte_cache`) → `work/matte/cache-<ключ>.*` → `matte.restore` в `render._matte`.
 - Бренд Павла: поля и проверка — `web/lib/brand.ts`, как их берёт монтаж — SKILL.md (стиль A, `job.json.brand`); «Мой
   стиль» (`look`: `lookFromJob` — скорость, затемнение и музыка, какими их собрал `edits.apply` движка; `parseLook`) ↔
   `brandChoice`, `loadChoice`, `loadSpeed` в `web/lib/style.ts`, `initialDraft` в `web/lib/answers.ts` и `brandLook`

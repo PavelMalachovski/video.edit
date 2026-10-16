@@ -141,6 +141,19 @@ function spoken(words: readonly Word[], tl: Timeline, hidden: readonly (readonly
   return [...lead, ...out];
 }
 
+/** Фраза речи в момент `t` ролика — как её делит build_sub_events (конец предложения, пауза дольше PHRASE_PAUSE, стык
+ *  серий кусков; копия в тизере — своя): её первое и последнее слово, время исходника. Между фразами — следующая (после
+ *  последней — последняя); слов в ролике нет — null. По ней Павел ставит свой кусок с фильтром. */
+export function phraseAt(words: readonly Word[], tl: Timeline, t: number): { t0: number; t1: number } | null {
+  const groups = phrases(spoken(words, tl, []));
+  const hit = groups.find((g) => g[0].t0 <= t && t < (g.at(-1) as Spoken).t1)
+    ?? [...groups].filter((g) => !g[0].lead).sort((a, b) => a[0].t0 - b[0].t0).find((g) => g[0].t0 > t)
+    ?? groups.filter((g) => !g[0].lead).at(-1);
+  if (!hit) return null;
+  const last = (hit.at(-1) as Spoken).word;
+  return { t0: hit[0].word.t0, t1: Math.max(last.t0, last.t1) };
+}
+
 function phrases(items: Spoken[]): Spoken[][] {
   const out: Spoken[][] = [];
   for (const item of items) {

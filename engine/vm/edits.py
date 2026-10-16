@@ -18,6 +18,8 @@
 tests/fixtures/edits.json (куски) и overlay-events.json (текст: пишет tests/shared_events.py).
 """
 from .job import Job, validate
+from .timeline import TO_CUT
+from .zoom import MAX_LEVEL, MAX_SHOT, MIN_LEVEL
 
 SLIVER = 0.04  # с — кусок короче (около кадра) после вырезки не остаётся
 MUSIC_FIELDS = ("file", "gainDb", "at", "from", "fadeIn", "fadeOut")
@@ -173,22 +175,83 @@ def apply(edit: dict, timeline: dict | None, duration: float | None = None) -> d
 
 
 def apply_picture(edit: dict, zoom: float | None, looks: list | None, transitions: list | None, dim: float | None = None) -> dict:
-    """Картинка руками (`timeline.json` → `zoom`, `looks`, `transitions`, `dim`) поверх edit: сила зума — доля от зума
-    монтажа (`1 + (уровень − 1) · zoom`, четыре знака), ч/б-кусок по месту `at` — выключен, переход по своему `t` —
-    другого вида или выключен; затемнение фона — своё (0 — без него). Выключенное остаётся в списке с `off`: номера
-    звуков `transition:<n>` не сдвигаются. То же — applyPicture в web/lib/edits.ts. Правок нет — тот же edit."""
+    """Картинка руками (`timeline.json` → `zoom`, `looks`, `transitions`, `dim`) поверх edit. Куски с фильтром (`looks`):
+    кусок сессии по месту `at` — убран (`off`, остаётся в списке), с другими краями (`t0`, `t1`) или другим фильтром
+    (`look`); свой кусок Павла (`t0`, `t1`, `look` без `at`) — в конце списка, поверх кусков сессии. На краях своего куска
+    и куска с другими краями — смена крупности (`_shot_edges`). Сила зума — доля от зума монтажа (`1 + (уровень − 1) ·
+    zoom`, четыре знака), в том числе у смен крупности кусков. Переход по своему `t` — другого вида или выключен;
+    затемнение фона — своё (0 — без него). Выключенное остаётся в списке с `off`: номера звуков `transition:<n>` не
+    сдвигаются. То же — applyPicture в web/lib/edits.ts. Правок нет — тот же edit."""
     if zoom is None and not looks and not transitions and dim is None:
         return edit
     out = {**edit}
     if dim is not None:
         out["dim"] = float(dim) if dim > 0 else None
-    if zoom is not None:
-        out["zooms"] = [{**z, "level": round(1 + (float(z["level"]) - 1) * float(zoom), 4)} for z in edit.get("zooms") or []]
     if looks:
-        out["looks"] = _anchored(edit.get("looks"), looks, "looks", lambda item, c, name: {**item, "off": True})
+        out = _hand_looks(out, looks)
+    if zoom is not None:
+        out["zooms"] = [{**z, "level": round(1 + (float(z["level"]) - 1) * float(zoom), 4)} for z in out.get("zooms") or []]
     if transitions:
         out["transitions"] = _moments(edit.get("transitions"), transitions)
     return out
+
+
+SHOTS = (1.25, 1.0, 1.15)  # план куска с фильтром руками: крупный, общий, средний — первый, что видно отличается
+SHOT_STEP = 0.1  # «видно отличается»: разница планов не меньше
+
+
+def _hand_looks(edit: dict, looks: list) -> dict:
+    """Куски с фильтром руками поверх edit (см. apply_picture): правки кусков сессии по `at`, затем свои куски Павла
+    по порядку; у куска с новыми краями смены крупности сессии на старых краях уходят, на новых — `_shot_edges`."""
+    zooms = list(edit.get("zooms") or [])
+    moved: list[tuple[dict, dict, str]] = []
+
+    def change(item: dict, c: dict, name: str) -> dict:
+        if c.get("off"):
+            return {**item, "off": True}
+        out = {**item, **({"look": c["look"]} if "look" in c else {})}
+        if "t0" in c:
+            out = _timed(name, {**out, "t0": float(c["t0"]), "t1": float(c["t1"])})
+            moved.append((item, out, name))
+        return out
+
+    pieces = _anchored(edit.get("looks"), [c for c in looks if "at" in c], "looks", change)
+    for old, new, _ in moved:
+        zooms = [z for z in zooms if not (_sharp(z) and any(abs(float(z["t"]) - e) <= TO_CUT + EPS for e in (old["t0"], old["t1"])))]
+    for _, new, _ in moved:
+        zooms = _shot_edges(zooms, new["t0"], new["t1"])
+    for i, c in enumerate(x for x in looks if "at" not in x):
+        own = _timed(f"looks[own {i}]", {"t0": float(c["t0"]), "t1": float(c["t1"]), "look": c["look"]})
+        pieces.append(own)
+        zooms = _shot_edges(zooms, own["t0"], own["t1"])
+    return {**edit, "looks": pieces, "zooms": zooms}
+
+
+def _sharp(z: dict) -> bool:
+    """Резкая смена крупности (`over: 0`), а не плавный зум."""
+    return "over" in z and float(z["over"]) == 0
+
+
+def _plan_at(zooms: list[dict], t: float) -> float:
+    """План в момент `t` исходника по ступеням до него (уровень последней, в своих пределах; ступеней нет — 1.0)."""
+    level = MIN_LEVEL
+    for z in sorted(zooms, key=lambda z: float(z["t"])):
+        if float(z["t"]) > t + EPS:
+            break
+        level = min(MAX_SHOT if "over" in z else MAX_LEVEL, max(MIN_LEVEL, float(z["level"])))
+    return level
+
+
+def _shot_edges(zooms: list[dict], t0: float, t1: float) -> list[dict]:
+    """Смена крупности на краях куска [t0, t1] — как вторая камера: на его время план один — из `SHOTS` первый, что
+    отличается от плана до куска и после него хотя бы на `SHOT_STEP` (такого нет — самый далёкий от обоих); ступени
+    внутри и не дальше `TO_CUT` от краёв уходят; после куска — план, какой был бы без него. По порядку исходника."""
+    before, after = _plan_at(zooms, t0 - TO_CUT), _plan_at(zooms, t1 + TO_CUT)
+    inside = next((s for s in SHOTS if min(abs(s - before), abs(s - after)) >= SHOT_STEP - EPS),
+                  max(SHOTS, key=lambda s: min(abs(s - before), abs(s - after))))
+    rest = [z for z in zooms if not (t0 - TO_CUT - EPS < float(z["t"]) < t1 + TO_CUT + EPS)]
+    edges = [{"t": t0, "level": inside, "over": 0}, {"t": t1, "level": after, "over": 0}]
+    return sorted(rest + edges, key=lambda z: float(z["t"]))
 
 
 def _moments(items: list | None, changes: list) -> list:

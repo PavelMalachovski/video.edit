@@ -168,8 +168,12 @@ test('«Монтировать» from the editor: a fix with the saved revision 
 
 const SCHEMA_NOW = readFileSync(new URL('../../engine/vm/schemas/timeline.json', import.meta.url), 'utf8');
 /** Схема timeline.json, как она была до `what`: перестановки кусков (фаза 4), текста (фаза 5), картинки (фаза 5в). */
-function olderSchema(what: 'move' | 'text' | 'picture'): string {
+function olderSchema(what: 'move' | 'text' | 'picture' | 'looks'): string {
   const s = JSON.parse(SCHEMA_NOW);
+  if (what === 'looks') { // до своих кусков ч/б и фильтров: куски сессии только убирались
+    s.properties.looks.items = { type: 'object', required: ['at', 'off'], additionalProperties: false, properties: { at: { $ref: '#/$defs/At' }, off: { const: true } } };
+    return JSON.stringify(s);
+  }
   for (const k of ['zoom', 'looks', 'transitions', 'dim', 'teaser', 'speed']) delete s.properties[k];
   delete s.$defs.Music.properties.file;
   delete s.properties.text.properties.end;
@@ -190,23 +194,33 @@ test('before the montage the editor edits only what «Превью» and the que
   const all = abilitiesOf(SCHEMA_NOW);
   // до монтажа скорость, затемнение фона и трек выбирают «Превью» и вопросы: правка руками молча перебила бы ответ
   assert.deepEqual(editorGates(true, false, all),
-    { move: true, zoom: true, marks: false, track: false, speed: false, teaser: false, text: false, card: false, place: false });
+    { move: true, zoom: true, marks: false, looks: true, lookHand: true, track: false, speed: false, teaser: false, text: false, card: false, place: false },
+    'куски с фильтром — и до монтажа: держатся за своё место');
   assert.deepEqual(editorGates(true, true, all),
-    { move: true, zoom: true, marks: true, track: true, speed: true, teaser: true, text: true, card: true, place: true });
+    { move: true, zoom: true, marks: true, looks: true, lookHand: true, track: true, speed: true, teaser: true, text: true, card: true, place: true });
   assert.ok(Object.values(editorGates(false, true, all)).every((on) => !on), 'идёт сессия — ничего не правится');
   assert.deepEqual(editorGates(true, true, { ...all, video: false, track: false }),
-    { move: true, zoom: true, marks: true, track: false, speed: false, teaser: false, text: true, card: true, place: true }, 'старый движок');
+    { move: true, zoom: true, marks: true, looks: true, lookHand: true, track: false, speed: false, teaser: false, text: true, card: true, place: true }, 'старый движок');
+  const older = abilitiesOf(olderSchema('looks'));
+  assert.deepEqual([editorGates(true, false, older).looks, editorGates(true, true, older).looks, editorGates(true, true, older).lookHand], [false, true, false],
+    'движок до своих кусков: куски сессии убираются и возвращаются после монтажа, своих нет');
 });
 
 test('what the job\'s engine takes is read from its own schema in the job branch', () => {
-  const none5c = { picture: false, track: false, card: false, video: false, place: false };
-  assert.deepEqual(abilitiesOf(SCHEMA_NOW), { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true });
+  const none5c = { picture: false, track: false, card: false, video: false, place: false, looks: false };
+  assert.deepEqual(abilitiesOf(SCHEMA_NOW), { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: true });
+  assert.deepEqual(abilitiesOf(olderSchema('looks')), { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: false });
   assert.deepEqual(abilitiesOf(olderSchema('picture')), { edits: true, move: true, text: true, ...none5c });
   assert.deepEqual(abilitiesOf(olderSchema('text')), { edits: true, move: true, text: false, ...none5c });
   assert.deepEqual(abilitiesOf(olderSchema('move')), { edits: true, move: false, text: false, ...none5c });
   assert.deepEqual(abilitiesOf(null), { edits: false, move: false, text: false, ...none5c }, 'схемы нет — задача до редактора: её движок правок руками не знает');
-  assert.deepEqual(abilitiesOf('{не json'), { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true }, 'схема есть, но не читается — движок нынешний');
-  const all = { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true };
+  assert.deepEqual(abilitiesOf('{не json'), { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: true }, 'схема есть, но не читается — движок нынешний');
+  const all = { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: true };
+  for (const looks of [[{ t0: 1, t1: 2, look: 'bw' as const }], [{ at: [1, 2] as [number, number], t0: 0.8, t1: 2 }], [{ at: [1, 2] as [number, number], look: 'sepia' as const }]]) {
+    assert.match(refusedBy({ ...all, looks: false }, { edits: [], looks }) ?? '', /до своих кусков ч\/б и фильтров/, JSON.stringify(looks));
+    assert.equal(refusedBy(all, { edits: [], looks }), null);
+  }
+  assert.equal(refusedBy({ ...all, looks: false }, { edits: [], looks: [{ at: [1, 2], off: true }] }), null, 'убрать кусок сессии — как раньше');
   for (const picture of [{ edits: [], zoom: 0.5 }, { edits: [], looks: [{ at: [1, 2] as [number, number], off: true as const }] }, { edits: [], transitions: [{ at: 3, off: true as const }] },
     { edits: [], dim: 0 }]) {
     assert.match(refusedBy({ ...all, picture: false }, picture) ?? '', /до правок картинки/, JSON.stringify(picture));
@@ -234,7 +248,7 @@ test('what the job\'s engine takes is read from its own schema in the job branch
 test('a job made before text edits: the editor knows it, and the server does not save what its engine would refuse', () => withFake(async ({ fake, gh }) => {
   start(fake);
   fake.commit(`claude/job-${ID}`, { [ENGINE_SCHEMA]: olderSchema('text') }, 'old engine');
-  assert.deepEqual((await loadEditor(gh, ID))?.abilities, { edits: true, move: true, text: false, picture: false, track: false, card: false, video: false, place: false });
+  assert.deepEqual((await loadEditor(gh, ID))?.abilities, { edits: true, move: true, text: false, picture: false, track: false, card: false, video: false, place: false, looks: false });
   const r = await saveTimeline(gh, ID, { base: 0, edits: [], text: { hook: { until: 2 } } }, NOW);
   assert.ok(!r.ok && r.status === 409 && /до правок текста/.test(r.error), JSON.stringify(r));
   assert.equal(timelineFile(fake), null, 'ничего не записано');
@@ -253,7 +267,7 @@ test('the music library of the job\'s branch is offered as tracks; a track that 
 test('a job made before the editor (no timeline.json schema in its branch): its engine reads no hand edits — the server saves none', () => withFake(async ({ fake, gh }) => {
   start(fake);
   fake.commit(`claude/job-${ID}`, { [ENGINE_SCHEMA]: null }, 'before the editor');
-  assert.deepEqual((await loadEditor(gh, ID))?.abilities, { edits: false, move: false, text: false, picture: false, track: false, card: false, video: false, place: false });
+  assert.deepEqual((await loadEditor(gh, ID))?.abilities, { edits: false, move: false, text: false, picture: false, track: false, card: false, video: false, place: false, looks: false });
   const r = await saveTimeline(gh, ID, { base: 0, ...HAND }, NOW);
   assert.ok(!r.ok && r.status === 409 && /до редактора/.test(r.error), JSON.stringify(r));
   assert.equal(timelineFile(fake), null, 'ничего не записано');

@@ -41,6 +41,7 @@ INSERT_FIELDS = ("kind", "src", "text", "title", "x", "y", "w", "params")
 SUB_APPEAR = 4  # кадров появления строки soft (0,12 с)
 HOOK_APPEAR = 8  # кадров появления хука accent из размытия (0,22 с)
 ACCENT_ANIM = {"blur": 0.25, "track": 0.17, "letters": 0.33}  # с — появление строки акцента
+MIN_ACCENT = 0.4  # с финала — меньше от фразы акцента вырезка оставить может, а показать нечего: акцента нет
 TYPE_CPS, TYPE_CURSOR = 30, 0.28  # печать: букв в секунду; сколько курсор держится после печати, с
 ACCENT_LINGER = 0.3  # с — акцент держится после конца фразы, если субтитры не начались раньше
 ACCENT_LEAVE = 4  # кадров ухода акцента
@@ -172,7 +173,10 @@ def _accents(edit: dict, tl: Timeline, sub_starts: list[int]) -> list[_Piece]:
     accents = sorted(edit.get("accents") or [], key=lambda a: (tl.to_final_snap(float(a["t0"])), float(a["t0"])))
     words = edit.get("words") or []
     pieces = []
-    spans = [tl.span(float(a["t0"]), float(a["t1"])) for a in accents]
+    placed = [(a, tl.span(float(a["t0"]), float(a["t1"]))) for a in accents]
+    # от фразы, разрезанной вырезкой (правка в редакторе), осталось меньше MIN_ACCENT — акцент вспыхнул бы на кадр-другой
+    placed = [(a, span) for a, span in placed if not _remnant(a, span, tl)]
+    accents, spans = [a for a, _ in placed], [span for _, span in placed]
     starts = [_frame(a) for a, _ in spans]
     for k, accent in enumerate(accents):
         start = starts[k]
@@ -192,6 +196,12 @@ def _accents(edit: dict, tl: Timeline, sub_starts: list[int]) -> list[_Piece]:
         info = {"frames": frames, "ends": [b for _, b in moving[: len(lines)]], "leave": leave, "moving": moving}
         pieces.append(_Piece(start, stop, "accent", value, accent=info))
     return pieces
+
+
+def _remnant(accent: dict, span: tuple[float, float], tl: Timeline) -> bool:
+    """Вырезка оставила от фразы акцента меньше MIN_ACCENT финала (короткая фраза целиком — не остаток)."""
+    shown = span[1] - span[0]
+    return shown < MIN_ACCENT and shown < (float(accent["t1"]) - float(accent["t0"])) / tl.speed - 1 / FPS
 
 
 def _accent_state(piece: _Piece, frame: int) -> dict:

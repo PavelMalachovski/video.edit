@@ -226,7 +226,7 @@ def test_the_ad_text_is_written_with_the_caption_and_ad_problems_have_a_way_out(
     assert "caption.ad" not in answers, "подпись пишется в п. 5 — с ней и текст рекламы"
     result = render[render.index("5. В `result.json`"):]
     assert "`ad`" in result and "72 знак" in result
-    checks = render[render.index("4. `vm render --status`"):render.index("5. В `result.json`")]
+    checks = render[render.index("4. `vm render --status --detach`"):render.index("5. В `result.json`")]
     assert "«реклама: …»" in checks and "`unsure`" in checks
     assert "`ad`" in SKILL[SKILL.index("| `result.json` |"):].splitlines()[0]
 
@@ -329,3 +329,13 @@ def test_text_edits_from_the_editor_are_known_and_left_alone():
     assert "поправил в редакторе" in fix
     render = section("Шаг render")
     assert "правки Павла в редакторе" in render and "не двигай" in render
+
+
+def test_long_commands_go_to_the_background_and_vm_wait_waits_for_them():
+    """Долгие команды — с --detach, конец ждёт vm wait: без циклов с pgrep (находят сами себя и не кончаются)."""
+    for step, command in (("Шаг analyze", "`vm prepare --status --detach`"), ("Шаг render", "`vm render --status --detach`"),
+                          ("Шаг fix", "`vm render --version <version> --status --detach`")):
+        text = section(step)
+        assert command in text and "`vm wait`" in text[text.index(command):text.index(command) + 200], step
+    commands = SKILL[SKILL.index("## Команды движка"):SKILL.index("## Файлы задачи")]
+    assert "| `vm wait [--max S]` |" in commands and "pgrep" in commands and "600000" in commands

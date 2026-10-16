@@ -5,10 +5,10 @@ import { buildOverlayEvents, eventIndexAt, frameOf, insertSpans, layerBlocks, py
 import { buildSubEvents, subBlocks, type Word } from '../lib/subs.ts';
 import { Timeline } from '../lib/timeline.ts';
 import { beatTimes, musicBeats, played, snapEdit } from '../lib/beats.ts';
-import { BW_FILTER } from '../lib/picture.ts';
+import { BW_FILTER, LOOK_CSS } from '../lib/picture.ts';
 import { draftTracks, parseDraft, timelineOf, withHandEdits, type LayerStyle } from '../lib/tracks.ts';
-import { applyPicture, type Edit, type LookFix, type MusicAdjust, type TextEdits, type TransitionFix, type WordFix } from '../lib/edits.ts';
-import { blurSigma, flashAlpha, lookWindows, transitionMarks, zoomAt, zoomLevels, type TransitionSpec, type Zoom } from '../lib/zoom.ts';
+import { applyPicture, LOOK_KINDS, type Edit, type LookFix, type MusicAdjust, type TextEdits, type TransitionFix, type WordFix } from '../lib/edits.ts';
+import { blurSigma, flashAlpha, lookSpans, lookWindows, transitionMarks, zoomAt, zoomLevels, type TransitionSpec, type Zoom } from '../lib/zoom.ts';
 
 // Общая с движком фикстура (engine/tests/shared_events.py): события субтитров и слоя — ровно как у движка, число в число.
 type Base = { name: string; keep: [number, number][]; speed: number; teaser: [number, number] | null };
@@ -20,11 +20,12 @@ const FIXTURE = JSON.parse(fs.readFileSync(new URL('../../engine/tests/fixtures/
   render: RenderCase[];
   renderRefused: RenderCase[];
   look: (Base & {
-    edit: { zooms: Zoom[]; transitions: TransitionSpec[]; looks: { t0: number; t1: number }[] };
+    edit: { zooms: Zoom[]; transitions: TransitionSpec[]; looks: { t0: number; t1: number; look: string; off?: boolean }[] };
     zoom: [number, number][]; marks: { t: number; kind: string; source: number }[]; looks: [number, number][];
-    flash: ByFrame[]; blur: ByFrame[];
+    spans: [number, number, string][]; flash: ByFrame[]; blur: ByFrame[];
   })[];
   bwFilter: { brightness: number; contrast: number };
+  lookFilters: Record<string, string>;
   beats: (Base & {
     grid: { length: number; times: number[] }; music: { at?: number; from?: number };
     edit: { zooms: Zoom[]; inserts: { kind: string; t0: number; t1: number }[] };
@@ -38,7 +39,8 @@ const FIXTURE = JSON.parse(fs.readFileSync(new URL('../../engine/tests/fixtures/
   picture: (Base & {
     edit: { zooms: Zoom[]; looks: { t0: number; t1: number; look: string; off?: boolean }[]; transitions: (TransitionSpec & { off?: boolean })[]; dim?: number | null };
     timeline: { zoom?: number; looks?: LookFix[]; transitions?: TransitionFix[]; dim?: number };
-    expected: unknown; marks: { t: number; kind: string; source: number }[]; lookWindows: [number, number][]; zoom: [number, number][];
+    expected: unknown; marks: { t: number; kind: string; source: number }[]; lookWindows: [number, number][];
+    lookSpans: [number, number, string][]; zoom: [number, number][];
   })[];
 };
 type RenderCase = {
@@ -105,7 +107,9 @@ test('blocks on the tracks are exactly where the layer draws hook, title, accent
     const drawn = new Set(events.flatMap((e) => ((e.state.inserts as { n: number }[] | undefined) ?? []).map((i) => i.n)));
     assert.deepStrictEqual([...drawn].sort(), blocks.inserts.map((b) => b.n).sort(), `${c.name}: те же вставки`);
     if (blocks.accents.length === 1) near(seen((st) => 'accent' in st), blocks.accents[0], 'акцент');
-    assert.equal(blocks.accents.length, (c.edit.accents ?? []).length, `${c.name}: все акценты`);
+    // блок — у каждого акцента, что рисует слой (от остатка фразы после вырезки акцента нет — и блока нет)
+    const accents = new Set(events.flatMap((e) => ('accent' in e.state ? [JSON.stringify((e.state.accent as { lines: unknown }).lines)] : [])));
+    assert.equal(blocks.accents.length, accents.size, `${c.name}: все акценты`);
   }
 });
 
@@ -135,8 +139,10 @@ test('zoom, transitions at the joins and black-and-white pieces match the engine
       assert.equal(level(t), want, `${c.name}: zoomLevels(${t})`);
     }
     assert.deepStrictEqual(lookWindows(c.edit.looks, tl), c.looks, c.name);
+    assert.deepStrictEqual(lookSpans(c.edit.looks, tl), c.spans, `${c.name}: какой фильтр на каких кадрах`);
   }
   assert.ok(FIXTURE.look.some((c) => c.zoom.some(([, z]) => z > 1.2)), 'в фикстуре есть смена крупности');
+  assert.ok(FIXTURE.look.some((c) => c.spans.some(([, , look]) => look !== 'bw')), 'в фикстуре есть фильтры руками');
 });
 
 test('flash and blur on every frame at the joins match the engine number for number', () => {
@@ -154,6 +160,11 @@ test('flash and blur on every frame at the joins match the engine number for num
 test('a black-and-white frame in the preview is the engine’s CSS filter', () => {
   const { brightness, contrast } = FIXTURE.bwFilter;
   assert.equal(BW_FILTER, `grayscale(1) brightness(${brightness}) contrast(${contrast})`);
+});
+
+test('sepia, warm, cold and film in the preview are the engine’s CSS filters', () => {
+  assert.deepStrictEqual(LOOK_CSS, FIXTURE.lookFilters);
+  assert.deepStrictEqual([...LOOK_KINDS], ['bw', ...Object.keys(FIXTURE.lookFilters)]);
 });
 
 test('beats of the music in the video and what lands on them match the engine', () => {
@@ -229,7 +240,8 @@ test('the picture by hand is the engine\'s: zoom strength, b/w pieces off, trans
     const tl = new Timeline(c.keep, c.speed, c.teaser);
     const marks = transitionMarks(out.transitions, tl);
     assert.deepStrictEqual(marks, c.marks, `${c.name}: переходы`);
-    assert.deepStrictEqual(lookWindows(out.looks, tl), c.lookWindows, `${c.name}: ч/б`);
+    assert.deepStrictEqual(lookWindows(out.looks, tl), c.lookWindows, `${c.name}: куски`);
+    assert.deepStrictEqual(lookSpans(out.looks, tl), c.lookSpans, `${c.name}: фильтры по кадрам`);
     const level = zoomLevels(out.zooms, tl, marks.filter((m) => m.kind === 'zoom').map((m) => m.t));
     for (const [t, z] of c.zoom) assert.equal(pyRound(level(t), 6), z, `${c.name}: зум на ${t} с`);
   }

@@ -8,7 +8,9 @@
 `write_mattes` — маска на каждый кадр плана (`render.segment_frames`: отрезки финала по порядку, тизер — первым) —
 серое видео ffv1 без потерь, кадр в кадр со склейкой. У каждого отрезка память модели начинается с нуля (стык бывает
 между разными планами) и разгоняется на `WARMUP` кадрах перед ним — поэтому рендер хранит маски по отрезкам и
-склеивает их `join`: готовый отрезок второй раз не считается. Отрезки считают `WORKERS` потоков (`write_parts`), у
+склеивает их `join`: готовый отрезок второй раз не считается — и в следующей сессии (правка): рендер, что посчитал
+новое, кладёт маску плана в out/ (`keep`, уходит в черновик), `vm fetch` приносит её назад, `restore` берёт из неё
+готовые отрезки (ключ — `job_key`). Отрезки считают `WORKERS` потоков (`write_parts`), у
 каждого своя сессия onnxruntime на свою долю ядер: на 4 ядрах 51 мс на кадр против 75 у одной сессии на все ядра
 (маленькая сеть плохо делится по ядрам). Длинный отрезок на куски не делится: память модели и после разгона уводит
 маску в своё (на настоящем ролике у шва 4 % кадра расходились на 16+ уровней и через секунду) — внутри плана это был
@@ -16,6 +18,8 @@
 
 `predict` — подмена модели в тестах: `(кадр RGB uint8 H×W×3, память или None) → (маска uint8 H×W, память)`.
 """
+import hashlib
+import json
 import math
 import os
 import select
@@ -28,6 +32,9 @@ from pathlib import Path
 
 import numpy as np
 
+from . import source as ready_source
+from .git import MAX_FILE_BYTES
+from .job import Job
 from .media import FPS, probe
 
 MODEL = "rvm_mobilenetv3_fp32.onnx"
@@ -36,6 +43,7 @@ RATIO = 0.5  # downsample_ratio модели для кадра 540×960 (сов�
 WORKERS = 4  # потоков маски (не больше ядер и отрезков): на 4 ядрах рутины 51 мс на кадр против 75 у одной сессии
 STRIDE = 2  # модель видит каждый второй кадр отрезка (и последний); маска между ними — среднее соседних
 STALL = 120  # с — столько декодер кадров может молчать; дольше — завис (битый исходник), он останавливается
+MAX_KEEP = MAX_FILE_BYTES  # маска больше в out/ не кладётся: в git не ляжет и сломала бы пуш задачи
 
 Predict = Callable[[np.ndarray, object], tuple[np.ndarray, object]]
 
@@ -259,6 +267,96 @@ def join(parts: list[Path], out: Path) -> Path:
         listing.unlink(missing_ok=True)
     os.replace(part, out)
     return out
+
+
+def cache_key(source: str) -> str:
+    """Ключ маски: исходник (ключ его входов — `source.key`) и всё, от чего зависит маска."""
+    return hashlib.sha1(json.dumps([source, MODEL, WARMUP, RATIO, STRIDE]).encode()).hexdigest()[:12]
+
+
+def job_key(job: Job) -> str:
+    """Ключ маски задачи: по входам исходника из job.json — тот же в каждой сессии, хоть исходник скачан готовым, хоть
+    нормализован заново (маска прошлой сессии подходит); без job.json — по размеру и времени файла (только эта сессия)."""
+    if job.path("job.json").is_file():
+        return cache_key(ready_source.key(job))
+    stat = job.path("source.mp4").stat()
+    return cache_key(f"{stat.st_size}-{stat.st_mtime_ns}")
+
+
+def keep(parts: list[Path], plan: list[tuple[int, int]], out: Path) -> bool:
+    """Маски отрезков `plan` (файлы `parts`) подряд → `out`.mkv (серое H.264, crf 12, без B-кадров: маска плавная — в
+    разы легче ffv1, расхождение — уровень-другой из 255) и `out`.json с отрезками по порядку. Их уносит в черновик
+    Action (out/), следующая сессия берёт оттуда готовые отрезки (`restore`). Вышло больше `MAX_KEEP` — не кладётся
+    (False)."""
+    out.parent.mkdir(parents=True, exist_ok=True)
+    listing = out.with_name(f".{out.name}.ffconcat")
+    listing.write_text("ffconcat version 1.0\n" + "".join(f"file '{p.resolve()}'\n" for p in parts), encoding="utf-8")
+    video, part = out.with_suffix(".mkv"), out.with_name(f".{out.name}.part.mkv")
+    try:
+        subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "concat", "-safe", "0", "-i", str(listing),
+             "-vf", f"setpts=N/{FPS}/TB", "-r", str(FPS), "-c:v", "libx264", "-preset", "veryfast", "-crf", "12", "-bf", "0",
+             "-pix_fmt", "gray", "-color_range", "pc", str(part)],  # полный диапазон: иначе при чтении 16..235 растянут
+            check=True, capture_output=True, timeout=600,
+        )
+        if part.stat().st_size > MAX_KEEP:
+            return False
+        os.replace(part, video)
+    finally:
+        listing.unlink(missing_ok=True)
+        part.unlink(missing_ok=True)
+    out.with_suffix(".json").write_text(json.dumps({"plan": [list(unit) for unit in plan]}), encoding="utf-8")
+    return True
+
+
+def _frames_in(path: Path) -> int:
+    """Сколько кадров в видео (по пакетам: у ffv1 и H.264 без B-кадров — по кадру в пакете)."""
+    done = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-count_packets", "-show_entries",
+                           "stream=nb_read_packets", "-of", "csv=p=0", str(path)], capture_output=True, text=True, check=False)
+    try:
+        return int(done.stdout.strip().split(",")[0])
+    except ValueError:
+        return -1
+
+
+def restore(cache: Path, wanted: list[tuple[tuple[int, int], Path]]) -> None:
+    """Отрезки из маски прошлой сессии (`cache`.json — её отрезки по порядку, `cache`.mkv — их маски подряд; `keep`):
+    каждый нужный отрезок, что целиком внутри одного из них, — его кадры в свой файл (ffv1), как от `write_mattes`.
+    Кэша нет, он битый или короче описания — ничего не берётся (маску посчитают). Каждый отрезок — переходом к
+    ключевому кадру перед ним (раз в 2 с), а не чтением с начала: 36 отрезков минуты — 2 с, а не 20."""
+    try:
+        plan = [(int(a), int(b)) for a, b in json.loads(cache.with_suffix(".json").read_text(encoding="utf-8"))["plan"]]
+    except (OSError, ValueError, KeyError, TypeError):
+        return
+    video = cache.with_suffix(".mkv")
+    if not wanted or not video.is_file() or _frames_in(video) != sum(b - a for a, b in plan):
+        return
+    starts = [0]
+    for a, b in plan:
+        starts.append(starts[-1] + b - a)
+    found = []
+    for (f0, f1), part in wanted:
+        hit = next((start + f0 - c0 for (c0, c1), start in zip(plan, starts, strict=False) if c0 <= f0 and f1 <= c1), None)
+        if hit is not None:
+            found.append((hit, f1 - f0, part))
+
+    def cut(hit: int, count: int, part: Path) -> None:
+        tmp = part.with_name(f".{part.stem}.part{part.suffix}")
+        done = subprocess.run(
+            # время кадра в контейнере — в мс: переход на полкадра раньше нужного берёт ровно его
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-ss", f"{max(0.0, (hit - 0.5) / FPS):.6f}",
+             "-i", str(video), "-frames:v", str(count),
+             # помечен как посчитанные (диапазон не указан): иначе склейка с ними пометила бы всю маску по первому
+             "-vf", f"setpts=N/{FPS}/TB,format=gray,setparams=range=unknown", "-r", str(FPS), "-c:v", "ffv1", str(tmp)],
+            capture_output=True, check=False, timeout=600,
+        )
+        if done.returncode == 0 and _frames_in(tmp) == count:
+            os.replace(tmp, part)
+        else:
+            tmp.unlink(missing_ok=True)
+
+    with ThreadPoolExecutor(WORKERS) as pool:
+        list(pool.map(lambda unit: cut(*unit), found))
 
 
 def frame_matte(source: Path, t: float, out: Path, predict: Predict | None = None) -> Path:

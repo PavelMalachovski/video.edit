@@ -172,14 +172,26 @@
       "maximum": 1.5
     },
     "looks": {
-      "description": "Ч/б-куски, которые Павел убрал в редакторе: кусок edit.looks с ровно этим [t0, t1] (at) — без ч/б (остаётся в списке выключенным).",
+      "description": "Куски с фильтром руками: кусок edit.looks с ровно этим [t0, t1] (at) — убран (off; остаётся в списке выключенным), с другими краями (t0, t1 — время исходника) или другим фильтром (look); без at — свой кусок Павла (t0, t1, look) поверх кусков сессии. На краях своего куска и куска с другими краями движок меняет крупность плана (edits._shot_edges).",
       "type": "array",
       "maxItems": 200,
       "items": {
         "type": "object",
-        "required": ["at", "off"],
         "additionalProperties": false,
-        "properties": { "at": { "$ref": "#/$defs/At" }, "off": { "const": true } }
+        "properties": {
+          "at": { "$ref": "#/$defs/At" },
+          "off": { "const": true },
+          "t0": { "type": "number", "minimum": 0 },
+          "t1": { "type": "number", "minimum": 0 },
+          "look": { "enum": ["bw", "sepia", "warm", "cold", "film"] }
+        },
+        "dependentRequired": { "t0": ["t1"], "t1": ["t0"], "off": ["at"] },
+        "anyOf": [
+          { "required": ["at", "off"] },
+          { "required": ["at", "t0"] },
+          { "required": ["at", "look"] },
+          { "required": ["t0", "look"], "not": { "required": ["at"] } }
+        ]
       }
     },
     "transitions": {

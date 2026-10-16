@@ -12,19 +12,22 @@
     render   финал по edit.json → out/final[-vN].mp4|.srt, qa/qa.png, result.json
     push     коммит и пуш папки задачи (с --outputs — большие файлы out/ режутся на части)
     status   записать status.json (и при --push отправить)
+    wait     ждать долгую команду, запущенную с --detach (не дольше --max с): её вывод и код; ещё идёт — код 3
 
-С `--status` долгие команды пишут фазы в status.json и пушат его — страница показывает их Павлу.
+С `--status` долгие команды пишут фазы в status.json и пушат его — страница показывает их Павлу. С `--detach` (fetch,
+prepare, render) команда уходит в фон своим процессом (вывод — work/<команда>.log), конец ждёт `vm wait` (background.py).
 """
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
-from . import edits, fonts, matte
+from . import background, edits, fonts, matte, warm
 from .fetch import fetch
 from .git import MAX_FILE_BYTES, GitError, push
 from .job import Job, set_status, states, validate
@@ -51,6 +54,7 @@ from .render import (
     variant_ad,
     variant_b,
 )
+from .render import _matte as render_matte
 from .style import final_style, merge_style
 from .timeline import Timeline
 from .zoom import zoom_at
@@ -96,11 +100,31 @@ def _status(args: argparse.Namespace) -> None:
 
 def _fetch(args: argparse.Namespace) -> None:
     job = _job(args)
+    warm.start(analyze=not job.path("editor.json").is_file())  # пока качается видео — модели или Chromium с диска
     _stepper(job, args.state, args.status)("Скачиваю видео", "Забираю загруженные файлы")
     files = fetch(job, originals=args.originals)
     for name, path in files.items():
         ready = " — готовый исходник из черновика: vm prepare не нормализует видео заново" if name == "source.mp4" else ""
         print(f"{name}: {path.relative_to(job.root)} ({path.stat().st_size / 1024 / 1024:.1f} МБ){ready}")
+
+
+def _matte_ahead(args: argparse.Namespace) -> None:
+    """Маска затемнения фона по плотной резке заранее (шаг analyze): рендер возьмёт свои куски из неё готовыми."""
+    job = _job(args)
+    if reason := matte.unavailable():
+        print(f"маска фона: {reason} — затемнения фона в ролике не будет")
+        return
+    if not (job.path("cuts.json").is_file() and job.path("source.mp4").is_file()):
+        raise ValueError("нет cuts.json или source.mp4 — сначала vm prepare")
+    keep = [(float(a), float(b)) for a, b in job.read("cuts.json")["keep"]]
+    os.nice(10)  # фоном: команды Claude в это время (vm check, vm preview) — первыми
+    _, note = render_matte(job, Timeline(keep, 1.0))
+    if note:
+        print(note)
+    elif list(job.path("out").glob(f"matte-{matte.job_key(job)}.*")):
+        print("маска фона по плотной резке — в out/: уйдёт с vm push в черновик, рендер возьмёт её готовой")
+    else:
+        print("маска фона посчитана, но в out/ не легла (больше 95 МБ): рендер посчитает свою")
 
 
 def _prepare(args: argparse.Namespace) -> None:
@@ -521,6 +545,7 @@ def _parser() -> argparse.ArgumentParser:
         ("prepare", _prepare, "исходник, слова, план резки, контактный лист (только недостающее) — и сводка"),
     ):
         sub = command(name, run, help)
+        sub.add_argument("--detach", action="store_true", help=DETACH)
         sub.add_argument("--status", action="store_true", help="писать фазы в status.json и пушить")
         sub.add_argument("--state", choices=["analyzing", "rendering"], default="analyzing",
                          help="состояние задачи в status.json: analyzing (analyze, restyle) или rendering (render, fix)")
@@ -552,10 +577,17 @@ def _parser() -> argparse.ArgumentParser:
 
     command("check", _check, "до рендера: слой, проверка геометрии и контрольные кадры → look/check.png")
 
+    matte_ = command("matte", _matte_ahead, "маска затемнения фона по плотной резке заранее (analyze, фоном) → out/")
+    matte_.add_argument("--detach", action="store_true", help=DETACH)
+
     render_ = command("render", _render, "финал по edit.json → out/, qa/, result.json")
     render_.add_argument("--version", type=_version, help="номер версии: 1 — final, 2 и дальше → final-vN (правки)")
     render_.add_argument("--preset", default="veryfast", help="пресет x264: veryfast (crf 18 — втрое быстрее medium, не хуже по SSIM); для проверок — ultrafast")
     render_.add_argument("--status", action="store_true", help="писать фазы в status.json и пушить")
+    render_.add_argument("--detach", action="store_true", help=DETACH)
+
+    wait = command("wait", _wait, "ждать долгую команду, запущенную с --detach: её вывод и код; ещё идёт — код 3")
+    wait.add_argument("--max", type=float, default=540, help="ждать не дольше, с (команда сессии живёт до 10 мин)")
 
     push_ = command("push", _push, "коммит и пуш папки задачи")
     push_.add_argument("-m", "--message", required=True, help="сообщение коммита")
@@ -563,15 +595,41 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
+LONG = ("fetch", "prepare", "matte", "render")  # долгие команды: отмечают себя в work/ (background.mark), умеют --detach
+DETACH = "в фоне своим процессом (вывод — work/<команда>.log): сразу назад, конец ждёт `vm wait`"
+
+
+def _wait(args: argparse.Namespace) -> int:
+    return background.wait(_job(args), args.max)
+
+
+def _run(args: argparse.Namespace) -> int:
     try:
-        args.run(args)
+        code = args.run(args)
     except (ValueError, RuntimeError, OSError, subprocess.SubprocessError, json.JSONDecodeError) as err:
         # RuntimeError — это и GitError, MediaError, RenderError, FetchError, ошибки soundfile
         print(f"error: {err}", file=sys.stderr)
         return 1
-    return 0
+    return code if isinstance(code, int) else 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    args = _parser().parse_args(argv)
+    name = argv[0] if argv else ""
+    if getattr(args, "detach", False):
+        job = Job(args.jobdir)
+        if other := background.busy(job):  # два рендера писали бы одни файлы
+            print(f"error: в фоне уже идёт vm {other} — дождись её: vm wait {args.jobdir}", file=sys.stderr)
+            return 1
+        background.detach(job, name, [sys.executable, "-m", "vm", *[a for a in argv if a != "--detach"]])
+        print(f"vm {name} идёт в фоне (вывод — work/{name}.log); её конец — vm wait {args.jobdir}")
+        return 0
+    if name not in LONG:
+        return _run(args)
+    with background.mark(Job(args.jobdir), name) as m:
+        m.code = _run(args)
+    return m.code
 
 
 if __name__ == "__main__":

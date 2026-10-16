@@ -14,8 +14,15 @@ from pathlib import Path
 
 from vm import beats, edits, fonts, transitions
 from vm.asr import Word
+from vm.looks import LOOKS, css_filter
 from vm.overlay import FPS, build_overlay_events, insert_spans
-from vm.render import BW_CSS_BRIGHTNESS, BW_CSS_CONTRAST, look_windows, music_beats
+from vm.render import (
+    BW_CSS_BRIGHTNESS,
+    BW_CSS_CONTRAST,
+    look_spans,
+    look_windows,
+    music_beats,
+)
 from vm.render import timeline as render_timeline
 from vm.subs import build_sub_events
 from vm.timeline import Timeline
@@ -27,16 +34,18 @@ NOTE = (
     "(build_sub_events ↔ web/lib/subs.ts); overlay — события слоя и кадры показа вставок (build_overlay_events, "
     "insert_spans ↔ web/lib/overlay.ts); render — шкала, на которой монтаж строит слой (render.timeline ↔ "
     "renderTimeline): края keep и тизера на целых кадрах, не дальше последнего кадра исходника (limit); look — картинка "
-    "(web/lib/zoom.ts): зум (zoom_at), переходы на стыках (transitions.marks), ч/б-куски — кадры (look_windows), "
+    "(web/lib/zoom.ts): зум (zoom_at), переходы на стыках (transitions.marks), куски с фильтром — кадры каждого (look_windows) "
+    "и какой фильтр на каких кадрах (spans: render.look_spans, поздний кусок сильнее), "
     "вспышка и смаз у каждого стыка по кадрам финала [n, значение] (transitions.flash_alpha — белизна 0..1, blur_sigma — "
     "sigma смаза по x, px кадра 1080); bwFilter — CSS-фильтр ч/б-кадра в превью: grayscale(1) brightness contrast "
-    "(render.BW_CSS_BRIGHTNESS, BW_CSS_CONTRAST ↔ BW_FILTER в web/lib/picture.ts); beats — доли музыки в ролике и "
+    "(render.BW_CSS_BRIGHTNESS, BW_CSS_CONTRAST ↔ BW_FILTER в web/lib/picture.ts); lookFilters — CSS-фильтры сепии, "
+    "тёплого, холодного и плёнки (looks.css_filter ↔ LOOK_CSS в web/lib/picture.ts); beats — доли музыки в ролике и "
     "что на них встаёт (web/lib/beats.ts); text — текст и вставки руками (edits.apply_text ↔ web/lib/edits.ts); "
     "pipeline — весь путь правок Павла до слоя, как у монтажа (edits.apply → render.timeline → render.music_beats и "
     "beats.snap_edit → build_overlay_events ↔ withHandEdits, musicBeats, draftTracks, buildOverlayEvents); picture — "
-    "картинка руками (edits.apply_picture: сила зума, убранные ч/б-куски, вид и «убрать» переходов, затемнение фона ↔ "
-    "applyPicture) и что "
-    "выходит в ролике: зум, переходы, кадры ч/б; letters — каких букв текста (и его капса) нет в каждом шрифте каталога "
+    "картинка руками (edits.apply_picture: сила зума, куски с фильтром — убранные, с другими краями или фильтром, свои "
+    "куски Павла со сменой крупности на краях, вид и «убрать» переходов, затемнение фона ↔ applyPicture) и что "
+    "выходит в ролике: зум, переходы, кадры кусков и их фильтры; letters — каких букв текста (и его капса) нет в каждом шрифте каталога "
     "(fonts.missing: таблица символов — getBestCmap fontTools, эмодзи — картинки ↔ web/lib/fontchars.ts). "
     "Времена слов и edit — по исходнику, событий — секунды финала; keep — в порядке финала. Пишет "
     "engine/tests/shared_events.py (python3 -m tests.shared_events из engine/)."
@@ -150,6 +159,10 @@ OVERLAY = [
               "inserts": [{"kind": "image", "src": "a.png", "t0": 9.0, "t1": 9.6, "x": 100, "y": 100, "w": 300},
                           {"kind": "image", "src": "b.png", "t0": 9.7, "t1": 10.0, "x": 100, "y": 100, "w": 300}],
               "hold": 0.6}},
+    {"name": "a cut left a remnant of an accent phrase: no accent there; a short phrase kept whole stays",
+     "keep": [[0.3, 5.1], [6.3, 9.5]], "speed": 1.1, "teaser": None,
+     "edit": {"words": SPEECH, "style": _style("soft", 3),
+              "accents": [ACCENT, {"t0": 2.6, "t1": 2.9, "x": 540, "y": 800, "lines": [{"text": "Сегодня"}]}]}},
     {"name": "tricky times: half-frame rounding, overlapping words",
      "keep": [[0.0, 3.0], [3.2, 3.9]], "speed": 1.0, "teaser": None,
      "edit": {"words": TRICKY, "style": _style("soft", 2), "hook": {"text": "Ну что", "until": 0.35},
@@ -213,6 +226,11 @@ LOOK = [
               "transitions": [{"t": 1.02, "kind": "flash"}, {"t": 2.5, "kind": "zoom"}, {"t": 3.82, "kind": "blur"},
                               {"t": 4.22, "kind": "flash"}, {"t": 7.48, "kind": "blur"}, {"t": 8.32, "kind": "flash"}],
               "looks": []}},
+    {"name": "filters set by hand: one look per frame, the later piece wins; neighbours of one look merge; off is in colour",
+     "keep": [[0.0, 4.0], [4.5, 9.0]], "speed": 1.1, "teaser": [6.0, 7.5],
+     "edit": {"zooms": [], "transitions": [],
+              "looks": [{"t0": 0.5, "t1": 2.5, "look": "bw"}, {"t0": 2.0, "t1": 3.5, "look": "sepia"}, {"t0": 3.5, "t1": 4.4, "look": "sepia"},
+                        {"t0": 5.0, "t1": 7.0, "look": "cold"}, {"t0": 6.5, "t1": 7.2, "look": "film"}, {"t0": 8.0, "t1": 8.6, "look": "warm", "off": True}]}},
 ]
 
 
@@ -312,6 +330,18 @@ PICTURE = [
      "timeline": {"zoom": 1.5, "transitions": [{"at": 3.3, "off": True}, {"at": 7.0, "kind": "flash"}], "dim": 0}},
     {"name": "zoom off",
      "keep": [[0.0, 8.5]], "speed": 1.0, "teaser": [5.2, 6.5], "edit": _PICTURE, "timeline": {"zoom": 0, "looks": [{"at": [2.0, 3.0], "off": True}]}},
+    {"name": "own pieces by hand: after the session's, a shot of their own on the edges, other shots inside and near the edges gone",
+     "keep": [[0.0, 8.5]], "speed": 1.0, "teaser": None, "edit": _PICTURE,
+     "timeline": {"looks": [{"t0": 6.0, "t1": 7.2, "look": "sepia"}, {"t0": 0.3, "t1": 1.2, "look": "bw"}]}},
+    {"name": "a session piece with other edges moves its shot changes; another filter only; zoom strength scales the new shots",
+     "keep": [[0.0, 3.6], [4.1, 8.5]], "speed": 1.2, "teaser": None,
+     "edit": {**_PICTURE, "zooms": [{"t": 1.0, "level": 1.0, "over": 0}, {"t": 2.0, "level": 1.25, "over": 0}, {"t": 3.0, "level": 1.0, "over": 0},
+                                    {"t": 4.0, "level": 1.2, "over": 0}, {"t": 6.2, "level": 1.07}]},
+     "timeline": {"zoom": 0.7, "looks": [{"at": [2.0, 3.0], "t0": 1.7, "t1": 3.3}, {"at": [5.0, 6.0], "look": "film"}]}},
+    {"name": "plans before and after differ from every shot by less than 0.1: the farthest shot",
+     "keep": [[0.0, 8.5]], "speed": 1.0, "teaser": None,
+     "edit": {**_PICTURE, "zooms": [{"t": 1.0, "level": 1.08}, {"t": 4.1, "level": 1.18, "over": 0}], "looks": []},
+     "timeline": {"looks": [{"t0": 3.0, "t1": 4.0, "look": "warm"}]}},
 ]
 
 
@@ -324,7 +354,7 @@ def picture_case(case: dict) -> dict:
             for k in range(math.ceil(tl.duration * 10) + 1)]
     return {"expected": {k: out.get(k) for k in ("zooms", "looks", "transitions", "dim")},
             "marks": [{"t": m.t, "kind": m.kind, "source": m.source} for m in marks], "lookWindows": [list(w) for w in look_windows(out, tl)],
-            "zoom": zoom}
+            "lookSpans": [list(w) for w in look_spans(out, tl)], "zoom": zoom}
 
 
 def beats_case(case: dict) -> dict:
@@ -403,6 +433,7 @@ def look_case(case: dict) -> dict:
         "zoom": [[t, zoom_at(edit["zooms"], tl, t, TRANS, punches)] for t in times],
         "marks": [{"t": m.t, "kind": m.kind, "source": m.source} for m in marks],
         "looks": [list(w) for w in look_windows(edit, tl)],
+        "spans": [list(w) for w in look_spans(edit, tl)],
         "flash": [{"t": m.t, "frames": [[n, transitions.flash_alpha(m.t, n)] for n in _around(m.t)]}
                   for m in marks if m.kind == "flash"],
         "blur": [{"t": m.t, "frames": [[n, transitions.blur_sigma(m.t, n)] for n in _around(m.t)]}
@@ -466,6 +497,7 @@ def build() -> dict:
         "renderRefused": RENDER_REFUSED,
         "look": [{**case, **look_case(case)} for case in LOOK],
         "bwFilter": {"brightness": BW_CSS_BRIGHTNESS, "contrast": BW_CSS_CONTRAST},
+        "lookFilters": {look: css_filter(look) for look in LOOKS},
         "beats": [{**case, **beats_case(case)} for case in BEATS],
         "text": [{**case, "expected": text_case(case)} for case in TEXT],
         "textRefused": TEXT_REFUSED,
@@ -508,6 +540,7 @@ def dump(data: dict) -> str:
     out.append(f'  "renderRefused": {_rows(data["renderRefused"], "  ")},')
     out.append(f'  "look": {_rows(data["look"], "  ")},')
     out.append(f'  "bwFilter": {json.dumps(data["bwFilter"])},')
+    out.append(f'  "lookFilters": {json.dumps(data["lookFilters"])},')
     out.append(f'  "beats": {_rows(data["beats"], "  ")},')
     out.append(f'  "text": {_rows(data["text"], "  ")},')
     out.append(f'  "textRefused": {_rows(data["textRefused"], "  ")},')

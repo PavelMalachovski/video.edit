@@ -5,7 +5,7 @@ import { isDeepStrictEqual } from 'node:util';
 import {
   abLabels, answersFile, appendFix, appendRestyle, buildJobFile, coverName, errorStatus, finalNames, isFinalName, parseAnswersBody, parseNote, parseResult, parseStatus, parseStyle, parseStyles,
   parseQuestions, QUESTION_LAYOUTS, QUESTION_TYPES, queuedStatus, STATES, wantedVersion, type Manifest, type Question,
-  AB_KINDS, CHECK_IDS, parseReview, REVIEW_IDS, SAMPLE_INSERT_KINDS, SUB_SHADE, ADJUST, BAR_HEIGHT, BAR_POSITIONS, HOOK_MODES,
+  AB_KINDS, CHECK_IDS, parseReview, REVIEW_IDS, SAMPLE_INSERT_KINDS, SHADE_KINDS, SUB_SHADE, ADJUST, BAR_HEIGHT, BAR_POSITIONS, HOOK_MODES,
 } from '../lib/jobfiles.ts';
 import { STEPS } from '../lib/routine.ts';
 
@@ -265,6 +265,23 @@ test('answers keep the shade under the subtitles Pavel set; out of range — ref
   assert.deepEqual([shade.minimum, shade.maximum], [SUB_SHADE.min, SUB_SHADE.max]);
 });
 
+test('answers keep the kind of the subtitle shade; an unknown kind is refused; the kinds match the schemas', () => {
+  for (const kind of SHADE_KINDS) {
+    const p = parseAnswersBody({ answers: { hook: 'h1' }, style: { ...STYLE, subShade: 0.6, subShadeKind: kind } }, QS);
+    assert.ok(!('error' in p) && p.style.subShadeKind === kind, JSON.stringify(p));
+  }
+  for (const subShadeKind of ['glow', 1, '']) {
+    assert.ok('error' in parseAnswersBody({ answers: { hook: 'h1' }, style: { ...STYLE, subShade: 0.6, subShadeKind } }, QS), String(subShadeKind));
+  }
+  assert.deepEqual(schema('answers.json').properties.style.properties.subShadeKind.enum, [...SHADE_KINDS]);
+  assert.deepEqual(schema('styles.json').$defs.StyleSpec.properties.subtitles.properties.shadeKind.enum, [...SHADE_KINDS]);
+  const styles = JSON.parse(readFileSync(new URL('../../engine/tests/fixtures/style-merge.json', import.meta.url), 'utf8')).styles;
+  const a = styles.variants[0];
+  const kind = (shadeKind: unknown) => ({ ...styles, variants: [{ ...a, spec: { ...a.spec, subtitles: { ...a.spec.subtitles, shade: 0.4, shadeKind } } }, ...styles.variants.slice(1)] });
+  assert.equal(parseStyles(kind('plate'))?.variants[0].spec.subtitles.shadeKind, 'plate');
+  assert.equal(parseStyles(kind('glow')), null);
+});
+
 test('answers keep insert boxes Pavel set; out of the safe zone or junk — refused', () => {
   const job = buildJobFile({ job: '261010-070509-abcd', name: 'a', size: 1, type: 'video/mp4', lastModified: 1, parts: 1, chunkSize: 4, brief: '' }, NOW);
   const box = { x: 60, y: 420, w: 330 };
@@ -424,4 +441,13 @@ test('the style choice takes the hook look and the bar\'s place and thickness, w
   assert.deepEqual([style.barHeight.minimum, style.barHeight.maximum, style.barHeight.multipleOf], [BAR_HEIGHT.min, BAR_HEIGHT.max, ADJUST.barHeight.whole]);
   assert.deepEqual(style.hookMode.enum, [...HOOK_MODES]);
   assert.deepEqual(style.barPos.enum, [...BAR_POSITIONS]);
+});
+
+test('the style choice takes the shade kind next to the editor\'s choices (the editor sends it with «Монтировать»)', () => {
+  const base = { variant: 'A', font: 'montserrat', hand: 'caveat', colors: { text: '#FFFFFF', accent: '#FFD400', bar: '#FFD400' } };
+  const ok = { ...base, subMode: 'soft', subWords: 4, subShade: 0.6, subShadeKind: 'shadow', hookMode: 'accent', barPos: 'top', barHeight: 10 };
+  assert.deepEqual(parseStyle(ok), ok);
+  for (const bad of [{ subShadeKind: 'glow' }, { subShadeKind: 1 }, { subShadeKind: '' }, { subShadeKind: null }]) {
+    assert.equal(typeof parseStyle({ ...base, ...bad }), 'string', JSON.stringify(bad));
+  }
 });

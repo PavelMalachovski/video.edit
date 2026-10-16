@@ -2,7 +2,7 @@
 // состояния слоя на кадре (субтитры — по правилу build_sub_events), вставки по ответам и запомненный выбор.
 import { chosen, type Draft } from './answers.ts';
 import { sameJson } from './equal.ts';
-import { AB_KINDS, ADJUST, COVER, type CoverChoice, ADJUSTABLE, HOOK_SIZE, HOOK_Y, INSERT_W, INSERT_ZONE, inRange, isBarPos, isHookMode, isInsertBox, isSubMode, RESERVED, SUB_SHADE, SUB_SIZE, SUB_Y, type AbKind, type Adjustable, type InsertBox, type Question, type SampleInsert, type StyleChoice, type StyleSpec, type Styles } from './jobfiles.ts';
+import { AB_KINDS, ADJUST, COVER, type CoverChoice, ADJUSTABLE, HOOK_SIZE, HOOK_Y, INSERT_W, INSERT_ZONE, inRange, isBarPos, isHookMode, isInsertBox, isShadeKind, isSubMode, RESERVED, SUB_SHADE, SUB_SIZE, SUB_Y, type AbKind, type Adjustable, type InsertBox, type Question, type SampleInsert, type ShadeKind, type StyleChoice, type StyleSpec, type Styles } from './jobfiles.ts';
 
 export { HOOK_SIZE, HOOK_Y, INSERT_W, SUB_SHADE, SUB_SIZE, SUB_Y };
 export type { InsertBox };
@@ -36,6 +36,7 @@ export function finalStyle(styles: Styles, c: StyleChoice): StyleSpec {
   if (c.subMode) spec.subtitles.mode = c.subMode;
   if (c.hookMode) spec.hook.mode = c.hookMode;
   if (c.barPos) spec.bar.pos = c.barPos;
+  if (c.subShadeKind) spec.subtitles.shadeKind = c.subShadeKind;
   for (const key of ADJUSTABLE) {
     const x = c[key];
     if (x === undefined) continue;
@@ -45,10 +46,29 @@ export function finalStyle(styles: Styles, c: StyleChoice): StyleSpec {
   return spec;
 }
 
-/** То, что Павел выбрал сам (места, размеры, пятно, вид субтитров и слов в группе), — при смене варианта остаётся. */
+/** Сила затемнения, когда Павел выбирает его вид, а затемнение ещё выключено. */
+export const SHADE_DEFAULT = 0.6;
+
+/** Вид затемнения в стиле (нет поля — пятно). */
+export const shadeKindOf = (spec: StyleSpec): ShadeKind => spec.subtitles.shadeKind ?? 'spot';
+
+/** Вид `kind` можно выбрать у субтитров стиля: в режиме plate у них своя плашка — тень и плашку затемнения шаблон там не
+ *  рисует (shadeOf в template/overlay.js), остаётся пятно. */
+export const shadeKindOk = (spec: StyleSpec, kind: ShadeKind): boolean => kind === 'spot' || spec.subtitles.mode !== 'plate';
+
+/** Выбор с видом затемнения `kind`. Сила — та, что уже на кадре (`drawn` — стиль, который он рисует: у варианта бывает
+ *  своё затемнение, у смонтированного ролика в редакторе — и от правки текстом); затемнения нет — включает его на
+ *  SHADE_DEFAULT. */
+export function withShadeKind(c: StyleChoice, kind: ShadeKind, drawn: StyleSpec): StyleChoice {
+  return { ...c, subShadeKind: kind, ...((drawn.subtitles.shade ?? 0) > 0 ? {} : { subShade: SHADE_DEFAULT }) };
+}
+
+/** То, что Павел выбрал сам (места, размеры, затемнение и его вид, вид субтитров и слов в группе), — при смене варианта
+ *  остаётся. */
 export function ownAdjustments(c: StyleChoice): Partial<StyleChoice> {
   return {
     ...Object.fromEntries(ADJUSTABLE.filter((k) => c[k] !== undefined).map((k) => [k, c[k]])),
+    ...(c.subShadeKind ? { subShadeKind: c.subShadeKind } : {}),
     ...(c.subMode ? { subMode: c.subMode } : {}),
     ...(c.hookMode ? { hookMode: c.hookMode } : {}),
     ...(c.barPos ? { barPos: c.barPos } : {}),
@@ -440,6 +460,7 @@ function isChoice(x: unknown, styles: Styles): x is StyleChoice {
     && ['text', 'accent', 'bar'].every((k) => COLOR.test(String((c.colors as Record<string, unknown>)[k])))
     && ADJUSTABLE.every((key) => c[key] === undefined || inRange(key, c[key])) && (c.subMode === undefined || isSubMode(c.subMode))
     && (c.hookMode === undefined || isHookMode(c.hookMode)) && (c.barPos === undefined || isBarPos(c.barPos))
+    && (c.subShadeKind === undefined || isShadeKind(c.subShadeKind))
     && [['main', c.font], ['hand', c.hand]].every(([kind, id]) => {
       const ids = styles.fonts?.[kind as 'main' | 'hand'];
       return !ids?.length || ids.includes(id);

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 import { framePage, launch } from '../browser.mjs';
 import { serve } from '../serve.mjs';
-import { pixels } from './helpers.mjs';
+import { contains, darkenedAmong, drawnBox, pixels, whitePixels } from './helpers.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
@@ -161,4 +161,89 @@ test('shade: it lies under the inserts — a sticker right above the subtitles k
   }
   assert.ok(solid > 5000 && reached > 500, `стикер ${solid} px, пятно до него дотянулось на ${reached} px`);
   assert.ok(worst <= 2, `пятно легло на стикер: разница до ${worst}`);
+});
+
+// ---------- вид затемнения: тень вокруг букв и плашка (shadeKind) ----------
+
+const boxes = () => page.evaluate(() => window.layoutBoxes());
+const spotCount = () => page.evaluate(() => document.querySelectorAll('#shade .shade').length);
+
+/** Сколько в рамке тёмных полупрозрачных пикселей — ореол вокруг букв. */
+async function darkHalo(b) {
+  const d = await pixels(page, scratch, { x: b.x, y: b.y, width: b.w, height: b.h });
+  let n = 0;
+  for (let k = 0; k < d.length; k += 4) if (d[k + 3] > 60 && d[k + 3] < 250 && d[k] < 70 && d[k + 1] < 70 && d[k + 2] < 70) n++;
+  return n;
+}
+
+function softPlate() {
+  return page.evaluate(() => {
+    const p = document.querySelector('#sub .plate:not([hidden])');
+    if (!p) return null;
+    const r = p.getBoundingClientRect();
+    return { x: r.x, y: r.y, w: r.width, h: r.height, background: getComputedStyle(p).backgroundColor };
+  });
+}
+
+/** Слова субтитров (без копии строк под ореолом): рамка, строка. */
+function subWords() {
+  return page.evaluate(() => [...document.querySelectorAll('#sub [data-i]')].map((e) => {
+    const r = e.getBoundingClientRect();
+    const line = e.closest('.sline');
+    return { x: r.x, y: r.y, w: r.width, h: r.height, line: [...line.parentNode.children].indexOf(line) };
+  }));
+}
+
+test('shade «shadow» in soft: a denser dark halo inside the box, no spot', async () => {
+  const state = { sub: { words: WORDS, active: 3, visible: 6, lines: [3, 3], t: 1 } };
+  await render(spec(), state);
+  const plain = await darkHalo((await boxes()).sub);
+  await render(spec({ shade: 0.8, shadeKind: 'shadow' }), state);
+  const b = (await boxes()).sub;
+  const dark = await darkHalo(b);
+  assert.ok(dark > plain * 2, `тень гуще: ${dark} против ${plain}`);
+  const seen = await drawnBox(page, scratch, 32);
+  assert.ok(contains(b, seen), `drawn ${JSON.stringify(seen)} outside ${JSON.stringify(b)}`);
+  assert.equal(await spotCount(), 0);
+  assert.equal(await softPlate(), null);
+});
+
+test('shade «shadow» in soft: the halo of a new line does not darken the letters of the line above', async () => {
+  const words = ['рыбу', 'ружьё', 'друзья', 'Йод', 'Ёлка', 'бык'];
+  const s = { ...spec({ size: 80, shade: 0.8, shadeKind: 'shadow' }), font: 'montserrat' };
+  await render(s, { sub: { words, active: 0, visible: 3, lines: [3, 3], t: 1 } });
+  const white = await whitePixels(page, scratch);
+  await render(s, { sub: { words, active: 3, visible: 6, lines: [3, 3], t: 1 } });
+  const dark = await darkenedAmong(page, scratch, white);
+  assert.ok(white.length > 3000, `белых пикселей ${white.length}`);
+  assert.ok(dark <= 20, `буквы первой строки потемнели: ${dark} из ${white.length}`);
+});
+
+test('shade «plate» in soft: the plate is under the lines already shown, as dark as the strength; the block does not move', async () => {
+  const one = { sub: { words: WORDS, active: 2, visible: 3, lines: [3, 3], t: 1 } };
+  const both = { sub: { words: WORDS, active: 3, visible: 6, lines: [3, 3], t: 1 } };
+  const s = spec({ shade: 0.7, shadeKind: 'plate' });
+  await render(s, one);
+  const p1 = await softPlate();
+  const box1 = (await boxes()).sub;
+  const w = await subWords();
+  assert.match(p1.background, /^rgba\(17, 17, 17, 0\.7\)$/, p1.background);
+  assert.ok(w.filter((x) => x.line === 0).every((x) => x.x >= p1.x && x.x + x.w <= p1.x + p1.w && x.y >= p1.y && x.y + x.h <= p1.y + p1.h), 'первая строка на плашке');
+  assert.ok(w.filter((x) => x.line === 1).every((x) => x.y + x.h / 2 > p1.y + p1.h), 'вторая строка ещё не на плашке');
+  await render(s, both);
+  const p2 = await softPlate();
+  assert.ok(p2.h > p1.h + 30, 'с второй строкой плашка ниже');
+  assert.deepEqual((await boxes()).sub, box1, 'блок стоит на месте');
+  const seen = await drawnBox(page, scratch, 32);
+  assert.ok(contains(box1, seen), `drawn ${JSON.stringify(seen)} outside ${JSON.stringify(box1)}`);
+  assert.equal(await spotCount(), 0, 'пятна нет');
+});
+
+test('shade kind: no kind is the spot, as before', async () => {
+  const state = { sub: { words: WORDS, active: 0, visible: 6, lines: [3, 3], t: 1 } };
+  await render(spec({ shade: 0.6 }), state);
+  assert.equal(await spotCount(), 1);
+  await render(spec({ shade: 0.6, shadeKind: 'spot' }), state);
+  assert.equal(await spotCount(), 1);
+  assert.equal(await softPlate(), null);
 });

@@ -251,16 +251,92 @@ function stroke(node, width, color) {
 
 const MITER = 2; // px — острые углы обводки выходят чуть дальше её толщины
 
-function subExtent(mode, size) {
-  if (mode === 'plate') return { x: Math.round(0.4 * size), y: Math.round(0.22 * size), stroke: 0 };
-  const w = Math.max(2, Math.round(0.06 * size));
-  return { x: w + MITER, y: w + MITER, stroke: w };
+// Затемнение субтитров, чтобы их было видно на светлом фоне (решения Павла 12.10.2026): сила — spec.subtitles.shade
+// (0..0,8: насколько темнее фон), вид — spec.subtitles.shadeKind:
+// - spot (нет поля — он) — мягкое пятно под видимыми строками (ниже);
+// - shadow — тёмный ореол вокруг букв: слои [сдвиг вниз, размытие] в долях кегля и непрозрачность при силе 0,8;
+// - plate — скруглённая плашка цвета plate под сказанными словами, прозрачность — сила; поля — доли кегля.
+// Ореол и плашка входят в рамку субтитров (шрифт ужимается, чтобы они не вышли из безопасной зоны). В режиме plate у
+// субтитров своя плашка — ореол и плашка затемнения там не рисуются, пятно — рисуется.
+const HALO = [[0, 0.03, 1], [0, 0.06, 1], [0, 0.1, 1], [0, 0.16, 1], [0, 0.24, 0.9], [0.02, 0.34, 0.8]];
+const SHADE_MAX = 0.8;
+const SHADE_PLATE = { x: 0.3, y: 0.06, radius: 0.22 };
+
+/** Затемнение субтитров: { kind, amount }; силы нет или 0 — null; ореол и плашка в режиме plate — null. */
+function shadeOf(subtitles) {
+  const amount = Math.min(SHADE_MAX, Number(subtitles.shade));
+  if (!(amount > 0)) return null;
+  const kind = subtitles.shadeKind === 'shadow' || subtitles.shadeKind === 'plate' ? subtitles.shadeKind : 'spot';
+  return kind !== 'spot' && subtitles.mode === 'plate' ? null : { kind, amount };
 }
 
-// Мягкое пятно под субтитрами (spec.subtitles.shade, решение Павла 12.10.2026): размытый тёмный прямоугольник под
-// видимыми строками, чтобы их было видно на светлом фоне. shade — насколько темнее фон в середине пятна (0..0,8);
-// поля, скругление и размытие — доли кегля. Раскладку не меняет и в рамку для проверок не входит. Слой #shade — под
-// вставками: его мягкий край не затемняет логотип или стикер рядом с субтитрами.
+/** Ореол для кегля `px` и силы `amount`: text-shadow и сколько он выходит за буквы — в стороны, вверх и вниз, px. */
+function halo(px, amount) {
+  const m = Math.min(1, amount / SHADE_MAX);
+  const css = HALO.map(([dy, blur, a]) => `0 ${(dy * px).toFixed(1)}px ${(blur * px).toFixed(1)}px rgba(0, 0, 0, ${(a * m).toFixed(3)})`);
+  const reach = Math.max(...HALO.map(([, b]) => b)) * px;
+  const down = Math.max(...HALO.map(([dy, b]) => dy + b)) * px;
+  return { css: css.join(', '), x: Math.ceil(reach), top: Math.ceil(reach), bottom: Math.ceil(down) };
+}
+
+/** Ореол — отдельным слоем под буквами: копия строк `lines` (уже разложенных и сдвинутых) с прозрачными буквами и
+обводкой той же толщины отбрасывает тень. Тень на самих строках Chromium рисует строку за строкой — ореол нижней
+строки лёг бы поверх букв верхней. Копия — без `data-i` и без картинок эмодзи. */
+function haloLayer(lines, px, amount) {
+  const copy = lines.cloneNode(true);
+  copy.classList.add('halo');
+  copy.setAttribute('aria-hidden', 'true');
+  for (const e of copy.querySelectorAll('[data-i]')) e.removeAttribute('data-i');
+  for (const img of copy.querySelectorAll('img')) img.style.visibility = 'hidden';
+  copy.style.color = 'transparent';
+  copy.style.setProperty('--on-fg', 'transparent');
+  copy.style.setProperty('-webkit-text-stroke-color', 'transparent');
+  copy.style.textShadow = halo(px, amount).css;
+  lines.before(copy);
+}
+
+/** Поля плашки затемнения для кегля `px`, px. */
+function shadePad(px) {
+  return { x: Math.round(SHADE_PLATE.x * px), y: Math.round(SHADE_PLATE.y * px) };
+}
+
+/** Цвет #RRGGBB с прозрачностью `a`. */
+function rgba(hex, a) {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  return `rgba(${r}, ${g}, ${b}, ${Number(a.toFixed(3))})`;
+}
+
+/** Плашка затемнения под словами `said` (рамка на месте — строки уже сдвинуты); слов нет — плашки нет. */
+function shadePlate(plate, said, px, color, amount) {
+  if (!said) return;
+  const pad = shadePad(px);
+  plate.hidden = false;
+  place(plate, grow(said, pad.x, pad.y), { background: rgba(color, amount), borderRadius: `${Math.round(SHADE_PLATE.radius * px)}px` });
+}
+
+/** Поля субтитров вокруг букв: в стороны, вверх, вниз — обводка, плашка режима plate, ореол или плашка затемнения
+(пятно — фон, в рамку не входит). */
+function subExtent(mode, size, shade = null) {
+  if (mode === 'plate') {
+    const y = Math.round(0.22 * size);
+    return { x: Math.round(0.4 * size), y, down: y, stroke: 0 };
+  }
+  const w = Math.max(2, Math.round(0.06 * size));
+  const e = { x: w + MITER, y: w + MITER, down: w + MITER, stroke: w };
+  if (shade?.kind === 'plate') {
+    const pad = shadePad(size);
+    return { ...e, x: Math.max(e.x, pad.x), y: Math.max(e.y, pad.y), down: Math.max(e.down, pad.y) };
+  }
+  if (shade?.kind === 'shadow') {
+    const h = halo(size, shade.amount); // ореол — вокруг букв с обводкой
+    return { ...e, x: e.x + h.x, y: e.y + h.top, down: e.down + h.bottom };
+  }
+  return e;
+}
+
+// Мягкое пятно под субтитрами (вид spot): размытый тёмный прямоугольник под видимыми строками; shade — насколько
+// темнее фон в середине пятна; поля, скругление и размытие — доли кегля. Раскладку не меняет и в рамку для проверок не
+// входит. Слой #shade — под вставками: его мягкий край не затемняет логотип или стикер рядом с субтитрами.
 const SHADE = { x: 0.55, y: 0.45, radius: 0.8, blur: 0.38 };
 
 function drawShade(shade, rect, px) {
@@ -285,6 +361,7 @@ function drawSub({ spec, main }, sub) {
   if (spec.subtitles.mode === 'soft') return drawSoftSub(root, { spec, main }, sub);
   const { mode, size, y } = spec.subtitles;
   const c = spec.colors;
+  const shade = shadeOf(spec.subtitles);
   const single = mode === 'word';
   const words = single ? [String(sub.words[sub.active] ?? sub.words[0])] : sub.words.map(String);
   const active = single ? 0 : sub.active;
@@ -314,10 +391,10 @@ function drawSub({ spec, main }, sub) {
   // а если для двух шрифт пришлось бы ужать больше чем на 20 % — три.
   const tries = mode === 'accumulate' ? [[2, 0.8], [3, MIN_SCALE]] : [[single ? 1 : 2, MIN_SCALE]];
   let px = size;
-  let ext = subExtent(mode, px);
+  let ext = subExtent(mode, px, shade);
   const setSize = (s) => {
     px = s;
-    ext = subExtent(mode, s);
+    ext = subExtent(mode, s, shade);
     const width = WIDTH - 2 * ext.x;
     Object.assign(lines.style, { fontSize: `${s}px`, left: `${CX - width / 2}px`, width: `${width}px`, top: '0px' });
     stroke(lines, ext.stroke, c.outline);
@@ -342,15 +419,19 @@ function drawSub({ spec, main }, sub) {
     const height = Math.max(6, Math.round(0.12 * px));
     const top = mark.getBoundingClientRect().top + ink(main, px, words[0]).descent + gap;
     bar = { left: words0.left, top, right: words0.right, bottom: top + height };
-    below = Math.max(0, bar.bottom - (words0.bottom + ext.y));
+    // полоса — тоже на плашке затемнения
+    below = Math.max(0, bar.bottom + (shade?.kind === 'plate' ? shadePad(px).y : 0) - (words0.bottom + ext.down));
   }
-  const outer = grow(words0, ext.x, ext.y, ext.y + below);
+  const outer = grow(words0, ext.x, ext.y, ext.down + below);
   const dy = keepInside(outer, Math.round(y - (words0.top + words0.bottom) / 2), SAFE.subsY1 ?? SAFE.y1);
   lines.style.top = `${dy}px`;
   if (mode === 'plate') place(plate, shift(grow(words0, ext.x, ext.y), dy), { background: c.plate, borderRadius: `${Math.round(0.28 * px)}px` });
   if (bar) place(underline, shift(bar, dy), { background: c.accent, borderRadius: `${(bar.bottom - bar.top) / 2}px` });
   const said = spans.filter((_, i) => i < visible).map((s) => wordRect(s, main, px)); // блок уже на месте
-  drawShade(spec.subtitles.shade, said.length ? union([...said, bar && shift(bar, dy)]) : null, px);
+  const under = said.length ? union([...said, bar && shift(bar, dy)]) : null; // при накоплении — под сказанным
+  if (shade?.kind === 'spot') drawShade(shade.amount, under, px);
+  if (shade?.kind === 'plate') shadePlate(plate, under, px, c.plate, shade.amount);
+  if (shade?.kind === 'shadow') haloLayer(lines, px, shade.amount);
   return box(shift(outer, dy));
 }
 
@@ -416,15 +497,31 @@ function progress(age, seconds) {
   return age == null || !Number.isFinite(Number(age)) ? 1 : ease(Number(age) / seconds);
 }
 
+/** Поля soft вокруг букв: мягкая тень стиля, а с ореолом или плашкой затемнения — и их поля, px. */
+function softExtent(px, shade) {
+  if (shade?.kind === 'plate') {
+    const pad = shadePad(px);
+    return { x: Math.max(SHADOW_EXT.x, pad.x), top: Math.max(SHADOW_EXT.top, pad.y), bottom: Math.max(SHADOW_EXT.bottom, pad.y) };
+  }
+  if (shade?.kind === 'shadow') {
+    const h = halo(px, shade.amount);
+    return { x: Math.max(SHADOW_EXT.x, h.x), top: Math.max(SHADOW_EXT.top, h.top), bottom: Math.max(SHADOW_EXT.bottom, h.bottom) };
+  }
+  return SHADOW_EXT;
+}
+
 function drawSoftSub(root, { spec, main }, sub) {
   const { size, y } = spec.subtitles;
+  const shade = shadeOf(spec.subtitles);
   const words = sub.words.map(String);
   const texts = softWords(words, sub.opens !== false);
   const counts = lineCounts(sub.lines, words.length, spec.subtitles.words);
   const visible = Number.isInteger(sub.visible) ? sub.visible : words.length;
 
+  const plate = el('div', 'plate');
+  plate.hidden = true;
   const lines = el('div', 'slines');
-  root.append(lines);
+  root.append(plate, lines);
   const rows = [];
   let i = 0;
   for (const n of counts) {
@@ -443,21 +540,23 @@ function drawSoftSub(root, { spec, main }, sub) {
     fontFamily: `"${main.family}"`, fontWeight: String(main.weight), color: spec.colors.text, lineHeight: String(SOFT.line), textShadow: SHADOW,
   });
   const spans = [...lines.querySelectorAll('.w')];
-  const width = WIDTH - 2 * SHADOW_EXT.x;
   // строка блока — без переноса, ужимается до 0,75 кегля; не влезло и так — строки переносятся по словам
   let px = size;
+  let ext = SHADOW_EXT;
   for (let scale = 1; ; scale *= SHRINK) {
     const wrap = scale < SOFT_NOWRAP;
     px = size * Math.max(scale, MIN_SCALE);
+    ext = softExtent(px, shade);
+    const width = WIDTH - 2 * ext.x;
     Object.assign(lines.style, { fontSize: `${px}px`, left: `${CX - width / 2}px`, width: `${width}px`, top: '0px' });
     for (const { row } of rows) row.style.whiteSpace = wrap ? 'normal' : 'nowrap';
     const fits = rows.every(({ row }) => row.scrollWidth <= width + 0.5);
     const all = union(spans.map((s) => wordRect(s, main, px)));
-    if ((fits && all.left >= SAFE.x0 + SHADOW_EXT.x - 0.5 && all.right <= SAFE.x1 - SHADOW_EXT.x + 0.5) || scale <= MIN_SCALE) break;
+    if ((fits && all.left >= SAFE.x0 + ext.x - 0.5 && all.right <= SAFE.x1 - ext.x + 0.5) || scale <= MIN_SCALE) break;
   }
   // место — по всем строкам блока, и тем, что ещё не видны: блок не прыгает, когда появляется вторая строка
   const ink = union(spans.map((s) => wordRect(s, main, px)));
-  const outer = grow(ink, SHADOW_EXT.x, SHADOW_EXT.top, SHADOW_EXT.bottom);
+  const outer = grow(ink, ext.x, ext.top, ext.bottom);
   const dy = keepInside(outer, Math.round(y - (ink.top + ink.bottom) / 2), SAFE.subsY1 ?? SAFE.y1);
   lines.style.top = `${dy}px`;
   // видна строка, первое слово которой уже звучит; последняя видимая — съезжается и проявляется
@@ -469,7 +568,9 @@ function drawSoftSub(root, { spec, main }, sub) {
   const shown = rows.map((_, k) => k).filter((k) => rows[k].shown);
   const all = shown.length ? union(shown.map(inkOf)) : null;
   const before = shown.length > 1 ? union(shown.slice(0, -1).map(inkOf)) : null;
-  drawShade(spec.subtitles.shade, before && p < 1 ? lerpRect(before, all, p) : all, px);
+  const under = before && p < 1 ? lerpRect(before, all, p) : all; // пятно и плашка дорастают под новой строкой
+  if (shade?.kind === 'spot') drawShade(shade.amount, under, px);
+  if (shade?.kind === 'plate') shadePlate(plate, under, px, spec.colors.plate, shade.amount);
   rows.forEach(({ row, shown: on }, k) => {
     if (!on) {
       row.style.visibility = 'hidden';
@@ -479,6 +580,7 @@ function drawSoftSub(root, { spec, main }, sub) {
     row.style.opacity = String(p);
     row.style.letterSpacing = `${(1 - p) * SOFT.track}em`;
   });
+  if (shade?.kind === 'shadow') haloLayer(lines, px, shade.amount); // под строками, с их видимостью и появлением
   return box(shift(outer, dy));
 }
 

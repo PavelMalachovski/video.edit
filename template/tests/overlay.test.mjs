@@ -9,7 +9,7 @@ import { readFile } from 'node:fs/promises';
 
 import { framePage, launch } from '../browser.mjs';
 import { serve } from '../serve.mjs';
-import { cmapCovers, contains, drawnBox } from './helpers.mjs';
+import { cmapCovers, contains, darkenedAmong, drawnBox, whitePixels } from './helpers.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const SAFE = { x0: 60, x1: 890, y0: 120, y1: 1530 };
@@ -356,6 +356,116 @@ test('everything drawn is inside the reported boxes (subtitles)', async () => {
       const seen = await drawnBox(page, scratch, 32);
       const b = (await boxes()).sub;
       assert.ok(contains(b, seen), `${font} ${mode}: drawn ${JSON.stringify(seen)} outside ${JSON.stringify(b)}`);
+    }
+  }
+});
+
+// ---------- затемнение субтитров: тень вокруг букв и плашка (пятно — tests/subshade.test.mjs) ----------
+
+/** Сколько в рамке тёмных полупрозрачных пикселей — тени вокруг букв. */
+async function halo(b) {
+  const d = await pixels(clipOf(b));
+  let n = 0;
+  for (let k = 0; k < d.length; k += 4) if (d[k + 3] > 24 && d[k + 3] < 250 && d[k] < 70 && d[k + 1] < 70 && d[k + 2] < 70) n++;
+  return n;
+}
+
+/** Видимая плашка затемнения под строками: рамка, фон, скругление; нет — null. */
+function shadePlate() {
+  return page.evaluate(() => {
+    const p = document.querySelector('#sub .plate:not([hidden])');
+    if (!p) return null;
+    const r = p.getBoundingClientRect();
+    const s = getComputedStyle(p);
+    return { x: r.x, y: r.y, w: r.width, h: r.height, background: s.backgroundColor, radius: parseFloat(s.borderTopLeftRadius) };
+  });
+}
+
+const spots = () => page.evaluate(() => document.querySelectorAll('#shade .shade').length);
+const SHADE_WORDS = { words: ['ЙЁЖ', 'Ёлка', 'ящик'], active: 1, visible: 3 };
+
+test('shade «shadow»: a dark halo around the letters, the stronger the darker; no spot and no plate', async () => {
+  const counts = [];
+  for (const shade of [0, 0.3, 0.8]) {
+    await render(spec({ sub: { shade, shadeKind: 'shadow' } }), { sub: SHADE_WORDS });
+    counts.push(await halo((await boxes()).sub));
+  }
+  await render(spec(), { sub: SHADE_WORDS });
+  const plain = await halo((await boxes()).sub);
+  assert.ok(Math.abs(counts[0] - plain) <= plain * 0.05 + 20, `сила 0 — как без затемнения: ${counts[0]} и ${plain}`);
+  assert.ok(counts[1] > plain * 1.5 && counts[2] > counts[1] * 1.2, `тень растёт с силой: ${counts}`);
+  await render(spec({ sub: { shade: 0.6, shadeKind: 'shadow' } }), { sub: SHADE_WORDS });
+  assert.equal(await shadePlate(), null, 'у тени нет плашки');
+  assert.equal(await spots(), 0, 'и нет пятна');
+});
+
+test('shade «plate»: a rounded plate of the plate colour behind the words, as dark as the strength', async () => {
+  await render(spec({ sub: { shade: 0.5, shadeKind: 'plate' } }), { sub: SHADE_WORDS });
+  const p = await shadePlate();
+  assert.ok(p, 'плашка есть');
+  assert.match(p.background, /^rgba\(17, 17, 17, 0\.5\)$/, p.background);
+  assert.ok(p.radius > 4, `скругление ${p.radius}`);
+  for (const w of await wordRects()) assert.ok(w.x >= p.x && w.x + w.w <= p.x + p.w && w.y >= p.y && w.y + w.h <= p.y + p.h, `слово ${w.i} на плашке`);
+  const b = (await boxes()).sub;
+  assert.ok(contains(b, { x: Math.floor(p.x), y: Math.floor(p.y), w: Math.ceil(p.w), h: Math.ceil(p.h) }), `плашка в рамке ${JSON.stringify(b)}`);
+  assert.equal(await spots(), 0, 'пятна нет');
+  await render(spec({ sub: { shade: 0, shadeKind: 'plate' } }), { sub: SHADE_WORDS });
+  assert.equal(await shadePlate(), null, 'сила 0 — плашки нет');
+});
+
+test('shade «plate» in accumulate covers only the words already said', async () => {
+  const words = ['раз', 'два', 'три', 'четыре'];
+  await render(spec({ sub: { mode: 'accumulate', shade: 0.7, shadeKind: 'plate' } }), { sub: { words, active: 1, visible: 2 } });
+  const p = await shadePlate();
+  const w = await wordRects();
+  assert.ok(w[1].x + w[1].w <= p.x + p.w, 'сказанное — на плашке');
+  assert.ok(w.filter((x) => !x.shown).some((x) => x.x + x.w > p.x + p.w + 4 || x.y > p.y + p.h - 4), 'несказанное — не под плашкой');
+});
+
+test('the plate mode keeps its own plate: the halo and the shade plate are not drawn there, the spot is', async () => {
+  const plain = spec({ sub: { mode: 'plate' } });
+  await render(plain, { sub: SHADE_WORDS });
+  const before = { plate: await shadePlate(), box: (await boxes()).sub };
+  for (const shadeKind of ['shadow', 'plate']) {
+    await render({ ...plain, subtitles: { ...plain.subtitles, shade: 0.8, shadeKind } }, { sub: SHADE_WORDS });
+    assert.deepEqual({ plate: await shadePlate(), box: (await boxes()).sub }, before, shadeKind);
+    assert.equal(await spots(), 0, shadeKind);
+  }
+  await render({ ...plain, subtitles: { ...plain.subtitles, shade: 0.6 } }, { sub: SHADE_WORDS });
+  assert.equal(await spots(), 1, 'пятно — и в режиме plate');
+});
+
+test('shade «shadow»: the halo of the next line does not darken the letters of the line above', async () => {
+  // обводка второй строки и без затемнения чуть задевает хвосты букв первой — ореол не должен добавлять сверх этого
+  const words = ['рыбу', 'ружьё', 'друзья', 'Йод', 'Ёлка', 'бык', 'дуб'];
+  const darkened = async (s) => {
+    await render(s, { sub: { words, active: 0, visible: words.length } });
+    const first = (await wordRects()).filter((w, _, all) => Math.round(w.y) === Math.round(all[0].y)).length;
+    assert.ok(first < words.length, 'слова — в две строки');
+    await render(s, { sub: { words, active: 0, visible: first } });
+    const white = await whitePixels(page, scratch);
+    assert.ok(white.length > 2000, `белых пикселей ${white.length}`);
+    await render(s, { sub: { words, active: 0, visible: words.length } });
+    return darkenedAmong(page, scratch, white);
+  };
+  const plain = await darkened(spec({ sub: { mode: 'accumulate', size: 72 } }));
+  const shaded = await darkened(spec({ sub: { mode: 'accumulate', size: 72, shade: 0.8, shadeKind: 'shadow' } }));
+  assert.ok(shaded <= plain + 10, `буквы первой строки потемнели: ${shaded}, без затемнения — ${plain}`);
+});
+
+test('with a halo or a plate everything drawn is inside the reported box, and the box stays in its zone', async () => {
+  const long = Array(6).fill('достопримечательности');
+  for (const shadeKind of ['shadow', 'plate']) {
+    for (const mode of ['karaoke', 'word', 'accumulate']) {
+      await render(spec({ sub: { mode, size: 72, shade: 0.8, shadeKind } }), { sub: SHADE_WORDS });
+      const seen = await drawnBox(page, scratch, 32);
+      const b = (await boxes()).sub;
+      assert.ok(contains(b, seen), `${shadeKind} ${mode}: drawn ${JSON.stringify(seen)} outside ${JSON.stringify(b)}`);
+      for (const y of [130, 1760, 1900]) {
+        await render(spec({ sub: { mode, size: 72, y, shade: 0.8, shadeKind } }), { sub: { words: long, active: 1, visible: 6 } });
+        const z = (await boxes()).sub;
+        assert.ok(insideSubs(z), `${shadeKind} ${mode} y=${y}: ${JSON.stringify(z)}`);
+      }
     }
   }
 });

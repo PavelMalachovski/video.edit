@@ -1278,16 +1278,19 @@
     "x": 0.54,
     "y": 0.44
   },
-  "music": null,
+  "music": {
+    "file": "assets/music/diedlonely-in-the-bleak.m4a",
+    "gainDb": -14
+  },
   "hold": 0.0,
   "transitions": [],
   "teaser": null,
   "style": {
-    "font": "forum",
+    "font": "comfortaa",
     "hand": "caveat",
     "colors": {
       "text": "#FFFFFF",
-      "accent": "#EDE4C1",
+      "accent": "#F0D97F",
       "bar": "#EDE4C1",
       "plate": "#111111",
       "outline": "#000000"
@@ -1295,8 +1298,9 @@
     "subtitles": {
       "mode": "soft",
       "words": 3,
-      "size": 64,
-      "y": 1440
+      "size": 50,
+      "y": 1440,
+      "shade": 0.05
     },
     "hook": {
       "mode": "accent",
@@ -1307,5 +1311,12 @@
       "pos": "bottom",
       "height": 6
     }
-  }
+  },
+  "dim": 0.3,
+  "end": null,
+  "cover": {
+    "t": 1.0,
+    "text": "хотите чтобы было легко мухлюйте"
+  },
+  "ab": null
 }

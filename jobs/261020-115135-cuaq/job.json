@@ -1,0 +1,17 @@
+{
+  "id": "261020-115135-cuaq",
+  "name": "IMG_8709.MOV",
+  "size": 256901120,
+  "type": "video/quicktime",
+  "duration": null,
+  "createdAt": "2026-10-20T11:53:17.499Z",
+  "brief": "срок от 3 до 6",
+  "uploads": [],
+  "runs": [
+    {
+      "step": "analyze",
+      "attempt": 1,
+      "at": "2026-10-20T11:53:17.616Z"
+    }
+  ]
+}

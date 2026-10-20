@@ -1,0 +1,215 @@
+{
+  "questions": [
+    {
+      "id": "hook",
+      "type": "choice",
+      "title": "Хук — текст на первых 2,5 секундах",
+      "body": "Последнее слово встанет крупно отдельной строкой.",
+      "options": [
+        {
+          "id": "h1",
+          "label": "как вы сами рушите свою опору"
+        },
+        {
+          "id": "h2",
+          "label": "почему вы перестали себе доверять"
+        },
+        {
+          "id": "h3",
+          "label": "одно нарушенное обещание себе"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без хука"
+        }
+      ],
+      "default": "h1"
+    },
+    {
+      "id": "teaser",
+      "type": "choice",
+      "title": "Начать с самой сильной фразы?",
+      "body": "«Вы понимаете, что вы не можете больше доверять самому себе» — звучит на 0:19. Ролик начнётся с неё (~3 с), потом пойдёт с начала.",
+      "options": [
+        {
+          "id": "yes",
+          "label": "Да: «…вы не можете больше доверять самому себе»"
+        },
+        {
+          "id": "no",
+          "label": "Нет, с начала"
+        }
+      ],
+      "default": "yes"
+    },
+    {
+      "id": "cut",
+      "type": "choice",
+      "title": "Резать паузы?",
+      "body": "Дубликатов и повторов фраз в речи нет — вырезать нечего, речь чистая. Паузы: плотно — 5 пауз, будет ~0:35; мягко — 2 паузы, ~0:35; только края — ~0:36.",
+      "options": [
+        {
+          "id": "all",
+          "label": "Плотно, как в эталоне"
+        },
+        {
+          "id": "soft",
+          "label": "Мягче"
+        },
+        {
+          "id": "edges",
+          "label": "Только тишина в начале и конце"
+        }
+      ],
+      "default": "all"
+    },
+    {
+      "id": "word",
+      "type": "word",
+      "title": "«подбиваете» или «подрываете»?",
+      "body": "0:04 — «вы … свою собственную внутреннюю опору». Распознавание слышит «подбиваете»; по смыслу просится «подрываете». В субтитрах будет так, как выберешь.",
+      "options": [
+        {
+          "id": "podbivaete",
+          "label": "подбиваете"
+        },
+        {
+          "id": "podryvaete",
+          "label": "подрываете"
+        },
+        {
+          "id": "own",
+          "label": "Своё написание"
+        }
+      ],
+      "default": "podbivaete"
+    },
+    {
+      "id": "bw",
+      "type": "multi",
+      "title": "Ч/б-куски",
+      "options": [
+        {
+          "id": "bw-1",
+          "label": "0:07 — «она не разрушается извне, вы сами это делаете»"
+        },
+        {
+          "id": "bw-2",
+          "label": "0:19 — «вы не можете больше доверять самому себе»"
+        }
+      ],
+      "default": [
+        "bw-1",
+        "bw-2"
+      ]
+    },
+    {
+      "id": "dim",
+      "type": "choice",
+      "title": "Затемнить фон?",
+      "layout": "frames",
+      "options": [
+        {
+          "id": "none",
+          "label": "Как есть",
+          "image": "q-dim-none.jpg"
+        },
+        {
+          "id": "30",
+          "label": "Темнее на 30 %",
+          "image": "q-dim-30.jpg"
+        },
+        {
+          "id": "50",
+          "label": "Темнее на 50 %",
+          "image": "q-dim-50.jpg"
+        }
+      ],
+      "default": "30"
+    },
+    {
+      "id": "music",
+      "type": "choice",
+      "title": "Музыка",
+      "options": [
+        {
+          "id": "atlxs-passo.mp3",
+          "label": "Atlxs — Passo"
+        },
+        {
+          "id": "banana-cake.m4a",
+          "label": "Banana Cake"
+        },
+        {
+          "id": "did-i-drive-you-away.m4a",
+          "label": "Did I Drive You Away"
+        },
+        {
+          "id": "diedlonely-in-the-bleak.m4a",
+          "label": "diedlonely — In the Bleak"
+        },
+        {
+          "id": "etern-brodyaga.mp3",
+          "label": "Etern — Бродяга"
+        },
+        {
+          "id": "mysterious-and-sad.m4a",
+          "label": "Mysterious and Sad (спокойная, грустная)"
+        },
+        {
+          "id": "playboi-carti-made-it.m4a",
+          "label": "Playboi Carti — Made It"
+        },
+        {
+          "id": "sayfalse-esse.mp3",
+          "label": "Sayfalse — Esse"
+        },
+        {
+          "id": "sleepwalker-slowed.m4a",
+          "label": "Sleepwalker (slowed)"
+        },
+        {
+          "id": "tory-lanez-broke.m4a",
+          "label": "Tory Lanez — Broke"
+        },
+        {
+          "id": "none",
+          "label": "Без музыки"
+        }
+      ],
+      "default": "none"
+    },
+    {
+      "id": "end",
+      "type": "choice",
+      "title": "Финальная карточка — призыв в конце",
+      "options": [
+        {
+          "id": "e1",
+          "label": "сохрани, чтобы не забыть 👇"
+        },
+        {
+          "id": "e2",
+          "label": "какое обещание себе ты сдержишь? пиши 👇"
+        },
+        {
+          "id": "e3",
+          "label": "подпишись — здесь про внутреннюю опору"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без карточки"
+        }
+      ],
+      "default": "e1"
+    }
+  ]
+}

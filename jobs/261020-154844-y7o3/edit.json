@@ -1,5 +1,5 @@
 {
-  "speed": 1.1,
+  "speed": 1.3,
   "keep": [
     [
       0.74,
@@ -972,8 +972,8 @@
     }
   ],
   "hook": {
-    "text": "всё в жизни взаимосвязано",
-    "until": 3.6
+    "text": "некомфортная мысль влияющая на всё",
+    "until": 4.24
   },
   "cta": null,
   "inserts": [],
@@ -1254,16 +1254,15 @@
     "x": 0.5,
     "y": 0.39
   },
-  "music": null,
+  "music": {
+    "file": "assets/music/sleepwalker-slowed.m4a",
+    "gainDb": -14
+  },
   "hold": 0.0,
   "transitions": [],
-  "teaser": {
-    "t0": 88.41,
-    "t1": 91.2,
-    "sfx": null
-  },
+  "teaser": null,
   "style": {
-    "font": "forum",
+    "font": "comfortaa",
     "hand": "caveat",
     "colors": {
       "text": "#FFFFFF",
@@ -1276,16 +1275,24 @@
       "mode": "soft",
       "words": 3,
       "size": 64,
-      "y": 1440
+      "y": 1440,
+      "shade": 0.1
     },
     "hook": {
       "mode": "accent",
-      "size": 108,
-      "y": 330
+      "size": 120,
+      "y": 290
     },
     "bar": {
       "pos": "bottom",
       "height": 6
     }
+  },
+  "dim": 0.3,
+  "end": null,
+  "ab": null,
+  "cover": {
+    "t": 2.1,
+    "text": "некомфортная мысль влияющая на всё"
   }
 }

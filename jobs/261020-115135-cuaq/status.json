@@ -1,6 +1,7 @@
 {
-  "state": "analyzing",
-  "phase": "Готовлю видео",
-  "message": "Привожу к 1080×1920, 30 к/с, SDR",
-  "at": "2026-10-20T11:54:36Z"
+  "state": "error",
+  "phase": "Ошибка",
+  "message": "Видео загрузилось не целиком: дошло 245 МБ из ~1,1 ГБ, и файл не открывается. Загрузи его ещё раз (лучше по Wi‑Fi, не закрывая страницу до конца загрузки).",
+  "at": "2026-10-20T11:55:02Z",
+  "error": "source.mov truncated: mdat declares 1090343936 bytes, file is 256901120; moov atom not found (ffprobe)"
 }

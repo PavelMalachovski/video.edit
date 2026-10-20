@@ -1,0 +1,17 @@
+{
+  "id": "261020-154844-y7o3",
+  "name": "все взаимосвязано.MOV",
+  "size": 1353618232,
+  "type": "video/quicktime",
+  "duration": 123.171667,
+  "createdAt": "2026-10-20T15:57:57.026Z",
+  "brief": "",
+  "uploads": [],
+  "runs": [
+    {
+      "step": "analyze",
+      "attempt": 1,
+      "at": "2026-10-20T15:57:57.160Z"
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "answers": {
+    "hook": "own",
+    "hook.own": "срок от 3 до 6",
+    "cut": "all",
+    "teaser": "no",
+    "stars": [
+      "нихуя"
+    ],
+    "bw": [
+      "bw-1",
+      "bw-2",
+      "bw-3"
+    ],
+    "dim": "30",
+    "music": "diedlonely-in-the-bleak.m4a",
+    "end": "none"
+  },
+  "style": {
+    "variant": "A",
+    "font": "comfortaa",
+    "hand": "caveat",
+    "colors": {
+      "text": "#FFFFFF",
+      "accent": "#F8E187",
+      "bar": "#EDE4C1"
+    },
+    "hookY": 400,
+    "subSize": 52,
+    "hookSize": 104,
+    "subShade": 0.1
+  },
+  "speed": 1.3,
+  "cover": {
+    "frame": 0,
+    "text": "срок от 3 до 6"
+  },
+  "uploads": {},
+  "brief": ""
+}

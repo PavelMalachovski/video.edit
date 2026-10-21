@@ -1,6 +1,9 @@
 {
-  "state": "rendered",
-  "phase": "Готово",
-  "message": "Ролик собран, загружаю",
-  "at": "2026-10-21T09:04:14Z"
+  "state": "queued",
+  "phase": "Запускаю сессию",
+  "message": "Claude переделает ролик по правке",
+  "at": "2026-10-21T09:12:42.847Z",
+  "needs": null,
+  "progress": null,
+  "error": null
 }

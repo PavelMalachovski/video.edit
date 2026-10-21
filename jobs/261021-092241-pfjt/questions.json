@@ -1,0 +1,195 @@
+{
+  "questions": [
+    {
+      "id": "cut",
+      "type": "choice",
+      "title": "Резать паузы и оговорки?",
+      "body": "Начало записано дважды — первый дубль (0:00–0:11) уберу, ещё повторы «подождите» и «который ваша психика». Плотно — 2 паузы и 3 повтора, будет ~0:25; мягко — ~0:25; только края — ~0:38 (вместе с первым дублем).",
+      "options": [
+        {
+          "id": "all",
+          "label": "Плотно, как в эталоне"
+        },
+        {
+          "id": "soft",
+          "label": "Мягче: короткие паузы остаются"
+        },
+        {
+          "id": "edges",
+          "label": "Только тишина в начале и в конце"
+        }
+      ],
+      "default": "all"
+    },
+    {
+      "id": "hook",
+      "type": "choice",
+      "title": "Хук — текст в первые 2 секунды",
+      "options": [
+        {
+          "id": "h1",
+          "label": "как изменить сценарий отношений"
+        },
+        {
+          "id": "h2",
+          "label": "ищите того с кем некомфортно"
+        },
+        {
+          "id": "h3",
+          "label": "почему вам нужен некомфортный человек"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без хука"
+        }
+      ],
+      "default": "h1"
+    },
+    {
+      "id": "teaser",
+      "type": "choice",
+      "title": "Начать с самой сильной фразы?",
+      "body": "«…искать человека, с которым вам некомфортно» звучит на 0:09 ролика. Предлагаю показать её в самом начале, а потом — ролик с начала: интрига в первые 2 секунды.",
+      "options": [
+        {
+          "id": "yes",
+          "label": "Да: «искать человека, с которым вам некомфортно»"
+        },
+        {
+          "id": "no",
+          "label": "Нет, по порядку"
+        }
+      ],
+      "default": "yes"
+    },
+    {
+      "id": "bw",
+      "type": "multi",
+      "title": "Ч/б-куски",
+      "body": "Кадр без цвета и темнее — как вторая камера, на эмоциональных фразах.",
+      "options": [
+        {
+          "id": "bw-1",
+          "label": "0:09 — «искать человека, с которым вам некомфортно»"
+        },
+        {
+          "id": "bw-2",
+          "label": "0:23 — «даже если это разумно так не звучало»"
+        }
+      ],
+      "default": [
+        "bw-1",
+        "bw-2"
+      ]
+    },
+    {
+      "id": "dim",
+      "type": "choice",
+      "title": "Затемнить фон?",
+      "layout": "frames",
+      "options": [
+        {
+          "id": "none",
+          "label": "Как есть",
+          "image": "q-dim-none.jpg"
+        },
+        {
+          "id": "30",
+          "label": "Темнее на 30 %",
+          "image": "q-dim-30.jpg"
+        },
+        {
+          "id": "50",
+          "label": "Темнее на 50 %",
+          "image": "q-dim-50.jpg"
+        }
+      ],
+      "default": "30"
+    },
+    {
+      "id": "music",
+      "type": "choice",
+      "title": "Музыка",
+      "body": "Тихо под голосом (на 14 дБ тише), с первого кадра до последнего.",
+      "options": [
+        {
+          "id": "atlxs-passo.mp3",
+          "label": "Atlxs — Passo"
+        },
+        {
+          "id": "banana-cake.m4a",
+          "label": "Banana Cake"
+        },
+        {
+          "id": "did-i-drive-you-away.m4a",
+          "label": "Did I Drive You Away"
+        },
+        {
+          "id": "diedlonely-in-the-bleak.m4a",
+          "label": "Diedlonely — In the Bleak"
+        },
+        {
+          "id": "etern-brodyaga.mp3",
+          "label": "Etern — Бродяга"
+        },
+        {
+          "id": "mysterious-and-sad.m4a",
+          "label": "Mysterious and Sad (спокойная, грустная)"
+        },
+        {
+          "id": "playboi-carti-made-it.m4a",
+          "label": "Playboi Carti — Made It"
+        },
+        {
+          "id": "sayfalse-esse.mp3",
+          "label": "Sayfalse — Esse"
+        },
+        {
+          "id": "sleepwalker-slowed.m4a",
+          "label": "Sleepwalker (slowed)"
+        },
+        {
+          "id": "tory-lanez-broke.m4a",
+          "label": "Tory Lanez — Broke"
+        },
+        {
+          "id": "none",
+          "label": "Без музыки"
+        }
+      ],
+      "default": "none"
+    },
+    {
+      "id": "end",
+      "type": "choice",
+      "title": "Финальная карточка — призыв в конце (2 с)",
+      "options": [
+        {
+          "id": "e1",
+          "label": "Подпишитесь, чтобы не пропустить продолжение"
+        },
+        {
+          "id": "e2",
+          "label": "Узнаёте себя? Напишите в комментариях 👇"
+        },
+        {
+          "id": "e3",
+          "label": "Сохраните, чтобы вернуться к этому"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без карточки"
+        }
+      ],
+      "default": "e1"
+    }
+  ]
+}

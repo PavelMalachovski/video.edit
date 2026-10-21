@@ -1,0 +1,32 @@
+{
+  "answers": {
+    "cut": "all",
+    "hook": "own",
+    "hook.own": "чтобы достичь цели - завидуйте",
+    "teaser": "no",
+    "music": "diedlonely-in-the-bleak.m4a",
+    "bw": [
+      "bw-1",
+      "bw-2"
+    ],
+    "dim": "30",
+    "end": "none"
+  },
+  "style": {
+    "variant": "A",
+    "font": "comfortaa",
+    "hand": "caveat",
+    "colors": {
+      "text": "#FFFFFF",
+      "accent": "#FFE47A",
+      "bar": "#EDE4C1"
+    }
+  },
+  "speed": 1.3,
+  "cover": {
+    "frame": 0,
+    "text": "чтобы достичь цели - завидуйте"
+  },
+  "uploads": {},
+  "brief": ""
+}

@@ -1,0 +1,195 @@
+{
+  "questions": [
+    {
+      "id": "cut",
+      "type": "choice",
+      "title": "Резать паузы и оговорки?",
+      "body": "Плотно — убираю 5 длинных пауз и 2 фальстарта (ты дважды начинала заново: «магическое мышление — это когда ты хочешь что…» и «духовность — это когда ты хочешь, чтобы…»), будет ~0:32 с ускорением ×1,1. Мягко — тоже ~0:32 (паузы здесь длинные, разницы почти нет). Только края — ~0:52, фальстарты и паузы останутся.",
+      "options": [
+        {
+          "id": "all",
+          "label": "Плотно, как в эталоне"
+        },
+        {
+          "id": "soft",
+          "label": "Мягче"
+        },
+        {
+          "id": "edges",
+          "label": "Только начало и конец"
+        }
+      ],
+      "default": "all"
+    },
+    {
+      "id": "hook",
+      "type": "choice",
+      "title": "Хук — текст на первых секундах",
+      "options": [
+        {
+          "id": "h1",
+          "label": "магия духовность или психология"
+        },
+        {
+          "id": "h2",
+          "label": "почему мир это зеркало"
+        },
+        {
+          "id": "h3",
+          "label": "загадал и сразу получил"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без хука"
+        }
+      ],
+      "default": "h1"
+    },
+    {
+      "id": "teaser",
+      "type": "choice",
+      "title": "Начать с самой сильной фразы?",
+      "body": "«Мир — это зеркало. Вопрос лишь в том, кто в него смотрит» звучит в самом конце (0:54 исходника). Предлагаю показать её первой (~3 с), потом ролик с начала — она прозвучит ещё раз на своём месте.",
+      "options": [
+        {
+          "id": "yes",
+          "label": "Да: «мир — это зеркало, вопрос лишь в том, кто в него смотрит»"
+        },
+        {
+          "id": "no",
+          "label": "Нет, по порядку"
+        }
+      ],
+      "default": "yes"
+    },
+    {
+      "id": "bw",
+      "type": "multi",
+      "title": "Ч/б-куски",
+      "body": "Кадр без цвета и темнее — как вторая камера, на эмоциональных фразах.",
+      "options": [
+        {
+          "id": "bw-1",
+          "label": "0:12 — „неважно, ведёт это к цели или нет, и у тебя это появилось“"
+        },
+        {
+          "id": "bw-2",
+          "label": "0:31 — „так что да, мир — это зеркало…“ (финал)"
+        }
+      ],
+      "default": [
+        "bw-1",
+        "bw-2"
+      ]
+    },
+    {
+      "id": "dim",
+      "type": "choice",
+      "title": "Затемнить фон?",
+      "layout": "frames",
+      "options": [
+        {
+          "id": "none",
+          "label": "Как есть",
+          "image": "q-dim-none.jpg"
+        },
+        {
+          "id": "30",
+          "label": "Темнее на 30 %",
+          "image": "q-dim-30.jpg"
+        },
+        {
+          "id": "50",
+          "label": "Темнее на 50 %",
+          "image": "q-dim-50.jpg"
+        }
+      ],
+      "default": "30"
+    },
+    {
+      "id": "music",
+      "type": "choice",
+      "title": "Музыка",
+      "body": "Тихо под голосом (на 14 дБ тише речи), с первого кадра до последнего.",
+      "options": [
+        {
+          "id": "atlxs-passo.mp3",
+          "label": "Atlxs — Passo"
+        },
+        {
+          "id": "banana-cake.m4a",
+          "label": "Banana Cake"
+        },
+        {
+          "id": "did-i-drive-you-away.m4a",
+          "label": "Did I Drive You Away"
+        },
+        {
+          "id": "diedlonely-in-the-bleak.m4a",
+          "label": "Diedlonely — In The Bleak"
+        },
+        {
+          "id": "etern-brodyaga.mp3",
+          "label": "Etern — Бродяга"
+        },
+        {
+          "id": "mysterious-and-sad.m4a",
+          "label": "Mysterious and Sad (спокойная)"
+        },
+        {
+          "id": "playboi-carti-made-it.m4a",
+          "label": "Playboi Carti — Made It"
+        },
+        {
+          "id": "sayfalse-esse.mp3",
+          "label": "Sayfalse — Esse"
+        },
+        {
+          "id": "sleepwalker-slowed.m4a",
+          "label": "Sleepwalker (slowed)"
+        },
+        {
+          "id": "tory-lanez-broke.m4a",
+          "label": "Tory Lanez — Broke"
+        },
+        {
+          "id": "none",
+          "label": "Без музыки"
+        }
+      ],
+      "default": "none"
+    },
+    {
+      "id": "end",
+      "type": "choice",
+      "title": "Финальная карточка — призыв в конце",
+      "options": [
+        {
+          "id": "e1",
+          "label": "Сохрани, чтобы не забыть"
+        },
+        {
+          "id": "e2",
+          "label": "А ты во что веришь? Пиши в комментариях 👇"
+        },
+        {
+          "id": "e3",
+          "label": "Подпишись — дальше больше"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без карточки"
+        }
+      ],
+      "default": "e1"
+    }
+  ]
+}

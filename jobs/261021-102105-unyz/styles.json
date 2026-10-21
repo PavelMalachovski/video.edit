@@ -1,0 +1,150 @@
+{
+  "frame": "frame.png",
+  "frameTime": 85.0,
+  "sample": {
+    "hook": "исполнение желаний не приведёт к счастью",
+    "words": [
+      "выбирать",
+      "нужно",
+      "не",
+      "самое",
+      "комфортное."
+    ],
+    "spoken": 3,
+    "end": {
+      "lines": [
+        "Сохрани, чтобы вернуться к этому 👇"
+      ]
+    }
+  },
+  "fonts": {
+    "main": [
+      "forum",
+      "montserrat",
+      "unbounded",
+      "rubik",
+      "oswald",
+      "russo-one",
+      "comfortaa",
+      "Arial Narrow",
+      "Cormorant",
+      "Gilroy",
+      "Helvetica",
+      "Playfair Display"
+    ],
+    "hand": [
+      "caveat",
+      "marck-script",
+      "bad-script"
+    ]
+  },
+  "variants": [
+    {
+      "id": "A",
+      "label": "Как в эталоне",
+      "spec": {
+        "font": "forum",
+        "hand": "caveat",
+        "colors": {
+          "text": "#FFFFFF",
+          "accent": "#EDE4C1",
+          "bar": "#EDE4C1",
+          "plate": "#111111",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "soft",
+          "words": 3,
+          "size": 64,
+          "y": 1440
+        },
+        "hook": {
+          "mode": "accent",
+          "size": 108,
+          "y": 380
+        },
+        "bar": {
+          "pos": "bottom",
+          "height": 6
+        }
+      }
+    },
+    {
+      "id": "B",
+      "label": "Антиква Cormorant, пудровый акцент, субтитры выше",
+      "spec": {
+        "font": "Cormorant",
+        "hand": "caveat",
+        "colors": {
+          "text": "#FFFFFF",
+          "accent": "#F2C9C9",
+          "bar": "#F2C9C9",
+          "plate": "#111111",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "soft",
+          "words": 3,
+          "size": 64,
+          "y": 1300
+        },
+        "hook": {
+          "mode": "accent",
+          "size": 108,
+          "y": 380
+        },
+        "bar": {
+          "pos": "bottom",
+          "height": 6
+        }
+      }
+    },
+    {
+      "id": "C",
+      "label": "Прежний жёлтый стиль",
+      "spec": {
+        "font": "montserrat",
+        "hand": "caveat",
+        "colors": {
+          "text": "#FFFFFF",
+          "accent": "#FFD23F",
+          "bar": "#FFD23F",
+          "plate": "#111111",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "karaoke",
+          "words": 3,
+          "size": 64,
+          "y": 1300
+        },
+        "hook": {
+          "mode": "plate",
+          "size": 72,
+          "y": 330
+        },
+        "bar": {
+          "pos": "bottom",
+          "height": 14
+        }
+      }
+    }
+  ],
+  "cover": {
+    "frames": [
+      {
+        "t": 14.2,
+        "image": "cover-1.jpg"
+      },
+      {
+        "t": 70.9,
+        "image": "cover-2.jpg"
+      },
+      {
+        "t": 105.0,
+        "image": "cover-3.jpg"
+      }
+    ],
+    "text": "исполнение желаний не приведёт к счастью"
+  }
+}

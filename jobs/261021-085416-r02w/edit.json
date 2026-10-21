@@ -1,5 +1,5 @@
 {
-  "speed": 1.1,
+  "speed": 1.3,
   "keep": [
     [
       0.46,
@@ -518,7 +518,7 @@
     {
       "t0": 35.2,
       "t1": 35.64,
-      "text": "нихуя."
+      "text": "н*хуя."
     },
     {
       "t0": 36.017,
@@ -554,11 +554,6 @@
       "t0": 38.257,
       "t1": 38.497,
       "text": "нет."
-    },
-    {
-      "t0": 38.537,
-      "t1": 38.937,
-      "text": "скорее"
     },
     {
       "t0": 39.457,
@@ -1267,8 +1262,8 @@
     }
   ],
   "hook": {
-    "text": "новая жизнь за 3 месяца",
-    "until": 3.32
+    "text": "срок от 3 до 6",
+    "until": 3.92
   },
   "cta": null,
   "inserts": [],
@@ -1383,7 +1378,7 @@
         }
       ],
       "x": 475,
-      "y": 1220,
+      "y": 1260,
       "anim": "type"
     },
     {
@@ -1398,6 +1393,21 @@
       "x": 475,
       "y": 380,
       "anim": "letters"
+    },
+    {
+      "t0": 47.497,
+      "t1": 48.977,
+      "lines": [
+        {
+          "text": "разочарование"
+        },
+        {
+          "text": "в самом себе",
+          "color": "accent"
+        }
+      ],
+      "x": 475,
+      "y": 1240
     },
     {
       "t0": 49.62,
@@ -1659,21 +1669,20 @@
     "x": 0.5,
     "y": 0.44
   },
-  "music": null,
+  "music": {
+    "file": "assets/music/diedlonely-in-the-bleak.m4a",
+    "gainDb": -14
+  },
   "hold": 0.0,
   "transitions": [],
-  "teaser": {
-    "t0": 39.36,
-    "t1": 42.24,
-    "sfx": null
-  },
+  "teaser": null,
   "dim": 0.3,
   "style": {
-    "font": "forum",
+    "font": "comfortaa",
     "hand": "caveat",
     "colors": {
       "text": "#FFFFFF",
-      "accent": "#EDE4C1",
+      "accent": "#F8E187",
       "bar": "#EDE4C1",
       "plate": "#111111",
       "outline": "#000000"
@@ -1681,17 +1690,24 @@
     "subtitles": {
       "mode": "soft",
       "words": 3,
-      "size": 64,
-      "y": 1440
+      "size": 52,
+      "y": 1440,
+      "shade": 0.1
     },
     "hook": {
       "mode": "accent",
-      "size": 108,
-      "y": 360
+      "size": 104,
+      "y": 400
     },
     "bar": {
       "pos": "bottom",
       "height": 6
     }
+  },
+  "end": null,
+  "ab": null,
+  "cover": {
+    "t": 5.0,
+    "text": "срок от 3 до 6"
   }
 }

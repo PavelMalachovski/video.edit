@@ -1,0 +1,185 @@
+{
+  "questions": [
+    {
+      "id": "cut",
+      "type": "choice",
+      "title": "Резать паузы и дубли?",
+      "body": "В записи три захода на начало и по два — на «если это наше дело» и «а потом, когда в жизни…»: оставил последний, самый полный дубль, остальные вырезал. Плотно — 13 склеек, будет ~1:02; мягко — паузы до 0,45 с остаются, ~1:03; только края — все дубли и паузы на месте, ~1:49.",
+      "options": [
+        {
+          "id": "all",
+          "label": "Плотно, как в эталоне"
+        },
+        {
+          "id": "soft",
+          "label": "Мягче"
+        },
+        {
+          "id": "edges",
+          "label": "Только края (с дублями)"
+        }
+      ],
+      "default": "all"
+    },
+    {
+      "id": "hook",
+      "type": "choice",
+      "title": "Хук в первые 2 секунды",
+      "options": [
+        {
+          "id": "h1",
+          "label": "главное заблуждение саморазвития"
+        },
+        {
+          "id": "h2",
+          "label": "своё не даётся легко"
+        },
+        {
+          "id": "h3",
+          "label": "почему мы бросаем своё"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без хука"
+        }
+      ],
+      "default": "h1"
+    },
+    {
+      "id": "bw",
+      "type": "multi",
+      "title": "Ч/б-куски",
+      "body": "Эмоциональные фразы — кадр без цвета, как вторая камера.",
+      "options": [
+        {
+          "id": "bw-1",
+          "label": "0:02 — «которое буквально взорвало мне мозг»"
+        },
+        {
+          "id": "bw-2",
+          "label": "0:34 — «но дело в том, что это так не работает»"
+        },
+        {
+          "id": "bw-3",
+          "label": "0:47 — «то, что было вашим, оно вашим и останется»"
+        }
+      ],
+      "default": [
+        "bw-1",
+        "bw-2",
+        "bw-3"
+      ]
+    },
+    {
+      "id": "dim",
+      "type": "choice",
+      "title": "Затемнить фон?",
+      "layout": "frames",
+      "body": "Человек и текст остаются как были, светлая стена за спиной темнеет.",
+      "options": [
+        {
+          "id": "none",
+          "label": "Как есть",
+          "image": "q-dim-none.jpg"
+        },
+        {
+          "id": "30",
+          "label": "Темнее на 30 %",
+          "image": "q-dim-30.jpg"
+        },
+        {
+          "id": "50",
+          "label": "Темнее на 50 %",
+          "image": "q-dim-50.jpg"
+        }
+      ],
+      "default": "30"
+    },
+    {
+      "id": "music",
+      "type": "choice",
+      "title": "Музыка",
+      "body": "Тихо под голосом, с первого кадра до последнего. Это чужие треки: обычный Reels могут заглушить.",
+      "options": [
+        {
+          "id": "mysterious-and-sad.m4a",
+          "label": "Mysterious and Sad — задумчивая"
+        },
+        {
+          "id": "sleepwalker-slowed.m4a",
+          "label": "Sleepwalker (slowed) — спокойная"
+        },
+        {
+          "id": "did-i-drive-you-away.m4a",
+          "label": "Did I Drive You Away — лиричная"
+        },
+        {
+          "id": "diedlonely-in-the-bleak.m4a",
+          "label": "diedlonely — In the Bleak"
+        },
+        {
+          "id": "etern-brodyaga.mp3",
+          "label": "Etern — Бродяга"
+        },
+        {
+          "id": "atlxs-passo.mp3",
+          "label": "ATLXS — Passo"
+        },
+        {
+          "id": "sayfalse-esse.mp3",
+          "label": "Sayfalse — Esse"
+        },
+        {
+          "id": "banana-cake.m4a",
+          "label": "Banana Cake"
+        },
+        {
+          "id": "playboi-carti-made-it.m4a",
+          "label": "Playboi Carti — Made It"
+        },
+        {
+          "id": "tory-lanez-broke.m4a",
+          "label": "Tory Lanez — Broke"
+        },
+        {
+          "id": "none",
+          "label": "Без музыки"
+        }
+      ],
+      "default": "mysterious-and-sad.m4a"
+    },
+    {
+      "id": "end",
+      "type": "choice",
+      "title": "Финальная карточка",
+      "body": "2 секунды в конце: затемнённый последний кадр и призыв.",
+      "options": [
+        {
+          "id": "e1",
+          "label": "Сохрани, чтобы не сдаться 👇"
+        },
+        {
+          "id": "e2",
+          "label": "Подпишись — дальше больше"
+        },
+        {
+          "id": "e3",
+          "label": "Перешли тому, кто готов бросить"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без карточки"
+        }
+      ],
+      "default": "e1"
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "answers": {
+    "cut": "all",
+    "hook": "h1",
+    "bw": [
+      "bw-1",
+      "bw-2",
+      "bw-3"
+    ],
+    "dim": "30",
+    "music": "diedlonely-in-the-bleak.m4a",
+    "end": "none"
+  },
+  "style": {
+    "variant": "A",
+    "font": "comfortaa",
+    "hand": "caveat",
+    "colors": {
+      "text": "#FFFFFF",
+      "accent": "#FFEA94",
+      "bar": "#EDE4C1"
+    },
+    "hookSize": 104,
+    "subShade": 0.1
+  },
+  "speed": 1.3,
+  "cover": {
+    "frame": 0,
+    "text": "главное заблуждение саморазвития"
+  },
+  "uploads": {},
+  "brief": ""
+}

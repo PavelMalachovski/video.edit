@@ -1569,8 +1569,23 @@
    "id": 662389587,
    "name": "matte-fef1c8c3f6f7.json",
    "size": 184
+  },
+  {
+   "id": 662416767,
+   "name": "final-cover.png",
+   "size": 3082776
+  },
+  {
+   "id": 662416768,
+   "name": "final.mp4",
+   "size": 230597623
+  },
+  {
+   "id": 662416769,
+   "name": "final.srt",
+   "size": 3749
   }
  ],
  "release_id": 419492349,
- "at": "2026-10-21T12:09:53Z"
+ "at": "2026-10-21T12:20:17Z"
 }

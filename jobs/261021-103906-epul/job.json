@@ -1,0 +1,17 @@
+{
+  "id": "261021-103906-epul",
+  "name": "мир зеркало.MOV",
+  "size": 716183768,
+  "type": "video/quicktime",
+  "duration": 64.935,
+  "createdAt": "2026-10-21T10:43:29.876Z",
+  "brief": "",
+  "uploads": [],
+  "runs": [
+    {
+      "step": "analyze",
+      "attempt": 1,
+      "at": "2026-10-21T10:43:30.004Z"
+    }
+  ]
+}

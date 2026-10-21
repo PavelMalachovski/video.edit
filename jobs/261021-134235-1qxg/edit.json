@@ -1,5 +1,5 @@
 {
-  "speed": 1.1,
+  "speed": 1.2,
   "keep": [
     [
       0.0,
@@ -9,8 +9,8 @@
   "cuts": [],
   "words": [],
   "hook": {
-    "text": "прочитай это медленно",
-    "until": 2.75
+    "text": "остановись на секунду",
+    "until": 2.95
   },
   "cta": null,
   "inserts": [],
@@ -20,11 +20,8 @@
       "t1": 5.3,
       "lines": [
         {
-          "text": "не жди"
-        },
-        {
-          "text": "идеального момента",
-          "color": "accent"
+          "text": "через год",
+          "size": "big"
         }
       ],
       "x": 540,
@@ -36,11 +33,11 @@
       "t1": 7.9,
       "lines": [
         {
-          "text": "он"
+          "text": "ты поблагодаришь"
         },
         {
-          "text": "не придёт",
-          "size": "big"
+          "text": "себя",
+          "color": "accent"
         }
       ],
       "x": 540,
@@ -52,11 +49,8 @@
       "t1": 10.6,
       "lines": [
         {
-          "text": "момент становится"
-        },
-        {
-          "text": "идеальным",
-          "color": "accent"
+          "text": "за шаг",
+          "size": "big"
         }
       ],
       "x": 540,
@@ -68,12 +62,12 @@
       "t1": 13.7,
       "lines": [
         {
-          "text": "когда ты",
+          "text": "который сделаешь",
           "size": "small"
         },
         {
-          "text": "начинаешь",
-          "size": "big"
+          "text": "сегодня",
+          "color": "accent"
         }
       ],
       "x": 540,
@@ -81,13 +75,7 @@
       "anim": "track"
     }
   ],
-  "looks": [
-    {
-      "t0": 5.6,
-      "t1": 8.2,
-      "look": "bw"
-    }
-  ],
+  "looks": [],
   "zooms": [
     {
       "t": 0.0,
@@ -132,7 +120,7 @@
     "hand": "caveat",
     "colors": {
       "text": "#FFFFFF",
-      "accent": "#EDE4C1",
+      "accent": "#FFE066",
       "bar": "#EDE4C1",
       "plate": "#111111",
       "outline": "#000000"
@@ -153,13 +141,10 @@
       "height": 6
     }
   },
-  "end": {
-    "seconds": 2,
-    "lines": [
-      "сохрани, чтобы не забыть 👇"
-    ],
-    "handle": null,
-    "logo": null,
-    "sfx": null
+  "end": null,
+  "ab": null,
+  "cover": {
+    "t": 3.0,
+    "text": "остановись на секунду"
   }
 }

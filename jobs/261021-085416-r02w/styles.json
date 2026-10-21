@@ -1,0 +1,150 @@
+{
+  "frame": "frame.png",
+  "frameTime": 11.2,
+  "sample": {
+    "hook": "новая жизнь за 3 месяца",
+    "words": [
+      "посмотрим",
+      "что",
+      "реально",
+      "может",
+      "поменяться."
+    ],
+    "spoken": 2,
+    "end": {
+      "lines": [
+        "Ответ — в описании 👇"
+      ]
+    }
+  },
+  "fonts": {
+    "main": [
+      "forum",
+      "montserrat",
+      "unbounded",
+      "rubik",
+      "oswald",
+      "russo-one",
+      "comfortaa",
+      "Arial Narrow",
+      "Cormorant",
+      "Gilroy",
+      "Helvetica",
+      "Playfair Display"
+    ],
+    "hand": [
+      "caveat",
+      "marck-script",
+      "bad-script"
+    ]
+  },
+  "variants": [
+    {
+      "id": "A",
+      "label": "Стиль эталона",
+      "spec": {
+        "font": "forum",
+        "hand": "caveat",
+        "colors": {
+          "text": "#FFFFFF",
+          "accent": "#EDE4C1",
+          "bar": "#EDE4C1",
+          "plate": "#111111",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "soft",
+          "words": 3,
+          "size": 64,
+          "y": 1440
+        },
+        "hook": {
+          "mode": "accent",
+          "size": 108,
+          "y": 360
+        },
+        "bar": {
+          "pos": "bottom",
+          "height": 6
+        }
+      }
+    },
+    {
+      "id": "B",
+      "label": "Эталон: антиква Cormorant, пудровый акцент, шкала сверху",
+      "spec": {
+        "font": "Cormorant",
+        "hand": "caveat",
+        "colors": {
+          "text": "#FFFFFF",
+          "accent": "#F2C9C9",
+          "bar": "#F2C9C9",
+          "plate": "#111111",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "soft",
+          "words": 3,
+          "size": 64,
+          "y": 1440
+        },
+        "hook": {
+          "mode": "accent",
+          "size": 108,
+          "y": 360
+        },
+        "bar": {
+          "pos": "top",
+          "height": 6
+        }
+      }
+    },
+    {
+      "id": "C",
+      "label": "Прежний жёлтый стиль",
+      "spec": {
+        "font": "montserrat",
+        "hand": "caveat",
+        "colors": {
+          "text": "#FFFFFF",
+          "accent": "#FFD23F",
+          "bar": "#FFD23F",
+          "plate": "#111111",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "karaoke",
+          "words": 3,
+          "size": 64,
+          "y": 1300
+        },
+        "hook": {
+          "mode": "plate",
+          "size": 72,
+          "y": 380
+        },
+        "bar": {
+          "pos": "bottom",
+          "height": 14
+        }
+      }
+    }
+  ],
+  "cover": {
+    "frames": [
+      {
+        "t": 5.0,
+        "image": "cover-1.jpg"
+      },
+      {
+        "t": 41.6,
+        "image": "cover-2.jpg"
+      },
+      {
+        "t": 28.4,
+        "image": "cover-3.jpg"
+      }
+    ],
+    "text": "новая жизнь за 3 месяца"
+  }
+}

@@ -1,0 +1,216 @@
+{
+  "questions": [
+    {
+      "id": "hook",
+      "type": "choice",
+      "title": "Хук — текст на первые 2–3 секунды",
+      "body": "Ударное последнее слово встанет отдельной крупной строкой.",
+      "options": [
+        {
+          "id": "h1",
+          "label": "новая жизнь за 3 месяца"
+        },
+        {
+          "id": "h2",
+          "label": "почему вас ждёт разочарование"
+        },
+        {
+          "id": "h3",
+          "label": "чего не скажут гуру Инстаграма"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без хука"
+        }
+      ],
+      "default": "h1"
+    },
+    {
+      "id": "cut",
+      "type": "choice",
+      "title": "Резать паузы и оговорки?",
+      "body": "Плотно — 6 пауз и 2 оговорки («ну давайте, только» на 0:08, повтор «скорее всего» на 0:38), ролик ~1:26; мягко — ~1:27; только края — ~1:29 (без тизера, при ×1.1).",
+      "options": [
+        {
+          "id": "all",
+          "label": "Плотно, как в эталоне"
+        },
+        {
+          "id": "soft",
+          "label": "Мягче: паузы до 0,45 с остаются"
+        },
+        {
+          "id": "edges",
+          "label": "Только тишина в начале и в конце"
+        }
+      ],
+      "default": "all"
+    },
+    {
+      "id": "teaser",
+      "type": "choice",
+      "title": "Начать с самой сильной фразы?",
+      "body": "Фраза на 0:39 — «Скорее всего, вы просто получите разочарование» (2,9 с): ролик начнётся с неё, потом пойдёт с начала.",
+      "options": [
+        {
+          "id": "yes",
+          "label": "Да: «Скорее всего, вы просто получите разочарование»"
+        },
+        {
+          "id": "no",
+          "label": "Нет, с начала"
+        }
+      ],
+      "default": "yes"
+    },
+    {
+      "id": "stars",
+      "type": "multi",
+      "title": "Слова со звёздочкой",
+      "body": "Мат на 0:35 («просто с нихуя») — со звёздочкой в субтитрах алгоритмы реже режут охват. Звук не меняется.",
+      "options": [
+        {
+          "id": "нихуя",
+          "label": "н*хуя"
+        }
+      ],
+      "default": [
+        "нихуя"
+      ]
+    },
+    {
+      "id": "bw",
+      "type": "multi",
+      "title": "Ч/б-куски",
+      "body": "Кадр без цвета и темнее, как вторая камера — на ироничных и эмоциональных фразах.",
+      "options": [
+        {
+          "id": "bw-1",
+          "label": "0:27 — «ах, нет, погодите, это же вопрос длительной терапии»"
+        },
+        {
+          "id": "bw-2",
+          "label": "0:33 — «вот так вот, просто с н*хуя, потому что вам того захотелось»"
+        },
+        {
+          "id": "bw-3",
+          "label": "0:46 — «вы, скорее всего, получите разочарование в самом себе»"
+        }
+      ],
+      "default": [
+        "bw-1",
+        "bw-2",
+        "bw-3"
+      ]
+    },
+    {
+      "id": "dim",
+      "type": "choice",
+      "title": "Затемнить фон?",
+      "layout": "frames",
+      "options": [
+        {
+          "id": "none",
+          "label": "Как есть",
+          "image": "q-dim-none.jpg"
+        },
+        {
+          "id": "30",
+          "label": "Темнее на 30 %",
+          "image": "q-dim-30.jpg"
+        },
+        {
+          "id": "50",
+          "label": "Темнее на 50 %",
+          "image": "q-dim-50.jpg"
+        }
+      ],
+      "default": "30"
+    },
+    {
+      "id": "music",
+      "type": "choice",
+      "title": "Музыка",
+      "body": "Тихо под голосом, с первого кадра до последнего.",
+      "options": [
+        {
+          "id": "atlxs-passo.mp3",
+          "label": "ATLXS — Passo"
+        },
+        {
+          "id": "banana-cake.m4a",
+          "label": "Banana Cake"
+        },
+        {
+          "id": "did-i-drive-you-away.m4a",
+          "label": "Did I Drive You Away"
+        },
+        {
+          "id": "diedlonely-in-the-bleak.m4a",
+          "label": "diedlonely — In the Bleak"
+        },
+        {
+          "id": "etern-brodyaga.mp3",
+          "label": "Etern — Бродяга"
+        },
+        {
+          "id": "mysterious-and-sad.m4a",
+          "label": "Mysterious and Sad"
+        },
+        {
+          "id": "playboi-carti-made-it.m4a",
+          "label": "Playboi Carti — Made It"
+        },
+        {
+          "id": "sayfalse-esse.mp3",
+          "label": "sayfalse — Esse"
+        },
+        {
+          "id": "sleepwalker-slowed.m4a",
+          "label": "Sleepwalker (slowed)"
+        },
+        {
+          "id": "tory-lanez-broke.m4a",
+          "label": "Tory Lanez — Broke"
+        },
+        {
+          "id": "none",
+          "label": "Без музыки"
+        }
+      ],
+      "default": "none"
+    },
+    {
+      "id": "end",
+      "type": "choice",
+      "title": "Финальная карточка (2 с в конце)",
+      "options": [
+        {
+          "id": "e1",
+          "label": "Ответ — в описании 👇"
+        },
+        {
+          "id": "e2",
+          "label": "Сохрани, чтобы не забыть"
+        },
+        {
+          "id": "e3",
+          "label": "Подпишись — разберём, как правильно"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без карточки"
+        }
+      ],
+      "default": "e1"
+    }
+  ]
+}

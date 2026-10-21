@@ -1,0 +1,35 @@
+{
+  "id": "261021-114624-4dsz",
+  "name": "47 про давать себе возмодность меняться.MOV",
+  "size": 1229416138,
+  "type": "video/quicktime",
+  "duration": 117.621667,
+  "createdAt": "2026-10-21T11:54:53.671Z",
+  "brief": "",
+  "uploads": [],
+  "videos": [
+    {
+      "file": "in/source.mov",
+      "asset": "source",
+      "name": "47 про давать себе возмодность меняться.MOV",
+      "size": 1229416138,
+      "type": "video/quicktime",
+      "duration": 112.071667
+    },
+    {
+      "file": "in/source-2.mov",
+      "asset": "source-2",
+      "name": "2 часть 47 про.MOV",
+      "size": 61935148,
+      "type": "video/quicktime",
+      "duration": 5.55
+    }
+  ],
+  "runs": [
+    {
+      "step": "analyze",
+      "attempt": 1,
+      "at": "2026-10-21T11:54:53.757Z"
+    }
+  ]
+}

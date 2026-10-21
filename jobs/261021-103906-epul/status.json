@@ -1,7 +1,9 @@
 {
-  "state": "waiting_answers",
-  "phase": "Ждёт ответов",
-  "message": "Ответь на вопросы и выбери стиль",
-  "at": "2026-10-21T10:53:15Z",
-  "needs": "answers"
+  "state": "queued",
+  "phase": "Запускаю сессию",
+  "message": "Claude смонтирует ролик по ответам",
+  "at": "2026-10-21T11:07:37.312Z",
+  "needs": null,
+  "progress": null,
+  "error": null
 }

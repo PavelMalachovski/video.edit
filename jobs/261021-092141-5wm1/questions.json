@@ -1,0 +1,196 @@
+{
+  "questions": [
+    {
+      "id": "cut",
+      "type": "choice",
+      "title": "Резать паузы и оговорки?",
+      "body": "Вырезал первый дубль вступления (0:00–0:07) и повтор в конце (0:59–1:16: «и вот тогда… ну а как попробуйте»). Плотно — ещё 8 пауз, будет ~0:52; мягко — ~0:53; только края — ~1:16, оба дубля останутся.",
+      "options": [
+        {
+          "id": "all",
+          "label": "Плотно, как в эталоне"
+        },
+        {
+          "id": "soft",
+          "label": "Мягче: паузы до 0,45 с остаются"
+        },
+        {
+          "id": "edges",
+          "label": "Только тишина в начале и в конце"
+        }
+      ],
+      "default": "all"
+    },
+    {
+      "id": "hook",
+      "type": "choice",
+      "title": "Хук на первые 2,5 секунды",
+      "options": [
+        {
+          "id": "h1",
+          "label": "как найти то что тебя зажигает"
+        },
+        {
+          "id": "h2",
+          "label": "зависть подскажет твоё дело"
+        },
+        {
+          "id": "h3",
+          "label": "3 шага к тому что тебя зажигает"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без хука"
+        }
+      ],
+      "default": "h1"
+    },
+    {
+      "id": "teaser",
+      "type": "choice",
+      "title": "Начать с самой сильной фразы?",
+      "body": "Фраза на 0:22: «понять, чему вы завидуете, кому вы завидуете» — интрига в первые 2 секунды, потом ролик идёт с начала, и она звучит ещё раз на своём месте.",
+      "options": [
+        {
+          "id": "yes",
+          "label": "Да: „понять, чему вы завидуете, кому вы завидуете“"
+        },
+        {
+          "id": "no",
+          "label": "Нет, по порядку"
+        }
+      ],
+      "default": "yes"
+    },
+    {
+      "id": "music",
+      "type": "choice",
+      "title": "Музыка",
+      "body": "Играет с первого кадра до последнего, на 14 дБ тише голоса и приглушается под речью.",
+      "options": [
+        {
+          "id": "atlxs-passo.mp3",
+          "label": "atlxs — Passo"
+        },
+        {
+          "id": "banana-cake.m4a",
+          "label": "Banana Cake"
+        },
+        {
+          "id": "did-i-drive-you-away.m4a",
+          "label": "Did I Drive You Away"
+        },
+        {
+          "id": "diedlonely-in-the-bleak.m4a",
+          "label": "diedlonely — In the Bleak"
+        },
+        {
+          "id": "etern-brodyaga.mp3",
+          "label": "Etern — Бродяга"
+        },
+        {
+          "id": "mysterious-and-sad.m4a",
+          "label": "Mysterious and Sad"
+        },
+        {
+          "id": "playboi-carti-made-it.m4a",
+          "label": "Playboi Carti — Made It"
+        },
+        {
+          "id": "sayfalse-esse.mp3",
+          "label": "SayFalse — Esse"
+        },
+        {
+          "id": "sleepwalker-slowed.m4a",
+          "label": "Sleepwalker (slowed)"
+        },
+        {
+          "id": "tory-lanez-broke.m4a",
+          "label": "Tory Lanez — Broke"
+        },
+        {
+          "id": "none",
+          "label": "Без музыки"
+        }
+      ],
+      "default": "none"
+    },
+    {
+      "id": "bw",
+      "type": "multi",
+      "title": "Ч/б-куски",
+      "body": "Эмоциональные фразы чёрно-белыми — как вторая камера.",
+      "options": [
+        {
+          "id": "bw-1",
+          "label": "0:32 — „не то, что вам навязывали в детстве… вырастешь врачом“"
+        },
+        {
+          "id": "bw-2",
+          "label": "0:56 — „а потому что вы этого искренне хотите“"
+        }
+      ],
+      "default": [
+        "bw-1",
+        "bw-2"
+      ]
+    },
+    {
+      "id": "dim",
+      "type": "choice",
+      "title": "Затемнить фон?",
+      "layout": "frames",
+      "options": [
+        {
+          "id": "none",
+          "label": "Как есть",
+          "image": "q-dim-none.jpg"
+        },
+        {
+          "id": "30",
+          "label": "Темнее на 30 %",
+          "image": "q-dim-30.jpg"
+        },
+        {
+          "id": "50",
+          "label": "Темнее на 50 %",
+          "image": "q-dim-50.jpg"
+        }
+      ],
+      "default": "30"
+    },
+    {
+      "id": "end",
+      "type": "choice",
+      "title": "Финальная карточка",
+      "body": "2 секунды в конце: затемнённый кадр и призыв.",
+      "options": [
+        {
+          "id": "e1",
+          "label": "Пиши в комментариях, что получилось 👇"
+        },
+        {
+          "id": "e2",
+          "label": "Сохрани, чтобы попробовать на этой неделе"
+        },
+        {
+          "id": "e3",
+          "label": "Подпишись — дальше будет настоящий диалог"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без карточки"
+        }
+      ],
+      "default": "e1"
+    }
+  ]
+}

@@ -1,0 +1,149 @@
+{
+  "frame": "frame.png",
+  "frameTime": 12.3,
+  "sample": {
+    "hook": "как найти то что тебя зажигает",
+    "words": [
+      "Для",
+      "того,",
+      "чтобы",
+      "найти"
+    ],
+    "spoken": 2,
+    "end": {
+      "lines": [
+        "Пиши в комментариях, что получилось 👇"
+      ]
+    }
+  },
+  "variants": [
+    {
+      "id": "A",
+      "label": "Стиль эталона",
+      "spec": {
+        "font": "forum",
+        "hand": "caveat",
+        "colors": {
+          "text": "#FFFFFF",
+          "accent": "#EDE4C1",
+          "bar": "#EDE4C1",
+          "plate": "#111111",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "soft",
+          "words": 3,
+          "size": 64,
+          "y": 1440
+        },
+        "hook": {
+          "mode": "accent",
+          "size": 108,
+          "y": 400
+        },
+        "bar": {
+          "pos": "bottom",
+          "height": 6
+        }
+      }
+    },
+    {
+      "id": "B",
+      "label": "Пудровый акцент, антиква Cormorant, субтитры ниже груди",
+      "spec": {
+        "font": "Cormorant",
+        "hand": "caveat",
+        "colors": {
+          "text": "#FFFFFF",
+          "accent": "#F2C9C9",
+          "bar": "#F2C9C9",
+          "plate": "#111111",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "soft",
+          "words": 3,
+          "size": 64,
+          "y": 1290
+        },
+        "hook": {
+          "mode": "accent",
+          "size": 108,
+          "y": 400
+        },
+        "bar": {
+          "pos": "bottom",
+          "height": 6
+        }
+      }
+    },
+    {
+      "id": "C",
+      "label": "Прежний жёлтый",
+      "spec": {
+        "font": "montserrat",
+        "hand": "caveat",
+        "colors": {
+          "text": "#FFFFFF",
+          "accent": "#FFD23F",
+          "bar": "#FFD23F",
+          "plate": "#111111",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "karaoke",
+          "words": 3,
+          "size": 64,
+          "y": 1300
+        },
+        "hook": {
+          "mode": "plate",
+          "size": 72,
+          "y": 400
+        },
+        "bar": {
+          "pos": "bottom",
+          "height": 14
+        }
+      }
+    }
+  ],
+  "fonts": {
+    "main": [
+      "forum",
+      "montserrat",
+      "unbounded",
+      "rubik",
+      "oswald",
+      "russo-one",
+      "comfortaa",
+      "Arial Narrow",
+      "Cormorant",
+      "Gilroy",
+      "Helvetica",
+      "Playfair Display"
+    ],
+    "hand": [
+      "caveat",
+      "marck-script",
+      "bad-script"
+    ]
+  },
+  "cover": {
+    "frames": [
+      {
+        "t": 9.0,
+        "image": "cover-1.jpg"
+      },
+      {
+        "t": 23.0,
+        "image": "cover-2.jpg"
+      },
+      {
+        "t": 82.9,
+        "image": "cover-3.jpg"
+      }
+    ],
+    "text": "как найти то что тебя зажигает"
+  }
+}

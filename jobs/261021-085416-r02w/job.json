@@ -1,0 +1,17 @@
+{
+  "id": "261021-085416-r02w",
+  "name": "от 3до6.MOV",
+  "size": 1090464543,
+  "type": "video/quicktime",
+  "duration": 99.103333,
+  "createdAt": "2026-10-21T09:00:56.325Z",
+  "brief": "",
+  "uploads": [],
+  "runs": [
+    {
+      "step": "analyze",
+      "attempt": 1,
+      "at": "2026-10-21T09:00:56.468Z"
+    }
+  ]
+}

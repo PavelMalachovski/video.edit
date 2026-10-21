@@ -1,10 +1,10 @@
 {
-  "rev": 5,
-  "at": "2026-10-21T08:50:00.532Z",
+  "rev": 6,
+  "at": "2026-10-21T08:50:05.790Z",
   "edits": [],
   "zoom": 1.5,
   "voice": {
     "gainDb": 12,
-    "muted": true
+    "muted": false
   }
 }

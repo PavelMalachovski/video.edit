@@ -1,0 +1,36 @@
+{
+  "answers": {
+    "cut": "all",
+    "hook": "own",
+    "hook.own": "ваши желания делают вас несчастными",
+    "teaser": "no",
+    "music": "diedlonely-in-the-bleak.m4a",
+    "bw": [
+      "bw-1",
+      "bw-2",
+      "bw-3"
+    ],
+    "dim": "30",
+    "end": "none"
+  },
+  "style": {
+    "variant": "A",
+    "font": "forum",
+    "hand": "caveat",
+    "colors": {
+      "text": "#FFFFFF",
+      "accent": "#FFE375",
+      "bar": "#EDE4C1"
+    },
+    "hookY": 270,
+    "hookSize": 106,
+    "subShade": 0.15
+  },
+  "speed": 1.3,
+  "cover": {
+    "frame": 0,
+    "text": "ваши желания делают вас несчастными"
+  },
+  "uploads": {},
+  "brief": ""
+}

@@ -1,0 +1,33 @@
+{
+  "answers": {
+    "hook": "h3",
+    "cut": "all",
+    "bw": [
+      "bw-1",
+      "bw-2",
+      "bw-3"
+    ],
+    "dim": "30",
+    "music": "diedlonely-in-the-bleak.m4a",
+    "end": "none"
+  },
+  "style": {
+    "variant": "A",
+    "font": "forum",
+    "hand": "caveat",
+    "colors": {
+      "text": "#FFFFFF",
+      "accent": "#FFE680",
+      "bar": "#EDE4C1"
+    },
+    "hookSize": 120,
+    "subShade": 0.2
+  },
+  "speed": 1.3,
+  "cover": {
+    "frame": 0,
+    "text": "успех требует расщепить личность"
+  },
+  "uploads": {},
+  "brief": ""
+}

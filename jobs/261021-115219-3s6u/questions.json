@@ -1,0 +1,185 @@
+{
+  "questions": [
+    {
+      "id": "hook",
+      "type": "choice",
+      "title": "Хук — текст первых 2–3 секунд",
+      "body": "Последнее слово встанет крупной строкой цветом шампань.",
+      "options": [
+        {
+          "id": "h1",
+          "label": "вашей личности нужно расщепиться"
+        },
+        {
+          "id": "h2",
+          "label": "чтобы добиться успеха расщепитесь"
+        },
+        {
+          "id": "h3",
+          "label": "успех требует расщепить личность"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без хука"
+        }
+      ],
+      "default": "h1"
+    },
+    {
+      "id": "cut",
+      "type": "choice",
+      "title": "Резать паузы?",
+      "body": "Речь ровная, пауз мало: плотно — 6 пауз, будет ~1:44; мягко — ~1:45; только края — ~1:45. Оговорок и повторов нет.",
+      "options": [
+        {
+          "id": "all",
+          "label": "Плотно, как в эталоне"
+        },
+        {
+          "id": "soft",
+          "label": "Мягче"
+        },
+        {
+          "id": "edges",
+          "label": "Только края"
+        }
+      ],
+      "default": "all"
+    },
+    {
+      "id": "bw",
+      "type": "multi",
+      "title": "Ч/б-куски",
+      "body": "Эмоциональные фразы без цвета — как вторая камера.",
+      "options": [
+        {
+          "id": "bw-1",
+          "label": "0:03 — «да, да, я знаю, что многие психологи не согласятся»"
+        },
+        {
+          "id": "bw-2",
+          "label": "1:24 — «кайфовать в своей жизни от того, что я танцую на пилоне»"
+        },
+        {
+          "id": "bw-3",
+          "label": "1:31 — «но это не делает меня плохой женой»"
+        }
+      ],
+      "default": [
+        "bw-1",
+        "bw-2",
+        "bw-3"
+      ]
+    },
+    {
+      "id": "dim",
+      "type": "choice",
+      "title": "Затемнить фон?",
+      "layout": "frames",
+      "body": "Человек и текст остаются как есть, комната за спиной темнее.",
+      "options": [
+        {
+          "id": "none",
+          "label": "Как есть",
+          "image": "q-dim-none.jpg"
+        },
+        {
+          "id": "30",
+          "label": "Темнее на 30 %",
+          "image": "q-dim-30.jpg"
+        },
+        {
+          "id": "50",
+          "label": "Темнее на 50 %",
+          "image": "q-dim-50.jpg"
+        }
+      ],
+      "default": "30"
+    },
+    {
+      "id": "music",
+      "type": "choice",
+      "title": "Музыка",
+      "body": "Тихо под голосом (на 14 дБ тише речи), приглушается, когда говоришь.",
+      "options": [
+        {
+          "id": "none",
+          "label": "Без музыки"
+        },
+        {
+          "id": "mysterious-and-sad.m4a",
+          "label": "Mysterious and Sad — задумчивая"
+        },
+        {
+          "id": "sleepwalker-slowed.m4a",
+          "label": "Sleepwalker (slowed) — медленная"
+        },
+        {
+          "id": "diedlonely-in-the-bleak.m4a",
+          "label": "diedlonely — In the Bleak"
+        },
+        {
+          "id": "did-i-drive-you-away.m4a",
+          "label": "Did I Drive You Away"
+        },
+        {
+          "id": "etern-brodyaga.mp3",
+          "label": "Etern — Бродяга"
+        },
+        {
+          "id": "atlxs-passo.mp3",
+          "label": "ATLXS — Passo"
+        },
+        {
+          "id": "sayfalse-esse.mp3",
+          "label": "sayfalse — Esse"
+        },
+        {
+          "id": "banana-cake.m4a",
+          "label": "Banana Cake"
+        },
+        {
+          "id": "playboi-carti-made-it.m4a",
+          "label": "Playboi Carti — Made It"
+        },
+        {
+          "id": "tory-lanez-broke.m4a",
+          "label": "Tory Lanez — Broke"
+        }
+      ],
+      "default": "none"
+    },
+    {
+      "id": "end",
+      "type": "choice",
+      "title": "Финальная карточка — призыв в конце",
+      "options": [
+        {
+          "id": "e1",
+          "label": "Сохрани, чтобы не забыть 👇"
+        },
+        {
+          "id": "e2",
+          "label": "А от чего отказалась ты? Пиши в комментариях"
+        },
+        {
+          "id": "e3",
+          "label": "Подпишись — больше о психологии"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без карточки"
+        }
+      ],
+      "default": "e1"
+    }
+  ]
+}

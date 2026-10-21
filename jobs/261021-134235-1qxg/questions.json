@@ -1,0 +1,180 @@
+{
+  "questions": [
+    {
+      "id": "hook",
+      "type": "choice",
+      "title": "Хук — заголовок в первые 2,5 с",
+      "body": "В видео нет речи — ролик держится на тексте и музыке. Хук должен остановить ленту и заставить дочитать.",
+      "options": [
+        {
+          "id": "h1",
+          "label": "прочитай это медленно"
+        },
+        {
+          "id": "h2",
+          "label": "эта мысль меняет всё"
+        },
+        {
+          "id": "h3",
+          "label": "остановись на секунду"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без хука"
+        }
+      ],
+      "default": "h1"
+    },
+    {
+      "id": "thought",
+      "type": "choice",
+      "title": "Мысль для обдумывания",
+      "body": "Идёт после хука крупными фразами на груди, по 2–3 с на фразу (0:03–0:12). Свой текст — 3–4 короткие фразы через «/».",
+      "options": [
+        {
+          "id": "t1",
+          "label": "Не жди идеального момента / Он не придёт / Момент становится идеальным, / когда ты начинаешь"
+        },
+        {
+          "id": "t2",
+          "label": "Ты не опаздываешь / Ты идёшь своим темпом / И это — тоже путь"
+        },
+        {
+          "id": "t3",
+          "label": "Через год / ты поблагодаришь себя / за шаг, / который сделаешь сегодня"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        }
+      ],
+      "default": "t1"
+    },
+    {
+      "id": "music",
+      "type": "choice",
+      "title": "Музыка на фоне",
+      "body": "Звука в видео нет, так что музыка — весь звук ролика. Под задумчивую мысль предлагаю спокойный атмосферный трек; выбирал по названию — послушай. Треки — чужие песни: обычный Reels могут заглушить.",
+      "options": [
+        {
+          "id": "sleepwalker-slowed.m4a",
+          "label": "Sleepwalker (slowed) — атмосферный, задумчивый"
+        },
+        {
+          "id": "mysterious-and-sad.m4a",
+          "label": "Mysterious and Sad — таинственный, грустный"
+        },
+        {
+          "id": "did-i-drive-you-away.m4a",
+          "label": "Did I Drive You Away — лирический"
+        },
+        {
+          "id": "diedlonely-in-the-bleak.m4a",
+          "label": "diedlonely — In the Bleak"
+        },
+        {
+          "id": "sayfalse-esse.mp3",
+          "label": "Sayfalse — Esse cara (slowed reverb)"
+        },
+        {
+          "id": "atlxs-passo.mp3",
+          "label": "ATLXS — Passo bem solto (super slowed)"
+        },
+        {
+          "id": "banana-cake.m4a",
+          "label": "Banana Cake"
+        },
+        {
+          "id": "etern-brodyaga.mp3",
+          "label": "Eternxlkz — Brodyaga Funk"
+        },
+        {
+          "id": "playboi-carti-made-it.m4a",
+          "label": "Playboi Carti — Made It"
+        },
+        {
+          "id": "tory-lanez-broke.m4a",
+          "label": "Tory Lanez — Broke"
+        },
+        {
+          "id": "none",
+          "label": "Без музыки"
+        }
+      ],
+      "default": "sleepwalker-slowed.m4a"
+    },
+    {
+      "id": "bw",
+      "type": "multi",
+      "title": "Ч/б-кусок",
+      "body": "На фразе-повороте кадр уходит в ч/б и темнее — как вторая камера.",
+      "options": [
+        {
+          "id": "bw-1",
+          "label": "0:05 — „он не придёт“"
+        }
+      ],
+      "default": [
+        "bw-1"
+      ]
+    },
+    {
+      "id": "dim",
+      "type": "choice",
+      "title": "Затемнить фон?",
+      "layout": "frames",
+      "body": "Светлая стена за спиной спорит с лицом и текстом; темнее — ближе к тёмной комнате эталона.",
+      "options": [
+        {
+          "id": "none",
+          "label": "Как есть",
+          "image": "q-dim-none.jpg"
+        },
+        {
+          "id": "30",
+          "label": "Темнее на 30 %",
+          "image": "q-dim-30.jpg"
+        },
+        {
+          "id": "50",
+          "label": "Темнее на 50 %",
+          "image": "q-dim-50.jpg"
+        }
+      ],
+      "default": "30"
+    },
+    {
+      "id": "end",
+      "type": "choice",
+      "title": "Финальная карточка — призыв в конце",
+      "body": "2 с в конце ролика: затемнённый последний кадр и призыв — помогает новому зрителю подписаться или сохранить.",
+      "options": [
+        {
+          "id": "e1",
+          "label": "сохрани, чтобы не забыть 👇"
+        },
+        {
+          "id": "e2",
+          "label": "подпишись, если откликнулось"
+        },
+        {
+          "id": "e3",
+          "label": "а ты чего ждёшь? напиши 👇"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без карточки"
+        }
+      ],
+      "default": "e1"
+    }
+  ]
+}

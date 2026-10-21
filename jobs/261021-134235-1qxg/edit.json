@@ -1,0 +1,165 @@
+{
+  "speed": 1.1,
+  "keep": [
+    [
+      0.0,
+      14.133
+    ]
+  ],
+  "cuts": [],
+  "words": [],
+  "hook": {
+    "text": "прочитай это медленно",
+    "until": 2.75
+  },
+  "cta": null,
+  "inserts": [],
+  "accents": [
+    {
+      "t0": 3.0,
+      "t1": 5.3,
+      "lines": [
+        {
+          "text": "не жди"
+        },
+        {
+          "text": "идеального момента",
+          "color": "accent"
+        }
+      ],
+      "x": 540,
+      "y": 1420,
+      "anim": "type"
+    },
+    {
+      "t0": 5.6,
+      "t1": 7.9,
+      "lines": [
+        {
+          "text": "он"
+        },
+        {
+          "text": "не придёт",
+          "size": "big"
+        }
+      ],
+      "x": 540,
+      "y": 1420,
+      "anim": "letters"
+    },
+    {
+      "t0": 8.2,
+      "t1": 10.6,
+      "lines": [
+        {
+          "text": "момент становится"
+        },
+        {
+          "text": "идеальным",
+          "color": "accent"
+        }
+      ],
+      "x": 540,
+      "y": 1420,
+      "anim": "blur"
+    },
+    {
+      "t0": 10.9,
+      "t1": 13.7,
+      "lines": [
+        {
+          "text": "когда ты",
+          "size": "small"
+        },
+        {
+          "text": "начинаешь",
+          "size": "big"
+        }
+      ],
+      "x": 540,
+      "y": 1420,
+      "anim": "track"
+    }
+  ],
+  "looks": [
+    {
+      "t0": 5.6,
+      "t1": 8.2,
+      "look": "bw"
+    }
+  ],
+  "zooms": [
+    {
+      "t": 0.0,
+      "level": 1.0,
+      "over": 0
+    },
+    {
+      "t": 3.0,
+      "level": 1.15,
+      "over": 0
+    },
+    {
+      "t": 5.6,
+      "level": 1.25,
+      "over": 0
+    },
+    {
+      "t": 8.2,
+      "level": 1.0,
+      "over": 0
+    },
+    {
+      "t": 8.3,
+      "level": 1.16,
+      "over": 5
+    }
+  ],
+  "face": {
+    "x": 0.5,
+    "y": 0.43
+  },
+  "music": {
+    "file": "assets/music/sleepwalker-slowed.m4a",
+    "gainDb": -14
+  },
+  "hold": 0.0,
+  "transitions": [],
+  "teaser": null,
+  "dim": 0.3,
+  "style": {
+    "font": "forum",
+    "hand": "caveat",
+    "colors": {
+      "text": "#FFFFFF",
+      "accent": "#EDE4C1",
+      "bar": "#EDE4C1",
+      "plate": "#111111",
+      "outline": "#000000"
+    },
+    "subtitles": {
+      "mode": "soft",
+      "words": 3,
+      "size": 64,
+      "y": 1440
+    },
+    "hook": {
+      "mode": "accent",
+      "size": 108,
+      "y": 400
+    },
+    "bar": {
+      "pos": "bottom",
+      "height": 6
+    }
+  },
+  "end": {
+    "seconds": 2,
+    "lines": [
+      "сохрани, чтобы не забыть 👇"
+    ],
+    "handle": null,
+    "logo": null,
+    "sfx": null
+  }
+}

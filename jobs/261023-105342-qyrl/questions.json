@@ -1,0 +1,184 @@
+{
+  "questions": [
+    {
+      "id": "cut",
+      "type": "choice",
+      "title": "Резать паузы и дубли?",
+      "body": "В записи несколько дублей одних фраз (вступление, «к слову…», трижды «сводить всю сложность…», «едкий прокурор», «вечером твой достигатор», «именно поэтому настоящая терапия») — оставляю последний, удачный. Плотно — паузы ужаты до 0,16 с, будет ~1:21; мягко — ~1:21; только края (все дубли и паузы остаются) — ~2:53.",
+      "options": [
+        {
+          "id": "all",
+          "label": "Плотно, как в эталоне"
+        },
+        {
+          "id": "soft",
+          "label": "Мягче: паузы до 0,45 с остаются"
+        },
+        {
+          "id": "edges",
+          "label": "Только начало и конец"
+        }
+      ],
+      "default": "all"
+    },
+    {
+      "id": "hook",
+      "type": "choice",
+      "title": "Хук в первые 2,5 секунды",
+      "options": [
+        {
+          "id": "h1",
+          "label": "внутри тебя орёт цирк"
+        },
+        {
+          "id": "h2",
+          "label": "в тебе живёт целый зоопарк"
+        },
+        {
+          "id": "h3",
+          "label": "почему в твоей жизни хаос"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без хука"
+        }
+      ],
+      "default": "h1"
+    },
+    {
+      "id": "music",
+      "type": "choice",
+      "title": "Музыка",
+      "body": "Играет тихо под голосом с первого кадра. Треки библиотеки — чужие песни: обычный Reels с ними могут заглушить.",
+      "options": [
+        {
+          "id": "mysterious-and-sad.m4a",
+          "label": "Mysterious and Sad"
+        },
+        {
+          "id": "sleepwalker-slowed.m4a",
+          "label": "Sleepwalker (slowed)"
+        },
+        {
+          "id": "did-i-drive-you-away.m4a",
+          "label": "Did I Drive You Away"
+        },
+        {
+          "id": "diedlonely-in-the-bleak.m4a",
+          "label": "Diedlonely — In the Bleak"
+        },
+        {
+          "id": "etern-brodyaga.mp3",
+          "label": "Etern — Бродяга"
+        },
+        {
+          "id": "atlxs-passo.mp3",
+          "label": "ATLXS — Passo"
+        },
+        {
+          "id": "sayfalse-esse.mp3",
+          "label": "Sayfalse — Esse"
+        },
+        {
+          "id": "banana-cake.m4a",
+          "label": "Banana Cake"
+        },
+        {
+          "id": "playboi-carti-made-it.m4a",
+          "label": "Playboi Carti — Made It"
+        },
+        {
+          "id": "tory-lanez-broke.m4a",
+          "label": "Tory Lanez — Broke"
+        },
+        {
+          "id": "none",
+          "label": "Без музыки"
+        }
+      ],
+      "default": "none"
+    },
+    {
+      "id": "bw",
+      "type": "multi",
+      "title": "Ч/б-куски",
+      "body": "Эмоциональные фразы — кадр без цвета и темнее, как вторая камера.",
+      "options": [
+        {
+          "id": "bw-1",
+          "label": "1:10 — «внутри тебя сидит швондерский консилиум»"
+        },
+        {
+          "id": "bw-2",
+          "label": "1:58 — «доводя тебя до нервного тика. И не говори, что это не так»"
+        },
+        {
+          "id": "bw-3",
+          "label": "2:21 — «проявляться, как оказалось, далеко не безопасно»"
+        }
+      ],
+      "default": [
+        "bw-1",
+        "bw-2",
+        "bw-3"
+      ]
+    },
+    {
+      "id": "dim",
+      "type": "choice",
+      "title": "Затемнить фон?",
+      "layout": "frames",
+      "body": "Фон за тобой темнее, ты и текст — как есть: светлая стена меньше спорит с лицом.",
+      "options": [
+        {
+          "id": "none",
+          "label": "Как есть",
+          "image": "q-dim-none.jpg"
+        },
+        {
+          "id": "30",
+          "label": "Темнее на 30 %",
+          "image": "q-dim-30.jpg"
+        },
+        {
+          "id": "50",
+          "label": "Темнее на 50 %",
+          "image": "q-dim-50.jpg"
+        }
+      ],
+      "default": "30"
+    },
+    {
+      "id": "end",
+      "type": "choice",
+      "title": "Финальная карточка с призывом (2 с в конце)",
+      "options": [
+        {
+          "id": "e1",
+          "label": "Сохрани, чтобы не потерять 👇"
+        },
+        {
+          "id": "e2",
+          "label": "Подпишись — разберём каждого персонажа"
+        },
+        {
+          "id": "e3",
+          "label": "Кто орёт громче всех? Пиши в комменты 👇"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без карточки"
+        }
+      ],
+      "default": "e1"
+    }
+  ]
+}

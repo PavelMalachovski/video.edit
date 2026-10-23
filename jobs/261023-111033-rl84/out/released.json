@@ -1,0 +1,621 @@
+{
+ "assets": [
+  {
+   "id": 668875257,
+   "name": "source.part-00000",
+   "size": 4194304
+  },
+  {
+   "id": 668875291,
+   "name": "source.part-00001",
+   "size": 4194304
+  },
+  {
+   "id": 668875363,
+   "name": "source.part-00002",
+   "size": 4194304
+  },
+  {
+   "id": 668875497,
+   "name": "source.part-00003",
+   "size": 4194304
+  },
+  {
+   "id": 668875583,
+   "name": "source.part-00004",
+   "size": 4194304
+  },
+  {
+   "id": 668875623,
+   "name": "source.part-00005",
+   "size": 4194304
+  },
+  {
+   "id": 668875793,
+   "name": "source.part-00006",
+   "size": 4194304
+  },
+  {
+   "id": 668875818,
+   "name": "source.part-00007",
+   "size": 4194304
+  },
+  {
+   "id": 668875983,
+   "name": "source.part-00008",
+   "size": 4194304
+  },
+  {
+   "id": 668876074,
+   "name": "source.part-00009",
+   "size": 4194304
+  },
+  {
+   "id": 668876207,
+   "name": "source.part-00010",
+   "size": 4194304
+  },
+  {
+   "id": 668876357,
+   "name": "source.part-00011",
+   "size": 4194304
+  },
+  {
+   "id": 668876411,
+   "name": "source.part-00012",
+   "size": 4194304
+  },
+  {
+   "id": 668876482,
+   "name": "source.part-00013",
+   "size": 4194304
+  },
+  {
+   "id": 668876603,
+   "name": "source.part-00014",
+   "size": 4194304
+  },
+  {
+   "id": 668876632,
+   "name": "source.part-00015",
+   "size": 4194304
+  },
+  {
+   "id": 668876752,
+   "name": "source.part-00016",
+   "size": 4194304
+  },
+  {
+   "id": 668876784,
+   "name": "source.part-00017",
+   "size": 4194304
+  },
+  {
+   "id": 668876870,
+   "name": "source.part-00018",
+   "size": 4194304
+  },
+  {
+   "id": 668876893,
+   "name": "source.part-00019",
+   "size": 4194304
+  },
+  {
+   "id": 668876985,
+   "name": "source.part-00020",
+   "size": 4194304
+  },
+  {
+   "id": 668877007,
+   "name": "source.part-00021",
+   "size": 4194304
+  },
+  {
+   "id": 668877152,
+   "name": "source.part-00022",
+   "size": 4194304
+  },
+  {
+   "id": 668877172,
+   "name": "source.part-00023",
+   "size": 4194304
+  },
+  {
+   "id": 668877278,
+   "name": "source.part-00024",
+   "size": 4194304
+  },
+  {
+   "id": 668877324,
+   "name": "source.part-00025",
+   "size": 4194304
+  },
+  {
+   "id": 668877399,
+   "name": "source.part-00026",
+   "size": 4194304
+  },
+  {
+   "id": 668877488,
+   "name": "source.part-00027",
+   "size": 4194304
+  },
+  {
+   "id": 668877576,
+   "name": "source.part-00028",
+   "size": 4194304
+  },
+  {
+   "id": 668877606,
+   "name": "source.part-00029",
+   "size": 4194304
+  },
+  {
+   "id": 668877773,
+   "name": "source.part-00030",
+   "size": 4194304
+  },
+  {
+   "id": 668877834,
+   "name": "source.part-00031",
+   "size": 4194304
+  },
+  {
+   "id": 668877922,
+   "name": "source.part-00032",
+   "size": 4194304
+  },
+  {
+   "id": 668877938,
+   "name": "source.part-00033",
+   "size": 4194304
+  },
+  {
+   "id": 668878127,
+   "name": "source.part-00034",
+   "size": 4194304
+  },
+  {
+   "id": 668878145,
+   "name": "source.part-00035",
+   "size": 4194304
+  },
+  {
+   "id": 668878204,
+   "name": "source.part-00036",
+   "size": 4194304
+  },
+  {
+   "id": 668878240,
+   "name": "source.part-00037",
+   "size": 4194304
+  },
+  {
+   "id": 668878299,
+   "name": "source.part-00038",
+   "size": 4194304
+  },
+  {
+   "id": 668878315,
+   "name": "source.part-00039",
+   "size": 4194304
+  },
+  {
+   "id": 668878411,
+   "name": "source.part-00040",
+   "size": 4194304
+  },
+  {
+   "id": 668878422,
+   "name": "source.part-00041",
+   "size": 4194304
+  },
+  {
+   "id": 668878503,
+   "name": "source.part-00042",
+   "size": 4194304
+  },
+  {
+   "id": 668878548,
+   "name": "source.part-00043",
+   "size": 4194304
+  },
+  {
+   "id": 668878650,
+   "name": "source.part-00044",
+   "size": 4194304
+  },
+  {
+   "id": 668878694,
+   "name": "source.part-00045",
+   "size": 4194304
+  },
+  {
+   "id": 668878762,
+   "name": "source.part-00046",
+   "size": 4194304
+  },
+  {
+   "id": 668878787,
+   "name": "source.part-00047",
+   "size": 4194304
+  },
+  {
+   "id": 668878854,
+   "name": "source.part-00048",
+   "size": 4194304
+  },
+  {
+   "id": 668878871,
+   "name": "source.part-00049",
+   "size": 4194304
+  },
+  {
+   "id": 668878901,
+   "name": "source.part-00050",
+   "size": 4194304
+  },
+  {
+   "id": 668878926,
+   "name": "source.part-00051",
+   "size": 4194304
+  },
+  {
+   "id": 668878980,
+   "name": "source.part-00052",
+   "size": 4194304
+  },
+  {
+   "id": 668879008,
+   "name": "source.part-00053",
+   "size": 4194304
+  },
+  {
+   "id": 668879045,
+   "name": "source.part-00054",
+   "size": 4194304
+  },
+  {
+   "id": 668879061,
+   "name": "source.part-00055",
+   "size": 4194304
+  },
+  {
+   "id": 668879094,
+   "name": "source.part-00056",
+   "size": 4194304
+  },
+  {
+   "id": 668879168,
+   "name": "source.part-00057",
+   "size": 4194304
+  },
+  {
+   "id": 668879226,
+   "name": "source.part-00058",
+   "size": 4194304
+  },
+  {
+   "id": 668879249,
+   "name": "source.part-00059",
+   "size": 4194304
+  },
+  {
+   "id": 668879328,
+   "name": "source.part-00060",
+   "size": 4194304
+  },
+  {
+   "id": 668879395,
+   "name": "source.part-00061",
+   "size": 4194304
+  },
+  {
+   "id": 668879438,
+   "name": "source.part-00062",
+   "size": 4194304
+  },
+  {
+   "id": 668879498,
+   "name": "source.part-00063",
+   "size": 4194304
+  },
+  {
+   "id": 668879559,
+   "name": "source.part-00064",
+   "size": 4194304
+  },
+  {
+   "id": 668879606,
+   "name": "source.part-00065",
+   "size": 4194304
+  },
+  {
+   "id": 668879689,
+   "name": "source.part-00066",
+   "size": 4194304
+  },
+  {
+   "id": 668879742,
+   "name": "source.part-00067",
+   "size": 4194304
+  },
+  {
+   "id": 668879788,
+   "name": "source.part-00068",
+   "size": 4194304
+  },
+  {
+   "id": 668879863,
+   "name": "source.part-00069",
+   "size": 4194304
+  },
+  {
+   "id": 668879901,
+   "name": "source.part-00070",
+   "size": 4194304
+  },
+  {
+   "id": 668879983,
+   "name": "source.part-00071",
+   "size": 4194304
+  },
+  {
+   "id": 668880018,
+   "name": "source.part-00072",
+   "size": 4194304
+  },
+  {
+   "id": 668880064,
+   "name": "source.part-00073",
+   "size": 4194304
+  },
+  {
+   "id": 668880143,
+   "name": "source.part-00074",
+   "size": 4194304
+  },
+  {
+   "id": 668880192,
+   "name": "source.part-00075",
+   "size": 4194304
+  },
+  {
+   "id": 668880280,
+   "name": "source.part-00076",
+   "size": 4194304
+  },
+  {
+   "id": 668880353,
+   "name": "source.part-00077",
+   "size": 4194304
+  },
+  {
+   "id": 668880433,
+   "name": "source.part-00078",
+   "size": 4194304
+  },
+  {
+   "id": 668880518,
+   "name": "source.part-00079",
+   "size": 4194304
+  },
+  {
+   "id": 668880595,
+   "name": "source.part-00080",
+   "size": 4194304
+  },
+  {
+   "id": 668880646,
+   "name": "source.part-00081",
+   "size": 4194304
+  },
+  {
+   "id": 668880710,
+   "name": "source.part-00082",
+   "size": 4194304
+  },
+  {
+   "id": 668880788,
+   "name": "source.part-00083",
+   "size": 4194304
+  },
+  {
+   "id": 668880833,
+   "name": "source.part-00084",
+   "size": 4194304
+  },
+  {
+   "id": 668880933,
+   "name": "source.part-00085",
+   "size": 4194304
+  },
+  {
+   "id": 668880960,
+   "name": "source.part-00086",
+   "size": 4194304
+  },
+  {
+   "id": 668881041,
+   "name": "source.part-00087",
+   "size": 4194304
+  },
+  {
+   "id": 668881133,
+   "name": "source.part-00088",
+   "size": 4194304
+  },
+  {
+   "id": 668881187,
+   "name": "source.part-00089",
+   "size": 4194304
+  },
+  {
+   "id": 668881346,
+   "name": "source.part-00090",
+   "size": 4194304
+  },
+  {
+   "id": 668881410,
+   "name": "source.part-00091",
+   "size": 4194304
+  },
+  {
+   "id": 668881473,
+   "name": "source.part-00092",
+   "size": 4194304
+  },
+  {
+   "id": 668881568,
+   "name": "source.part-00093",
+   "size": 4194304
+  },
+  {
+   "id": 668881608,
+   "name": "source.part-00094",
+   "size": 4194304
+  },
+  {
+   "id": 668881666,
+   "name": "source.part-00095",
+   "size": 4194304
+  },
+  {
+   "id": 668881768,
+   "name": "source.part-00096",
+   "size": 4194304
+  },
+  {
+   "id": 668881822,
+   "name": "source.part-00097",
+   "size": 4194304
+  },
+  {
+   "id": 668881994,
+   "name": "source.part-00098",
+   "size": 4194304
+  },
+  {
+   "id": 668882041,
+   "name": "source.part-00099",
+   "size": 4194304
+  },
+  {
+   "id": 668882286,
+   "name": "source.part-00100",
+   "size": 4194304
+  },
+  {
+   "id": 668882421,
+   "name": "source.part-00101",
+   "size": 4194304
+  },
+  {
+   "id": 668882511,
+   "name": "source.part-00102",
+   "size": 4194304
+  },
+  {
+   "id": 668882672,
+   "name": "source.part-00103",
+   "size": 4194304
+  },
+  {
+   "id": 668882894,
+   "name": "source.part-00104",
+   "size": 4194304
+  },
+  {
+   "id": 668882952,
+   "name": "source.part-00105",
+   "size": 4194304
+  },
+  {
+   "id": 668883037,
+   "name": "source.part-00106",
+   "size": 4194304
+  },
+  {
+   "id": 668883108,
+   "name": "source.part-00107",
+   "size": 4194304
+  },
+  {
+   "id": 668883202,
+   "name": "source.part-00108",
+   "size": 4194304
+  },
+  {
+   "id": 668883289,
+   "name": "source.part-00109",
+   "size": 4194304
+  },
+  {
+   "id": 668883402,
+   "name": "source.part-00110",
+   "size": 4194304
+  },
+  {
+   "id": 668883513,
+   "name": "source.part-00111",
+   "size": 4194304
+  },
+  {
+   "id": 668883601,
+   "name": "source.part-00112",
+   "size": 4194304
+  },
+  {
+   "id": 668883663,
+   "name": "source.part-00113",
+   "size": 4194304
+  },
+  {
+   "id": 668883765,
+   "name": "source.part-00114",
+   "size": 4194304
+  },
+  {
+   "id": 668883838,
+   "name": "source.part-00115",
+   "size": 4194304
+  },
+  {
+   "id": 668883895,
+   "name": "source.part-00116",
+   "size": 4194304
+  },
+  {
+   "id": 668883909,
+   "name": "source.part-00117",
+   "size": 150117
+  },
+  {
+   "id": 668884015,
+   "name": "manifest.json",
+   "size": 412
+  },
+  {
+   "id": 668885547,
+   "name": "source-664c187c76e7.failed",
+   "size": 9
+  },
+  {
+   "id": 668924649,
+   "name": "matte-c88b35587267.json",
+   "size": 89
+  },
+  {
+   "id": 668924653,
+   "name": "matte-c88b35587267.mkv",
+   "size": 29748747
+  },
+  {
+   "id": 668924656,
+   "name": "proxy.mp4",
+   "size": 15090233
+  }
+ ],
+ "release_id": 421747950,
+ "at": "2026-10-23T11:31:45Z"
+}

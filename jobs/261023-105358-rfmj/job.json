@@ -1,0 +1,35 @@
+{
+  "id": "261023-105358-rfmj",
+  "name": "вы платите за иллюзию помощи.MOV",
+  "size": 2023159603,
+  "type": "video/quicktime",
+  "duration": 221.178333,
+  "createdAt": "2026-10-23T11:14:52.784Z",
+  "brief": "",
+  "uploads": [],
+  "videos": [
+    {
+      "file": "in/source.mov",
+      "asset": "source",
+      "name": "вы платите за иллюзию помощи.MOV",
+      "size": 2023159603,
+      "type": "video/quicktime",
+      "duration": 183.71
+    },
+    {
+      "file": "in/source-2.mov",
+      "asset": "source-2",
+      "name": "2 чась.MOV",
+      "size": 414262432,
+      "type": "video/quicktime",
+      "duration": 37.468333
+    }
+  ],
+  "runs": [
+    {
+      "step": "analyze",
+      "attempt": 1,
+      "at": "2026-10-23T11:14:52.925Z"
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "answers": {
+    "cut": "all",
+    "hook": "h3",
+    "teaser": "no",
+    "music": "diedlonely-in-the-bleak.m4a",
+    "bw": [
+      "bw-1",
+      "bw-2",
+      "bw-3",
+      "bw-4"
+    ],
+    "dim": "30",
+    "end": "none"
+  },
+  "style": {
+    "variant": "A",
+    "font": "forum",
+    "hand": "caveat",
+    "colors": {
+      "text": "#FFFFFF",
+      "accent": "#FFE785",
+      "bar": "#EDE4C1"
+    },
+    "subShade": 0.15
+  },
+  "speed": 1.3,
+  "cover": {
+    "frame": 0,
+    "text": "женскую психику чинят по мужскому шаблону"
+  },
+  "uploads": {},
+  "brief": ""
+}

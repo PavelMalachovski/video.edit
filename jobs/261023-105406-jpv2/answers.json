@@ -1,0 +1,32 @@
+{
+  "answers": {
+    "hook": "h3",
+    "cut": "all",
+    "music": "did-i-drive-you-away.m4a",
+    "bw": [
+      "bw-1",
+      "bw-2",
+      "bw-3"
+    ],
+    "dim": "30",
+    "end": "none"
+  },
+  "style": {
+    "variant": "A",
+    "font": "forum",
+    "hand": "caveat",
+    "colors": {
+      "text": "#FFFFFF",
+      "accent": "#FBE89D",
+      "bar": "#EDE4C1"
+    },
+    "subShade": 0.15
+  },
+  "speed": 1.3,
+  "cover": {
+    "frame": 0,
+    "text": "прошу прощения у вашего психотерапевта"
+  },
+  "uploads": {},
+  "brief": ""
+}

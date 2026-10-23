@@ -1,0 +1,17 @@
+{
+  "id": "261023-111033-rl84",
+  "name": "IMG_8842.MP4",
+  "size": 490883685,
+  "type": "video/mp4",
+  "duration": 234.533333,
+  "createdAt": "2026-10-23T11:14:38.567Z",
+  "brief": "",
+  "uploads": [],
+  "runs": [
+    {
+      "step": "analyze",
+      "attempt": 1,
+      "at": "2026-10-23T11:14:38.663Z"
+    }
+  ]
+}

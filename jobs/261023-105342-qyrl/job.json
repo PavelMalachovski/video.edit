@@ -1,0 +1,35 @@
+{
+  "id": "261023-105342-qyrl",
+  "name": "цирк 1 чсасть.MOV",
+  "size": 1927309905,
+  "type": "video/quicktime",
+  "duration": 191.708333,
+  "createdAt": "2026-10-23T11:12:15.462Z",
+  "brief": "",
+  "uploads": [],
+  "videos": [
+    {
+      "file": "in/source.mov",
+      "asset": "source",
+      "name": "цирк 1 чсасть.MOV",
+      "size": 1927309905,
+      "type": "video/quicktime",
+      "duration": 175.125
+    },
+    {
+      "file": "in/source-2.mov",
+      "asset": "source-2",
+      "name": "цирк 2 часть.MOV",
+      "size": 184044177,
+      "type": "video/quicktime",
+      "duration": 16.583333
+    }
+  ],
+  "runs": [
+    {
+      "step": "analyze",
+      "attempt": 1,
+      "at": "2026-10-23T11:12:15.550Z"
+    }
+  ]
+}

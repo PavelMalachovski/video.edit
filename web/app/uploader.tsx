@@ -223,8 +223,8 @@ export default function Uploader() {
       await runUpload({
         parts: chunks.length,
         done,
-        concurrency: 2,
-        minGapMs: 700,
+        concurrency: 4, // кусок идёт ~4 с туда и обратно: при 2 запросах — 2 МБ/с (задачи 23.10)
+        minGapMs: 750, // не чаще 80 стартов в минуту — вторичный лимит GitHub на создание ассетов
         put: async (i) => {
           const c = chunks[i];
           const file = c.file === 'source' ? '' : `&file=${encodeURIComponent(c.file)}`; // source — как раньше, без file

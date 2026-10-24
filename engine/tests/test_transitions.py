@@ -89,10 +89,10 @@ def test_zoom_punch_peaks_at_the_seam_and_is_gone_outside_the_window():
     assert zoom_at(zooms, tl, 4.0, punches=[5.0]) == pytest.approx(1.04)
 
 
-def test_a_zoom_punch_needs_zoompan_even_without_zoom_steps():
+def test_a_zoom_punch_needs_the_zoom_filter_even_without_zoom_steps():
     tl = Timeline([(0.0, 10.0)], 1.0)
     assert zoom_filter([], tl, {"x": 0.5, "y": 0.3}) == "null"
-    assert "zoompan" in zoom_filter([], tl, {"x": 0.5, "y": 0.3}, punches=[5.0])
+    assert "perspective" in zoom_filter([], tl, {"x": 0.5, "y": 0.3}, punches=[5.0])
 
 
 def test_the_swoosh_starts_with_the_transition(tmp_path):

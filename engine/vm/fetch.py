@@ -24,7 +24,6 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import matte
 from . import source as ready_source
 from .job import Job
 
@@ -189,6 +188,9 @@ def _ready(api: str, repo: str, job: Job, named: dict[str, dict], groups: dict[s
 def _matte_cache(api: str, repo: str, job: Job, named: dict[str, dict]) -> None:
     """Маска затемнения фона прошлого рендера (`out/matte-<ключ>.*`, Action унёс её в черновик) → `work/matte/cache-<ключ>.*`:
     рендер возьмёт из неё готовые отрезки (`matte.restore`). Нет её или не скачалась — не беда: рендер посчитает."""
+    # numpy — не на верхнем уровне: Action job-source ставит только jsonschema
+    from . import matte
+
     key = matte.job_key(job)
     assets = [named.get(f"matte-{key}{ext}") for ext in (".json", ".mkv")]
     if None in assets:

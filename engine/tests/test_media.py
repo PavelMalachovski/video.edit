@@ -756,3 +756,43 @@ def test_normalizing_a_long_video_gets_time_by_its_length(monkeypatch, tmp_path)
     with pytest.raises(media.MediaError):  # _run подменён — файла нет, _atomic об этом скажет
         media.normalize([tmp_path / "a.mov"], out)
     assert seen and seen[0] >= 4 * 1200 and seen[0] >= media.FFMPEG_TIMEOUT
+
+
+# ---------- звук исходника для распознавания — без видео ----------
+
+
+def _wav16(path) -> np.ndarray:
+    data, rate = soundfile.read(path, dtype="float32")
+    assert rate == 16000 and data.ndim == 1, "моно 16 кГц, как ждёт распознавание"
+    return data
+
+
+def _same_sound(direct: np.ndarray, via_mp4: np.ndarray) -> None:
+    # в mp4 звук длиннее на хвост последнего кадра AAC (1024 отсчёта при 48 кГц — до 342 при 16 кГц), а сдвиг между
+    # ними (по взаимной корреляции) — не больше 1 мс
+    assert 0 <= len(via_mp4) - len(direct) <= 342, (len(direct), len(via_mp4))
+    n = min(len(direct), len(via_mp4))
+    a, b = direct[:n], via_mp4[:n]
+    lags = range(-48, 49)
+    best = max(lags, key=lambda k: float(np.dot(a[max(0, k):n + min(0, k)], b[max(0, -k):n - max(0, k)])))
+    assert abs(best) <= 16, f"сдвиг {best / 16:.1f} мс"
+
+
+def test_source_wav_is_the_sound_normalize_puts_in_the_source(tmp_path, mixed, part_a, part_b, silent):
+    """Распознавание идёт по звуку из оригиналов, пока картинка ещё нормализуется: время слов должно совпасть с
+    source.mp4 — те же части, тишина за частью без звука, звук по длине видео каждой части."""
+    out, _ = mixed
+    via_mp4 = _wav16(extract_wav(out, tmp_path / "via.wav"))
+    direct = _wav16(media.source_wav([part_a, part_b], tmp_path / "direct.wav"))
+    assert len(direct) == (75 + 60) * 16000 // 30, "ровно по кадрам видео частей"
+    _same_sound(direct, via_mp4)
+    with_silent = normalize([part_a, silent, part_b], tmp_path / "s.mp4")
+    _same_sound(_wav16(media.source_wav([part_a, silent, part_b], tmp_path / "d2.wav")),
+                _wav16(extract_wav(tmp_path / "s.mp4", tmp_path / "v2.wav")))
+    assert with_silent.duration == pytest.approx(2.5 + 1.2 + 2.0, abs=0.1)
+
+
+def test_source_wav_with_a_voiceover_is_the_voiceover_cut_to_its_frames(tmp_path, part_a, voice_long):
+    normalize([part_a], tmp_path / "source.mp4", voice=voice_long)
+    _same_sound(_wav16(media.source_wav([part_a], tmp_path / "direct.wav", voice=voice_long)),
+                _wav16(extract_wav(tmp_path / "source.mp4", tmp_path / "via.wav")))

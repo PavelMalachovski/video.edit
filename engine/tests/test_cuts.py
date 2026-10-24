@@ -273,8 +273,26 @@ def test_speech_without_words_is_not_cut():
 
 def test_speech_keeps_the_tail_of_a_word_cut_short_by_asr():
     words = [Word(0.5, 1.0, "раз"), Word(1.1, 1.4, "айфон")]  # «без штатива» GigaAM не услышал
-    keep = soft_keep(words, 4.0, speech=[(0.45, 2.4)])
-    assert covered(keep, 0.45, 2.4)
+    keep = soft_keep(words, 4.0, speech=[(0.45, 2.6)])
+    assert covered(keep, 0.45, 2.6)
+
+
+@pytest.mark.parametrize("tail", [0.33, 0.6, 0.95])
+def test_the_vad_tail_after_the_last_word_of_a_phrase_is_not_speech(tail):
+    """Silero держит речь ещё до секунды после фразы: там выдох или начало дубля (задачи 23.10 — Павел срезал
+    руками 13 таких хвостов по 0,3–0,8 с). Хвост не длиннее VAD_TAIL — пауза, её ужимают как обычно."""
+    words = [Word(0.5, 1.0, "раз"), Word(1.1, 1.4, "два"), Word(3.0, 3.5, "три")]
+    keep = plan_keep(words, 4.0, speech=[(0.45, 1.4 + tail), (2.95, 3.6)])
+    assert not covered(keep, 1.41, 1.4 + tail), keep
+    assert covered(keep, 0.5, 1.4) and covered(keep, 3.0, 3.5), keep
+
+
+def test_a_vad_tail_before_a_cut_dub_is_not_speech():
+    """Дубль вырезан, перед ним в той же фразе VAD — «и» и 0,58 с хвоста (задача rl84): хвост не держит кусок."""
+    words = [Word(14.4, 14.88, "раз"), Word(14.88, 15.0, "и"), Word(15.6, 16.32, "дубль"), Word(17.5, 18.0, "два")]
+    keep = plan_keep(words, 19.0, extra_cuts=[(15.6, 16.32)], speech=[(14.3, 17.236), (17.45, 18.1)])
+    assert keep[0][1] == pytest.approx(15.0), keep
+    assert not covered(keep, 16.33, 17.2), "хвост VAD после вырезанного дубля — тоже не речь"
 
 
 def test_an_extra_cut_still_cuts_inside_speech():
@@ -299,18 +317,19 @@ def test_a_sliver_of_speech_left_by_an_extra_cut_is_not_kept():
 # ---------- плотная резка (по умолчанию, стиль эталона) ----------
 
 
-def test_by_default_every_pause_longer_than_0_26_s_shrinks_to_0_16_s():
-    # пауза 0,3 с: мягкая резка оставила бы её целой, плотная — ужимает: 0,06 с после слова и 0,10 с перед следующим
+def test_by_default_every_pause_longer_than_0_26_s_is_cut_flush_to_the_words():
+    # пауза 0,3 с: мягкая резка оставила бы её целой, плотная — вырезает целиком: склейка вплотную к словам (решение
+    # Павла 24.10.2026 — так он резал склейки руками)
     words = speech((1.0, 2.0), (2.3, 3.0))
-    assert_keeps(plan_keep(words, 5.0), (0.9, 2.06), (2.2, 3.06))
+    assert_keeps(plan_keep(words, 5.0), (0.9, 2.0), (2.3, 3.06))
     assert_keeps(soft_keep(words, 5.0), (0.88, 3.08))
 
 
-def test_a_pause_that_would_save_less_than_0_1_s_stays_whole():
-    """Склейка ради 1–3 кадров только дёргает кадр: пауза до 0,26 с (экономия до 0,1 с) остаётся целой."""
+def test_a_short_pause_stays_whole():
+    """Склейка ради пары кадров только дёргает кадр: пауза до 0,26 с остаётся целой."""
     assert_keeps(plan_keep(speech((1.0, 2.0), (2.2, 3.0)), 5.0), (0.9, 3.06))
     assert_keeps(plan_keep(speech((1.0, 2.0), (2.25, 3.0)), 5.0), (0.9, 3.06))
-    assert_keeps(plan_keep(speech((1.0, 2.0), (2.27, 3.0)), 5.0), (0.9, 2.06), (2.17, 3.06))
+    assert_keeps(plan_keep(speech((1.0, 2.0), (2.27, 3.0)), 5.0), (0.9, 2.0), (2.27, 3.06))
 
 
 def test_a_soft_recut_of_the_draft_keeps_its_slips_out():
@@ -329,8 +348,9 @@ def test_tight_cut_keeps_whole_words_and_short_pauses():
         words, duration = random_speech(rng)
         keep = plan_keep(words, duration)
         assert_ordered_and_whole(keep, words, duration, [], f"seed {seed}: {keep}")
-        assert all(whole(word, keep) for word in words), seed
+        # слово нулевой длины в вырезанной паузе — точка, его нечем показать: склейка вплотную его не держит
+        assert all(whole(word, keep) for word in words if word.t1 > word.t0), seed
         for ((_, end), (start, _)) in pairwise(keep):
             left = max((w.t1 for w in words if w.t1 <= end + EPS), default=end)
             right = min((w.t0 for w in words if w.t0 >= start - EPS), default=start)
-            assert (end - left) + (right - start) <= 0.16 + EPS, seed
+            assert (end - left) + (right - start) <= EPS, seed

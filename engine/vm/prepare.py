@@ -2,7 +2,8 @@
 
 Видео из `in/` (`in/source.*`, как кладёт fetch; иначе все видео по имени) → `source.mp4` (1080×1920 SDR 30 к/с;
 озвучка Павла — upload `kind: "audio"` в job.json — вместо звука видео, ролик длиной в неё)
-→ `work/source.wav` (16 кГц) → `language.json` (язык ролика: `ЯЗЫК:` в ТЗ, ответ Павла `--lang` или Whisper по
+и `work/source.wav` (16 кГц; при нормализации — прямо из видео Павла, `media.source_wav`: распознавание идёт, пока
+нормализуется картинка) → `language.json` (язык ролика: `ЯЗЫК:` в ТЗ, ответ Павла `--lang` или Whisper по
 речи) → `reference.txt` (сплошной текст Whisper, по нему Claude правит слова) → `words.json` (слова с временем:
 GigaAM для русского, Parakeet для 25 европейских языков, иначе Whisper по фразам), `speech.json` (где речь по VAD:
 резка внутри неё не режет), `cuts.json` (`plan_keep` — плотная резка — и `joins` — резкие смены кадра в исходнике,
@@ -34,6 +35,7 @@ from .media import (
     probe,
     scene_cuts,
     source_parts,
+    source_wav,
     voice_seconds,
 )
 from .source import make as make_source
@@ -206,30 +208,35 @@ def prepare(
             _engine(told, have)
     notes = []
 
-    if redo or not source.is_file():  # готовый исходник из черновика (vm fetch, Action job-source) — не нормализуем
-        parts = source_parts(job.path("in"))
-        voice = _voice(job) if parts else None
-        step("Готовлю видео", "Привожу к 1080×1920, 30 к/с, SDR" + (" и ставлю озвучку" if voice else ""))
-        if voice:
-            notes.append(_voice_line(voice[1], voice_seconds(voice[0]), sum(probe(p).duration for p in parts)))
-        info = make_source(job)
-        if len(parts) > 1:
-            marks = editor.video_marks(job, parts, info.duration)
-            notes.append("Видео по порядку: " + ", ".join(f"{v['name']} {_clock(v['t0'])}–{_clock(v['t1'])}" for v in marks))
-    else:
-        info = probe(source)
-    if not (math.isfinite(info.duration) and info.duration > 0):
-        raise ValueError(f"source.mp4: непонятная длительность {info.duration!r}")
-
     reference = ""
     plan_cuts = recognise or not cuts_path.is_file()
+    listen = (f"Язык — {lang.name(told)}: слушаю речь" if told else "Слушаю речь и определяю язык") + "; пока — смены сцены и редактор"
     with ThreadPoolExecutor(1) as pool:
         hearing = None
+        if redo or not source.is_file():  # готовый исходник из черновика (vm fetch, Action job-source) — не нормализуем
+            parts = source_parts(job.path("in"))
+            voice = _voice(job) if parts else None
+            if voice:
+                notes.append(_voice_line(voice[1], voice_seconds(voice[0]), sum(probe(p).duration for p in parts)))
+            if recognise and parts:  # звук — прямо из видео Павла (секунды): речь слушаем, пока нормализуется картинка
+                wav = source_wav(parts, job.path("work/source.wav"), voice=voice[0] if voice else None)
+                hearing = pool.submit(_hear, wav, told, have, brief, answer)
+            step("Готовлю видео", "Привожу к 1080×1920, 30 к/с, SDR" + (" и ставлю озвучку" if voice else "")
+                 + ("; тем временем слушаю речь" if hearing else ""))
+            info = make_source(job)
+            if len(parts) > 1:
+                marks = editor.video_marks(job, parts, info.duration)
+                notes.append("Видео по порядку: " + ", ".join(f"{v['name']} {_clock(v['t0'])}–{_clock(v['t1'])}" for v in marks))
+        else:
+            info = probe(source)
+        if not (math.isfinite(info.duration) and info.duration > 0):
+            raise ValueError(f"source.mp4: непонятная длительность {info.duration!r}")
+
         if recognise:
-            wav = extract_wav(source, job.path("work/source.wav"))
-            step("Расшифровываю", (f"Язык — {lang.name(told)}: слушаю речь" if told else "Слушаю речь и определяю язык")
-                 + "; пока — смены сцены и редактор")
-            hearing = pool.submit(_hear, wav, told, have, brief, answer)
+            if hearing is None:  # исходник готовый (или --redo без видео в in/): звук — из него
+                wav = extract_wav(source, job.path("work/source.wav"))
+                hearing = pool.submit(_hear, wav, told, have, brief, answer)
+            step("Расшифровываю", listen)
         # пока идёт распознавание (2 ядра из 4) — то, чему нужен только исходник
         joins = scene_cuts(source) if plan_cuts else None
         if recognise:

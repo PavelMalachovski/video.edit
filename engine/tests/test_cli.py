@@ -1178,6 +1178,33 @@ def test_prepare_listens_to_the_speech_while_it_makes_the_editor_files(heard, mo
 
 
 @needs_ffmpeg
+def test_prepare_listens_to_the_speech_while_it_normalizes_the_video(heard, monkeypatch):
+    """Звук для распознавания — прямо из видео Павла (`media.source_wav`, секунды), и распознавание идёт, пока
+    нормализуется картинка (на 4K с iPhone — 2–7 минут): анализ на столько же короче."""
+    from vm import asr
+    from vm import prepare as prepare_mod
+
+    job, calls, _, _ = heard
+    started, seen = threading.Event(), []
+    make, reference = prepare_mod.make_source, asr.reference
+
+    def normalizing(j):
+        seen.append(started.wait(5))
+        return make(j)
+
+    def hearing(wav, language="ru"):
+        started.set()
+        return reference(wav, language)
+
+    monkeypatch.setattr(prepare_mod, "make_source", normalizing)
+    monkeypatch.setattr(asr, "reference", hearing)
+    assert main(["prepare", str(job.root)]) == 0
+    assert seen == [True], "распознавание началось до нормализации видео"
+    assert calls == {"reference": [""], "transcribe": ["cs"]} and job.path("words.json").is_file()
+    assert job.path("source.mp4").is_file() and job.path("work/source.wav").is_file()
+
+
+@needs_ffmpeg
 def test_prepare_takes_the_language_from_the_brief(heard):
     job, calls, _, _ = heard
     brief(job, "ХУК: привет\nЯЗЫК: английский")

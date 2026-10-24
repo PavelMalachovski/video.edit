@@ -152,17 +152,17 @@ def centroid(gray: np.ndarray, near: tuple[float, float], radius: int = 80) -> t
 
 
 def z_expression(vf: str) -> str:
-    """Выражение уровня из фильтра zoompan (z='…')."""
-    return vf.split("z='", 1)[1].split("'", 1)[0]
+    """Выражение уровня от времени `t` из фильтра (enable='gt(уровень,1.000001)')."""
+    return vf.split("enable='gt(", 1)[1].rsplit(",1.000001)'", 1)[0]
 
 
 @needs_ffmpeg
 def test_ffmpeg_expression_is_zoom_at(tmp_path):
-    # то же выражение, что получит zoompan, считает сам ffmpeg (aevalsrc: отсчёт = уровень в момент t)
+    # то же выражение, что получит фильтр, считает сам ffmpeg (aevalsrc: отсчёт = уровень в момент t)
     tl = Timeline([(0.0, 3.0), (4.0, 9.0)], 1.1)
     zooms = [{"t": 1.0, "level": 1.06}, {"t": 1.2, "level": 1.02}, {"t": 5.0, "level": 1.25, "over": 0},
              {"t": 5.6, "level": 1.1, "over": 1.5}, {"t": 7.0, "level": 1.0}]
-    expr = z_expression(zoom_filter(zooms, tl, {"x": 0.5, "y": 0.3})).replace("it", "t")
+    expr = z_expression(zoom_filter(zooms, tl, {"x": 0.5, "y": 0.3}))
     rate = 100
     raw = subprocess.run(
         ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", f"aevalsrc='{expr}':s={rate}:d=8",
@@ -178,7 +178,7 @@ def test_ffmpeg_expression_is_zoom_at(tmp_path):
 @needs_ffmpeg
 @pytest.mark.parametrize("source", ["testsrc2=s=1080x1920:r=25:d=3", "testsrc2=s=1080x1920:r=30:d=3,setpts=PTS/1.1"])
 def test_zoom_filter_keeps_the_timing_of_any_input(tmp_path, source):
-    # zoompan считает кадры сам: без приведения к 30 к/с он растягивал бы ролик (25 к/с) или отменял ускорение
+    # время кадра — его номер / 30: без приведения к 30 к/с зум на входе 25 к/с шёл бы не в свой момент
     vf = zoom_filter([{"t": 1.0, "level": 1.08}], WHOLE, {"x": 0.5, "y": 0.3})
     out = tmp_path / "timing.mp4"
     subprocess.run(
@@ -215,7 +215,7 @@ def test_transition_must_take_time():
 @needs_ffmpeg
 def test_zoom_filter_runs_in_ffmpeg(tmp_path):
     vf = zoom_filter([{"t": 1.0, "level": 1.08}], WHOLE, {"x": 0.5, "y": 0.3})
-    assert vf.startswith("fps=30,zoompan=") and ":d=1:s=1080x1920:fps=30" in vf
+    assert vf.startswith("fps=30,perspective=") and ":interpolation=cubic:eval=frame:enable=" in vf
     out = tmp_path / "zoom.mp4"
     run_filter(["-f", "lavfi", "-i", "testsrc2=s=1080x1920:r=30:d=3"], vf, out, 3)
     assert probe(out) == (1080, 1920, 90)
@@ -251,3 +251,44 @@ def test_a_moved_piece_keeps_the_shot_it_has_in_the_recording():
         for source, level in ((6.2, 1.3), (1.0, 1.0), (4.0, 1.3), (7.0, 1.0)):
             assert zoom_at(zooms, tl, tl.to_final(source)) == pytest.approx(level), (tl.segments, source)
     assert zoom_filter(zooms, in_order, {"x": 0.5, "y": 0.4}) == zoom_filter(zooms, Timeline([(0, 2.9), (3.1, 5), (5.1, 8)], 1.0), {"x": 0.5, "y": 0.4})
+
+
+@needs_ffmpeg
+def test_a_slow_push_in_moves_the_picture_smoothly(tmp_path):
+    """Медленный наезд 1.0 → 1.15 за 5 с — меньше пикселя за кадр. zoompan ставил окно на целые пиксели, и точка у
+    края кадра прыгала туда-обратно на ±2 px (Павел: «обрывчато»). Теперь каждый кадр сдвигается вперёд, ровно."""
+    out = tmp_path / "push.mp4"
+    dot = "drawbox=x=896:y=296:w=8:h=8:color=white:t=fill,gblur=sigma=3"
+    vf = f"{dot},{zoom_filter([{'t': 0.0, 'level': 1.15, 'over': 5}], WHOLE, {'x': 0.54, 'y': 0.4})}"
+    run_filter(["-f", "lavfi", "-i", "color=c=black:s=1080x1920:r=30:d=5"], vf, out, 5)
+    raw = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(out), "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+        check=True, capture_output=True,
+    ).stdout
+    frames = np.frombuffer(raw, np.uint8).reshape(-1, 1920, 1080)[:, 200:420, 820:1080].astype(float)
+    xs = np.array([(f * (f > 40)).sum(axis=0) @ np.arange(f.shape[1]) / (f * (f > 40)).sum() for f in frames])
+    steps = np.diff(xs)[10:-10]  # в середине наезда точка едет вправо, 0,1–0,6 px за кадр
+    assert steps.min() > 0, np.round(steps, 2)
+    assert np.abs(np.diff(steps)).max() < 0.3, np.round(steps, 2)
+
+
+@needs_ffmpeg
+def test_a_shot_change_lands_on_its_own_frame(tmp_path):
+    """Смена крупности с 1.1 на 1.3 в 1,0 с — на кадре 30, как у zoomAt редактора: кадр 29 ещё общий. (`in` у
+    perspective считается с 1 — без поправки смена вставала на кадр раньше, на хвост уходящего плана.)"""
+    face = {"x": 0.5, "y": 0.5}
+    zooms = [{"t": 0.0, "level": 1.1, "over": 0}, {"t": 1.0, "level": 1.3, "over": 0}]
+    dot = "drawbox=x=896:y=1596:w=8:h=8:color=white:t=fill"
+    out = tmp_path / "shot.mp4"
+    run_filter(["-f", "lavfi", "-i", "color=c=black:s=1080x1920:r=30:d=2"], f"{dot},{zoom_filter(zooms, WHOLE, face)}", out, 2)
+    raw = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(out), "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+        check=True, capture_output=True,
+    ).stdout
+    frames = np.frombuffer(raw, np.uint8).reshape(-1, 1920, 1080)
+
+    def x(n: int) -> float:
+        return float(np.nonzero(frames[n] > 100)[1].mean())
+
+    at = {level: 540 + (900 - 540) * level for level in (1.1, 1.3)}  # точка в 360 px от центра-якоря
+    assert abs(x(29) - at[1.1]) < 4 and abs(x(30) - at[1.3]) < 4, (x(29), x(30), at)

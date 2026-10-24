@@ -270,3 +270,25 @@ def test_a_slow_push_in_moves_the_picture_smoothly(tmp_path):
     steps = np.diff(xs)[10:-10]  # в середине наезда точка едет вправо, 0,1–0,6 px за кадр
     assert steps.min() > 0, np.round(steps, 2)
     assert np.abs(np.diff(steps)).max() < 0.3, np.round(steps, 2)
+
+
+@needs_ffmpeg
+def test_a_shot_change_lands_on_its_own_frame(tmp_path):
+    """Смена крупности с 1.1 на 1.3 в 1,0 с — на кадре 30, как у zoomAt редактора: кадр 29 ещё общий. (`in` у
+    perspective считается с 1 — без поправки смена вставала на кадр раньше, на хвост уходящего плана.)"""
+    face = {"x": 0.5, "y": 0.5}
+    zooms = [{"t": 0.0, "level": 1.1, "over": 0}, {"t": 1.0, "level": 1.3, "over": 0}]
+    dot = "drawbox=x=896:y=1596:w=8:h=8:color=white:t=fill"
+    out = tmp_path / "shot.mp4"
+    run_filter(["-f", "lavfi", "-i", "color=c=black:s=1080x1920:r=30:d=2"], f"{dot},{zoom_filter(zooms, WHOLE, face)}", out, 2)
+    raw = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(out), "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+        check=True, capture_output=True,
+    ).stdout
+    frames = np.frombuffer(raw, np.uint8).reshape(-1, 1920, 1080)
+
+    def x(n: int) -> float:
+        return float(np.nonzero(frames[n] > 100)[1].mean())
+
+    at = {level: 540 + (900 - 540) * level for level in (1.1, 1.3)}  # точка в 360 px от центра-якоря
+    assert abs(x(29) - at[1.1]) < 4 and abs(x(30) - at[1.3]) < 4, (x(29), x(30), at)

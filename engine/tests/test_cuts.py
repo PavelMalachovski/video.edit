@@ -292,6 +292,7 @@ def test_a_vad_tail_before_a_cut_dub_is_not_speech():
     words = [Word(14.4, 14.88, "раз"), Word(14.88, 15.0, "и"), Word(15.6, 16.32, "дубль"), Word(17.5, 18.0, "два")]
     keep = plan_keep(words, 19.0, extra_cuts=[(15.6, 16.32)], speech=[(14.3, 17.236), (17.45, 18.1)])
     assert keep[0][1] == pytest.approx(15.0), keep
+    assert not covered(keep, 16.33, 17.2), "хвост VAD после вырезанного дубля — тоже не речь"
 
 
 def test_an_extra_cut_still_cuts_inside_speech():

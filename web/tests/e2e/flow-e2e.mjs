@@ -1944,7 +1944,10 @@ const segments = [
     // (и честно грузила бы оригинал: «браузер не читает это видео»); путь уменьшения тот же
     const clip = (name, seconds, heavy) => {
       const file = path.join(ctx.tmp, name);
-      execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `testsrc2=s=1440x2560:r=30:d=${seconds}`, '-f', 'lavfi', '-i', `sine=frequency=440:duration=${seconds}`,
+      // шум — чтобы копия при 20 Мбит/с вышла больше одного куска (4 МБ): гладкую картинку VP9 ужал бы в один, и загрузка
+      // кончалась бы раньше, чем тест успевает её прервать
+      execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `testsrc2=s=1440x2560:r=30:d=${seconds},noise=alls=40:allf=t+u`,
+        '-f', 'lavfi', '-i', `sine=frequency=440:duration=${seconds}`,
         '-c:v', 'libvpx-vp9', '-deadline', 'realtime', '-cpu-used', '8', '-row-mt', '1', '-b:v', '8M', '-pix_fmt', 'yuv420p',
         '-c:a', 'aac', '-shortest', '-f', 'mp4', file]);
       if (heavy) {
@@ -1971,7 +1974,7 @@ const segments = [
       //    и заметка почему; Chromium умеет — обязан уменьшить
       // в Safari (WebKit на Linux) сжатия нет — ушёл бы весь тяжёлый оригинал, а перезагрузку посреди загрузки там
       // проверяет шаг resume: файл лёгкий, без перезагрузки
-      const big = clip('IMG_4K.MP4', 2, !WEBKIT);
+      const big = clip('IMG_4K.MP4', 4, !WEBKIT);
       await p.goto(`${APP}/`);
       await p.setInputFiles('#source', big);
       await p.getByText('IMG_4K.MP4').first().waitFor();
@@ -1983,11 +1986,13 @@ const segments = [
         // после перезагрузки посреди загрузки «Продолжить загрузку» берёт ту же копию (хранилище браузера) и досылает
         // недостающие куски: до перезагрузки в черновик доходит только первый кусок, остальные обрываются
         await p.route(isPart, (route) => (new URL(route.request().url()).pathname.endsWith('/parts/0') ? route.continue() : route.abort()));
+        const before = (await state()).drafts.length;
         await p.getByRole('button', { name: 'Загрузить', exact: true }).click();
-        await p.getByText('Загружаю в GitHub…').waitFor({ timeout: 300_000 });
+        // ждём первый кусок в черновике новой задачи (надпись «Загружаю» после быстрого сжатия может мелькнуть незаметно)
+        await until(async () => { const d = (await state()).drafts; return d.length > before && d.at(-1).assets.length >= 1; },
+          300_000, 'первый кусок уменьшенного в черновике');
         await noteNow();
         await shot(p, 'upload-shrunk');
-        await until(async () => ((await state()).drafts.at(-1)?.assets.length ?? 0) >= 1, 60_000, 'первый кусок в черновике');
         await p.unroute(isPart);
         await p.reload();
         await p.getByText('Загрузка IMG_4K.MP4 не закончена').waitFor({ timeout: 15_000 });
@@ -2001,15 +2006,13 @@ const segments = [
         await p.getByRole('button', { name: 'Продолжить загрузку' }).click();
       } else {
         await p.getByRole('button', { name: 'Загрузить', exact: true }).click();
-        await p.getByText('Загружаю в GitHub…').waitFor({ timeout: 300_000 });
-        await noteNow();
       }
-      await p.waitForURL(/\/jobs\/\d{6}-\d{6}-[0-9a-z]{4}$/, { timeout: 180_000 });
+      await p.waitForURL(/\/jobs\/\d{6}-\d{6}-[0-9a-z]{4}$/, { timeout: 300_000 });
       const got = await joined('joined-shrunk.mp4');
       const info = probe(got);
       const video = info.streams.find((x) => x.codec_type === 'video');
       if (video?.width === 1080) {
-        check(video.height === 1920 && video.r_frame_rate === '30/1' && Math.abs(Number(info.format.duration) - 2) < 0.2, `уменьшенное видео: ${JSON.stringify(info)}`);
+        check(video.height === 1920 && video.r_frame_rate === '30/1' && Math.abs(Number(info.format.duration) - 4) < 0.2, `уменьшенное видео: ${JSON.stringify(info)}`);
         check(info.streams.some((x) => x.codec_type === 'audio'), 'у уменьшенного видео пропал звук');
         if (!WEBKIT) check(sent.length > 0 && !sent.some((n) => had.has(n)), `после перезагрузки заново ушли: ${sent.filter((n) => had.has(n)).join(', ') || 'ничего'}`);
       } else {

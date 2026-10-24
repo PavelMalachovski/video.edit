@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PAUSED } from '../lib/client.ts';
 import {
-  clearPending, FATAL, loadPending, matchPending, planChunks, resumeDone, runUpload, sameSelection, savePending, UploadStopped, type Pending, type PutResult,
+  clearPending, FATAL, loadPending, matchPending, planChunks, resumeDone, runUpload, sameSelection, savePending, sentVideos, UploadStopped, type Pending,
+  type PutResult,
 } from '../lib/uploader.ts';
 import { blockedStorage, memoryStorage } from './helpers.ts';
 
@@ -245,6 +246,20 @@ test('a pending upload with a broken list of more videos is not resumed', () => 
   const more = { asset: 'source-2', name: 'b.mov', size: 20, type: 'video/quicktime', lastModified: 2 };
   for (const bad of [{ ...more, type: undefined }, { ...more, lastModified: 'x' }, { ...more, size: -1 }]) {
     store.setItem('vm:pending', JSON.stringify({ ...pending, more: [bad] }));
+    assert.equal(loadPending(store), null, JSON.stringify(bad));
+  }
+});
+
+test('a pending upload remembers the size of each shrunk video; the chunks follow it, not the original', () => {
+  const store = memoryStorage();
+  const more = { asset: 'source-2', name: 'b.mov', size: 20, type: 'video/quicktime', lastModified: 2, shrunk: 7 };
+  const p: Pending = { ...pending, source: { ...pending.source, shrunk: 4 }, more: [more] };
+  savePending(store, p);
+  assert.deepEqual(loadPending(store), p);
+  assert.deepEqual(sentVideos(p), [{ asset: 'source', size: 4 }, { asset: 'source-2', size: 7 }]);
+  assert.deepEqual(sentVideos(pending), [{ asset: 'source', size: pending.source.size }], 'не уменьшали — оригинал');
+  for (const bad of [{ ...p, source: { ...p.source, shrunk: 0 } }, { ...p, more: [{ ...more, shrunk: 'x' }] }]) {
+    store.setItem('vm:pending', JSON.stringify(bad));
     assert.equal(loadPending(store), null, JSON.stringify(bad));
   }
 });

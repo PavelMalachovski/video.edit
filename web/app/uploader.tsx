@@ -11,17 +11,22 @@ import {
   videoAsset, voiceAssetName,
 } from '@/lib/jobs.ts';
 import {
-  clearPending, loadPending, matchPending, planChunks, resumeDone, runUpload, sameSelection, savePending, type Pending, type PendingInsert,
+  clearPending, loadPending, matchPending, planChunks, resumeDone, runUpload, sameSelection, savePending, sentVideos, type Pending,
+  type PendingInsert,
 } from '@/lib/uploader.ts';
 import { keepScreenOn } from '@/lib/wakelock.ts';
 import { takeNextBrief } from '@/lib/script.ts';
 import { CloseIcon, FilmIcon, ImageIcon, MicIcon, PlayIcon, PlusIcon, RefreshIcon, UploadIcon, UpIcon } from './icons';
 import { JOBS_CHANGED } from './jobs-list';
+import { dropShrunk, shrinkVideo } from './shrink';
 
 const BRIEF_HINT = 'ХУК: Как я учу чешский\nКОДОВОЕ СЛОВО: чешский\nМУЗЫКА: lofi\nКогда говорю «приложение» — покажи логотип\nНа «вот так это выглядит» — фуллскрин демо';
 
-type Phase = 'idle' | 'uploading' | 'completing' | 'launching' | 'failed' | 'launch_failed';
-type Active = { p: Pending; files: Map<string, File> }; // files: ассеты видео (source, source-2…), вставок и озвучки → файлы
+type Phase = 'idle' | 'shrinking' | 'uploading' | 'completing' | 'launching' | 'failed' | 'launch_failed';
+// files: ассеты видео (source, source-2…), вставок и озвучки → выбранные файлы; send — видео, уменьшенные в браузере
+// (что уходит в черновик вместо выбранного файла)
+type Active = { p: Pending; files: Map<string, File>; send: Map<string, File> };
+type Video = { asset: string; file: File; expect?: number }; // expect — размер копии из незаконченной загрузки
 
 /** Длительность по метаданным `<video>`; не узнал за 5 с (или файл не читается) — null. */
 function videoDuration(file: File, timeoutMs = 5000): Promise<number | null> {
@@ -80,6 +85,8 @@ export default function Uploader() {
   const [sent, setSent] = useState(0);
   const [total, setTotal] = useState(0);
   const [error, setError] = useState('');
+  const [original, setOriginal] = useState(false); // галочка «загрузить оригинал»: без уменьшения в браузере
+  const [shrinkNote, setShrinkNote] = useState('');
   const briefRef = useRef('');
   const active = useRef<Active | null>(null);
   const launched = useRef<string | null>(null);
@@ -94,7 +101,7 @@ export default function Uploader() {
     briefRef.current = text;
   }, []);
 
-  const busy = phase === 'uploading' || phase === 'completing' || phase === 'launching';
+  const busy = phase === 'shrinking' || phase === 'uploading' || phase === 'completing' || phase === 'launching';
   const source = sources[0] ?? null;
   const match = useMemo(() => (pending && sources.length && !busy ? matchPending(pending, sources, inserts, voice) : null), [pending, sources, inserts, voice, busy]);
   const sourceError = sources.length ? checkSources(sources.map((f) => f.size)) : null;
@@ -112,6 +119,7 @@ export default function Uploader() {
     if (!picked.length) return;
     setSources([...sources, ...picked]);
     setError('');
+    setShrinkNote('');
     setPhase('idle');
     for (const f of picked) void videoDuration(f).then((d) => setDurations((m) => new Map(m).set(f, d)));
   }
@@ -156,23 +164,31 @@ export default function Uploader() {
   async function startNew() {
     if (!source || !canStart) return;
     setError('');
-    setPhase('uploading');
     try {
-      const size = sources.reduce((sum, f) => sum + f.size, 0);
-      const r = await post('/api/jobs', { name: label, size, type: source.type });
+      // новая загрузка заменит незаконченную; дождаться: тот же файл ужмётся в то же место
+      if (pending) await dropShrunk([pending.source, ...(pending.more ?? [])]);
+      const send = await shrink(sources.map((f, k) => ({ asset: videoAsset(k), file: f })), original);
+      setPhase('uploading');
+      const sent = sources.map((f, k) => send.get(videoAsset(k)) ?? f);
+      const size = sent.reduce((sum, f) => sum + f.size, 0);
+      const r = await post('/api/jobs', { name: label, size, type: sent[0].type });
       if (!r.ok) throw new Error(await errorText(r, 'Задача не создалась'));
       const { jobId, releaseId } = (await r.json()) as { jobId: string; releaseId: number };
       window.dispatchEvent(new Event(JOBS_CHANGED));
       const list: PendingInsert[] = inserts.map((f, k) => ({ asset: uploadAssetName('i', k + 1, f.name, f.type), name: f.name, size: f.size, type: f.type, lastModified: f.lastModified }));
       const said = voice ? { asset: voiceAssetName(voice.name, voice.type), name: voice.name, size: voice.size, type: voice.type, lastModified: voice.lastModified } : undefined;
-      const more: PendingInsert[] = sources.slice(1).map((f, k) => ({ asset: videoAsset(k + 1), name: f.name, size: f.size, type: f.type, lastModified: f.lastModified }));
+      const shrunk = (asset: string) => (send.has(asset) ? { shrunk: send.get(asset)!.size } : {});
+      const more: PendingInsert[] = sources.slice(1).map((f, k) => ({
+        asset: videoAsset(k + 1), name: f.name, size: f.size, type: f.type, lastModified: f.lastModified, ...shrunk(videoAsset(k + 1)),
+      }));
       const p: Pending = {
-        jobId, releaseId, source: { name: source.name, size: source.size, lastModified: source.lastModified }, brief: briefRef.current, duration: duration ?? null,
+        jobId, releaseId, source: { name: source.name, size: source.size, lastModified: source.lastModified, ...shrunk('source') },
+        brief: briefRef.current, duration: duration ?? null,
         inserts: list, voice: said, ...(more.length ? { more } : {}),
       };
       const files = new Map<string, File>([...sources.map((f, k) => [videoAsset(k), f] as [string, File]), ...list.map((i, k) => [i.asset, inserts[k]] as [string, File])]);
       if (said && voice) files.set(said.asset, voice);
-      await upload({ p, files }, new Set());
+      await upload({ p, files, send }, new Set());
     } catch (e) {
       setError(message(e));
       setPhase('failed');
@@ -195,7 +211,44 @@ export default function Uploader() {
     const files = new Map<string, File>([...match.videos, ...match.inserts, ...added.map((a, k) => [a.asset, extras[k]] as [string, File])]);
     setSources([...match.videos.values()]); // видео — в порядке задачи, даже если выбраны заново в другом
     if (said && voice) files.set(said.asset, voice);
-    await upload({ p, files }, null);
+    setError('');
+    try {
+      // уменьшенные в прошлый раз — та же копия (из хранилища браузера или сжатая заново); ушёл оригинал — оригинал
+      const was = new Map([['source', pending.source.shrunk], ...(pending.more ?? []).map((v) => [v.asset, v.shrunk] as const)]);
+      const again = [...match.videos].flatMap(([asset, file]) => (was.get(asset) ? [{ asset, file, expect: was.get(asset) }] : []));
+      const send = await shrink(again, false);
+      const lost = again.find((v) => send.get(v.asset)?.size !== v.expect);
+      if (lost) throw new Error(`Уменьшенная копия ${lost.file.name} не сохранилась в браузере — нажмите «Забыть» и загрузите заново`);
+      await upload({ p, files, send }, null);
+    } catch (e) {
+      setError(message(e));
+      setPhase('failed');
+    }
+  }
+
+  /** Уменьшить видео по очереди (прогресс — общей полосой); какие ушли оригиналом и почему — заметкой под списком.
+   *  `asked` — галочка «загрузить оригинал». → ассет → уменьшенный файл. */
+  async function shrink(videos: Video[], asked: boolean): Promise<Map<string, File>> {
+    const send = new Map<string, File>();
+    if (!videos.length) return send;
+    setPhase('shrinking');
+    setShrinkNote('');
+    setTotal(videos.length);
+    setSent(0);
+    const notes: string[] = [];
+    const release = keepScreenOn(navigator as Parameters<typeof keepScreenOn>[0], document); // телефон не уснёт посреди сжатия
+    try {
+      for (const [k, v] of videos.entries()) {
+        const r = await shrinkVideo(v.file, { asked, expect: v.expect, onProgress: (done) => setSent(k + done) });
+        if ('file' in r) send.set(v.asset, r.file);
+        else if (!r.quiet) notes.push(`${v.file.name} — оригинал: ${r.original}`);
+        setSent(k + 1);
+      }
+    } finally {
+      release();
+    }
+    setShrinkNote(notes.join('\n'));
+    return send;
   }
 
   /** Куски (`known` — уже готовые; null — спросить черновик), проверка → manifest.json, запуск анализа. */
@@ -206,9 +259,10 @@ export default function Uploader() {
     setError('');
     setPhase('uploading');
     const release = keepScreenOn(navigator as Parameters<typeof keepScreenOn>[0], document); // экран не гаснет до конца загрузки
-    const { p, files } = a;
+    const { p, files, send } = a;
+    const out = (asset: string) => send.get(asset) ?? files.get(asset)!; // что уходит в черновик: уменьшенное или выбранное
     try {
-      const videos = [{ asset: 'source', size: p.source.size }, ...(p.more ?? [])]; // видео по порядку, потом вставки и озвучка
+      const videos = sentVideos(p); // видео по порядку (уменьшенные — своим размером), потом вставки и озвучка
       const extra = [...p.inserts, ...(p.voice ? [p.voice] : [])];
       const chunks = planChunks([...videos, ...extra].map((i) => ({ asset: i.asset, size: i.size })));
       let done = known;
@@ -229,7 +283,7 @@ export default function Uploader() {
           const c = chunks[i];
           const file = c.file === 'source' ? '' : `&file=${encodeURIComponent(c.file)}`; // source — как раньше, без file
           const r = await fetch(`/api/jobs/${p.jobId}/parts/${c.index}?release=${p.releaseId}${file}`, {
-            method: 'PUT', body: files.get(c.file)!.slice(c.start, c.end), headers: { 'Content-Type': 'application/octet-stream' },
+            method: 'PUT', body: out(c.file).slice(c.start, c.end), headers: { 'Content-Type': 'application/octet-stream' },
           });
           if (!r.ok) return { ok: false, status: r.status };
           got += c.end - c.start;
@@ -239,10 +293,11 @@ export default function Uploader() {
       });
       setPhase('completing');
       const partsOf = (asset: string) => chunks.filter((c) => c.file === asset).length;
-      const first = { asset: 'source', name: p.source.name, size: p.source.size, type: files.get('source')!.type, lastModified: p.source.lastModified };
-      const all = [first, ...(p.more ?? [])].map((v) => {
-        const d = durations.get(files.get(v.asset)!);
-        return { ...v, parts: partsOf(v.asset), duration: typeof d === 'number' ? d : null };
+      const first = { asset: 'source', name: p.source.name, size: p.source.shrunk ?? p.source.size, type: out('source').type, lastModified: p.source.lastModified };
+      const all = [first, ...(p.more ?? [])].map(({ asset, name, size, lastModified, ...v }) => {
+        const d = durations.get(files.get(asset)!);
+        return { asset, name, size: 'shrunk' in v ? v.shrunk ?? size : size, type: out(asset).type, lastModified, parts: partsOf(asset),
+          duration: typeof d === 'number' ? d : null };
       });
       const c = await post(`/api/jobs/${p.jobId}/complete`, {
         releaseId: p.releaseId, name: first.name, size: first.size, type: first.type, lastModified: first.lastModified,
@@ -253,6 +308,7 @@ export default function Uploader() {
       if (!c.ok) throw new Error(await errorText(c, 'Проверка загрузки не прошла'));
       clearPending(storage()); // всё в черновике — продолжать больше нечего, запуск повторяется и со страницы задачи
       setPending(null);
+      void dropShrunk([...send.keys()].map((asset) => files.get(asset)!)); // копии в хранилище браузера больше не нужны
     } catch (e) {
       setError(message(e));
       setPhase('failed');
@@ -286,6 +342,7 @@ export default function Uploader() {
   }
 
   function forget() {
+    if (pending) void dropShrunk([pending.source, ...(pending.more ?? [])]);
     clearPending(storage());
     setPending(null);
   }
@@ -346,14 +403,22 @@ export default function Uploader() {
             {long ? <div className="warn small">Ролик длиннее 5 минут — монтаж может не уложиться.</div> : null}
             {sourceError ? <div className="err small">{sourceError}</div> : null}
             {totalError ? <div className="err small">{totalError}</div> : null}
+            {!match?.ok ? (
+              <label className="keep-original small">
+                <input type="checkbox" checked={original} disabled={busy} onChange={(e) => setOriginal(e.target.checked)} />
+                <span>Загрузить оригинал <span className="muted">— без уменьшения до 1080×1920: дольше, а в ролике разницы не видно</span></span>
+              </label>
+            ) : null}
+            {shrinkNote ? <div className="muted small pre">{shrinkNote}</div> : null}
             {busy || phase === 'failed' ? (
               <>
                 <div className="bar"><div style={{ width: `${pct}%` }} /></div>
                 <div className="row muted small">
-                  <span>{phase === 'completing' ? 'Проверяю…' : phase === 'launching' ? 'Запускаю Claude…' : phase === 'failed' ? 'Загрузка остановилась' : 'Загружаю в GitHub…'}</span>
+                  <span>{phase === 'shrinking' ? 'Уменьшаю видео до 1080×1920…' : phase === 'completing' ? 'Проверяю…' : phase === 'launching' ? 'Запускаю Claude…'
+                    : phase === 'failed' ? 'Загрузка остановилась' : 'Загружаю в GitHub…'}</span>
                   <span className="mono">{pct}%</span>
                 </div>
-                {phase === 'uploading' ? <div className="muted small">Не закрывайте страницу до конца загрузки.</div> : null}
+                {phase === 'uploading' || phase === 'shrinking' ? <div className="muted small">Не закрывайте страницу до конца загрузки.</div> : null}
               </>
             ) : null}
           </div>

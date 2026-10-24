@@ -276,7 +276,8 @@ def test_shot_changes_and_push_ins_replace_the_jump_of_a_cut():
 
 def test_cutting_is_tight_by_default_and_soft_on_request():
     cut = section("3. Скорость и резка")
-    assert "плотная" in cut and "0,26 с" in cut and "0,16 с" in cut
+    assert "плотная" in cut and "0,26 с" in cut and "вплотную к словам" in cut
+    assert "**Дубли целиком и края вырезок**" in cut  # решение Павла 24.10.2026
     questions = section("Вопросы (questions.json)")
     assert "`soft`" in questions and "мягче" in questions
     assert "**SOFT" in section("Шаг render") and "**SOFT" in section("Шаг analyze")

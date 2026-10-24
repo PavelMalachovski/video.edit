@@ -1934,6 +1934,79 @@ const segments = [
     await page.reload();
     check(await page.inputValue('#brief') === '', 'ТЗ сценария подставилось второй раз');
   }],
+  // Уменьшение в браузере: 4K с телефона уходит в черновик 1080×1920 30 к/с со звуком — меньше оригинала; с галочкой
+  // «загрузить оригинал» — байт в байт. Браузер не умеет сжимать (WebKit на Linux) — оригинал и заметка почему.
+  ['shrink', async (ctx) => {
+    const p = await ctx.page.context().newPage();
+    try {
+      const big = path.join(ctx.tmp, 'IMG_4K.MOV');
+      execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=2160x3840:r=60:d=2', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=2',
+        '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '10', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', '-f', 'mov', big]);
+      const can = await (async () => { await p.goto(`${APP}/`); return p.evaluate(async () => typeof VideoEncoder !== 'undefined'
+        && (await VideoEncoder.isConfigSupported({ codec: 'avc1.640028', width: 1080, height: 1920, bitrate: 20e6 })).supported === true); })();
+      const upload = async (original) => {
+        await p.goto(`${APP}/`);
+        await p.setInputFiles('#source', big);
+        await p.getByText('IMG_4K.MOV').first().waitFor();
+        if (original) await p.getByLabel(/Загрузить оригинал/).check();
+        await p.getByRole('button', { name: 'Загрузить', exact: true }).click();
+        if (!original && can) await shot(p, 'upload-shrinking');
+        await p.waitForURL(/\/jobs\/\d{6}-\d{6}-[0-9a-z]{4}$/, { timeout: 180_000 });
+        const joined = Buffer.from(await (await fetch(`${FAKE}/__joined`)).arrayBuffer());
+        const file = path.join(ctx.tmp, `joined-${original ? 'orig' : 'shrunk'}.mp4`);
+        fs.writeFileSync(file, joined);
+        return file;
+      };
+      check(can || WEBKIT, 'Chromium умеет сжимать H.264 — должен уменьшать');
+      const shrunk = await upload(false);
+      if (can) {
+        const v = JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type,width,height,r_frame_rate', '-of', 'json', shrunk]).toString()).streams;
+        const video = v.find((x) => x.codec_type === 'video');
+        check(video?.width === 1080 && video?.height === 1920 && video?.r_frame_rate === '30/1', `уменьшенное видео: ${JSON.stringify(video)}`);
+        check(v.some((x) => x.codec_type === 'audio'), 'у уменьшенного видео пропал звук');
+        check(fs.statSync(shrunk).size < fs.statSync(big).size, `уменьшенное не меньше оригинала: ${fs.statSync(shrunk).size} из ${fs.statSync(big).size}`);
+      } else {
+        check(sha256(fs.readFileSync(shrunk)) === sha256(fs.readFileSync(big)), 'браузер не сжимает — должен уйти оригинал');
+      }
+      if (can) {
+        // перезагрузка посреди загрузки уменьшенного: «Продолжить загрузку» берёт ту же копию из хранилища браузера
+        // (OPFS) и досылает недостающие куски — загруженные заново не уходят, в черновике — то же видео
+        const long = path.join(ctx.tmp, 'IMG_LONG.MOV');
+        execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=2160x3840:r=30:d=5', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=5',
+          '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '10', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', '-f', 'mov', long]);
+        const isPart = (u) => /\/api\/jobs\/[^/]+\/parts\/\d+$/.test(u.pathname);
+        // до перезагрузки в черновик доходит только первый кусок: остальные обрываются (страница их повторяет)
+        await p.route(isPart, (route) => (new URL(route.request().url()).pathname.endsWith('/parts/0') ? route.continue() : route.abort()));
+        await p.goto(`${APP}/`);
+        await p.setInputFiles('#source', long);
+        await p.getByRole('button', { name: 'Загрузить', exact: true }).click();
+        await p.getByText('Загружаю в GitHub…').waitFor({ timeout: 120_000 });
+        await until(async () => ((await state()).drafts.at(-1)?.assets.length ?? 0) >= 1, 60_000, 'кусок уменьшенного в черновике');
+        await p.unroute(isPart);
+        await p.reload();
+        await p.getByText('Загрузка IMG_LONG.MOV не закончена').waitFor({ timeout: 15_000 });
+        check(!(await p.getByLabel(/Загрузить оригинал/).isVisible()), 'при продолжении галочка «оригинал» не к месту');
+        const had = new Set((await state()).drafts.at(-1).assets);
+        const sent = [];
+        p.on('request', (req) => {
+          const u = new URL(req.url());
+          if (req.method() === 'PUT' && isPart(u)) sent.push(`source.part-${u.pathname.split('/').pop().padStart(5, '0')}`);
+        });
+        await p.setInputFiles('#source', long);
+        await p.getByRole('button', { name: 'Продолжить загрузку' }).click();
+        await p.waitForURL(/\/jobs\/\d{6}-\d{6}-[0-9a-z]{4}$/, { timeout: 180_000 });
+        check(sent.length > 0 && !sent.some((n) => had.has(n)), `после перезагрузки заново ушли: ${sent.filter((n) => had.has(n)).join(', ') || 'ничего'}`);
+        const resumed = path.join(ctx.tmp, 'joined-resumed.mp4');
+        fs.writeFileSync(resumed, Buffer.from(await (await fetch(`${FAKE}/__joined`)).arrayBuffer()));
+        const v = JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=width,height:format=duration', '-of', 'json', resumed]).toString());
+        check(v.streams?.[0]?.width === 1080 && Math.abs(Number(v.format?.duration) - 5) < 0.2, `продолженное видео: ${JSON.stringify(v)}`);
+      }
+      const kept = await upload(true);
+      check(sha256(fs.readFileSync(kept)) === sha256(fs.readFileSync(big)), 'с галочкой «оригинал» ушёл не оригинал байт в байт');
+    } finally {
+      await p.close();
+    }
+  }],
   // Safari (только WebKit): загрузка прервана перезагрузкой страницы, тот же файл выбран снова — «Продолжить загрузку»
   // доводит её до страницы задачи, и следующий переход не зависает (в Chromium продолжение — в шаге upload)
   ...(WEBKIT ? [['resume', async (ctx) => {

@@ -95,14 +95,20 @@ export function resumeDone(chunks: Chunk[], existing: { name: string; size: numb
 
 // ---------- незаконченная загрузка (localStorage['vm:pending']) ----------
 
-export type PendingInsert = { asset: string; name: string; size: number; type: string; lastModified: number };
+// `shrunk` — у видео, уменьшенного в браузере (lib/shrink.ts): сколько байт ушло в черновик; нет — ушёл оригинал
+export type PendingInsert = { asset: string; name: string; size: number; type: string; lastModified: number; shrunk?: number };
 export type Pending = {
-  jobId: string; releaseId: number; source: { name: string; size: number; lastModified: number };
+  jobId: string; releaseId: number; source: { name: string; size: number; lastModified: number; shrunk?: number };
   brief: string; duration: number | null; inserts: PendingInsert[];
   voice?: PendingInsert; // озвучка — своя запись голоса
   more?: PendingInsert[]; // ещё видео задачи по порядку: source-2, source-3…
 };
 type Picked = { name: string; size: number; lastModified: number };
+
+/** Видео задачи по порядку и сколько байт каждого уходит в черновик: уменьшенное — его размер, иначе — оригинала. */
+export function sentVideos(p: Pending): { asset: string; size: number }[] {
+  return [{ asset: 'source', ...p.source }, ...(p.more ?? [])].map((v) => ({ asset: v.asset, size: v.shrunk ?? v.size }));
+}
 
 const PENDING_KEY = 'vm:pending';
 // Имя и размер до байта: iPhone отдаёт из «Фото» свежую копию, и время изменения у неё — момент выбора.
@@ -146,15 +152,17 @@ export function sameSelection(files: Map<string, File>, inserts: File[], voice: 
   return sameVideos && sent.length === picked.size && sent.every((f) => picked.has(f));
 }
 
+const okShrunk = (v: { shrunk?: unknown }): boolean => v.shrunk === undefined || (Number.isInteger(v.shrunk) && (v.shrunk as number) > 0);
+
 const isPending = (x: unknown): x is Pending => {
   const p = x as Pending;
   return typeof p === 'object' && p !== null && typeof p.jobId === 'string' && isJobId(p.jobId) && Number.isInteger(p.releaseId)
-    && typeof p.source?.name === 'string' && Number.isFinite(p.source.size) && Number.isFinite(p.source.lastModified)
+    && typeof p.source?.name === 'string' && Number.isFinite(p.source.size) && Number.isFinite(p.source.lastModified) && okShrunk(p.source)
     && typeof p.brief === 'string' && Array.isArray(p.inserts) && p.inserts.every((i) => typeof i?.asset === 'string' && isUploadFile(i.asset))
     && (p.voice === undefined || (typeof p.voice?.asset === 'string' && isVoiceFile(p.voice.asset)))
     && (p.more === undefined || (Array.isArray(p.more) && p.more.every((v) => typeof v?.asset === 'string' && v.asset !== 'source'
       && isSourceFile(v.asset) && typeof v.name === 'string' && typeof v.type === 'string' && Number.isFinite(v.size) && v.size > 0
-      && Number.isFinite(v.lastModified))));
+      && Number.isFinite(v.lastModified) && okShrunk(v))));
 };
 
 /** Незаконченная загрузка этого браузера; нет, битая или хранилище недоступно — null. */

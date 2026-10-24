@@ -185,5 +185,9 @@
   `engine/tests/fixtures/emoji-runs.json`; картинки и список — `template/emoji/` (собирает `python3 -m vm.emoji`).
 - Сценарий до съёмки: схема `engine/vm/schemas/script.json` и `web/lib/script.ts` (типы; ТЗ «Снять по сценарию» —
   строки `ХУК:`, `ТЕЗИСЫ:`, `ПРИЗЫВ:`, `ЯЗЫК:`, их понимает SKILL.md).
+- Уменьшение видео в браузере перед загрузкой: `web/lib/shrink.ts` (`SHRINK_WIDTH`, `SHRINK_FPS` — не мельче того, к чему
+  приводит движок) ↔ `WIDTH`, `FPS` и `_target_size` в `engine/vm/media.py` (`normalize`); само уменьшение —
+  `web/app/shrink.ts` (mediabunny, WebCodecs; HDR и всё, что браузер не осилит, — оригиналом); размер ушедшей копии —
+  `shrunk` в незаконченной загрузке (`sentVideos` в `web/lib/uploader.ts`).
 - Озвучка: ассет `upload-voice.*` и `kind: "audio"` в `job.json.uploads` — `web/lib/jobs.ts` (`voiceAssetName`,
   `isVoiceFile`) и `web/lib/jobfiles.ts` (`buildJobFile`); их читает `engine/vm/prepare.py` (`_voice`).

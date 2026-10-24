@@ -94,14 +94,22 @@ export async function shrinkVideo(f: File, o: Options): Promise<Shrunk> {
         done = x;
         o.onProgress?.(x);
       };
+      // решили бросить — не ждём, пока кодировщик доведёт очередь кадров (программный VP9 может довольно долго)
+      let quit = () => {};
+      const quitting = new Promise<never>((_, reject) => { quit = () => reject(new Error('остановлено')); });
       const watch = setInterval(() => {
         const now = performance.now();
         stop ??= stuck((now - moved) / 1000) ? 'stuck'
           : tooSlow({ elapsed: (now - started) / 1000, progress: done, originalBytes: f.size, seconds }) ? 'slow' : null;
-        if (stop) void conversion.cancel();
+        if (stop) {
+          void conversion.cancel().catch(() => undefined);
+          quit();
+        }
       }, 1000);
       try {
-        await conversion.execute();
+        const running = conversion.execute();
+        running.catch(() => undefined); // брошенное сжатие кончится отменой — её ошибку не ждём
+        await Promise.race([running, quitting]);
       } catch (e) {
         return give(stop === 'slow' ? 'сжатие медленнее загрузки оригинала' : stop === 'stuck' ? 'сжатие зависло'
           : `сжать не вышло (${e instanceof Error ? e.message : String(e)})`);

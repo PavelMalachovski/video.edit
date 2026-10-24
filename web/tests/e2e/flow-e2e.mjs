@@ -1938,13 +1938,13 @@ const segments = [
   // «загрузить оригинал» — байт в байт.
   ['shrink', async (ctx) => {
     const p = await ctx.page.context().newPage();
-    // 4K с телефона; `heavy` — с «пустым» хвостом до 400 МБ (бокс free, ffmpeg его не читает): страница сравнивает
+    // видео шире 1080 (1440×2560 — не 4K: в CI сжимает программный кодировщик); `heavy` — с «пустым» хвостом до 400 МБ (бокс free, ffmpeg его не читает): страница сравнивает
     // сжатие с загрузкой оригинала по его размеру, и на медленной машине CI лёгкий файл она сочла бы выгоднее грузить как есть.
     // Видео — VP9, а не H.264, как у телефона: Chromium из Playwright на CI — открытая сборка, H.264 она не декодирует
     // (и честно грузила бы оригинал: «браузер не читает это видео»); путь уменьшения тот же
     const clip = (name, seconds, heavy) => {
       const file = path.join(ctx.tmp, name);
-      execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `testsrc2=s=2160x3840:r=30:d=${seconds}`, '-f', 'lavfi', '-i', `sine=frequency=440:duration=${seconds}`,
+      execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `testsrc2=s=1440x2560:r=30:d=${seconds}`, '-f', 'lavfi', '-i', `sine=frequency=440:duration=${seconds}`,
         '-c:v', 'libvpx-vp9', '-deadline', 'realtime', '-cpu-used', '8', '-row-mt', '1', '-b:v', '8M', '-pix_fmt', 'yuv420p',
         '-c:a', 'aac', '-shortest', '-f', 'mp4', file]);
       if (heavy) {
@@ -1963,12 +1963,15 @@ const segments = [
       return file;
     };
     const isPart = (u) => /\/api\/jobs\/[^/]+\/parts\/\d+$/.test(u.pathname);
+    const logs = []; // консоль этой вкладки — в сообщение о сбое: где встало сжатие
+    p.on('console', (m) => logs.push(`${m.type()}: ${m.text()}`.slice(0, 300)));
+    p.on('pageerror', (e) => logs.push(`pageerror: ${e.message}`.slice(0, 300)));
     try {
       // 1) уменьшение: в черновике — 1080×1920 30 к/с со звуком; браузер не умеет сжимать (WebKit на Linux) — оригинал
       //    и заметка почему; Chromium умеет — обязан уменьшить
       // в Safari (WebKit на Linux) сжатия нет — ушёл бы весь тяжёлый оригинал, а перезагрузку посреди загрузки там
       // проверяет шаг resume: файл лёгкий, без перезагрузки
-      const big = clip('IMG_4K.MP4', 3, !WEBKIT);
+      const big = clip('IMG_4K.MP4', 2, !WEBKIT);
       await p.goto(`${APP}/`);
       await p.setInputFiles('#source', big);
       await p.getByText('IMG_4K.MP4').first().waitFor();
@@ -1981,7 +1984,7 @@ const segments = [
         // недостающие куски: до перезагрузки в черновик доходит только первый кусок, остальные обрываются
         await p.route(isPart, (route) => (new URL(route.request().url()).pathname.endsWith('/parts/0') ? route.continue() : route.abort()));
         await p.getByRole('button', { name: 'Загрузить', exact: true }).click();
-        await p.getByText('Загружаю в GitHub…').waitFor({ timeout: 180_000 });
+        await p.getByText('Загружаю в GitHub…').waitFor({ timeout: 300_000 });
         await noteNow();
         await shot(p, 'upload-shrunk');
         await until(async () => ((await state()).drafts.at(-1)?.assets.length ?? 0) >= 1, 60_000, 'первый кусок в черновике');
@@ -1998,7 +2001,7 @@ const segments = [
         await p.getByRole('button', { name: 'Продолжить загрузку' }).click();
       } else {
         await p.getByRole('button', { name: 'Загрузить', exact: true }).click();
-        await p.getByText('Загружаю в GitHub…').waitFor({ timeout: 180_000 });
+        await p.getByText('Загружаю в GitHub…').waitFor({ timeout: 300_000 });
         await noteNow();
       }
       await p.waitForURL(/\/jobs\/\d{6}-\d{6}-[0-9a-z]{4}$/, { timeout: 180_000 });
@@ -2006,7 +2009,7 @@ const segments = [
       const info = probe(got);
       const video = info.streams.find((x) => x.codec_type === 'video');
       if (video?.width === 1080) {
-        check(video.height === 1920 && video.r_frame_rate === '30/1' && Math.abs(Number(info.format.duration) - 3) < 0.2, `уменьшенное видео: ${JSON.stringify(info)}`);
+        check(video.height === 1920 && video.r_frame_rate === '30/1' && Math.abs(Number(info.format.duration) - 2) < 0.2, `уменьшенное видео: ${JSON.stringify(info)}`);
         check(info.streams.some((x) => x.codec_type === 'audio'), 'у уменьшенного видео пропал звук');
         if (!WEBKIT) check(sent.length > 0 && !sent.some((n) => had.has(n)), `после перезагрузки заново ушли: ${sent.filter((n) => had.has(n)).join(', ') || 'ничего'}`);
       } else {
@@ -2021,6 +2024,9 @@ const segments = [
       await p.getByRole('button', { name: 'Загрузить', exact: true }).click();
       await p.waitForURL(/\/jobs\/\d{6}-\d{6}-[0-9a-z]{4}$/, { timeout: 120_000 });
       check(sha256(fs.readFileSync(await joined('joined-plain.mp4'))) === sha256(fs.readFileSync(plain)), 'с галочкой «оригинал» ушёл не оригинал байт в байт');
+    } catch (e) {
+      await shot(p, 'FAIL-shrink-page').catch(() => undefined);
+      throw new Error(`${e instanceof Error ? e.message : e}\nконсоль вкладки: ${logs.slice(-15).join(' | ') || 'пусто'}`);
     } finally {
       await p.close();
     }

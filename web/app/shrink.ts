@@ -34,14 +34,36 @@ async function kept(key: string, expect: number | undefined): Promise<File | nul
   }
 }
 
-/** Уменьшить видео `f` для загрузки — или сказать, почему уходит оригинал. Не бросает: любой сбой — оригинал. */
-export async function shrinkVideo(f: File, o: Options): Promise<Shrunk> {
+/** Уменьшить видео `f` для загрузки — или сказать, почему уходит оригинал. Не бросает: любой сбой — оригинал.
+ *  Общая страховка: нет движения (смены шага или прогресса) дольше STALL + 5 с — оригинал, что бы ни висело внутри
+ *  (подготовка кодировщика, хранилище браузера); в заметке — на каком шаге встало. */
+export function shrinkVideo(f: File, o: Options): Promise<Shrunk> {
+  let stage = 'начало';
+  let moved = performance.now();
+  const mark = (s: string) => { stage = s; moved = performance.now(); };
+  const onProgress = (x: number) => { moved = performance.now(); o.onProgress?.(x); };
+  return new Promise((resolve) => {
+    const guard = setInterval(() => {
+      if (!stuck((performance.now() - moved) / 1000 - 5)) return;
+      clearInterval(guard);
+      resolve({ original: `сжатие зависло (${stage})` });
+    }, 1000);
+    void attempt(f, { ...o, onProgress }, mark).then((r) => {
+      clearInterval(guard);
+      resolve(r);
+    });
+  });
+}
+
+async function attempt(f: File, o: Options, mark: (stage: string) => void): Promise<Shrunk> {
   const key = shrinkKey(f);
+  mark('копия из хранилища');
   const ready = await kept(key, o.expect);
   if (ready) return { file: new File([ready], f.name, { type: 'video/mp4', lastModified: f.lastModified }) };
   if (o.asked) return { original: 'выбран оригинал', quiet: true };
   if (typeof VideoEncoder === 'undefined' || typeof VideoDecoder === 'undefined') return { original: 'браузер не умеет сжимать видео' };
   let mb: typeof import('mediabunny');
+  mark('модуль');
   try {
     mb = await import('mediabunny');
   } catch {
@@ -49,9 +71,11 @@ export async function shrinkVideo(f: File, o: Options): Promise<Shrunk> {
   }
   const input = new mb.Input({ source: new mb.BlobSource(f), formats: mb.ALL_FORMATS });
   try {
+    mark('чтение видео');
     const video = await input.getPrimaryVideoTrack();
     if (!video) return { original: 'браузер не читает это видео' };
     const size = shrinkSize(video.displayWidth, video.displayHeight);
+    mark('проверка кодеков');
     const able = size ? await Promise.all(SHRINK_CODECS.map(async (c) =>
       ((await mb.canEncodeVideo(c, { width: size.width, height: size.height, bitrate: SHRINK_BITRATE })) ? [c] : []))) : [];
     const codec = pickCodec(able.flat());
@@ -61,19 +85,23 @@ export async function shrinkVideo(f: File, o: Options): Promise<Shrunk> {
       decodable: await video.canDecode(),
     });
     if (why || !size || !codec) return { original: why ?? 'видео не больше 1080 по ширине', quiet: !size };
+    mark('длительность');
     const seconds = await input.computeDuration();
 
+    mark('хранилище браузера');
     const dir = await opfs();
     const handle = dir ? await dir.getFileHandle(key, { create: true }).catch(() => null) : null;
     const writable = handle && 'createWritable' in handle ? await handle.createWritable().catch(() => null) : null;
     // любой отказ ниже — недоделанная копия не остаётся в хранилище браузера (оно не бесконечно)
     const give = async (original: string): Promise<Shrunk> => {
+      mark('уборка');
       await writable?.abort().catch(() => undefined);
       await dir?.removeEntry(key).catch(() => undefined);
       return { original };
     };
     if (!writable && !fitsMemory(seconds)) return give('длинное видео, а браузер не даёт сохранить копию — в памяти не поместится');
     try {
+      mark('запуск кодировщика');
       const target = writable ? new mb.StreamTarget(writable, { chunked: true }) : new mb.BufferTarget();
       const output = new mb.Output({ format: new mb.Mp4OutputFormat(), target });
       const conversion = await mb.Conversion.init({
@@ -106,6 +134,7 @@ export async function shrinkVideo(f: File, o: Options): Promise<Shrunk> {
           quit();
         }
       }, 1000);
+      mark('сжатие');
       try {
         const running = conversion.execute();
         running.catch(() => undefined); // брошенное сжатие кончится отменой — её ошибку не ждём
@@ -116,6 +145,7 @@ export async function shrinkVideo(f: File, o: Options): Promise<Shrunk> {
       } finally {
         clearInterval(watch);
       }
+      mark('запись копии');
       const data = writable ? await handle!.getFile() : new Blob([(target as InstanceType<typeof mb.BufferTarget>).buffer!]);
       if (!writable) await dir?.removeEntry(key).catch(() => undefined); // пустой файл, созданный зря
       return { file: new File([data], f.name, { type: 'video/mp4', lastModified: f.lastModified }) };

@@ -1,8 +1,10 @@
 // Уменьшение видео в браузере перед загрузкой (решения — lib/shrink.ts): mediabunny читает MOV/MP4, WebCodecs
-// декодируют (HEVC с iPhone — видеокартой) и кодируют H.264, звук копируется как был. Результат пишется в хранилище
+// декодируют (HEVC с iPhone — видеокартой) и кодируют H.264 (нет его кодировщика — VP9), звук копируется как был. Результат пишется в хранилище
 // браузера (OPFS): большой файл не держим в памяти, и после перезагрузки страницы «Продолжить загрузку» берёт ту же
 // копию. Нет записи в OPFS (Safari до 26, приватный режим) — копия в памяти, но не больше MAX_IN_MEMORY. Библиотека грузится только здесь (динамический import), не на каждой странице.
-import { fitsMemory, shrinkKey, shrinkSize, SHRINK_BITRATE, SHRINK_FPS, stuck, tooSlow, whyOriginal } from '@/lib/shrink.ts';
+import {
+  fitsMemory, pickCodec, SHRINK_BITRATE, SHRINK_CODECS, SHRINK_FPS, shrinkKey, shrinkSize, stuck, tooSlow, whyOriginal,
+} from '@/lib/shrink.ts';
 
 // original — почему ушёл оригинал; quiet — так и задумано (выбран оригинал, видео и так не больше 1080): не о чем говорить
 export type Shrunk = { file: File } | { original: string; quiet?: boolean };
@@ -50,13 +52,15 @@ export async function shrinkVideo(f: File, o: Options): Promise<Shrunk> {
     const video = await input.getPrimaryVideoTrack();
     if (!video) return { original: 'браузер не читает это видео' };
     const size = shrinkSize(video.displayWidth, video.displayHeight);
+    const able = size ? await Promise.all(SHRINK_CODECS.map(async (c) =>
+      ((await mb.canEncodeVideo(c, { width: size.width, height: size.height, bitrate: SHRINK_BITRATE })) ? [c] : []))) : [];
+    const codec = pickCodec(able.flat());
     const why = whyOriginal({
-      asked: false, size,
+      asked: false, size, encodable: !!codec,
       hdr: await video.hasHighDynamicRange(),
       decodable: await video.canDecode(),
-      encodable: !!size && (await mb.canEncodeVideo('avc', { width: size.width, height: size.height, bitrate: SHRINK_BITRATE })),
     });
-    if (why || !size) return { original: why ?? 'видео не больше 1080 по ширине', quiet: !size };
+    if (why || !size || !codec) return { original: why ?? 'видео не больше 1080 по ширине', quiet: !size };
     const seconds = await input.computeDuration();
 
     const dir = await opfs();
@@ -74,7 +78,7 @@ export async function shrinkVideo(f: File, o: Options): Promise<Shrunk> {
       const output = new mb.Output({ format: new mb.Mp4OutputFormat(), target });
       const conversion = await mb.Conversion.init({
         input, output, showWarnings: false,
-        video: { ...size, fit: 'contain', frameRate: SHRINK_FPS, codec: 'avc', bitrate: SHRINK_BITRATE, allowTransformationMetadata: false },
+        video: { ...size, fit: 'contain', frameRate: SHRINK_FPS, codec, bitrate: SHRINK_BITRATE, allowTransformationMetadata: false },
       });
       // звук не потерять: дорожку, которую нельзя скопировать или пережать, библиотека выбросила бы молча
       if (!conversion.isValid || conversion.discardedTracks.some((d) => d.track.type === 'audio' || d.track.type === 'video')) {

@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  fitsMemory, MAX_IN_MEMORY, ORIGINAL_SPEED, SHRINK_BITRATE, shrinkKey, shrinkSize, shrunkBytes, STALL, stuck, tooSlow, whyOriginal,
+  fitsMemory, MAX_IN_MEMORY, ORIGINAL_SPEED, pickCodec, SHRINK_BITRATE, SHRINK_CODECS, shrinkKey, shrinkSize, shrunkBytes, STALL, stuck, tooSlow,
+  whyOriginal,
 } from '../lib/shrink.ts';
 
 test('a 4K vertical video shrinks to 1080×1920, a landscape one to width 1080 with an even height', () => {
@@ -61,4 +62,11 @@ test('without a file in the browser storage the copy lives in memory: only up to
 test('shrinking is stuck when no progress came for STALL seconds', () => {
   assert.equal(stuck(STALL - 1), false);
   assert.equal(stuck(STALL), true);
+});
+
+test('H.264 first; a browser without an H.264 encoder (Firefox, open Chromium) shrinks to VP9 — ffmpeg reads both', () => {
+  assert.equal(pickCodec(['avc', 'vp9']), 'avc');
+  assert.equal(pickCodec(['vp9']), 'vp9');
+  assert.equal(pickCodec(['av1']), null);
+  assert.deepEqual([...SHRINK_CODECS], ['avc', 'vp9']);
 });

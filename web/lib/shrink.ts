@@ -1,5 +1,5 @@
 // Уменьшение видео в браузере перед загрузкой (решение Павла 24.10.2026): 4K с телефона → 1080 по ширине, 30 к/с,
-// H.264 20 Мбит/с, звук — как был (без пережатия). Движок всё равно первым делом приводит видео к 1080×1920 30 к/с
+// H.264 20 Мбит/с (нет кодировщика H.264 — VP9), звук — как был (без пережатия). Движок всё равно первым делом приводит видео к 1080×1920 30 к/с
 // (`media.normalize`), так что в ролике ничего не теряется, а грузить в 4–5 раз меньше — и сессии быстрее качать.
 // Оригинал идёт как есть: по галочке, HDR (перевод в SDR — дело движка, zscale), браузер не читает или не кодирует,
 // и если уменьшение медленнее загрузки оригинала. Здесь — решения; само уменьшение — app/shrink.ts.
@@ -61,4 +61,13 @@ export function fitsMemory(seconds: number): boolean {
 /** Сжатие зависло: прогресса нет `quiet` секунд. */
 export function stuck(quiet: number): boolean {
   return quiet >= STALL;
+}
+
+// Кодек копии: H.264, а нет его кодировщика (Firefox, открытая сборка Chromium) — VP9; ffmpeg движка читает оба
+export const SHRINK_CODECS = ['avc', 'vp9'] as const;
+export type ShrinkCodec = (typeof SHRINK_CODECS)[number];
+
+/** Первый кодек из `SHRINK_CODECS`, который браузер умеет кодировать (`able` — какие умеет); никакой — null. */
+export function pickCodec(able: readonly string[]): ShrinkCodec | null {
+  return SHRINK_CODECS.find((c) => able.includes(c)) ?? null;
 }

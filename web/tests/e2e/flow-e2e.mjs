@@ -1939,11 +1939,14 @@ const segments = [
   ['shrink', async (ctx) => {
     const p = await ctx.page.context().newPage();
     // 4K с телефона; `heavy` — с «пустым» хвостом до 400 МБ (бокс free, ffmpeg его не читает): страница сравнивает
-    // сжатие с загрузкой оригинала по его размеру, и на медленной машине CI лёгкий файл она сочла бы выгоднее грузить как есть
+    // сжатие с загрузкой оригинала по его размеру, и на медленной машине CI лёгкий файл она сочла бы выгоднее грузить как есть.
+    // Видео — VP9, а не H.264, как у телефона: Chromium из Playwright на CI — открытая сборка, H.264 она не декодирует
+    // (и честно грузила бы оригинал: «браузер не читает это видео»); путь уменьшения тот же
     const clip = (name, seconds, heavy) => {
       const file = path.join(ctx.tmp, name);
       execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `testsrc2=s=2160x3840:r=30:d=${seconds}`, '-f', 'lavfi', '-i', `sine=frequency=440:duration=${seconds}`,
-        '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', '-f', 'mov', file]);
+        '-c:v', 'libvpx-vp9', '-deadline', 'realtime', '-cpu-used', '8', '-row-mt', '1', '-b:v', '8M', '-pix_fmt', 'yuv420p',
+        '-c:a', 'aac', '-shortest', '-f', 'mp4', file]);
       if (heavy) {
         const pad = 400 * 1024 * 1024 - fs.statSync(file).size;
         const head = Buffer.alloc(8);
@@ -1965,23 +1968,26 @@ const segments = [
       //    и заметка почему; Chromium умеет — обязан уменьшить
       // в Safari (WebKit на Linux) сжатия нет — ушёл бы весь тяжёлый оригинал, а перезагрузку посреди загрузки там
       // проверяет шаг resume: файл лёгкий, без перезагрузки
-      const big = clip('IMG_4K.MOV', 3, !WEBKIT);
+      const big = clip('IMG_4K.MP4', 3, !WEBKIT);
       await p.goto(`${APP}/`);
       await p.setInputFiles('#source', big);
-      await p.getByText('IMG_4K.MOV').first().waitFor();
+      await p.getByText('IMG_4K.MP4').first().waitFor();
       const had = new Set();
       const sent = [];
+      let note = []; // почему ушёл оригинал (если ушёл) — заметка под списком видео, пока идёт загрузка
+      const noteNow = async () => { note = await p.locator('.pre').allTextContents().catch(() => []); };
       if (!WEBKIT) {
         // после перезагрузки посреди загрузки «Продолжить загрузку» берёт ту же копию (хранилище браузера) и досылает
         // недостающие куски: до перезагрузки в черновик доходит только первый кусок, остальные обрываются
         await p.route(isPart, (route) => (new URL(route.request().url()).pathname.endsWith('/parts/0') ? route.continue() : route.abort()));
         await p.getByRole('button', { name: 'Загрузить', exact: true }).click();
         await p.getByText('Загружаю в GitHub…').waitFor({ timeout: 180_000 });
+        await noteNow();
         await shot(p, 'upload-shrunk');
         await until(async () => ((await state()).drafts.at(-1)?.assets.length ?? 0) >= 1, 60_000, 'первый кусок в черновике');
         await p.unroute(isPart);
         await p.reload();
-        await p.getByText('Загрузка IMG_4K.MOV не закончена').waitFor({ timeout: 15_000 });
+        await p.getByText('Загрузка IMG_4K.MP4 не закончена').waitFor({ timeout: 15_000 });
         check(!(await p.getByLabel(/Загрузить оригинал/).isVisible()), 'при продолжении галочка «оригинал» не к месту');
         for (const n of (await state()).drafts.at(-1).assets) had.add(n);
         p.on('request', (req) => {
@@ -1992,6 +1998,8 @@ const segments = [
         await p.getByRole('button', { name: 'Продолжить загрузку' }).click();
       } else {
         await p.getByRole('button', { name: 'Загрузить', exact: true }).click();
+        await p.getByText('Загружаю в GitHub…').waitFor({ timeout: 180_000 });
+        await noteNow();
       }
       await p.waitForURL(/\/jobs\/\d{6}-\d{6}-[0-9a-z]{4}$/, { timeout: 180_000 });
       const got = await joined('joined-shrunk.mp4');
@@ -2002,11 +2010,11 @@ const segments = [
         check(info.streams.some((x) => x.codec_type === 'audio'), 'у уменьшенного видео пропал звук');
         if (!WEBKIT) check(sent.length > 0 && !sent.some((n) => had.has(n)), `после перезагрузки заново ушли: ${sent.filter((n) => had.has(n)).join(', ') || 'ничего'}`);
       } else {
-        check(WEBKIT, `Chromium умеет сжимать H.264 — должен был уменьшить: ${JSON.stringify(info)}`);
+        check(WEBKIT, `Chromium должен был уменьшить: ${JSON.stringify(info)}; заметка: ${note.join(' / ') || 'нет'}`);
         check(sha256(fs.readFileSync(got)) === sha256(fs.readFileSync(big)), 'не уменьшил — должен уйти оригинал байт в байт');
       }
       // 2) галочка «загрузить оригинал» — оригинал байт в байт
-      const plain = clip('IMG_PLAIN.MOV', 1, false);
+      const plain = clip('IMG_PLAIN.MP4', 1, false);
       await p.goto(`${APP}/`);
       await p.setInputFiles('#source', plain);
       await p.getByLabel(/Загрузить оригинал/).check();

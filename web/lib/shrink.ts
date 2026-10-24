@@ -49,3 +49,16 @@ export function shrinkKey(f: { name: string; size: number }): string {
   for (const ch of f.name) h = ((h * 33) ^ ch.codePointAt(0)!) >>> 0;
   return `shrink-${h.toString(36)}-${f.size}.mp4`;
 }
+
+export const MAX_IN_MEMORY = 200 * 1024 * 1024; // байт — копия в памяти (нет записи в хранилище браузера): больше — iPhone выгрузит вкладку
+export const STALL = 30; // с без прогресса — сжатие зависло (декодер WebCodecs встал): грузим оригинал
+
+/** Копия видео длиной `seconds` поместится в памяти вкладки (когда браузер не даёт писать её в своё хранилище). */
+export function fitsMemory(seconds: number): boolean {
+  return shrunkBytes(seconds) <= MAX_IN_MEMORY;
+}
+
+/** Сжатие зависло: прогресса нет `quiet` секунд. */
+export function stuck(quiet: number): boolean {
+  return quiet >= STALL;
+}

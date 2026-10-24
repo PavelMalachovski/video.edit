@@ -1,8 +1,8 @@
 // Уменьшение видео в браузере перед загрузкой (решения — lib/shrink.ts): mediabunny читает MOV/MP4, WebCodecs
 // декодируют (HEVC с iPhone — видеокартой) и кодируют H.264, звук копируется как был. Результат пишется в хранилище
 // браузера (OPFS): большой файл не держим в памяти, и после перезагрузки страницы «Продолжить загрузку» берёт ту же
-// копию. Нет OPFS — копия в памяти. Библиотека грузится только здесь (динамический import), не на каждой странице.
-import { shrinkKey, shrinkSize, SHRINK_BITRATE, SHRINK_FPS, tooSlow, whyOriginal } from '@/lib/shrink.ts';
+// копию. Нет записи в OPFS (Safari до 26, приватный режим) — копия в памяти, но не больше MAX_IN_MEMORY. Библиотека грузится только здесь (динамический import), не на каждой странице.
+import { fitsMemory, shrinkKey, shrinkSize, SHRINK_BITRATE, SHRINK_FPS, stuck, tooSlow, whyOriginal } from '@/lib/shrink.ts';
 
 // original — почему ушёл оригинал; quiet — так и задумано (выбран оригинал, видео и так не больше 1080): не о чем говорить
 export type Shrunk = { file: File } | { original: string; quiet?: boolean };
@@ -62,34 +62,54 @@ export async function shrinkVideo(f: File, o: Options): Promise<Shrunk> {
     const dir = await opfs();
     const handle = dir ? await dir.getFileHandle(key, { create: true }).catch(() => null) : null;
     const writable = handle && 'createWritable' in handle ? await handle.createWritable().catch(() => null) : null;
-    const target = writable ? new mb.StreamTarget(writable, { chunked: true }) : new mb.BufferTarget();
-    const output = new mb.Output({ format: new mb.Mp4OutputFormat(), target });
-    const conversion = await mb.Conversion.init({
-      input, output, showWarnings: false,
-      video: { ...size, fit: 'contain', frameRate: SHRINK_FPS, codec: 'avc', bitrate: SHRINK_BITRATE, allowTransformationMetadata: false },
-    });
-    // звук не потерять: дорожку, которую нельзя скопировать или пережать, библиотека выбросила бы молча
-    if (!conversion.isValid || conversion.discardedTracks.some((d) => d.track.type === 'audio' || d.track.type === 'video')) {
+    // любой отказ ниже — недоделанная копия не остаётся в хранилище браузера (оно не бесконечно)
+    const give = async (original: string): Promise<Shrunk> => {
       await writable?.abort().catch(() => undefined);
-      return { original: 'браузер не может пересобрать это видео' };
-    }
-    const started = performance.now();
-    let slow = false;
-    conversion.onProgress = (done) => {
-      o.onProgress?.(done);
-      if (!slow && tooSlow({ elapsed: (performance.now() - started) / 1000, progress: done, originalBytes: f.size, seconds })) {
-        slow = true;
-        void conversion.cancel();
-      }
+      await dir?.removeEntry(key).catch(() => undefined);
+      return { original };
     };
+    if (!writable && !fitsMemory(seconds)) return give('длинное видео, а браузер не даёт сохранить копию — в памяти не поместится');
     try {
-      await conversion.execute();
+      const target = writable ? new mb.StreamTarget(writable, { chunked: true }) : new mb.BufferTarget();
+      const output = new mb.Output({ format: new mb.Mp4OutputFormat(), target });
+      const conversion = await mb.Conversion.init({
+        input, output, showWarnings: false,
+        video: { ...size, fit: 'contain', frameRate: SHRINK_FPS, codec: 'avc', bitrate: SHRINK_BITRATE, allowTransformationMetadata: false },
+      });
+      // звук не потерять: дорожку, которую нельзя скопировать или пережать, библиотека выбросила бы молча
+      if (!conversion.isValid || conversion.discardedTracks.some((d) => d.track.type === 'audio' || d.track.type === 'video')) {
+        return give('браузер не может пересобрать это видео');
+      }
+      // скорость и зависание судим по часам, а не только по событиям прогресса: встал декодер — событий нет вовсе
+      const started = performance.now();
+      let done = 0;
+      let moved = started;
+      let stop: 'slow' | 'stuck' | null = null;
+      conversion.onProgress = (x) => {
+        if (x > done) moved = performance.now();
+        done = x;
+        o.onProgress?.(x);
+      };
+      const watch = setInterval(() => {
+        const now = performance.now();
+        stop ??= stuck((now - moved) / 1000) ? 'stuck'
+          : tooSlow({ elapsed: (now - started) / 1000, progress: done, originalBytes: f.size, seconds }) ? 'slow' : null;
+        if (stop) void conversion.cancel();
+      }, 1000);
+      try {
+        await conversion.execute();
+      } catch (e) {
+        return give(stop === 'slow' ? 'сжатие медленнее загрузки оригинала' : stop === 'stuck' ? 'сжатие зависло'
+          : `сжать не вышло (${e instanceof Error ? e.message : String(e)})`);
+      } finally {
+        clearInterval(watch);
+      }
+      const data = writable ? await handle!.getFile() : new Blob([(target as InstanceType<typeof mb.BufferTarget>).buffer!]);
+      if (!writable) await dir?.removeEntry(key).catch(() => undefined); // пустой файл, созданный зря
+      return { file: new File([data], f.name, { type: 'video/mp4', lastModified: f.lastModified }) };
     } catch (e) {
-      await writable?.abort().catch(() => undefined);
-      return { original: slow ? 'сжатие медленнее загрузки оригинала' : `сжать не вышло (${e instanceof Error ? e.message : String(e)})` };
+      return give(`сжать не вышло (${e instanceof Error ? e.message : String(e)})`);
     }
-    const data = handle && writable ? await handle.getFile() : new Blob([(target as InstanceType<typeof mb.BufferTarget>).buffer!]);
-    return { file: new File([data], f.name, { type: 'video/mp4', lastModified: f.lastModified }) };
   } catch (e) {
     return { original: `сжать не вышло (${e instanceof Error ? e.message : String(e)})` };
   } finally {

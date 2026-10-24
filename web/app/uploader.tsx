@@ -119,6 +119,7 @@ export default function Uploader() {
     if (!picked.length) return;
     setSources([...sources, ...picked]);
     setError('');
+    setShrinkNote('');
     setPhase('idle');
     for (const f of picked) void videoDuration(f).then((d) => setDurations((m) => new Map(m).set(f, d)));
   }
@@ -164,6 +165,8 @@ export default function Uploader() {
     if (!source || !canStart) return;
     setError('');
     try {
+      // новая загрузка заменит незаконченную; дождаться: тот же файл ужмётся в то же место
+      if (pending) await dropShrunk([pending.source, ...(pending.more ?? [])]);
       const send = await shrink(sources.map((f, k) => ({ asset: videoAsset(k), file: f })), original);
       setPhase('uploading');
       const sent = sources.map((f, k) => send.get(videoAsset(k)) ?? f);

@@ -243,6 +243,37 @@ def _audio_chain(index: int, streams: _Streams, frames: int) -> str:
     return f"{source},atrim=end_sample={samples},asetpts=PTS-STARTPTS[a{index}]"
 
 
+def _voice_chain(index: int, frames: int) -> str:
+    """Озвучка (вход `index`) ровно на `frames` кадров: тишина в конце или обрезка."""
+    samples = frames * AUDIO_RATE // FPS
+    return (f"[{index}:a:0]aresample={AUDIO_RATE},aformat=sample_fmts=fltp:channel_layouts=stereo,"
+            f"apad=whole_len={samples},atrim=end_sample={samples},asetpts=PTS-STARTPTS[a]")
+
+
+def source_wav(parts: Sequence[PathLike], out: PathLike, voice: PathLike | None = None, rate: int = 16000) -> Path:
+    """Звук исходника для распознавания (моно, PCM 16 бит, `rate` Гц) прямо из видео Павла — тот же, что `normalize`
+    кладёт в source.mp4 (части подряд, каждая — по длине своего видео в целых кадрах; озвучка — вместо них), но без
+    картинки: секунды вместо минут, и распознавание идёт, пока нормализуется видео."""
+    parts, out = [Path(p) for p in parts], Path(out)
+    if not parts:
+        raise ValueError("source_wav: no parts")
+    streams = [_inspect(part)[1] for part in parts]
+    for part, s in zip(parts, streams):
+        if s.seconds <= 0:
+            raise MediaError(f"{part}: cannot determine the duration of the video")
+    if voice is None:
+        chains = [_audio_chain(i, s, max(1, round(s.seconds * FPS))) for i, s in enumerate(streams)]
+        graph = ";".join([*chains, "".join(f"[a{i}]" for i in range(len(parts))) + f"concat=n={len(parts)}:v=0:a=1[a]"])
+        inputs = parts
+    else:
+        graph, inputs = _voice_chain(0, max(1, round(voice_seconds(voice) * FPS))), [Path(voice)]
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with _atomic(out) as tmp:
+        _ffmpeg(*[arg for i in inputs for arg in ("-i", i)], "-filter_complex", graph, "-map", "[a]",
+                "-ac", 1, "-ar", rate, "-c:a", "pcm_s16le", tmp)
+    return out
+
+
 VOICE_RATE = 8000  # Гц — длина озвучки считается по отсчётам звука такой частоты: точность 1/8000 с, мало памяти
 
 
@@ -319,14 +350,12 @@ def normalize(parts: Sequence[PathLike], out: PathLike, voice: PathLike | None =
         joined = "".join(f"[v{i}][a{i}]" for i in range(len(parts))) + f"concat=n={len(parts)}:v=1:a=1[v][a]"
     else:
         frames = max(1, round(voice_seconds(voice) * FPS))
-        samples = frames * AUDIO_RATE // FPS
         video = sum(streams.seconds for _, streams in inspected)
         joined = (
             "".join(f"[v{i}]" for i in range(len(parts))) + f"concat=n={len(parts)}:v=1:a=0,"
             # запас стоп-кадра с лишней секундой, потом ровно `frames` кадров: видео той же длины, что озвучка
             f"tpad=stop_mode=clone:stop_duration={max(0.0, frames / FPS - video) + 1:.3f},trim=end_frame={frames},setpts=PTS-STARTPTS[v];"
-            f"[{len(parts)}:a:0]aresample={AUDIO_RATE},aformat=sample_fmts=fltp:channel_layouts=stereo,"
-            f"apad=whole_len={samples},atrim=end_sample={samples},asetpts=PTS-STARTPTS[a]"
+            f"{_voice_chain(len(parts), frames)}"
         )
     inputs = [*parts, *([Path(voice)] if voice is not None else [])]
     with _atomic(out) as tmp:

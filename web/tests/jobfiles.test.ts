@@ -425,3 +425,12 @@ test('the style choice takes the hook look and the bar\'s place and thickness, w
   assert.deepEqual(style.hookMode.enum, [...HOOK_MODES]);
   assert.deepEqual(style.barPos.enum, [...BAR_POSITIONS]);
 });
+
+test('a B-roll clip goes into job.json uploads as broll — Claude places it over the talking head', () => {
+  const m: Manifest = {
+    job: '261010-070509-abcd', name: 'IMG_1.MOV', size: 100, type: 'video/quicktime', lastModified: 1, parts: 1, chunkSize: 4,
+    uploads: [{ asset: 'upload-b1.mov', name: 'зал.MOV', size: 5, type: 'video/mp4', parts: 1 },
+              { asset: 'upload-b2.jpg', name: 'кадр.jpg', size: 3, type: 'image/jpeg', parts: 1 }],
+  };
+  assert.deepEqual(buildJobFile(m, NOW).uploads.map((u) => [u.file, u.kind]), [['in/uploads/upload-b1.mov', 'broll'], ['in/uploads/upload-b2.jpg', 'broll']]);
+});

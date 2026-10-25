@@ -1975,9 +1975,12 @@ const segments = [
       // в Safari (WebKit на Linux) сжатия нет — ушёл бы весь тяжёлый оригинал, а перезагрузку посреди загрузки там
       // проверяет шаг resume: файл лёгкий, без перезагрузки
       const big = clip('IMG_4K.MP4', 4, !WEBKIT);
+      const cut = clip('ZAL.MP4', 2, false); // перебивка — свой клип, уменьшается так же и переживает перезагрузку
       await p.goto(`${APP}/`);
       await p.setInputFiles('#source', big);
       await p.getByText('IMG_4K.MP4').first().waitFor();
+      await p.setInputFiles('#broll', cut);
+      await p.getByText('ZAL.MP4').first().waitFor();
       const had = new Set();
       const sent = [];
       let note = []; // почему ушёл оригинал (если ушёл) — заметка под списком видео, пока идёт загрузка
@@ -2000,20 +2003,29 @@ const segments = [
         for (const n of (await state()).drafts.at(-1).assets) had.add(n);
         p.on('request', (req) => {
           const u = new URL(req.url());
-          if (req.method() === 'PUT' && isPart(u)) sent.push(`source.part-${u.pathname.split('/').pop().padStart(5, '0')}`);
+          if (req.method() === 'PUT' && isPart(u)) sent.push(`${u.searchParams.get('file') ?? 'source'}.part-${u.pathname.split('/').pop().padStart(5, '0')}`);
         });
         await p.setInputFiles('#source', big);
+        await p.setInputFiles('#broll', cut);
         await p.getByRole('button', { name: 'Продолжить загрузку' }).click();
       } else {
         await p.getByRole('button', { name: 'Загрузить', exact: true }).click();
       }
       await p.waitForURL(/\/jobs\/\d{6}-\d{6}-[0-9a-z]{4}$/, { timeout: 300_000 });
       const got = await joined('joined-shrunk.mp4');
+      // перебивка — в manifest.json как upload-b1 (в job.json она станет kind broll); видео — уменьшено, как основное
+      const [draft] = (await fakeJson('/__dump')).slice(-1);
+      const b = draft.sha?.uploads?.find((u) => u.asset === 'upload-b1.mp4');
+      check(b?.name === 'ZAL.MP4', `перебивка в manifest.json: ${JSON.stringify(draft.sha?.uploads)}`);
+      const cutGot = path.join(ctx.tmp, 'joined-broll.mp4');
+      fs.writeFileSync(cutGot, Buffer.from(await (await fetch(`${FAKE}/__joined?file=upload-b1.mp4`)).arrayBuffer()));
+      check(fs.statSync(cutGot).size === b.size, `куски перебивки: ${fs.statSync(cutGot).size} из ${b?.size}`);
       const info = probe(got);
       const video = info.streams.find((x) => x.codec_type === 'video');
       if (video?.width === 1080) {
         check(video.height === 1920 && video.r_frame_rate === '30/1' && Math.abs(Number(info.format.duration) - 4) < 0.2, `уменьшенное видео: ${JSON.stringify(info)}`);
         check(info.streams.some((x) => x.codec_type === 'audio'), 'у уменьшенного видео пропал звук');
+        check(probe(cutGot).streams.find((x) => x.codec_type === 'video')?.width === 1080, 'перебивку не уменьшил');
         if (!WEBKIT) check(sent.length > 0 && !sent.some((n) => had.has(n)), `после перезагрузки заново ушли: ${sent.filter((n) => had.has(n)).join(', ') || 'ничего'}`);
       } else {
         check(WEBKIT, `Chromium должен был уменьшить: ${JSON.stringify(info)}; заметка: ${note.join(' / ') || 'нет'}`);

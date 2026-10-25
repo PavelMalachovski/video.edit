@@ -45,12 +45,13 @@ function fnv1a(text: string): string {
 
 /**
  * Имя ассета загрузки, только ASCII (иные GitHub переименовывает): `upload-i2.mov` (вставка к ролику),
- * `upload-q-hook.png` (картинка к ответу). Расширение — из имени файла, иначе из типа, иначе `bin`.
+ * `upload-b3.mov` (перебивка — свой клип Павла поверх говорящей головы), `upload-q-hook.png` (картинка к ответу).
+ * Расширение — из имени файла, иначе из типа, иначе `bin`.
  */
-export function uploadAssetName(kind: 'i' | 'q', key: string | number, fileName: string, type: string): string {
+export function uploadAssetName(kind: 'i' | 'b' | 'q', key: string | number, fileName: string, type: string): string {
   const fromName = /\.([a-z0-9]{1,5})$/.exec(fileName.toLowerCase())?.[1];
   const ext = fromName ?? TYPE_EXT[type] ?? 'bin';
-  if (kind === 'i') return `upload-i${key}.${ext}`;
+  if (kind === 'i' || kind === 'b') return `upload-${kind}${key}.${ext}`;
   const qid = String(key).toLowerCase();
   return `upload-q-${/^[a-z0-9_-]{1,40}$/.test(qid) ? qid : `x${fnv1a(String(key))}`}.${ext}`;
 }
@@ -77,7 +78,10 @@ export function voiceAssetName(fileName: string, type: string, n = 1): string {
 
 export const isVoiceFile = (name: string): boolean => /^upload-voice(-\d{1,2})?\.(m4a|mp3|wav|aac)$/.test(name);
 
-export const isUploadFile = (name: string): boolean => /^upload-(i\d{1,2}|q-[a-z0-9_-]{1,40})\.[a-z0-9]{1,5}$/.test(name) || isVoiceFile(name);
+export const isBrollFile = (name: string): boolean => /^upload-b\d{1,2}\.[a-z0-9]{1,5}$/.test(name);
+
+export const isUploadFile = (name: string): boolean => /^upload-(i\d{1,2}|q-[a-z0-9_-]{1,40})\.[a-z0-9]{1,5}$/.test(name) || isBrollFile(name)
+  || isVoiceFile(name);
 
 // ---------- видео задачи ----------
 
@@ -128,6 +132,7 @@ export const MAX_SOURCE_BYTES = 3 * 1024 ** 3;
 export const MAX_INSERT_BYTES = 200 * 1024 ** 2;
 export const MAX_VOICE_BYTES = 200 * 1024 ** 2;
 export const MAX_INSERTS = 10;
+export const MAX_BROLL = 20; // перебивок — клипов Павла поверх говорящей головы
 export const MAX_UPLOAD_PARTS = 900; // у GitHub не больше 1000 ассетов в релизе; остаток — манифест, ответы, ролики
 export const MAX_ANSWER_IMAGE_BYTES = 20 * 1024 ** 2;
 export const MAX_BRIEF = 4000;
@@ -165,6 +170,37 @@ export function checkInsert(f: { name: string; size: number; type: string }): st
   if (f.size <= 0) return `${f.name}: пустой файл`;
   if (f.size > MAX_INSERT_BYTES) return `${f.name}: больше 200 МБ`;
   if (!(INSERT_TYPES as readonly string[]).includes(f.type)) return `${f.name}: такой тип не подходит (нужны PNG, JPEG, WebP, GIF, MP4 или MOV)`;
+  return null;
+}
+
+/** Перебивка: видео (MP4, MOV) или картинка любого размера, какой примет задача (до 3 ГБ): большое видео браузер
+ *  уменьшит до 1080 по ширине перед загрузкой (app/shrink.ts), так что 200 МБ вставок здесь не предел. */
+export function checkBroll(f: { name: string; size: number; type: string }): string | null {
+  if (/\.(heic|heif)$/i.test(f.name) || /^image\/hei[cf]/.test(f.type)) return `${f.name}: HEIC не подходит — сохраните как JPEG или PNG.`;
+  if (f.size <= 0) return `${f.name}: пустой файл`;
+  if (f.size > MAX_SOURCE_BYTES) return `${f.name}: больше 3 ГБ`;
+  if (!(INSERT_TYPES as readonly string[]).includes(f.type)) return `${f.name}: такой тип не подходит (нужны MP4, MOV, PNG, JPEG, WebP или GIF)`;
+  return null;
+}
+
+const isInsertFile = (name: string): boolean => /^upload-i\d{1,2}\.[a-z0-9]{1,5}$/.test(name);
+
+/** Загрузки, которые страница называет в конце загрузки (`uploads` в /complete): вставки (до MAX_INSERTS, до 200 МБ),
+ *  перебивки (до MAX_BROLL, checkBroll) и одна озвучка. Всё в порядке — null, иначе ошибка и её код ответа. */
+export function checkUploadClaims(uploads: unknown[]): { error: string; status: number } | null {
+  if (uploads.length > MAX_INSERTS + MAX_BROLL + 1) return { error: `Вставок больше ${MAX_INSERTS}`, status: 413 };
+  for (const u of uploads) {
+    if (!isRecord(u) || typeof u.asset !== 'string' || !(isInsertFile(u.asset) || isBrollFile(u.asset) || isVoiceFile(u.asset))) {
+      return { error: 'bad upload', status: 400 };
+    }
+    const file = { name: String(u.name), size: Number(u.size), type: String(u.type) };
+    const why = isVoiceFile(u.asset) ? checkVoice(file) : isBrollFile(u.asset) ? checkBroll(file) : checkInsert(file);
+    if (why) return { error: why, status: 413 };
+  }
+  const named = uploads as { asset: string }[];
+  if (named.filter((u) => isInsertFile(u.asset)).length > MAX_INSERTS) return { error: `Вставок больше ${MAX_INSERTS}`, status: 413 };
+  if (named.filter((u) => isBrollFile(u.asset)).length > MAX_BROLL) return { error: `Перебивок больше ${MAX_BROLL}`, status: 413 };
+  if (named.filter((u) => isVoiceFile(u.asset)).length > 1) return { error: 'Озвучка — одна запись', status: 400 };
   return null;
 }
 

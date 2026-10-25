@@ -7,7 +7,8 @@ import { useRouter } from 'next/navigation';
 import { errorText, message, post, storage } from '@/lib/client.ts';
 import { bytes, mmss } from '@/lib/format.ts';
 import {
-  checkInsert, checkSources, checkTotal, checkVoice, INSERT_TYPES, LONG_VIDEO_SEC, MAX_BRIEF, MAX_INSERTS, MAX_VIDEOS, uploadAssetName, VOICE_EXT,
+  checkBroll, checkInsert, checkSources, checkTotal, checkVoice, INSERT_TYPES, isBrollFile, LONG_VIDEO_SEC, MAX_BRIEF, MAX_BROLL, MAX_INSERTS,
+  MAX_VIDEOS, uploadAssetName, VOICE_EXT,
   videoAsset, voiceAssetName,
 } from '@/lib/jobs.ts';
 import {
@@ -77,6 +78,8 @@ export default function Uploader() {
   const [durations, setDurations] = useState<Map<File, number | null>>(new Map()); // нет файла — ещё смотрю
   const [brief, setBrief] = useState('');
   const [inserts, setInserts] = useState<File[]>([]);
+  const [brolls, setBrolls] = useState<File[]>([]); // перебивки — свои клипы поверх говорящей головы (ставит Claude)
+  const [brollError, setBrollError] = useState('');
   const [insertError, setInsertError] = useState('');
   const [voice, setVoice] = useState<File | null>(null); // озвучка — своя запись голоса вместо звука видео
   const [voiceError, setVoiceError] = useState('');
@@ -103,8 +106,11 @@ export default function Uploader() {
 
   const busy = phase === 'shrinking' || phase === 'uploading' || phase === 'completing' || phase === 'launching';
   const source = sources[0] ?? null;
-  const match = useMemo(() => (pending && sources.length && !busy ? matchPending(pending, sources, inserts, voice) : null), [pending, sources, inserts, voice, busy]);
+  // вставки и перебивки в незаконченной загрузке — одним списком (различает имя ассета: upload-i… / upload-b…)
+  const extras = useMemo(() => [...inserts, ...brolls], [inserts, brolls]);
+  const match = useMemo(() => (pending && sources.length && !busy ? matchPending(pending, sources, extras, voice) : null), [pending, sources, extras, voice, busy]);
   const sourceError = sources.length ? checkSources(sources.map((f) => f.size)) : null;
+  // перебивки здесь не в счёт: 4K-клипы браузер уменьшит — их размер проверяется после уменьшения (startNew)
   const totalError = source ? checkTotal(source.size, [...sources.slice(1), ...inserts, ...(voice ? [voice] : [])].map((f) => f.size)) : null;
   const measuring = sources.some((f) => !durations.has(f));
   // длина всех видео вместе; хоть одно не узнал — неизвестна
@@ -144,6 +150,22 @@ export default function Uploader() {
     setInsertError(problems.join('\n'));
   }
 
+  function addBrolls(list: FileList | null) {
+    const next = [...brolls];
+    const problems: string[] = [];
+    for (const f of list ? [...list] : []) {
+      const why = checkBroll(f);
+      if (why) problems.push(why);
+      else if (next.some((x) => sameFile(x, f))) continue;
+      else if (next.length >= MAX_BROLL) {
+        problems.push(`Не больше ${MAX_BROLL} перебивок`);
+        break;
+      } else next.push(f);
+    }
+    setBrolls(next);
+    setBrollError(problems.join('\n'));
+  }
+
   function pickVoice(f: File | null) {
     if (!f) return; // выбор отменили — прежняя запись остаётся
     const why = checkVoice(f);
@@ -166,16 +188,25 @@ export default function Uploader() {
     setError('');
     try {
       // новая загрузка заменит незаконченную; дождаться: тот же файл ужмётся в то же место
-      if (pending) await dropShrunk([pending.source, ...(pending.more ?? [])]);
-      const send = await shrink(sources.map((f, k) => ({ asset: videoAsset(k), file: f })), original);
+      if (pending) await dropShrunk([pending.source, ...(pending.more ?? []), ...pending.inserts]);
+      const clips: PendingInsert[] = brolls.map((f, k) => ({ asset: uploadAssetName('b', k + 1, f.name, f.type), name: f.name, size: f.size, type: f.type, lastModified: f.lastModified }));
+      // видео задачи и видео-перебивки — уменьшаются одной очередью; картинки-перебивки — как есть
+      const send = await shrink([...sources.map((f, k) => ({ asset: videoAsset(k), file: f })),
+        ...clips.flatMap((c, k) => (brolls[k].type.startsWith('video/') ? [{ asset: c.asset, file: brolls[k] }] : []))], original);
       setPhase('uploading');
       const sent = sources.map((f, k) => send.get(videoAsset(k)) ?? f);
       const size = sent.reduce((sum, f) => sum + f.size, 0);
+      const clipSizes = clips.map((c, k) => send.get(c.asset)?.size ?? brolls[k].size);
+      const tooMuch = checkTotal(sent[0].size, [...sent.slice(1), ...inserts, ...(voice ? [voice] : [])].map((f) => f.size).concat(clipSizes));
+      if (tooMuch) throw new Error(brolls.length ? `${tooMuch} Перебивки тоже в счёт — уберите часть.` : tooMuch);
       const r = await post('/api/jobs', { name: label, size, type: sent[0].type });
       if (!r.ok) throw new Error(await errorText(r, 'Задача не создалась'));
       const { jobId, releaseId } = (await r.json()) as { jobId: string; releaseId: number };
       window.dispatchEvent(new Event(JOBS_CHANGED));
-      const list: PendingInsert[] = inserts.map((f, k) => ({ asset: uploadAssetName('i', k + 1, f.name, f.type), name: f.name, size: f.size, type: f.type, lastModified: f.lastModified }));
+      const list: PendingInsert[] = [
+        ...inserts.map((f, k) => ({ asset: uploadAssetName('i', k + 1, f.name, f.type), name: f.name, size: f.size, type: f.type, lastModified: f.lastModified })),
+        ...clips.map((c) => ({ ...c, ...(send.has(c.asset) ? { shrunk: send.get(c.asset)!.size } : {}) })),
+      ];
       const said = voice ? { asset: voiceAssetName(voice.name, voice.type), name: voice.name, size: voice.size, type: voice.type, lastModified: voice.lastModified } : undefined;
       const shrunk = (asset: string) => (send.has(asset) ? { shrunk: send.get(asset)!.size } : {});
       const more: PendingInsert[] = sources.slice(1).map((f, k) => ({
@@ -186,7 +217,7 @@ export default function Uploader() {
         brief: briefRef.current, duration: duration ?? null,
         inserts: list, voice: said, ...(more.length ? { more } : {}),
       };
-      const files = new Map<string, File>([...sources.map((f, k) => [videoAsset(k), f] as [string, File]), ...list.map((i, k) => [i.asset, inserts[k]] as [string, File])]);
+      const files = new Map<string, File>([...sources.map((f, k) => [videoAsset(k), f] as [string, File]), ...list.map((i, k) => [i.asset, extras[k]] as [string, File])]);
       if (said && voice) files.set(said.asset, voice);
       await upload({ p, files, send }, new Set());
     } catch (e) {
@@ -201,24 +232,31 @@ export default function Uploader() {
     if (!pending || !sources.length || !match?.ok) return;
     const kept = pending.inserts.filter((i) => match.inserts.has(i.asset));
     const reused = new Set(match.inserts.values());
-    const extras = inserts.filter((f) => !reused.has(f));
-    let n = Math.max(0, ...pending.inserts.map((i) => Number(/^upload-i(\d+)/.exec(i.asset)?.[1] ?? 0)));
-    const added: PendingInsert[] = extras.map((f) => ({ asset: uploadAssetName('i', ++n, f.name, f.type), name: f.name, size: f.size, type: f.type, lastModified: f.lastModified }));
+    // новые вставки и перебивки — следующими номерами своего вида (у вставок i, у перебивок b)
+    const number = (kind: 'i' | 'b', files: File[]) => {
+      let n = Math.max(0, ...pending.inserts.map((i) => Number(new RegExp(`^upload-${kind}(\\d+)`).exec(i.asset)?.[1] ?? 0)));
+      return files.filter((f) => !reused.has(f)).map((f) => ({ f, a: { asset: uploadAssetName(kind, ++n, f.name, f.type), name: f.name, size: f.size, type: f.type, lastModified: f.lastModified } }));
+    };
+    const fresh = [...number('i', inserts), ...number('b', brolls)];
+    const added: PendingInsert[] = fresh.map((x) => x.a);
     const last = pending.voice ? Number(/^upload-voice-(\d+)/.exec(pending.voice.asset)?.[1] ?? 1) : 0;
     const said = match.voice ? pending.voice : voice
       ? { asset: voiceAssetName(voice.name, voice.type, last + 1), name: voice.name, size: voice.size, type: voice.type, lastModified: voice.lastModified } : undefined;
     const p: Pending = { ...pending, brief: briefRef.current, duration: duration ?? pending.duration, inserts: [...kept, ...added], voice: said };
-    const files = new Map<string, File>([...match.videos, ...match.inserts, ...added.map((a, k) => [a.asset, extras[k]] as [string, File])]);
+    const files = new Map<string, File>([...match.videos, ...match.inserts, ...fresh.map((x) => [x.a.asset, x.f] as [string, File])]);
     setSources([...match.videos.values()]); // видео — в порядке задачи, даже если выбраны заново в другом
     if (said && voice) files.set(said.asset, voice);
     setError('');
     try {
       // уменьшенные в прошлый раз — та же копия (из хранилища браузера или сжатая заново); ушёл оригинал — оригинал
-      const was = new Map([['source', pending.source.shrunk], ...(pending.more ?? []).map((v) => [v.asset, v.shrunk] as const)]);
-      const again = [...match.videos].flatMap(([asset, file]) => (was.get(asset) ? [{ asset, file, expect: was.get(asset) }] : []));
-      const send = await shrink(again, false);
+      const was = new Map([['source', pending.source.shrunk], ...[...(pending.more ?? []), ...kept].map((v) => [v.asset, v.shrunk] as const)]);
+      const again = [...match.videos, ...match.inserts].flatMap(([asset, file]) => (was.get(asset) ? [{ asset, file, expect: was.get(asset) }] : []));
+      // новые перебивки-видео — уменьшаются, как при новой загрузке
+      const clips = fresh.filter((x) => isBrollFile(x.a.asset) && x.f.type.startsWith('video/')).map((x) => ({ asset: x.a.asset, file: x.f }));
+      const send = await shrink([...again, ...clips], false);
       const lost = again.find((v) => send.get(v.asset)?.size !== v.expect);
       if (lost) throw new Error(`Уменьшенная копия ${lost.file.name} не сохранилась в браузере — нажмите «Забыть» и загрузите заново`);
+      p.inserts = p.inserts.map((i) => (send.has(i.asset) && !i.shrunk ? { ...i, shrunk: send.get(i.asset)!.size } : i));
       await upload({ p, files, send }, null);
     } catch (e) {
       setError(message(e));
@@ -264,7 +302,7 @@ export default function Uploader() {
     try {
       const videos = sentVideos(p); // видео по порядку (уменьшенные — своим размером), потом вставки и озвучка
       const extra = [...p.inserts, ...(p.voice ? [p.voice] : [])];
-      const chunks = planChunks([...videos, ...extra].map((i) => ({ asset: i.asset, size: i.size })));
+      const chunks = planChunks([...videos, ...extra.map((i) => ({ asset: i.asset, size: i.shrunk ?? i.size }))]);
       let done = known;
       if (!done) {
         const r = await fetch(`/api/jobs/${p.jobId}/parts?release=${p.releaseId}`, { cache: 'no-store' });
@@ -302,7 +340,7 @@ export default function Uploader() {
       const c = await post(`/api/jobs/${p.jobId}/complete`, {
         releaseId: p.releaseId, name: first.name, size: first.size, type: first.type, lastModified: first.lastModified,
         parts: partsOf('source'), userAgent: navigator.userAgent, brief: briefRef.current.trim(), duration: p.duration,
-        uploads: extra.map((i) => ({ asset: i.asset, name: i.name, size: i.size, type: i.type, parts: partsOf(i.asset) })),
+        uploads: extra.map((i) => ({ asset: i.asset, name: i.name, size: i.shrunk ?? i.size, type: out(i.asset).type, parts: partsOf(i.asset) })),
         ...(all.length > 1 ? { videos: all } : {}),
       });
       if (!c.ok) throw new Error(await errorText(c, 'Проверка загрузки не прошла'));
@@ -351,7 +389,7 @@ export default function Uploader() {
   // после сбоя — как была, если вставки и озвучка те же; поменяли — заново собранной загрузкой (resume)
   // в заметке о незаконченной загрузке — как в списке задач: первое видео и сколько ещё
   const pendingName = (p: Pending) => (p.more?.length ? `${p.source.name} + ${p.more.length}` : p.source.name);
-  const resumable = phase === 'failed' && active.current !== null && sameSelection(active.current.files, inserts, voice, sources);
+  const resumable = phase === 'failed' && active.current !== null && sameSelection(active.current.files, extras, voice, sources);
   const long = typeof duration === 'number' && duration > LONG_VIDEO_SEC;
 
   return (
@@ -431,6 +469,13 @@ export default function Uploader() {
       </section>
 
       <div className="tools">
+        <label className={`tool wide${busy ? ' off' : ''}`}>
+          <span className="tool-icon"><FilmIcon /></span>
+          <span className="grow">Перебивки <span className="muted small">— свои клипы, Claude поставит по смыслу</span></span>
+          <span className="tool-plus"><PlusIcon size={16} /></span>
+          <input id="broll" type="file" multiple accept={INSERT_TYPES.join(',')} disabled={busy} hidden
+            onChange={(e) => { addBrolls(e.target.files); e.target.value = ''; }} />
+        </label>
         <label className={`tool${busy ? ' off' : ''}`}>
           <span className="tool-icon"><ImageIcon /></span>
           <span className="grow">Вставки</span>
@@ -446,8 +491,19 @@ export default function Uploader() {
             onChange={(e) => { pickVoice(e.target.files?.[0] ?? null); e.target.value = ''; }} />
         </label>
       </div>
-      {inserts.length || voice ? (
+      {inserts.length || brolls.length || voice ? (
         <ul className="files">
+          {brolls.map((f, k) => (
+            <li key={`b:${f.name}:${f.size}:${f.lastModified}`}>
+              <span className="thumb"><FilmIcon /></span>
+              <span className="grow">{f.name} <span className="muted small">· перебивка</span></span>
+              <span className="mono muted small">{bytes(f.size)}</span>
+              <button type="button" className="icon" aria-label={`Убрать ${f.name}`} disabled={busy}
+                onClick={() => setBrolls(brolls.filter((_, i) => i !== k))}>
+                <CloseIcon />
+              </button>
+            </li>
+          ))}
           {inserts.map((f, k) => (
             <li key={`${f.name}:${f.size}:${f.lastModified}`}>
               <Thumb file={f} />
@@ -470,9 +526,11 @@ export default function Uploader() {
           ) : null}
         </ul>
       ) : null}
+      {brollError ? <div className="err small pre">{brollError}</div> : null}
       {insertError ? <div className="err small pre">{insertError}</div> : null}
       {voiceError ? <div className="err small">{voiceError}</div> : null}
-      <div className="muted small">Вставки — логотипы, скрины и демо для этого ролика. Озвучка — своя запись голоса вместо звука видео: M4A, MP3, WAV или AAC до 200 МБ.</div>
+      <div className="muted small">Перебивки — до {MAX_BROLL} своих клипов или фото (зал, улица, руки, экран): Claude поставит их поверх
+        говорящей головы там, где речь о них. Вставки — логотипы, скрины и демо для этого ролика. Озвучка — своя запись голоса вместо звука видео: M4A, MP3, WAV или AAC до 200 МБ.</div>
 
       {error ? <div className="err">{error}</div> : null}
       {phase === 'launch_failed' && launched.current ? (

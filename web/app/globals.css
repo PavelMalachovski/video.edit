@@ -648,3 +648,4 @@ button.ed-primary { border: 0; font: inherit; font-weight: 700; cursor: pointer;
 /* галочка «загрузить оригинал» под списком видео */
 .keep-original { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
 .keep-original input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--select); flex: none; }
+.tool.wide { grid-column: 1 / -1; } /* перебивки — во всю ширину над вставками и озвучкой */

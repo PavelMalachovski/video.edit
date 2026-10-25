@@ -13,6 +13,7 @@ type Options = {
   asked: boolean; // галочка «загрузить оригинал»
   onProgress?: (done: number) => void; // доля 0…1
   expect?: number; // размер копии из незаконченной загрузки: есть такая в OPFS — берём её, не уменьшая заново
+  cover?: boolean; // перебивка: не мельче, чем движок обрежет её под кадр (shrinkSize)
 };
 
 async function opfs(): Promise<FileSystemDirectoryHandle | null> {
@@ -74,7 +75,7 @@ async function attempt(f: File, o: Options, mark: (stage: string) => void): Prom
     mark('чтение видео');
     const video = await input.getPrimaryVideoTrack();
     if (!video) return { original: 'браузер не читает это видео' };
-    const size = shrinkSize(video.displayWidth, video.displayHeight);
+    const size = shrinkSize(video.displayWidth, video.displayHeight, o.cover);
     mark('проверка кодеков');
     const able = size ? await Promise.all(SHRINK_CODECS.map(async (c) =>
       ((await mb.canEncodeVideo(c, { width: size.width, height: size.height, bitrate: SHRINK_BITRATE })) ? [c] : []))) : [];

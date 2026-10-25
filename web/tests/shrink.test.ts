@@ -8,6 +8,10 @@ import {
 test('a 4K vertical video shrinks to 1080×1920, a landscape one to width 1080 with an even height', () => {
   assert.deepEqual(shrinkSize(2160, 3840), { width: 1080, height: 1920 });
   assert.deepEqual(shrinkSize(3840, 2160), { width: 1080, height: 608 }); // 607,5 → чётная
+  // перебивка: движок обрезает её под кадр 1080×1920 (cover) — уменьшаем не мельче, чем он возьмёт: иначе растянет мыло
+  assert.deepEqual(shrinkSize(3840, 2160, true), { width: 3414, height: 1920 });
+  assert.deepEqual(shrinkSize(2160, 3840, true), { width: 1080, height: 1920 });
+  assert.equal(shrinkSize(1920, 1080, true), null, 'Full HD горизонтальный — уже не больше нужного');
   assert.deepEqual(shrinkSize(1440, 1920), { width: 1080, height: 1440 });
 });
 

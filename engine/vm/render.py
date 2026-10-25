@@ -614,15 +614,16 @@ def _picture(job, edit, tl, info, index, hold, missing, warnings, video="[vc]") 
             skip = max(0.0, min(float(ins.get("from") or 0.0), length - seconds))
             if skip > 0:
                 inputs += ["-ss", f"{skip:.6f}"]
-            if ins.get("audio"):
-                beds.append((first / FPS, str(path), skip, seconds))
+            if ins.get("audio"):  # клип короче окна — звук до его конца (затухание — на конце звука, без щелчка)
+                beds.append((first / FPS, str(path), skip, min(seconds, max(0.0, length - skip)) if length > 0 else seconds))
         inputs += ["-t", f"{seconds:.6f}", "-i", str(path)]
         # HDR (HLG/PQ с телефона) — в SDR так же, как исходник в normalize; остальное — из своей матрицы в BT.709
         color = HDR_TO_SDR if hdr else f"{TO_709},format=yuv420p"
         # после fps=30 шаг времени — 1/30 с: +first ставит первый кадр перебивки ровно на кадр first финала
         chains.append(
             f"[{index}:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},fps={FPS},"
-            f"{color},setpts=PTS-STARTPTS+{first}[fs{i}]"
+            # клип короче окна — его последний кадр до конца окна: иначе с ним кончилось бы и окошко лица (pip)
+            f"{color},tpad=stop_mode=clone:stop_duration={seconds:.6f},setpts=PTS-STARTPTS+{first}[fs{i}]"
         )
         index += 1
         if ins.get("layout") == "pip":  # лицо окошком поверх клипа: тот же кадр говорящего, кусок вокруг лица

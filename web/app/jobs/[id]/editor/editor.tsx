@@ -28,7 +28,7 @@ import { tenths } from '@/lib/format.ts';
 import { loadLang, saveLang, tr, type Key, type Lang } from '@/lib/i18n.ts';
 import type { StyleChoice, StyleSpec } from '@/lib/jobfiles.ts';
 import { buildOverlayEvents, eventIndexAt, hookEnd, type LayerEvent } from '@/lib/overlay.ts';
-import { pictureModel } from '@/lib/picture.ts';
+import { pictureModel, type Cover } from '@/lib/picture.ts';
 import { HALF } from '@/lib/zoom.ts';
 import { missingLetters, typedText } from '@/lib/fontchars.ts';
 import { advance, afterEnded, locate, stillSource, tailAt } from '@/lib/player.ts';
@@ -366,7 +366,10 @@ export default function Editor({ id }: { id: string }) {
   const head = data?.head ?? null;
   const urlOf = useCallback((path: string) => layerUrl(id, head, path), [id, head]);
   const brolls = data?.brolls;
-  const clipUrl = useCallback((src: string) => coverUrl(id, head, brolls ?? [], src), [id, head, brolls]);
+  const clipOf = useCallback((c: Cover) => {
+    const b = brolls?.find((x) => x.src === c.src); // перебивка: видео ли — по загрузке, а не по расширению
+    return { url: coverUrl(id, head, brolls ?? [], c.src), video: b ? b.video : c.video };
+  }, [id, head, brolls]);
   const events = useMemo((): LayerEvent[] | null => {
     if (!tracks) return null;
     const { edit, tl: line } = tracks.layer;
@@ -1206,7 +1209,7 @@ export default function Editor({ id }: { id: string }) {
             <div className="ed-frame" style={{ width: frameW, height: frameH }}>
               {tracks ? (
                 <Picture clock={clock} model={picture} video={video} src={data?.proxyUrl ?? null} duration={duration} width={frameW} playing={playing}
-                  clipUrl={clipUrl} note={T('coverUpload')}>
+                  clipOf={clipOf} note={T('coverUpload')}>
                   {data?.proxyUrl ? (
                     <video ref={video} src={data.proxyUrl} playsInline preload="auto" onError={onVideoError}
                       onLoadedMetadata={() => seek(now.current)} onEnded={onEnded} data-editor-video="" />

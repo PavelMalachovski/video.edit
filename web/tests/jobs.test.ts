@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import {
   newJobId, partName, chunkCount, CHUNK_SIZE, jobTag, jobBranch, jobDir, chunkName, uploadAssetName, isUploadFile, resolveJobPath,
   imageType, audioType, audioPaths, checkSource, checkInsert, checkTotal, partsOf, verifyParts, MAX_SOURCE_BYTES, MAX_INSERT_BYTES,
-  checkBroll, checkUploadClaims, isBrollFile, MAX_BROLL, MAX_INSERTS,
+  checkBroll, checkUploadClaims, isBrollFile, MAX_BROLL, MAX_INSERTS, MAX_UPLOAD_PARTS,
   checkVoice, isVoiceFile, MAX_VOICE_BYTES, voiceAssetName, checkVideos, isSourceFile, MAX_VIDEOS, videoAsset, videoFile, checkSources,
 } from '../lib/jobs.ts';
 
@@ -209,4 +209,8 @@ test('the uploads a finished upload claims: inserts, B-roll clips and one voiceo
   assert.deepEqual(checkUploadClaims([voice, { ...voice, asset: 'upload-voice-2.m4a' }]), { error: 'Озвучка — одна запись', status: 400 });
   assert.deepEqual(checkUploadClaims([{ ...ins(1), asset: '../x.png' }]), { error: 'bad upload', status: 400 });
   assert.deepEqual(checkUploadClaims([null]), { error: 'bad upload', status: 400 });
+});
+
+test('upload parts leave room in the release for one editor proxy per B-roll clip', () => {
+  assert.equal(MAX_UPLOAD_PARTS + MAX_BROLL, 900);
 });

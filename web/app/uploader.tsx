@@ -108,7 +108,7 @@ export default function Uploader() {
   const source = sources[0] ?? null;
   // вставки и перебивки в незаконченной загрузке — одним списком (различает имя ассета: upload-i… / upload-b…)
   const extras = useMemo(() => [...inserts, ...brolls], [inserts, brolls]);
-  const match = useMemo(() => (pending && sources.length && !busy ? matchPending(pending, sources, extras, voice) : null), [pending, sources, extras, voice, busy]);
+  const match = useMemo(() => (pending && sources.length && !busy ? matchPending(pending, sources, inserts, voice, brolls) : null), [pending, sources, inserts, brolls, voice, busy]);
   const sourceError = sources.length ? checkSources(sources.map((f) => f.size)) : null;
   // перебивки здесь не в счёт: 4K-клипы браузер уменьшит — их размер проверяется после уменьшения (startNew)
   const totalError = source ? checkTotal(source.size, [...sources.slice(1), ...inserts, ...(voice ? [voice] : [])].map((f) => f.size)) : null;
@@ -277,7 +277,7 @@ export default function Uploader() {
     const release = keepScreenOn(navigator as Parameters<typeof keepScreenOn>[0], document); // телефон не уснёт посреди сжатия
     try {
       for (const [k, v] of videos.entries()) {
-        const r = await shrinkVideo(v.file, { asked, expect: v.expect, onProgress: (done) => setSent(k + done) });
+        const r = await shrinkVideo(v.file, { asked, expect: v.expect, cover: isBrollFile(v.asset), onProgress: (done) => setSent(k + done) });
         if ('file' in r) send.set(v.asset, r.file);
         else if (!r.quiet) notes.push(`${v.file.name} — оригинал: ${r.original}`);
         setSent(k + 1);

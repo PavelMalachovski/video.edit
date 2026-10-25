@@ -3,7 +3,7 @@
 // минута ожидания после ответа «лимит», продолжение с уже загруженных кусков; ответ, который повтор не исправит
 // (сайт на паузе, вход истёк, кусок неверный), останавливает загрузку сразу.
 import { PAUSED, statusText } from './client.ts';
-import { CHUNK_SIZE, chunkName, isJobId, isSourceFile, isUploadFile, isVoiceFile, videoAsset } from './jobs.ts';
+import { CHUNK_SIZE, chunkName, isBrollFile, isJobId, isSourceFile, isUploadFile, isVoiceFile, videoAsset } from './jobs.ts';
 
 export type PutResult = { ok: true } | { ok: false; status: number };
 
@@ -117,9 +117,9 @@ const same = (a: Picked, b: Picked): boolean => a.name === b.name && a.size === 
 /**
  * Те же ли видео выбраны снова (имя и размер; все, в любом порядке, и ни одного лишнего) и какие вставки выбраны
  * заново: `videos` и `inserts` — ассет → файл; `voice` — озвучка, если выбрана та же. Невыбранные заново вставки и
- * озвучка выпадают — их имена в `dropped`.
+ * озвучка выпадают — их имена в `dropped`. `brolls` — выбранные перебивки: тогда `upload-b*` ищутся только среди них.
  */
-export function matchPending<F extends Picked>(p: Pending, sources: F | F[], inserts: F[], voice: F | null = null): {
+export function matchPending<F extends Picked>(p: Pending, sources: F | F[], inserts: F[], voice: F | null = null, brolls?: F[]): {
   ok: boolean; videos: Map<string, F>; inserts: Map<string, F>; voice: F | null; dropped: string[];
 } {
   const picked = Array.isArray(sources) ? sources : [sources];
@@ -131,8 +131,8 @@ export function matchPending<F extends Picked>(p: Pending, sources: F | F[], ins
   const all = videos.size === 1 + (p.more?.length ?? 0) && picked.length === videos.size;
   const found = new Map<string, F>();
   const dropped: string[] = [];
-  for (const want of p.inserts) {
-    const f = inserts.find((x) => same(x, want));
+  for (const want of p.inserts) { // перебивки — среди выбранных перебивок (дан их список), вставки — среди вставок
+    const f = (brolls && isBrollFile(want.asset) ? brolls : inserts).find((x) => same(x, want));
     if (f) found.set(want.asset, f);
     else dropped.push(want.name);
   }

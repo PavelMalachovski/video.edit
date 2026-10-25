@@ -133,7 +133,8 @@ export const MAX_INSERT_BYTES = 200 * 1024 ** 2;
 export const MAX_VOICE_BYTES = 200 * 1024 ** 2;
 export const MAX_INSERTS = 10;
 export const MAX_BROLL = 20; // перебивок — клипов Павла поверх говорящей головы
-export const MAX_UPLOAD_PARTS = 900; // у GitHub не больше 1000 ассетов в релизе; остаток — манифест, ответы, ролики
+// у GitHub не больше 1000 ассетов в релизе; остаток — манифест, ответы, ролики, готовый исходник и прокси перебивок (по одному)
+export const MAX_UPLOAD_PARTS = 900 - MAX_BROLL;
 export const MAX_ANSWER_IMAGE_BYTES = 20 * 1024 ** 2;
 export const MAX_BRIEF = 4000;
 export const MAX_NOTE = 2000;

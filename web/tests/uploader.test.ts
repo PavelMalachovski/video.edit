@@ -160,6 +160,16 @@ test('matchPending resumes re-picked files and drops the rest', () => {
   assert.equal(matchPending(pending, file('other.mov', 10, 111), [a]).ok, false);
 });
 
+test('on resume a B-roll clip is matched only among the picked B-roll, an insert — only among the inserts', () => {
+  const p: Pending = { ...pending, inserts: [...pending.inserts, { asset: 'upload-b1.mov', name: 'zal.mov', size: 8, type: 'video/quicktime', lastModified: 2 }] };
+  const zal = file('zal.mov', 8, 2);
+  const asInsert = matchPending(p, file('clip.mov', 10, 111), [file('a.png', 3, 5), zal], null, []);
+  assert.deepEqual([...asInsert.inserts.keys()], ['upload-i1.png'], 'клип выбран вставкой — перебивкой он не уйдёт');
+  assert.ok(asInsert.dropped.includes('zal.mov'));
+  const asBroll = matchPending(p, file('clip.mov', 10, 111), [file('a.png', 3, 5)], null, [zal]);
+  assert.deepEqual([...asBroll.inserts.keys()], ['upload-i1.png', 'upload-b1.mov']);
+});
+
 test('a voiceover resumes when picked again; another file or none is not the pending one', () => {
   const p: Pending = { ...pending, voice: { asset: 'upload-voice.m4a', name: 'take.m4a', size: 7, type: 'audio/mp4', lastModified: 1 } };
   const v = file('take.m4a', 7, 42);

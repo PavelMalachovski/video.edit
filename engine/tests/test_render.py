@@ -955,6 +955,24 @@ def test_b_roll_pip_keeps_the_face_in_a_rounded_corner_window(tmp_path, sources,
     assert close(frame(final, 5.0)[1200, 540], lime, tol=60) is False, "после окна — снова говорящий"
 
 
+def test_b_roll_pip_shorter_clip_keeps_the_face_moving_to_the_end_of_its_window(tmp_path, sources):
+    """Клип короче окна: клип стоит на последнем кадре, а лицо в окошке идёт до конца окна (как в редакторе) — не замирает."""
+    from vm.broll import PIP
+
+    job = make_job(tmp_path, sources["short"], keep=[[0.0, 6.0]])
+    ffmpeg("-f", "lavfi", "-i", "color=c=lime:s=640x360:r=30:d=1", "-c:v", "libx264", "-pix_fmt", "yuv420p", job.path("in/uploads/upload-b1.mp4"))
+    edit = job.read("edit.json")
+    edit["inserts"] = [{"kind": "fullscreen", "src": "in/uploads/upload-b1.mp4", "t0": 1.0, "t1": 4.0, "layout": "pip", "sfx": None}]
+    job.write("edit.json", edit)
+    render(job, job.path("out"), preset="ultrafast")
+    final = job.path("out") / "final.mp4"
+    box = lambda t: frame(final, t)[PIP["y"] + 40:PIP["y"] + PIP["h"] - 40, PIP["x"] + 40:PIP["x"] + PIP["w"] - 40].astype(float)
+    talk = lambda t: frame(job.path("source.mp4"), t).astype(float)
+    assert np.abs(talk(2.6) - talk(3.6)).mean() > 2, "исходник в эти моменты разный — иначе тест ничего не проверит"
+    assert np.abs(box(2.6) - box(3.6)).mean() > 2, "лицо в окошке после конца клипа идёт дальше"
+    assert close(frame(final, 3.6)[1200, 540], (0, 255, 0), tol=40), "клип — на последнем кадре до конца окна"
+
+
 def test_b_roll_sound_plays_quietly_only_in_its_window(tmp_path, sources):
     job = make_job(tmp_path, sources["short"], keep=[[0.0, 6.0]])
     b_roll_clip(job.path("in/uploads/upload-b1.mp4"), tone=True)

@@ -79,6 +79,30 @@ def test_vm_broll_describes_each_clip_with_a_contact_sheet_and_speech(tmp_path, 
     assert "upload-b1.mov" in text and "зал.MOV" in text and "речь 2.0 с" in text and "look/broll-b1.png" in text
 
 
+def test_vm_broll_makes_a_small_proxy_of_each_video_clip_for_the_editor(tmp_path, monkeypatch):
+    """Прокси клипа — для плеера редактора (как out/proxy.mp4 исходника: Action переносит out/ в черновик релиза): в кадр
+    540×960 без искажения, ключевой кадр каждые 0,5 с, звук — на громкости фона перебивки (BROLL_LUFS); у картинки
+    прокси нет — её отдаёт /upload."""
+    from vm.audio import BROLL_LUFS
+    from vm.media import probe
+
+    job = b_roll_job(tmp_path)
+    monkeypatch.setattr(broll, "_speech", lambda wav: [])
+    clips = broll.describe(job)
+    assert [c["proxy"] for c in clips] == ["out/broll-b1.mp4", "out/broll-b2.mp4", None]
+    wide, tall = probe(job.path("out/broll-b1.mp4")), probe(job.path("out/broll-b2.mp4"))
+    assert (wide.width, wide.height) == (540, 304) and (tall.width, tall.height) == (540, 960)
+    assert abs(wide.duration - 4.0) < 0.1 and wide.has_audio and not tall.has_audio
+    keys = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v", "-skip_frame", "nokey", "-show_entries", "frame=pts_time",
+                           "-of", "csv=p=0", str(job.path("out/broll-b1.mp4"))], capture_output=True, text=True, check=True).stdout.split()
+    assert [round(float(k.strip(',')), 2) for k in keys] == [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5]
+    loud = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(job.path("out/broll-b1.mp4")), "-af", "ebur128", "-f", "null", "-"],
+                          capture_output=True, text=True, check=True).stderr
+    level = float(loud.rsplit("I:", 1)[1].split("LUFS")[0])
+    assert abs(level - BROLL_LUFS) < 2, level
+    assert broll.PROXY_NAME.format(key="b1") == "broll-b1.mp4"
+
+
 def test_vm_broll_says_when_speech_could_not_be_checked(tmp_path, monkeypatch):
     job = b_roll_job(tmp_path)
     monkeypatch.setattr(broll, "_speech", lambda wav: None)  # модели VAD нет

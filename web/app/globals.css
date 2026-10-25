@@ -584,6 +584,9 @@ ul.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:
 .ed-field input { width: 88px; min-height: 34px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--e-line); background: var(--e-surface); color: var(--e-ink);
   font-family: var(--mono); font-size: 13px; }
 .ed-fade { display: flex; flex-direction: column; gap: 4px; }
+.ed-broll { display: flex; flex-direction: column; gap: 8px; }
+.ed-broll select { max-width: 60%; min-height: 34px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--e-line); background: var(--e-surface);
+  color: var(--e-ink); font: inherit; font-size: 13px; }
 .ed-flag { padding: 8px 10px; border-radius: 9px; background: color-mix(in srgb, var(--e-select) 10%, white); }
 .ed-flag.bad { background: color-mix(in srgb, var(--e-bad) 10%, white); color: var(--e-bad); }
 .ed-primary:disabled { opacity: .5; cursor: default; filter: none; }
@@ -592,7 +595,8 @@ button.ed-primary { border: 0; font: inherit; font-weight: 700; cursor: pointer;
 .ed-pic { position: absolute; inset: 0; overflow: hidden; }
 .ed-pic video { will-change: transform; }
 .ed-cover { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
-.ed-cover[hidden] { display: none; }
+.ed-cover[hidden], .ed-pip[hidden] { display: none; }
+.ed-pip { position: absolute; display: block; }
 .ed-cover-note { display: grid; place-items: center; padding: 16px; text-align: center; color: #fff; font-size: 13px; line-height: 1.45;
   background: repeating-linear-gradient(135deg, #2A2F38 0 10px, #232830 10px 20px); }
 .ed-flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }

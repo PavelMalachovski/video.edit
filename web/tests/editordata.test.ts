@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { abilitiesOf, editorFix, editorGates, ENGINE_SCHEMA, isUploadPicture, layerUrl, loadEditor, MEDIA_NAMES, mediaAsset, pictureType, refusedBy, saveTimeline, timelineOf, uploadParts } from '../lib/editordata.ts';
+import { abilitiesOf, coverUrl, editorFix, editorGates, ENGINE_SCHEMA, isUploadPicture, layerUrl, loadEditor, MEDIA_NAMES, mediaAsset, pictureType, refusedBy, saveTimeline, timelineOf, uploadParts } from '../lib/editordata.ts';
 import type { AnswersFile } from '../lib/jobfiles.ts';
 import { withFake } from './helpers.ts';
 
@@ -59,9 +59,12 @@ test('the editor gets the brand look the job was started with — before the mon
   assert.equal((await loadEditor(gh, ID))?.brandLook, null, 'без «Мой стиль» — null');
 }));
 
-test('only the proxy is served as editor media', () => {
-  const files = { released: JSON.parse(released('final.mp4', 'proxy.mp4')) };
+test('only the proxy and the proxies of B-roll clips are served as editor media', () => {
+  const files = { released: JSON.parse(released('final.mp4', 'proxy.mp4', 'broll-b2.mp4', 'upload-b2.mov.part-00000')) };
   assert.equal(mediaAsset(files, 'proxy.mp4')?.id, 501);
+  assert.equal(mediaAsset(files, 'broll-b2.mp4')?.id, 502);
+  assert.equal(mediaAsset(files, 'upload-b2.mov.part-00000'), null, 'клип целиком — нет: только его прокси');
+  assert.equal(mediaAsset(files, 'broll-b3.mp4'), null);
   assert.equal(mediaAsset(files, 'final.mp4'), null, 'ролик — через download');
   assert.equal(mediaAsset({ released: null }, 'proxy.mp4'), null);
 });
@@ -72,6 +75,23 @@ test('the proxy the player takes from the release is the one the engine writes',
   assert.equal(file, 'out/proxy.mp4');
   assert.deepEqual([...MEDIA_NAMES], [file.replace(/^out\//, '')], 'в релиз Action кладёт файл out/ под его именем');
 });
+
+test('the editor gets the B-roll clips of the job: a video — from its proxy once it is in the release, a picture — from /upload', () => withFake(async ({ fake, gh }) => {
+  const up = (n: number, ext: string, name: string, kind: string) => ({ file: `in/uploads/upload-${kind === 'broll' ? 'b' : 'i'}${n}.${ext}`, asset: `upload-b${n}.${ext}`, name, size: 1, type: 'video/mp4', kind });
+  const job = { ...JOB, uploads: [up(1, 'mov', 'зал.MOV', 'broll'), up(2, 'jpg', 'кадр.jpg', 'broll'), up(3, 'mp4', 'руки.mp4', 'broll'), up(1, 'png', 'logo.png', 'image')] };
+  fake.addAsset(`job-${ID}`, 'manifest.json', '{}');
+  fake.commit(`claude/job-${ID}`, {
+    [`${DIR}/job.json`]: JSON.stringify(job), [`${DIR}/status.json`]: JSON.stringify(STATUS), [`${DIR}/edit.json`]: JSON.stringify(EDIT),
+    [`${DIR}/out/released.json`]: released('proxy.mp4', 'broll-b1.mp4'),
+  });
+  const e = await loadEditor(gh, ID);
+  assert.deepEqual(e?.brolls, [
+    { src: 'in/uploads/upload-b1.mov', name: 'зал.MOV', video: true, url: `/api/jobs/${ID}/media?name=broll-b1.mp4` },
+    { src: 'in/uploads/upload-b2.jpg', name: 'кадр.jpg', video: false, url: `/api/jobs/${ID}/upload?name=upload-b2.jpg` },
+    { src: 'in/uploads/upload-b3.mp4', name: 'руки.mp4', video: true, url: null },
+  ], 'прокси третьего ещё нет (vm broll не прошёл) — плеер покажет метку');
+  assert.ok(isUploadPicture('upload-b2.jpg') && !isUploadPicture('upload-b2.mov'));
+}));
 
 // ---------- правки руками (фаза 3) ----------
 
@@ -168,8 +188,10 @@ test('«Монтировать» from the editor: a fix with the saved revision 
 
 const SCHEMA_NOW = readFileSync(new URL('../../engine/vm/schemas/timeline.json', import.meta.url), 'utf8');
 /** Схема timeline.json, как она была до `what`: перестановки кусков (фаза 4), текста (фаза 5), картинки (фаза 5в). */
-function olderSchema(what: 'move' | 'text' | 'picture' | 'looks'): string {
+function olderSchema(what: 'move' | 'text' | 'picture' | 'looks' | 'broll'): string {
   const s = JSON.parse(SCHEMA_NOW);
+  for (const f of ['src', 'from', 'layout', 'audio']) delete s.properties.text.properties.inserts.items.properties[f]; // до перебивок
+  if (what === 'broll') return JSON.stringify(s);
   if (what === 'looks') { // до своих кусков ч/б и фильтров: куски сессии только убирались
     s.properties.looks.items = { type: 'object', required: ['at', 'off'], additionalProperties: false, properties: { at: { $ref: '#/$defs/At' }, off: { const: true } } };
     return JSON.stringify(s);
@@ -194,28 +216,31 @@ test('before the montage the editor edits only what «Превью» and the que
   const all = abilitiesOf(SCHEMA_NOW);
   // до монтажа скорость, затемнение фона и трек выбирают «Превью» и вопросы: правка руками молча перебила бы ответ
   assert.deepEqual(editorGates(true, false, all),
-    { move: true, zoom: true, marks: false, looks: true, lookHand: true, track: false, speed: false, teaser: false, text: false, card: false, place: false },
+    { move: true, zoom: true, marks: false, looks: true, lookHand: true, track: false, speed: false, teaser: false, text: false, card: false, place: false, broll: false },
     'куски с фильтром — и до монтажа: держатся за своё место');
   assert.deepEqual(editorGates(true, true, all),
-    { move: true, zoom: true, marks: true, looks: true, lookHand: true, track: true, speed: true, teaser: true, text: true, card: true, place: true });
+    { move: true, zoom: true, marks: true, looks: true, lookHand: true, track: true, speed: true, teaser: true, text: true, card: true, place: true, broll: true });
   assert.ok(Object.values(editorGates(false, true, all)).every((on) => !on), 'идёт сессия — ничего не правится');
   assert.deepEqual(editorGates(true, true, { ...all, video: false, track: false }),
-    { move: true, zoom: true, marks: true, looks: true, lookHand: true, track: false, speed: false, teaser: false, text: true, card: true, place: true }, 'старый движок');
+    { move: true, zoom: true, marks: true, looks: true, lookHand: true, track: false, speed: false, teaser: false, text: true, card: true, place: true, broll: true }, 'старый движок');
   const older = abilitiesOf(olderSchema('looks'));
   assert.deepEqual([editorGates(true, false, older).looks, editorGates(true, true, older).looks, editorGates(true, true, older).lookHand], [false, true, false],
     'движок до своих кусков: куски сессии убираются и возвращаются после монтажа, своих нет');
 });
 
 test('what the job\'s engine takes is read from its own schema in the job branch', () => {
-  const none5c = { picture: false, track: false, card: false, video: false, place: false, looks: false };
-  assert.deepEqual(abilitiesOf(SCHEMA_NOW), { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: true });
-  assert.deepEqual(abilitiesOf(olderSchema('looks')), { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: false });
+  const none5c = { picture: false, track: false, card: false, video: false, place: false, looks: false, broll: false };
+  assert.deepEqual(abilitiesOf(SCHEMA_NOW), { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: true, broll: true });
+  assert.deepEqual(abilitiesOf(olderSchema('looks')), { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: false, broll: false });
+  assert.deepEqual(abilitiesOf(olderSchema('broll')), { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: true, broll: false });
+  assert.match(refusedBy({ ...abilitiesOf(SCHEMA_NOW), broll: false }, { edits: [], text: { inserts: [{ at: [1, 2], layout: 'pip' }] } }) ?? '', /до перебивок/);
+  assert.equal(refusedBy({ ...abilitiesOf(SCHEMA_NOW), broll: false }, { edits: [], text: { inserts: [{ at: [1, 2], t0: 1.2 }] } }), null, 'время вставки — как всегда');
   assert.deepEqual(abilitiesOf(olderSchema('picture')), { edits: true, move: true, text: true, ...none5c });
   assert.deepEqual(abilitiesOf(olderSchema('text')), { edits: true, move: true, text: false, ...none5c });
   assert.deepEqual(abilitiesOf(olderSchema('move')), { edits: true, move: false, text: false, ...none5c });
   assert.deepEqual(abilitiesOf(null), { edits: false, move: false, text: false, ...none5c }, 'схемы нет — задача до редактора: её движок правок руками не знает');
-  assert.deepEqual(abilitiesOf('{не json'), { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: true }, 'схема есть, но не читается — движок нынешний');
-  const all = { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: true };
+  assert.deepEqual(abilitiesOf('{не json'), { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: true, broll: true }, 'схема есть, но не читается — движок нынешний');
+  const all = { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: true, broll: true };
   for (const looks of [[{ t0: 1, t1: 2, look: 'bw' as const }], [{ at: [1, 2] as [number, number], t0: 0.8, t1: 2 }], [{ at: [1, 2] as [number, number], look: 'sepia' as const }]]) {
     assert.match(refusedBy({ ...all, looks: false }, { edits: [], looks }) ?? '', /до своих кусков ч\/б и фильтров/, JSON.stringify(looks));
     assert.equal(refusedBy(all, { edits: [], looks }), null);
@@ -248,7 +273,7 @@ test('what the job\'s engine takes is read from its own schema in the job branch
 test('a job made before text edits: the editor knows it, and the server does not save what its engine would refuse', () => withFake(async ({ fake, gh }) => {
   start(fake);
   fake.commit(`claude/job-${ID}`, { [ENGINE_SCHEMA]: olderSchema('text') }, 'old engine');
-  assert.deepEqual((await loadEditor(gh, ID))?.abilities, { edits: true, move: true, text: false, picture: false, track: false, card: false, video: false, place: false, looks: false });
+  assert.deepEqual((await loadEditor(gh, ID))?.abilities, { edits: true, move: true, text: false, picture: false, track: false, card: false, video: false, place: false, looks: false, broll: false });
   const r = await saveTimeline(gh, ID, { base: 0, edits: [], text: { hook: { until: 2 } } }, NOW);
   assert.ok(!r.ok && r.status === 409 && /до правок текста/.test(r.error), JSON.stringify(r));
   assert.equal(timelineFile(fake), null, 'ничего не записано');
@@ -267,7 +292,7 @@ test('the music library of the job\'s branch is offered as tracks; a track that 
 test('a job made before the editor (no timeline.json schema in its branch): its engine reads no hand edits — the server saves none', () => withFake(async ({ fake, gh }) => {
   start(fake);
   fake.commit(`claude/job-${ID}`, { [ENGINE_SCHEMA]: null }, 'before the editor');
-  assert.deepEqual((await loadEditor(gh, ID))?.abilities, { edits: false, move: false, text: false, picture: false, track: false, card: false, video: false, place: false, looks: false });
+  assert.deepEqual((await loadEditor(gh, ID))?.abilities, { edits: false, move: false, text: false, picture: false, track: false, card: false, video: false, place: false, looks: false, broll: false });
   const r = await saveTimeline(gh, ID, { base: 0, ...HAND }, NOW);
   assert.ok(!r.ok && r.status === 409 && /до редактора/.test(r.error), JSON.stringify(r));
   assert.equal(timelineFile(fake), null, 'ничего не записано');
@@ -321,3 +346,13 @@ test('while Claude mounts a new style from the editor, the editor knows the styl
   const done = await loadEditor(gh, ID);
   assert.ok(done?.screen === 'result' && done.styleFrom === null, 'новая версия готова — ролик уже в новом стиле');
 }));
+
+test('what the player shows for a full-frame cut-in: a B-roll clip — its proxy, other uploaded videos — nothing (a note), the rest — as the layer', () => {
+  const brolls = [{ src: 'in/uploads/upload-b1.mov', name: 'зал.MOV', video: true, url: '/api/jobs/x/media?name=broll-b1.mp4' },
+    { src: 'in/uploads/upload-b2.mov', name: 'руки.MOV', video: true, url: null }];
+  assert.equal(coverUrl(ID, 'h1', brolls, 'in/uploads/upload-b1.mov'), '/api/jobs/x/media?name=broll-b1.mp4');
+  assert.equal(coverUrl(ID, 'h1', brolls, 'in/uploads/upload-b2.mov'), null, 'прокси ещё нет');
+  assert.equal(coverUrl(ID, 'h1', brolls, 'in/uploads/upload-i1.mp4'), null, 'видео-вставка целиком не отдаётся');
+  assert.equal(coverUrl(ID, 'h1', brolls, 'in/uploads/upload-i2.png'), layerUrl(ID, 'h1', 'in/uploads/upload-i2.png'));
+  assert.equal(coverUrl(ID, 'h1', brolls, 'assets/library/a.mp4'), layerUrl(ID, 'h1', 'assets/library/a.mp4'));
+});

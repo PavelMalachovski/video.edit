@@ -243,6 +243,28 @@ def test_text_edits_go_through_the_schema(tmp_path):
             job.write("timeline.json", {"rev": 2, "edits": [], **bad})
 
 
+def test_b_roll_by_hand_another_clip_moment_layout_and_sound(tmp_path):
+    """Перебивка руками (редактор): другой клип из перебивок Павла, другой момент клипа, лицо окошком, звук клипа. Это —
+    только у fullscreen: у вставки на кадре те же поля ничего не меняют."""
+    broll = {"kind": "fullscreen", "src": "in/uploads/upload-b1.mp4", "t0": 7.0, "t1": 8.5, "from": 2.0}
+    edit = {**TEXT_EDIT, "inserts": [*TEXT_EDIT["inserts"], broll]}
+    timeline = {"rev": 1, "edits": [], "text": {"inserts": [
+        {"at": [7.0, 8.5], "src": "in/uploads/upload-b3.mov", "from": 0.5, "layout": "pip", "audio": True},
+        {"at": [2.0, 3.0], "src": "in/uploads/upload-b2.mp4", "from": 4.0, "layout": "pip", "audio": True}]}}
+    out = edits.apply(edit, timeline, 9)
+    assert out["inserts"][3] == {**broll, "src": "in/uploads/upload-b3.mov", "from": 0.5, "layout": "pip", "audio": True}
+    assert out["inserts"][0] == TEXT_EDIT["inserts"][0], "картинка на кадре — не перебивка: поля перебивки не трогают её"
+    back = edits.apply({**edit, "inserts": [*TEXT_EDIT["inserts"], {**broll, "layout": "pip", "audio": True}]},
+                       {"rev": 1, "edits": [], "text": {"inserts": [{"at": [7.0, 8.5], "layout": "full", "audio": False}]}}, 9)
+    assert back["inserts"][3]["layout"] == "full" and back["inserts"][3]["audio"] is False
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    job.write("timeline.json", timeline)  # схема принимает
+    for bad in ({"src": "assets/music/a.mp3"}, {"src": "in/uploads/upload-i1.png"}, {"from": -1}, {"layout": "side"}, {"audio": 1}):
+        with pytest.raises(ValueError):
+            job.write("timeline.json", {"rev": 2, "edits": [], "text": {"inserts": [{"at": [7.0, 8.5], **bad}]}})
+
+
 PICTURE_EDIT = {
     "speed": 1.0, "keep": [[0.0, 8.0]], "words": [],
     "zooms": [{"t": 1.0, "level": 1.12}, {"t": 3.0, "level": 1.0}, {"t": 4.0, "level": 1.2, "over": 0}],

@@ -4,7 +4,8 @@
 // timeline.json (text, words), их кладёт движок поверх черновика (edits.apply_text); строка поля — одна правка для отмены.
 import { useEffect, useId, useState } from 'react';
 import { applyFields, blockTarget, fieldFonts, fieldKey, fieldProblem, TEXTUAL, textFields, type BlockField, type FieldCheck, type TextTarget } from '@/lib/blocktext.ts';
-import { blockFix, blockPlace, LIMITS, setBlock, setCta, setEnd, setHook, setWord, type HandEdits, type Place } from '@/lib/edits.ts';
+import type { BrollClip } from '@/lib/editordata.ts';
+import { blockFix, blockPlace, LIMITS, setBlock, setCta, setEnd, setHook, setWord, type BrollLayout, type HandEdits, type InsertFix, type Place } from '@/lib/edits.ts';
 import { tenths } from '@/lib/format.ts';
 import type { Key } from '@/lib/i18n.ts';
 import { INSERT_W, moveBox, moveCentre, resizeBox, type BoxExt } from '@/lib/style.ts';
@@ -145,11 +146,52 @@ function PlaceControls({ T, kind, now, moved, placing }: { T: TFn; kind: 'insert
   );
 }
 
-export function BlockPanel({ T, sel, tracks, draft, hand, editable, note, onEdit, sec, letters = NO_LETTERS, placing }: {
+/** Перебивка (вставка fullscreen): какой клип из перебивок Павла, с какой секунды клипа, вид (на весь кадр или лицо
+ *  окошком), звук клипа тихим фоном. Правка — timeline.json → text.inserts (edits.apply_text: src, from, layout, audio). */
+function BrollControls({ T, now, brolls, onFix }: {
+  T: TFn; now: { src: string; from: number; layout: BrollLayout; audio: boolean }; brolls: readonly BrollClip[];
+  onFix: (fix: { src?: string; from?: number; layout?: BrollLayout; audio?: boolean }) => void;
+}) {
+  const id = useId();
+  const own = brolls.some((b) => b.src === now.src);
+  const video = brolls.find((b) => b.src === now.src)?.video ?? !/\.(png|jpe?g|webp|gif)$/i.test(now.src); // у картинки нет момента
+  return (
+    <div className="ed-broll" role="group" aria-label={T('fullscreenInsert')} data-broll="">
+      {brolls.length && own ? (
+        <label className="ed-field" htmlFor={`${id}-clip`}>
+          <span className="ed-range-name">{T('brollClip')}</span>
+          <select id={`${id}-clip`} value={now.src} onChange={(e) => onFix({ src: e.target.value })}>
+            {brolls.map((b) => <option key={b.src} value={b.src}>{b.name}</option>)}
+          </select>
+        </label>
+      ) : null}
+      {video ? <label className="ed-field" htmlFor={`${id}-from`}>
+        <span className="ed-range-name">{T('brollFrom')}</span>
+        <input id={`${id}-from`} type="number" inputMode="decimal" min={LIMITS.brollFrom.min} max={LIMITS.brollFrom.max} step={0.1} value={now.from}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            if (Number.isFinite(v)) onFix({ from: Math.round(Math.min(LIMITS.brollFrom.max, Math.max(0, v)) * 10) / 10 });
+          }} />
+      </label> : null}
+      <div className="ed-btns" role="group" aria-label={T('brollLayout')}>
+        {(['full', 'pip'] as const).map((k) => (
+          <button key={k} type="button" className="ed-toggle" aria-pressed={now.layout === k} onClick={() => onFix({ layout: k })}>
+            {T(k === 'full' ? 'brollFull' : 'brollPip')}
+          </button>
+        ))}
+        {video ? <button type="button" className="ed-toggle" aria-pressed={now.audio} onClick={() => onFix({ audio: !now.audio })}>{T('brollAudio')}</button> : null}
+      </div>
+      <p className="ed-note faint">{T('brollHint')}</p>
+    </div>
+  );
+}
+
+export function BlockPanel({ T, sel, tracks, draft, hand, editable, note, onEdit, sec, letters = NO_LETTERS, placing, brolls }: {
   T: TFn; sel: BlockSel; tracks: Tracks; draft: Draft; hand: HandEdits; editable: boolean;
   note: string | null; // почему править нельзя (старый движок, ещё не смонтирован)
   onEdit: (next: HandEdits, key?: string) => void; sec: (s: number) => string; letters?: Letters;
   placing?: Placing; // место вставки и акцента на кадре (нет — не двигаются)
+  brolls?: readonly BrollClip[]; // перебивки задачи: клип и вид перебивки правятся (нет — движок задачи этого не примет)
 }) {
   const c = findBlock(tracks, sel.block, sel.n);
   const ref = c?.ref;
@@ -166,7 +208,15 @@ export function BlockPanel({ T, sel, tracks, draft, hand, editable, note, onEdit
     if (ref.kind === 'cta') fields.push(<p key="cta-place" className="ed-note faint">{T('ctaPlace')}</p>);
     if (ref.kind === 'insert') {
       const ins = draft.inserts[ref.n];
-      if (ins?.kind === 'fullscreen') fields.push(<p key="fs" className="ed-note faint">{T('fullscreenInsert')}</p>);
+      if (ins?.kind === 'fullscreen') {
+        fields.push(<p key="fs" className="ed-note faint">{T('fullscreenInsert')}</p>);
+        if (brolls && editable && ins.src) {
+          const f = (fix ?? {}) as InsertFix;
+          const now = { src: f.src ?? ins.src, from: f.from ?? ins.from ?? 0, layout: f.layout ?? ins.layout ?? 'full', audio: f.audio ?? ins.audio ?? false };
+          fields.push(<BrollControls key="broll" T={T} now={now} brolls={brolls}
+            onFix={(next) => onEdit(setBlock(hand, 'inserts', ref.at, ref.occurrence, next))} />);
+        }
+      }
       else if (ins?.question && !ins.src && !TEXTUAL.includes(ins.kind)) fields.push(<p key="wait" className="ed-note faint">{T('waitingInsert')}</p>);
       else if (ins && DRAWN.includes(ins.kind) && c.drawn === false) fields.push(<p key="np" className="ed-note faint">{T('unplacedInsert')}</p>);
       else if (ins && placing && typeof ins.x === 'number' && typeof ins.y === 'number' && typeof ins.w === 'number') { // вставка с рамкой на кадре

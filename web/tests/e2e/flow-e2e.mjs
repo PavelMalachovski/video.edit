@@ -1888,6 +1888,74 @@ const segments = [
     await page.setViewportSize({ width: 390, height: 844 });
   }],
 
+  ['editor-broll', async (ctx) => {
+    // перебивки: клип Павла на дорожке вставок — на кадре из своего прокси (broll-b1.mp4 в релизе) с момента клипа; лицо
+    // окошком, звук клипа, другая секунда — в панели блока; движок принимает сохранённое
+    const { page } = ctx;
+    const { edit, source } = ctx.editorEdit;
+    const tag = `job-${ctx.jobId}`;
+    const asset = (name, bytes) => fakeJson('/__asset', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ tag, name, base64: bytes.toString('base64') }) });
+    const webm = path.join(ctx.tmp, 'broll.webm');
+    let playable = true;
+    try {
+      execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=s=540x304:r=30:d=3', '-f', 'lavfi', '-i', 'sine=frequency=330:duration=3',
+        '-c:v', 'libvpx-vp9', '-deadline', 'realtime', '-cpu-used', '8', '-b:v', '200k', '-g', '15', '-c:a', 'libopus', '-shortest', webm]);
+    } catch {
+      playable = false;
+    }
+    playable &&= await page.evaluate(() => document.createElement('video').canPlayType('video/webm; codecs="vp9, opus"') !== '');
+    const proxy = await asset('broll-b1.mp4', playable ? fs.readFileSync(webm) : crypto.randomBytes(2048));
+    const job = JSON.parse((await branchFile(ctx, 'job.json')) ?? '{}');
+    const clip = { file: 'in/uploads/upload-b1.mov', asset: 'upload-b1.mov', name: 'зал.MOV', size: 1, type: 'video/quicktime', kind: 'broll' };
+    const withClip = { ...edit, inserts: [...edit.inserts, { kind: 'fullscreen', src: clip.file, t0: 2.1, t1: 2.6 }] };
+    engineValidate('edit.json', withClip);
+    const released = JSON.parse((await branchFile(ctx, 'out/released.json')) ?? '{}');
+    await session(ctx, {
+      'edit.json': withClip, 'timeline.json': null, 'job.json': { ...job, uploads: [...(job.uploads ?? []), clip] },
+      'out/released.json': { ...released, assets: [...released.assets, { name: 'broll-b1.mp4', id: proxy.id, size: proxy.size }] },
+    });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(`${APP}/jobs/${ctx.jobId}/editor`);
+    const insBlocks = page.locator('.ed-row.ins .ed-clip');
+    await until(async () => (await insBlocks.count()) === 3, 10_000, async () => `вставки: ${await insBlocks.count()}`);
+    check((await insBlocks.nth(2).textContent()).includes('зал.MOV'), 'на дорожке — имя клипа у Павла');
+    await insBlocks.nth(2).click();
+    const panel = page.locator('.ed-insp[data-block=insert] [data-broll]');
+    await panel.waitFor({ timeout: 3000 });
+    const cover = page.locator('.ed-pic video.ed-cover');
+    await until(async () => (await cover.getAttribute('src'))?.includes('broll-b1.mp4') && !(await cover.isHidden()), 3000,
+      async () => `на кадре — прокси перебивки: ${await cover.getAttribute('src')}`);
+    check(await page.locator('.ed-pip').isHidden(), 'клип на весь кадр — окошка нет');
+    await panel.getByRole('button', { name: 'Лицо в окошке' }).click();
+    await page.locator('.ed-pip').waitFor({ state: 'visible', timeout: 3000 });
+    const pipBox = await page.locator('.ed-pip').boundingBox();
+    const frame = await page.locator('.ed-pic').boundingBox();
+    check(pipBox.x > frame.x + frame.width / 2 && pipBox.y < frame.y + frame.height / 3, 'окошко лица — справа вверху');
+    await panel.getByRole('button', { name: 'Звук клипа тихим фоном' }).click();
+    check(await panel.getByRole('button', { name: 'Звук клипа тихим фоном' }).getAttribute('aria-pressed') === 'true', 'звук клипа включён');
+    await until(async () => !(await cover.evaluate((v) => v.muted)), 3000, 'клип играет со звуком');
+    await panel.getByLabel('С секунды клипа').fill('1.5');
+    if (playable) { // клип — с выбранной секунды: кадр перебивки на её начале — 1,5 с клипа
+      await cover.evaluate((v) => new Promise((ok) => (v.readyState > 0 ? ok() : v.addEventListener('loadedmetadata', ok, { once: true }))));
+      await insBlocks.nth(2).click();
+      await until(async () => Math.abs((await cover.evaluate((v) => v.currentTime)) - 1.5) < 0.35, 3000,
+        async () => `клип с 1,5 с: ${await cover.evaluate((v) => v.currentTime)}`);
+    }
+    await shot(page, 'editor-broll');
+    await page.locator('.ed-save').getByText('Сохранено').waitFor({ timeout: 8000 });
+    const tl = JSON.parse((await branchFile(ctx, 'timeline.json')) ?? '{}');
+    engineValidate('timeline.json', tl);
+    const fix = (tl.text?.inserts ?? []).find((f) => f.layout);
+    check(isDeepStrictEqual(fix, { at: [2.1, 2.6], layout: 'pip', audio: true, from: 1.5 }), `перебивка в timeline.json: ${JSON.stringify(tl.text)}`);
+    const engine = JSON.parse(execFileSync('python3', ['-c', [
+      'import json, sys', 'from vm.edits import apply',
+      'd = json.load(sys.stdin)', 'print(json.dumps(apply(d["edit"], d["timeline"], d["duration"])["inserts"][-1]))',
+    ].join('\n')], { input: JSON.stringify({ edit: withClip, timeline: tl, duration: source }), env: { ...process.env, PYTHONPATH: path.resolve('../engine') } }).toString());
+    check(engine.layout === 'pip' && engine.audio === true && engine.from === 1.5 && engine.src === clip.file, `движок: ${JSON.stringify(engine)}`);
+    await page.setViewportSize({ width: 390, height: 844 });
+  }],
+
   ['script', async (ctx) => {
     const { page } = ctx;
     const topic = 'Как я учу чешский по 15 минут в день';

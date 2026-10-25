@@ -14,6 +14,7 @@ from pathlib import Path
 
 from vm import beats, edits, fonts, transitions
 from vm.asr import Word
+from vm.broll import PIP, face_box
 from vm.looks import LOOKS, css_filter
 from vm.overlay import FPS, build_overlay_events, insert_spans
 from vm.render import (
@@ -46,7 +47,8 @@ NOTE = (
     "картинка руками (edits.apply_picture: сила зума, куски с фильтром — убранные, с другими краями или фильтром, свои "
     "куски Павла со сменой крупности на краях, вид и «убрать» переходов, затемнение фона ↔ applyPicture) и что "
     "выходит в ролике: зум, переходы, кадры кусков и их фильтры; letters — каких букв текста (и его капса) нет в каждом шрифте каталога "
-    "(fonts.missing: таблица символов — getBestCmap fontTools, эмодзи — картинки ↔ web/lib/fontchars.ts). "
+    "(fonts.missing: таблица символов — getBestCmap fontTools, эмодзи — картинки ↔ web/lib/fontchars.ts); broll — окошко "
+    "лица перебивки (broll.PIP) и кусок кадра в нём по точке лица [лицо, [x, y, w, h]] (broll.face_box ↔ web/lib/broll.ts). "
     "Времена слов и edit — по исходнику, событий — секунды финала; keep — в порядке финала. Пишет "
     "engine/tests/shared_events.py (python3 -m tests.shared_events из engine/)."
 )
@@ -395,6 +397,12 @@ TEXT = [
          "inserts": [{"at": [2.0, 3.0], "x": 200, "y": 600, "w": 400}, {"at": [4.0, 5.0], "t0": 4.2, "x": 120.5, "y": 1100, "w": 300},
                      {"at": [7.0, 7.5], "x": 100, "y": 300, "w": 500}]},
      "words": []},
+    {"name": "B-roll by hand: another clip, moment, face window and clip sound — only on a fullscreen insert",
+     "edit": {**_BASE, "inserts": [*_BASE["inserts"], {"kind": "fullscreen", "src": "in/uploads/upload-b1.mp4", "t0": 7.0, "t1": 8.5,
+                                                       "from": 2.0, "layout": "pip", "audio": True}]}, "text": {
+         "inserts": [{"at": [7.0, 8.5], "src": "in/uploads/upload-b3.mov", "from": 0.5, "layout": "full", "audio": False, "t1": 8.0},
+                     {"at": [2.0, 3.0], "src": "in/uploads/upload-b2.mp4", "from": 4.0, "layout": "pip", "audio": True}]},
+     "words": []},
     {"name": "edits of blocks the session moved or removed no longer apply; lines of another count stay",
      "edit": {**_BASE, "cta": {**_BASE["cta"], "t0": 7.5}, "inserts": _BASE["inserts"][1:]}, "text": {
          "cta": {"at": [7.0, 8.0], "t0": 6.0}, "inserts": [{"at": [2.0, 3.0], "off": True}],
@@ -486,6 +494,14 @@ def letters_case() -> dict:
     }
 
 
+BROLL_FACES = [{"x": 0.5, "y": 0.5}, {"x": 0.5, "y": 0.3}, {"x": 0.1, "y": 0.05}, {"x": 0.97, "y": 0.95}, {}, {"x": 2, "y": -1}]
+
+
+def broll_case() -> dict:
+    """Окошко лица перебивки (broll.PIP) и кусок кадра в нём по точке лица (face_box) — так его рисует плеер редактора."""
+    return {"pip": PIP, "faces": [[face, list(face_box(face))] for face in BROLL_FACES]}
+
+
 def build() -> dict:
     return {
         "_": NOTE,
@@ -504,6 +520,7 @@ def build() -> dict:
         "pipeline": [{**case, **pipeline_case(case)} for case in PIPELINE],
         "picture": [{**case, **picture_case(case)} for case in PICTURE],
         "letters": letters_case(),
+        "broll": broll_case(),
     }
 
 
@@ -548,6 +565,7 @@ def dump(data: dict) -> str:
     out.append(f'  "picture": {_rows(data["picture"], "  ")},')
     letters = data["letters"]
     missing = ",\n    ".join(f"{json.dumps(k, ensure_ascii=False)}: {json.dumps(v, ensure_ascii=False)}" for k, v in letters["missing"].items())
+    out.append(f'  "broll": {json.dumps(data["broll"], ensure_ascii=False)},')
     out.append(f'  "letters": {{\n    "fonts": {_rows(letters["fonts"], "    ")},\n    "texts": {_rows(letters["texts"], "    ")},\n'
                f'    "missing": {{\n    {missing}\n    }},\n    "hand": {_rows(letters["hand"], "    ")}\n  }}')
     out.append("}")

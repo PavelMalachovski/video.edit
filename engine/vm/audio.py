@@ -43,6 +43,7 @@ MUSIC_BOOST = 12.0  # дБ — тихий трек к громкости гол�
 # BROLL_FADE, чтобы фон не обрывался щелчком на смене кадра. loudnorm, как у голоса, — после добивки до 3 с.
 BROLL_LUFS = -32
 BROLL_FADE = 0.15
+BROLL_NORM = f"apad=whole_dur=3,loudnorm=I={BROLL_LUFS}:TP=-6:LRA=11"  # и у прокси клипа для редактора (broll.proxy)
 
 
 def _probe(path: Path) -> tuple[int | None, float | None]:
@@ -203,7 +204,7 @@ def audio_graph(
         inputs += ["-ss", _num(max(0.0, float(skip))), "-t", _num(seconds), "-i", str(path)]
         fade = min(BROLL_FADE, seconds / 2)
         chains.append(
-            f"[{index}:a]{_source(channels)},apad=whole_dur=3,loudnorm=I={BROLL_LUFS}:TP=-6:LRA=11,{FORMAT},{RETIME},"
+            f"[{index}:a]{_source(channels)},{BROLL_NORM},{FORMAT},{RETIME},"
             f"atrim=end={_num(seconds)},afade=t=in:st=0:d={_num(fade)},afade=t=out:st={_num(seconds - fade)}:d={_num(fade)},"
             f"adelay=delays={max(0, round(t * 1000))}:all=1,{RETIME},apad=whole_dur={end},atrim=end={end}[a_b{k}]"
         )

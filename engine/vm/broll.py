@@ -3,16 +3,20 @@
 Перебивка — вставка `fullscreen` с полями `from` (с какой секунды клипа), `layout` (`full` — клип на весь кадр; `pip` —
 клип на весь кадр, а лицо говорящего окошком в правом верхнем углу) и `audio` (звук клипа тихим фоном). Здесь —
 окошко `pip`: где оно на кадре (`PIP`, кадр 1080×1920) и какой кусок кадра с лицом в нём (`face_box`, по точке лица
-`edit.face`), маска скруглённых углов (`pip_mask`). Те же числа — у редактора (web/lib/broll.ts), общая фикстура
-engine/tests/fixtures/broll.json.
+`edit.face`), маска скруглённых углов (`pip_mask`). Те же числа — у редактора (web/lib/broll.ts), раздел `broll`
+общей фикстуры engine/tests/fixtures/overlay-events.json.
+
+Прокси клипа для плеера редактора — `out/broll-<b>.mp4` (`proxy`, его пишет `vm broll`): Action переносит его в черновик
+релиза, как прокси исходника, и страница отдаёт его плееру ссылкой на ассет (сам клип лежит там кусками).
 """
 import tempfile
 from pathlib import Path
 
 from PIL import Image, ImageDraw
 
+from .audio import BROLL_NORM
 from .job import Job
-from .media import MediaError, contact_sheet, extract_wav, probe
+from .media import MediaError, _atomic, _ffmpeg, contact_sheet, extract_wav, probe
 
 # окошко: правый верхний угол, ниже шапки Reels и выше середины кадра (внизу — субтитры и шкала), 3:4
 PIP = {"x": 672, "y": 300, "w": 360, "h": 480, "r": 36}
@@ -41,6 +45,29 @@ def pip_mask(path: Path) -> Path:
     return path
 
 
+# ---------- прокси клипа для редактора ----------
+
+PROXY_NAME = "broll-{key}.mp4"  # в out/ задачи; ключ — b<n> из upload-b<n>.<ext>
+PROXY = {"width": 540, "height": 960, "key": 0.5, "seconds": 900}  # как прокси исходника; длиннее 15 мин — только начало
+PROXY_RATE = 800_000  # бит/с картинки: клип на кадре недолго, 15 мин — до 90 МБ (в git до 95 МБ)
+
+
+def proxy(path: Path, out: Path, sound: bool) -> Path:
+    """Прокси клипа `path`: в кадр PROXY без искажения (чётные стороны), 30 к/с, ключевой кадр каждые PROXY.key с (плеер
+    перематывает на `from`), звук — на громкости фона перебивки (BROLL_NORM), как его сведёт рендер."""
+    gop = round(PROXY["key"] * 30)
+    fit = f"scale={PROXY['width']}:{PROXY['height']}:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=bicubic"
+    with _atomic(Path(out)) as tmp:
+        _ffmpeg(
+            "-i", path, "-t", PROXY["seconds"], "-map", "0:v:0", *(["-map", "0:a:0"] if sound else []),
+            "-vf", f"{fit},fps=30,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", 30,
+            "-maxrate", PROXY_RATE, "-bufsize", 2 * PROXY_RATE, "-g", gop, "-keyint_min", gop, "-sc_threshold", 0,
+            *(["-af", f"{BROLL_NORM},aresample=48000", "-c:a", "aac", "-b:a", 64_000, "-ac", 2] if sound else []),
+            "-movflags", "+faststart", *(["-shortest"] if sound else []), tmp,
+        )
+    return Path(out)
+
+
 # ---------- vm broll: что за клипы — для Claude (шаг analyze) ----------
 
 SHEET_THUMBS = 12  # кадров на лист клипа: короткий — 2 в секунду, длинный — реже
@@ -58,8 +85,8 @@ def _speech(wav: Path) -> list[tuple[float, float]] | None:
 
 def describe(job: Job) -> list[dict]:
     """Перебивки задачи (`job.json.uploads`, `kind: broll`) по порядку: `{src, name, kind: video|image, seconds,
-    width, height, sound, speech, sheet}`. `sheet` — лист кадров клипа с временем (look/broll-<b>.png, у картинки —
-    None, её смотрят саму), `speech` — секунд речи в звуке клипа (чужая речь — фон перебивки без звука; звука нет или
+    width, height, sound, speech, sheet, proxy}`. `sheet` — лист кадров клипа с временем (look/broll-<b>.png, у картинки —
+    None, её смотрят саму), `proxy` — прокси видео для редактора (out/broll-<b>.mp4), `speech` — секунд речи в звуке клипа (чужая речь — фон перебивки без звука; звука нет или
     речь не проверить — None)."""
     meta = job.read("job.json") if job.path("job.json").is_file() else {}
     clips = []
@@ -70,7 +97,7 @@ def describe(job: Job) -> list[dict]:
         path = job.path(src)
         stem = Path(src).stem.removeprefix("upload-")
         item = {"src": src, "name": str(up.get("name") or path.name), "kind": "image" if path.suffix.lower() in IMAGE_EXT else "video",
-                "seconds": None, "width": None, "height": None, "sound": False, "speech": None, "sheet": None}
+                "seconds": None, "width": None, "height": None, "sound": False, "speech": None, "sheet": None, "proxy": None}
         try:
             info = probe(path)
         except (MediaError, OSError):
@@ -84,6 +111,8 @@ def describe(job: Job) -> list[dict]:
             sheet.parent.mkdir(parents=True, exist_ok=True)
             contact_sheet(path, sheet, fps=min(2.0, SHEET_THUMBS / max(info.duration, 0.1)), cols=4)
             item["sheet"] = f"look/broll-{stem}.png"
+            item["proxy"] = f"out/{PROXY_NAME.format(key=stem)}"
+            proxy(path, job.path(item["proxy"]), info.has_audio)
             if info.has_audio:
                 with tempfile.TemporaryDirectory() as tmp:
                     spans = _speech(extract_wav(path, Path(tmp) / "clip.wav"))

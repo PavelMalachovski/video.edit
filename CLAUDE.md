@@ -189,5 +189,13 @@
   приводит движок) ↔ `WIDTH`, `FPS` и `_target_size` в `engine/vm/media.py` (`normalize`); само уменьшение —
   `web/app/shrink.ts` (mediabunny, WebCodecs; HDR и всё, что браузер не осилит, — оригиналом); размер ушедшей копии —
   `shrunk` в незаконченной загрузке (`sentVideos` в `web/lib/uploader.ts`).
+- Перебивки (B-roll): загрузка — ассеты `upload-b<n>`, `kind: "broll"` (`isBrollFile`, `checkBroll`, `MAX_BROLL`,
+  `checkUploadClaims` в `web/lib/jobs.ts`, `buildJobFile`) ↔ `broll.describe` в `engine/vm/broll.py` и SKILL.md; окошко
+  лица и момент клипа — `PIP`, `face_box` и `render._picture` (`from` не дальше длины клипа, `layout: pip`) ↔
+  `web/lib/broll.ts` (`PIP`, `faceBox`, `pipSource`, `clipStart`), раздел `broll` общей фикстуры; прокси клипа для
+  плеера — `broll.proxy`, `PROXY_NAME` ↔ `brollProxy`, `isMediaName`, `brollClips`, `coverUrl` в `web/lib/editordata.ts`;
+  звук клипа — `audio.BROLL_NORM` (и фон в ролике, и звук прокси, который играет плеер); правки руками (`src`, `from`,
+  `layout`, `audio`) — `edits.BROLL_FIELDS` и схема `timeline.json` ↔ `applyText`, `BROLL_SRC`, `LIMITS.brollFrom`,
+  `parseTimeline`, раздел `text`; старая задача — `abilitiesOf` (`broll`).
 - Озвучка: ассет `upload-voice.*` и `kind: "audio"` в `job.json.uploads` — `web/lib/jobs.ts` (`voiceAssetName`,
   `isVoiceFile`) и `web/lib/jobfiles.ts` (`buildJobFile`); их читает `engine/vm/prepare.py` (`_voice`).

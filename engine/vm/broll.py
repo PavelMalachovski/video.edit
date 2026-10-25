@@ -12,8 +12,6 @@
 import tempfile
 from pathlib import Path
 
-from PIL import Image, ImageDraw
-
 from .audio import BROLL_NORM
 from .job import Job
 from .media import MediaError, _atomic, _ffmpeg, contact_sheet, extract_wav, probe
@@ -37,6 +35,11 @@ def face_box(face: dict, width: int = 1080, height: int = 1920) -> tuple[int, in
 
 def pip_mask(path: Path) -> Path:
     """Маска окошка (серая PNG размером окошка): 255 — видно, 0 — скруглённые углы."""
+    from PIL import (  # здесь, а не при импорте: render без Pillow нужен e2e страницы
+        Image,
+        ImageDraw,
+    )
+
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     mask = Image.new("L", (PIP["w"], PIP["h"]), 0)

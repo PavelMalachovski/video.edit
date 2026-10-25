@@ -39,6 +39,11 @@ DUCK = "sidechaincompress=threshold=0.01:ratio=20:attack=10:release=250:knee=1:m
 LIMIT = "alimiter=limit=0.84:level=false:latency=1"  # −1,5 дБ, без задержки звука
 MIN_MUSIC = 0.5  # с — короче (или без длины) музыкальный файл считаем нечитаемым: повтор такого вешает ffmpeg
 MUSIC_BOOST = 12.0  # дБ — тихий трек к громкости голоса поднимается не больше: почти тишину не качаем вместе с шумом
+# Звук перебивки — тихий фон под голосом (решение Павла 25.10): выровнен к BROLL_LUFS (на 18 LU тише голоса), края —
+# BROLL_FADE, чтобы фон не обрывался щелчком на смене кадра. loudnorm, как у голоса, — после добивки до 3 с.
+BROLL_LUFS = -32
+BROLL_FADE = 0.15
+BROLL_NORM = f"apad=whole_dur=3,loudnorm=I={BROLL_LUFS}:TP=-6:LRA=11"  # и у прокси клипа для редактора (broll.proxy)
 
 
 def _probe(path: Path) -> tuple[int | None, float | None]:
@@ -102,13 +107,15 @@ def audio_graph(
     inputs_offset: int,
     denoise: bool = False,
     voice_level: dict | None = None,
+    beds: list[tuple] = (),
 ) -> tuple[list[str], str, list[str]]:
     """→ (аргументы `-i` для музыки и звуков, граф для `-filter_complex` с выходом `[aout]`, предупреждения).
 
     `voice` — метка голоса в графе (`[0:a]` или выход склейки); `final_dur` — длина ролика со стоп-кадром;
     `music` — `{file, gainDb, at?, from?, fadeIn?, fadeOut?}`; `sfx` — `(время финала, файл[, дБ к громкости])`;
     `inputs_offset` — номер первого добавленного входа; `denoise` — тихая запись: шумоподавление до выравнивания
-    громкости; `voice_level` — `{gainDb?, muted?}` голоса после выравнивания."""
+    громкости; `voice_level` — `{gainDb?, muted?}` голоса после выравнивания; `beds` — звук перебивок тихим фоном:
+    `(время финала, файл, с какой секунды файла, секунд)`."""
     if not 0.5 <= speed <= 100:
         raise ValueError(f"speed must be between 0.5 and 100 (atempo), got {speed!r}")
     if not final_dur > 0:
@@ -181,6 +188,27 @@ def audio_graph(
         gain = SFX_GAIN_DB + (float(more[0]) if more else 0.0)
         chains.append(f"[{index}:a]{_source(channels)},volume={gain:g}dB,adelay=delays={delay}:all=1[a_s{k}]")
         parts.append(f"[a_s{k}]")
+        index += 1
+
+    for k, (t, file, skip, seconds) in enumerate(beds):
+        path = Path(file)
+        channels, length = probe(path)
+        if length is None:
+            warn(f"перебивка {path.name} не найдена или не читается — без её звука")
+            continue
+        if not channels:  # видео без звука — фона нет, это не ошибка
+            continue
+        seconds = max(0.0, min(float(seconds), final_dur - t))
+        if seconds <= 0:
+            continue
+        inputs += ["-ss", _num(max(0.0, float(skip))), "-t", _num(seconds), "-i", str(path)]
+        fade = min(BROLL_FADE, seconds / 2)
+        chains.append(
+            f"[{index}:a]{_source(channels)},{BROLL_NORM},{FORMAT},{RETIME},"
+            f"atrim=end={_num(seconds)},afade=t=in:st=0:d={_num(fade)},afade=t=out:st={_num(seconds - fade)}:d={_num(fade)},"
+            f"adelay=delays={max(0, round(t * 1000))}:all=1,{RETIME},apad=whole_dur={end},atrim=end={end}[a_b{k}]"
+        )
+        parts.append(f"[a_b{k}]")
         index += 1
 
     if len(parts) == 1:

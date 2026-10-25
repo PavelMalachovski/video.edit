@@ -18,7 +18,7 @@ import { applyFields, blockTarget, textFields, type BlockField, type TextTarget 
 import { blockRoom, finalEdges, hookUntil, sourceSpan, stackRows } from '@/lib/blocks.ts';
 import { statusText, storage } from '@/lib/client.ts';
 import { createClock } from '@/lib/clock.ts';
-import { editorGates, layerUrl, type EditorData } from '@/lib/editordata.ts';
+import { coverUrl, editorGates, layerUrl, type EditorData } from '@/lib/editordata.ts';
 import { sameJson } from '@/lib/equal.ts';
 import {
   addLook, commit, cutSpan, EMPTY, initHistory, moveSpan, placeBlock, redo, removeLook, restoreSpan, setBlock, setCta, setHook, setLook, setLookEdges, setMusic,
@@ -28,7 +28,7 @@ import { tenths } from '@/lib/format.ts';
 import { loadLang, saveLang, tr, type Key, type Lang } from '@/lib/i18n.ts';
 import type { StyleChoice, StyleSpec } from '@/lib/jobfiles.ts';
 import { buildOverlayEvents, eventIndexAt, hookEnd, type LayerEvent } from '@/lib/overlay.ts';
-import { pictureModel } from '@/lib/picture.ts';
+import { pictureModel, type Cover } from '@/lib/picture.ts';
 import { HALF } from '@/lib/zoom.ts';
 import { missingLetters, typedText } from '@/lib/fontchars.ts';
 import { advance, afterEnded, locate, stillSource, tailAt } from '@/lib/player.ts';
@@ -365,6 +365,11 @@ export default function Editor({ id }: { id: string }) {
   // слой кадра: события, которые нарисует финал; картинки вставок и логотип — по адресам страницы
   const head = data?.head ?? null;
   const urlOf = useCallback((path: string) => layerUrl(id, head, path), [id, head]);
+  const brolls = data?.brolls;
+  const clipOf = useCallback((c: Cover) => {
+    const b = brolls?.find((x) => x.src === c.src); // перебивка: видео ли — по загрузке, а не по расширению
+    return { url: coverUrl(id, head, brolls ?? [], c.src), video: b ? b.video : c.video };
+  }, [id, head, brolls]);
   const events = useMemo((): LayerEvent[] | null => {
     if (!tracks) return null;
     const { edit, tl: line } = tracks.layer;
@@ -1171,7 +1176,9 @@ export default function Editor({ id }: { id: string }) {
   const frameH = Math.round((frameW * 16) / 9);
   const subRow = tracks ? blockRow(tracks.subtitles, 'sub', (c) => c.label) : null;
   const textRow = tracks ? blockRow(tracks.text, 'text', (c) => `${T(kindName[c.kind] ?? 'text')}: ${c.label}`) : null;
-  const insRow = tracks ? blockRow(tracks.inserts, 'ins', (c) => c.label) : null;
+  // перебивка — именем клипа у Павла, а не именем ассета (upload-b1)
+  const clipName = (label: string) => data?.brolls.find((b) => b.src.replace(/^.*\/|\.[^.]*$/g, '') === label)?.name ?? label;
+  const insRow = tracks ? blockRow(tracks.inserts, 'ins', (c) => clipName(c.label)) : null;
 
   return (
     <div className="ed">
@@ -1202,7 +1209,7 @@ export default function Editor({ id }: { id: string }) {
             <div className="ed-frame" style={{ width: frameW, height: frameH }}>
               {tracks ? (
                 <Picture clock={clock} model={picture} video={video} src={data?.proxyUrl ?? null} duration={duration} width={frameW} playing={playing}
-                  urlOf={urlOf} note={T('coverUpload')}>
+                  clipOf={clipOf} note={T('coverUpload')}>
                   {data?.proxyUrl ? (
                     <video ref={video} src={data.proxyUrl} playsInline preload="auto" onError={onVideoError}
                       onLoadedMetadata={() => seek(now.current)} onEnded={onEnded} data-editor-video="" />
@@ -1236,7 +1243,7 @@ export default function Editor({ id }: { id: string }) {
           {mount.state === 'error' ? <p className="ed-note ed-flag bad" role="alert">{T('mountFailed', { e: mount.error ?? '' })}</p> : null}
           {tracks && draft && sel?.kind === 'block' ? (
             <BlockPanel T={T} sel={sel} tracks={tracks} draft={draft} hand={hand} editable={canText} note={editable ? textNote : null} onEdit={edit} sec={sec}
-              letters={letters} placing={placing} />
+              letters={letters} placing={placing} brolls={gates.broll ? data?.brolls ?? [] : undefined} />
           ) : null}
           {tracks && draft && sel?.kind === 'sub' ? (
             <WordsPanel T={T} sel={sel} tracks={tracks} draft={draft} hand={hand} editable={canText} note={editable ? textNote : null} onEdit={edit} sec={sec}

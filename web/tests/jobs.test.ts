@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import {
   newJobId, partName, chunkCount, CHUNK_SIZE, jobTag, jobBranch, jobDir, chunkName, uploadAssetName, isUploadFile, resolveJobPath,
   imageType, audioType, audioPaths, checkSource, checkInsert, checkTotal, partsOf, verifyParts, MAX_SOURCE_BYTES, MAX_INSERT_BYTES,
+  checkBroll, checkUploadClaims, isBrollFile, MAX_BROLL, MAX_INSERTS, MAX_UPLOAD_PARTS,
   checkVoice, isVoiceFile, MAX_VOICE_BYTES, voiceAssetName, checkVideos, isSourceFile, MAX_VIDEOS, videoAsset, videoFile, checkSources,
 } from '../lib/jobs.ts';
 
@@ -181,4 +182,35 @@ test('several videos: each one as a single video, together under 3 GB, no more t
   assert.match(checkSources([10, 0]) ?? '', /пустой/);
   assert.match(checkSources([MAX_SOURCE_BYTES / 2, MAX_SOURCE_BYTES / 2 + 1]) ?? '', /вместе больше 3 ГБ/);
   assert.match(checkSources(Array.from({ length: MAX_VIDEOS + 1 }, () => 10)) ?? '', /Не больше 10 видео/);
+});
+
+test('a B-roll clip is upload-b<n>; up to 20 of them, video or picture of any size the job can hold', () => {
+  assert.equal(uploadAssetName('b', 3, 'зал.MOV', 'video/quicktime'), 'upload-b3.mov');
+  assert.ok(isUploadFile('upload-b20.mp4') && isBrollFile('upload-b20.mp4'));
+  assert.ok(!isBrollFile('upload-i1.mp4') && !isBrollFile('upload-b.mp4'));
+  assert.equal(MAX_BROLL, 20);
+  assert.equal(checkBroll({ name: 'улица.MOV', size: 900 * 1024 ** 2, type: 'video/quicktime' }), null, '4K с телефона больше 200 МБ — его уменьшит браузер');
+  assert.equal(checkBroll({ name: 'кадр.jpg', size: 5, type: 'image/jpeg' }), null);
+  assert.match(checkBroll({ name: 'IMG.HEIC', size: 5, type: 'image/heic' }) ?? '', /HEIC/);
+  assert.match(checkBroll({ name: 'звук.m4a', size: 5, type: 'audio/mp4' }) ?? '', /тип/);
+  assert.match(checkBroll({ name: 'огромный.mov', size: MAX_SOURCE_BYTES + 1, type: 'video/quicktime' }) ?? '', /3 ГБ/);
+});
+
+test('the uploads a finished upload claims: inserts, B-roll clips and one voiceover, each within its limits', () => {
+  const ins = (n: number) => ({ asset: `upload-i${n}.png`, name: `${n}.png`, size: 5, type: 'image/png' });
+  const clip = (n: number, size = 5) => ({ asset: `upload-b${n}.mp4`, name: `${n}.MOV`, size, type: 'video/mp4' });
+  const voice = { asset: 'upload-voice.m4a', name: 'голос.m4a', size: 5, type: 'audio/mp4' };
+  assert.deepEqual(checkUploadClaims([ins(1), clip(1), clip(2), voice]), null);
+  assert.equal(checkUploadClaims(Array.from({ length: MAX_BROLL }, (_, k) => clip(k + 1))), null, '20 перебивок — можно');
+  assert.match(checkUploadClaims(Array.from({ length: MAX_BROLL + 1 }, (_, k) => clip(k + 1)))?.error ?? '', /Перебивок больше 20/);
+  assert.match(checkUploadClaims(Array.from({ length: MAX_INSERTS + 1 }, (_, k) => ins(k + 1)))?.error ?? '', /Вставок больше 10/);
+  assert.equal(checkUploadClaims([clip(1, 600 * 1024 ** 2)]), null, 'перебивка не меряется 200 МБ вставок');
+  assert.equal(checkUploadClaims([{ ...ins(1), size: 600 * 1024 ** 2 }])?.status, 413, 'а вставка — меряется');
+  assert.deepEqual(checkUploadClaims([voice, { ...voice, asset: 'upload-voice-2.m4a' }]), { error: 'Озвучка — одна запись', status: 400 });
+  assert.deepEqual(checkUploadClaims([{ ...ins(1), asset: '../x.png' }]), { error: 'bad upload', status: 400 });
+  assert.deepEqual(checkUploadClaims([null]), { error: 'bad upload', status: 400 });
+});
+
+test('upload parts leave room in the release for one editor proxy per B-roll clip', () => {
+  assert.equal(MAX_UPLOAD_PARTS + MAX_BROLL, 900);
 });

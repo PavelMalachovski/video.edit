@@ -3,7 +3,7 @@ import { errorResponse } from '@/lib/http.ts';
 import { listAllAssets, uploadAsset } from '@/lib/github.ts';
 import type { UploadClaim } from '@/lib/jobfiles.ts';
 import {
-  CHUNK_SIZE, checkInsert, checkTotal, checkVideos, checkVoice, isJobId, isVoiceFile, MAX_BRIEF, MAX_INSERTS, verifyParts,
+  CHUNK_SIZE, checkTotal, checkUploadClaims, checkVideos, isJobId, MAX_BRIEF, verifyParts,
 } from '@/lib/jobs.ts';
 import { gh } from '@/lib/env.ts';
 
@@ -25,18 +25,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const brief = typeof d.brief === 'string' ? d.brief.trim() : '';
     if (brief.length > MAX_BRIEF) return NextResponse.json({ error: `ТЗ длиннее ${MAX_BRIEF} знаков` }, { status: 413 });
     const uploads = Array.isArray(d.uploads) ? d.uploads : [];
-    if (uploads.length > MAX_INSERTS + 1) return NextResponse.json({ error: `Вставок больше ${MAX_INSERTS}` }, { status: 413 });
-    const isInsert = (asset: string) => /^upload-i\d{1,2}\.[a-z0-9]{1,5}$/.test(asset);
-    for (const u of uploads) {
-      if (!u || typeof u.asset !== 'string' || !(isInsert(u.asset) || isVoiceFile(u.asset))) {
-        return NextResponse.json({ error: 'bad upload' }, { status: 400 });
-      }
-      const file = { name: String(u.name), size: Number(u.size), type: String(u.type) };
-      const why = isVoiceFile(u.asset) ? checkVoice(file) : checkInsert(file);
-      if (why) return NextResponse.json({ error: why }, { status: 413 });
-    }
-    if (uploads.filter((u) => isInsert(u.asset)).length > MAX_INSERTS) return NextResponse.json({ error: `Вставок больше ${MAX_INSERTS}` }, { status: 413 });
-    if (uploads.filter((u) => isVoiceFile(u.asset)).length > 1) return NextResponse.json({ error: 'Озвучка — одна запись' }, { status: 400 });
+    const bad = checkUploadClaims(uploads);
+    if (bad) return NextResponse.json({ error: bad.error }, { status: bad.status });
     const listed = checkVideos(d.videos, { name: d.name, size: d.size, parts: d.parts });
     if ('error' in listed) return NextResponse.json({ error: listed.error }, { status: 400 });
     const more = (listed.videos ?? []).slice(1); // видео после первого — куски считаются, как у вставок

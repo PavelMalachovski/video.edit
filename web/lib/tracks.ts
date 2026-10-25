@@ -18,6 +18,7 @@ export type DraftWord = Span & { text: string };
 export type DraftInsert = Span & {
   kind: string; src?: string; question?: string; id?: string; text?: string; title?: string; x?: number; y?: number; w?: number; sfx?: string | null;
   params?: Record<string, unknown>; off?: boolean;
+  from?: number; layout?: 'full' | 'pip'; audio?: boolean; // перебивка (fullscreen): с какой секунды клипа, вид, звук клипа
 };
 /** Финальная карточка: сколько длится, звук появления, призыв, ник и логотип (путь от папки задачи). */
 export type DraftEnd = { seconds: number; sfx?: string | null; lines: string[]; handle?: string | null; logo?: string | null };

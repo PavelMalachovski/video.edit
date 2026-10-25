@@ -118,7 +118,7 @@
           }
         },
         "inserts": {
-          "description": "Вставки: время, текст (у текстовых), место и ширина на кадре (x, y — левый верхний угол, w — ширина, px кадра; вместе, в безопасной зоне, как рамки answers.insertBoxes; у fullscreen не применяются), off — выключена (остаётся в списке: номера звуков insert:<n> те же).",
+          "description": "Вставки: время, текст (у текстовых), место и ширина на кадре (x, y — левый верхний угол, w — ширина, px кадра; вместе, в безопасной зоне, как рамки answers.insertBoxes; у fullscreen не применяются; у fullscreen — src, from, layout, audio перебивки), off — выключена (остаётся в списке: номера звуков insert:<n> те же).",
           "type": "array",
           "maxItems": 200,
           "items": {
@@ -134,6 +134,10 @@
               "x": { "type": "number", "minimum": 60, "maximum": 810 },
               "y": { "type": "number", "minimum": 120, "maximum": 1490 },
               "w": { "type": "number", "minimum": 80, "maximum": 830 },
+              "src": { "description": "Перебивка — другой клип из перебивок Павла.", "type": "string", "pattern": "^in/uploads/upload-b[0-9]{1,2}\\.[a-z0-9]{1,5}$" },
+              "from": { "description": "Перебивка — с какой секунды клипа.", "type": "number", "minimum": 0, "maximum": 36000 },
+              "layout": { "description": "Перебивка: full — клип на весь кадр, pip — лицо окошком поверх клипа.", "enum": ["full", "pip"] },
+              "audio": { "description": "Перебивка — звук клипа тихим фоном.", "type": "boolean" },
               "off": { "const": true }
             }
           }

@@ -76,3 +76,14 @@ test('flashes and blurs close together add up as the filters run one after anoth
     assert.ok(near(pictureAt(both, n / 30).blur, Math.hypot(blurSigma(1.0, n), blurSigma(1.1, n)), 1e-12), `смаз подряд, кадр ${n}`);
   }
 });
+
+test('a B-roll clip in the picture: its moment, a face window, its sound — as the session or Pavel set them', () => {
+  const draft: Draft = { ...DRAFT, inserts: [{ kind: 'fullscreen', src: 'in/uploads/upload-b1.mov', t0: 6, t1: 7.5, from: 3, layout: 'pip', audio: true },
+    { kind: 'fullscreen', src: 'in/uploads/upload-b2.jpg', t0: 7.6, t1: 8.8 }] };
+  const m = pictureModel(draftTracks(draft, { sourceDuration: 9 }).layer, { face: draft.face });
+  const clip = pictureAt(m, 5.5).cover;
+  assert.ok(clip);
+  assert.deepEqual([clip.from, clip.layout, clip.audio, clip.video], [3, 'pip', true, true]);
+  const still = pictureAt(m, 6.9).cover;
+  assert.deepEqual([still?.src, still?.from, still?.layout, still?.audio, still?.video], ['in/uploads/upload-b2.jpg', 0, 'full', false, false], 'по умолчанию — с начала, на весь кадр, без звука');
+});

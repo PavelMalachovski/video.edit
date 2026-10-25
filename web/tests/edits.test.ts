@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
-  applyKeep, applyText, blockPlace, commit, cutSpan, EMPTY, initHistory, LIMITS, moveSpan, parseTimeline, pieces, placeBlock, redo, restoreSpan, setBlock, setCta, setHook,
+  applyKeep, applyText, blockPlace, BROLL_SRC, commit, cutSpan, EMPTY, initHistory, LIMITS, moveSpan, parseTimeline, pieces, placeBlock, redo, restoreSpan, setBlock, setCta, setHook,
   setMusic, setSound, setVoice, setWord, snapTo, splitAt, trimEnd, trimStart, undo, type Edit, type TextEdits, type WordFix, badSymbols, blockFix, hasEmoji,
   setLook, setTransition, setZoom, TRANSITION_KINDS, setDim, setTrack, setEnd, MUSIC_FILE, setTeaser, setSpeed,
   LOOK_KINDS, addLook, setLookEdges, setLookKind, removeLook,
@@ -232,6 +232,18 @@ test('parseTimeline takes places on the frame as the schema does: an insert\'s b
     x: { min: INSERT_ZONE.x0, max: INSERT_ZONE.x1 - INSERT_W.min }, y: { min: INSERT_ZONE.y0, max: INSERT_ZONE.y1 - 40 }, w: INSERT_W,
   });
   assert.deepEqual(LIMITS.accentAt, { x: { min: INSERT_ZONE.x0, max: INSERT_ZONE.x1 }, y: { min: INSERT_ZONE.y0, max: INSERT_ZONE.y1 } });
+});
+
+test('parseTimeline takes B-roll edits as the schema does: a clip of Pavel\'s B-roll, its moment, layout and sound', () => {
+  const ok = { rev: 1, edits: [], text: { inserts: [{ at: [7, 8.5], src: 'in/uploads/upload-b3.mov', from: 0.5, layout: 'pip', audio: true }] } };
+  assert.deepEqual(parseTimeline(ok), ok);
+  for (const bad of [ // те же, что не пропускает схема (test_b_roll_by_hand_another_clip_moment_layout_and_sound)
+    { src: 'assets/music/a.mp3' }, { src: 'in/uploads/upload-i1.png' }, { from: -1 }, { layout: 'side' }, { audio: 1 },
+  ]) assert.equal(parseTimeline({ ...ok, text: { inserts: [{ at: [7, 8.5], ...bad }] } }), null, JSON.stringify(bad));
+  const ins = SCHEMA.properties.text.properties.inserts.items.properties;
+  assert.equal(ins.src.pattern.replaceAll('[0-9]', '\\d'), BROLL_SRC.source.replaceAll('\\/', '/'));
+  assert.deepEqual({ min: ins.from.minimum, max: ins.from.maximum }, LIMITS.brollFrom);
+  assert.deepEqual(ins.layout.enum, ['full', 'pip']);
 });
 
 test('emoji in a subtitle word are refused before saving, as the engine font check refuses them (shared emoji fixture)', () => {

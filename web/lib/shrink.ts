@@ -13,11 +13,17 @@ export const JUDGE_AFTER = 10; // с — раньше скорость умен�
 
 export type Size = { width: number; height: number };
 
-/** Размер уменьшенного видео по видимому размеру (с поворотом); уже не шире 1080 — null: уменьшать нечего. */
-export function shrinkSize(width: number, height: number): Size | null {
-  if (!(width > SHRINK_WIDTH) || !(height > 0)) return null;
-  return { width: SHRINK_WIDTH, height: Math.max(2, Math.round((SHRINK_WIDTH * height) / width / 2) * 2) };
+/** Размер уменьшенного видео по видимому размеру (с поворотом); уже не шире 1080 — null: уменьшать нечего. `cover` —
+ *  перебивка: движок обрезает её под кадр 1080×1920 (render._picture, increase и crop) — уменьшаем только до него, иначе
+ *  горизонтальный клип он растянул бы втрое. */
+export function shrinkSize(width: number, height: number, cover = false): Size | null {
+  if (!(width > 0) || !(height > 0)) return null;
+  const k = cover ? Math.max(SHRINK_WIDTH / width, FRAME_HEIGHT / height) : SHRINK_WIDTH / width;
+  if (!(k < 1)) return null;
+  const even = (v: number) => Math.max(2, Math.round(v / 2) * 2);
+  return { width: even(width * k), height: even(height * k) };
 }
+const FRAME_HEIGHT = 1920; // кадр ролика — 1080×1920
 
 /** Почему грузим оригинал; null — уменьшаем. */
 export function whyOriginal(o: { asked: boolean; hdr: boolean; decodable: boolean; encodable: boolean; size: Size | null }): string | null {

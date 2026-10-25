@@ -4,6 +4,7 @@
     prepare  in/ → source.mp4, work/source.wav, language.json, words.json, reference.txt, cuts.json, sheet.png; сводка
              (--lang — язык ролика по ответу Павла)
     frames   кадры исходника в моменты --at (с --grid — с сеткой) → look/
+    broll    перебивки (uploads kind broll): лист кадров каждого клипа → look/broll-<b>.png, длина, звук и речь; сводка
     preview  кадр исходника для превью → frame.png (или --out: картинка к вопросу, с --mark — с рамкой, --dim — фон темнее)
     validate файлы задачи по схемам и файлы, на которые они ссылаются
     style    итоговый стиль по styles.json и answers.json (для edit.json.style)
@@ -125,6 +126,12 @@ def _matte_ahead(args: argparse.Namespace) -> None:
         print("маска фона по плотной резке — в out/: уйдёт с vm push в черновик, рендер возьмёт её готовой")
     else:
         print("маска фона посчитана, но в out/ не легла (больше 95 МБ): рендер посчитает свою")
+
+
+def _broll(args: argparse.Namespace) -> None:
+    from . import broll
+
+    print(broll.summary(broll.describe(_job(args))))
 
 
 def _prepare(args: argparse.Namespace) -> None:
@@ -566,6 +573,8 @@ def _parser() -> argparse.ArgumentParser:
     preview.add_argument("--out", type=_picture_name, default="frame.png", help="имя файла в папке задачи (.png, .jpg)")
     preview.add_argument("--mark", type=_box, help="рамка x,y,w,h в px кадра — например, место вставки")
     preview.add_argument("--dim", type=_dim, default=0.0, help="фон темнее на долю 0–0.8 (картинка к вопросу «Фон»)")
+
+    command("broll", _broll, "перебивки (job.json uploads kind broll): лист кадров каждого клипа → look/, длина, звук и речь — сводка")
 
     command("validate", _validate, "файлы задачи по схемам и файлы, на которые они ссылаются")
 

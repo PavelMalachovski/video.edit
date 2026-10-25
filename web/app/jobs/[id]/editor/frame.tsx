@@ -1,6 +1,6 @@
 'use client';
 // Кадр редактора поверх прокси — как его соберёт монтаж: картинка (зум к лицу, ч/б, смаз, перебивка на весь кадр,
-// вспышка — по формулам движка, lib/picture.ts), слой шаблона (те же события, что рисуют финал: перерисовывается,
+// вспышка — по формулам движка, lib/picture.ts; перебивка с момента клипа и окошко лица — lib/broll.ts), слой шаблона (те же события, что рисуют финал: перерисовывается,
 // только когда событие сменилось) и шкала времени (в финале её рисует ffmpeg, здесь — страница). Всё — по часам плеера,
 // без перерисовки всего редактора. Нарисованное выбирают касанием кадра; выбранное — рамкой (хук и субтитры тянутся
 // выше-ниже и крупнее, вставки и акценты — по кадру), ✎ — текст блока прямо на кадре.
@@ -9,14 +9,18 @@ import type { Clock } from '@/lib/clock.ts';
 import type { Place } from '@/lib/edits.ts';
 import type { StyleSpec } from '@/lib/jobfiles.ts';
 import { eventIndexAt, FPS, type LayerEvent } from '@/lib/overlay.ts';
+import { clipStart, PIP, pipSource } from '@/lib/broll.ts';
 import { lookFilter, pictureAt, type Cover, type PictureModel } from '@/lib/picture.ts';
 import { INSERT_W, moveBox, moveCentre, resizeBox, underCaption, type BoxExt } from '@/lib/style.ts';
 import { BoxHandle, DragHandle, type Box } from '../../../handles';
 import { PencilIcon } from '../../../icons';
 import PreviewFrame from '../../../preview-frame';
 
-/** Перебивка-видео из загрузок Павла — в ветке её нет, а целиком её не отдаёт /upload: на кадре — метка. */
-const isUploadVideo = (c: Cover) => c.video && c.src.startsWith('in/uploads/');
+const PIP_DRAW = { w: 270, h: 360 }; // окошко лица в плеере, px холста: как кусок прокси 540×960 (faceBox — половина ширины)
+const PIP_STYLE: CSSProperties = { // окошко на кадре — как PIP движка (доли кадра 1080×1920), углы — r PIP
+  left: `${(PIP.x / 1080) * 100}%`, top: `${(PIP.y / 1920) * 100}%`, width: `${(PIP.w / 1080) * 100}%`, height: `${(PIP.h / 1920) * 100}%`,
+  borderRadius: `${(PIP.r / PIP.w) * 100}% / ${(PIP.r / PIP.h) * 100}%`,
+};
 
 /**
  * Картинка ролика на прокси `video`: зум и ч/б — стилем самого <video>, смаз — у картинки вместе с перебивкой, белый
@@ -24,9 +28,12 @@ const isUploadVideo = (c: Cover) => c.video && c.src.startsWith('in/uploads/');
  * видео перематывается, картинка не меняется раньше кадра: резкая смена крупности и края ч/б стоят ровно на склейках.
  * После кусков (стоп-кадр и карточка) — картинка последнего кадра.
  */
-export function Picture({ clock, model, video, src, duration, width, playing, urlOf, note, children }: {
+export function Picture({ clock, model, video, src, duration, width, playing, clipOf, note, children }: {
   clock: Clock; model: PictureModel | null; video: RefObject<HTMLVideoElement | null>; src: string | null; duration: number; width: number;
-  playing: boolean; urlOf: (path: string) => string; note: string;
+  playing: boolean;
+  // что показать за перебивку: адрес (видео — прокси клипа; нечего — на кадре метка `note`) и видео ли это
+  clipOf: (c: Cover) => { url: string | null; video: boolean };
+  note: string;
   children: ReactNode; // сам <video> плеера: смаз — у него вместе с перебивкой
 }) {
   const pic = useRef<HTMLDivElement>(null);
@@ -34,6 +41,7 @@ export function Picture({ clock, model, video, src, duration, width, playing, ur
   const img = useRef<HTMLImageElement>(null);
   const clip = useRef<HTMLVideoElement>(null);
   const label = useRef<HTMLDivElement>(null);
+  const pip = useRef<HTMLCanvasElement>(null);
   const live = useRef({ playing, cover: '' });
   live.current.playing = playing;
 
@@ -41,11 +49,14 @@ export function Picture({ clock, model, video, src, duration, width, playing, ur
     const v = video.current;
     const last = Math.max(0, (Math.round(duration * FPS) - 1) / FPS);
     const show = (c: Cover | null, t: number) => {
-      const key = c ? `${c.src}|${c.t0}` : '';
+      const shown = c ? clipOf(c) : null;
+      const url = shown?.url ?? null;
+      // вид и звук — тоже (их правят на месте), и адрес: прокси клипа появляется в релизе позже
+      const key = c ? `${c.src}|${c.t0}|${c.layout}|${c.audio}|${url}` : '';
       if (key !== live.current.cover) {
         live.current.cover = key;
-        const still = c && !c.video ? urlOf(c.src) : null;
-        const moving = c && c.video && !isUploadVideo(c) ? urlOf(c.src) : null;
+        const still = shown && !shown.video ? url : null;
+        const moving = shown?.video ? url : null;
         if (img.current) {
           img.current.hidden = !still;
           if (still && img.current.getAttribute('src') !== still) img.current.src = still;
@@ -54,14 +65,22 @@ export function Picture({ clock, model, video, src, duration, width, playing, ur
           clip.current.hidden = !moving;
           if (moving && clip.current.getAttribute('src') !== moving) clip.current.src = moving;
           if (!moving) clip.current.pause();
+          clip.current.muted = !(c && c.audio); // звук клипа — тихим фоном (прокси клипа уже на громкости фона)
         }
-        if (label.current) label.current.hidden = !(c && isUploadVideo(c));
+        if (label.current) label.current.hidden = !(c && !url);
+        if (pip.current) pip.current.hidden = !(c && c.layout === 'pip');
       }
       const m = clip.current;
-      if (c && c.video && m && !m.hidden && m.readyState > 0) { // перебивка-видео идёт с начала, вместе с роликом
-        const want = Math.max(0, t - c.t0);
+      if (shown?.video && c && m && !m.hidden && m.readyState > 0) { // перебивка-видео идёт с момента клипа, вместе с роликом
+        const want = clipStart(c.from, m.duration, c.t1 - c.t0) + Math.max(0, t - c.t0);
         if (!live.current.playing || Math.abs(m.currentTime - want) > 0.3) m.currentTime = want;
-        if (live.current.playing && m.paused) void m.play().catch(() => undefined);
+        if (live.current.playing && m.paused) {
+          // со звуком вне касания (iPhone) пуск отвергнут — тогда клип идёт без звука, а не стоит
+          void m.play().catch(() => {
+            m.muted = true;
+            return m.play().catch(() => undefined);
+          });
+        }
         if (!live.current.playing && !m.paused) m.pause();
       }
     };
@@ -90,6 +109,18 @@ export function Picture({ clock, model, video, src, duration, width, playing, ur
       if (pic.current) pic.current.style.filter = p.blur > 0 ? `blur(${((p.blur * width) / 1080).toFixed(2)}px)` : '';
       if (flash.current) flash.current.style.opacity = p.flash > 0 ? p.flash.toFixed(3) : '0';
       show(p.cover, t);
+      if (p.cover?.layout === 'pip') drawPip(p.zoom, p.face, p.look);
+    };
+    // окошко лица: тот же кадр говорящего, что под перебивкой, — с зумом (движок вырезает окошко из зумленного кадра),
+    // с фильтром куска; смаз и вспышка — у всей картинки
+    const drawPip = (zoom: number, face: { x: number; y: number }, look: string | null) => {
+      const ctx = pip.current?.getContext('2d');
+      if (!ctx || !v || v.readyState < 2 || !v.videoWidth) return;
+      const r = pipSource(face, zoom);
+      const k = v.videoWidth / 1080;
+      pip.current!.style.filter = lookFilter(look); // фильтр куска — CSS у холста: ctx.filter Safari не умеет
+      ctx.drawImage(v, r.x * k, r.y * k, r.w * k, r.h * k, 0, 0, PIP_DRAW.w, PIP_DRAW.h);
+      if (pip.current) pip.current.dataset.zoom = zoom.toFixed(4); // для проверок e2e
     };
     apply();
     const off = clock.subscribe(apply);
@@ -98,7 +129,7 @@ export function Picture({ clock, model, video, src, duration, width, playing, ur
       off();
       v?.removeEventListener('seeked', apply);
     };
-  }, [clock, model, video, src, duration, width, urlOf]);
+  }, [clock, model, video, src, duration, width, clipOf]);
 
   useEffect(() => { // пуск и пауза — и у перебивки-видео
     const m = clip.current;
@@ -114,6 +145,7 @@ export function Picture({ clock, model, video, src, duration, width, playing, ur
         <img ref={img} className="ed-cover" alt="" hidden />
         <video ref={clip} className="ed-cover" muted playsInline preload="auto" hidden />
         <div ref={label} className="ed-cover ed-cover-note" hidden>{note}</div>
+        <canvas ref={pip} className="ed-pip" width={PIP_DRAW.w} height={PIP_DRAW.h} style={PIP_STYLE} hidden aria-hidden="true" />
       </div>
       <div className="ed-flash" ref={flash} aria-hidden="true" />
     </>

@@ -23,7 +23,15 @@ export type At = [number, number];
 export type HookFix = { until?: number; text?: string; off?: true };
 export type CtaFix = { at: At; t0?: number; t1?: number; lines?: string[]; word?: string; off?: true };
 export type AccentFix = { at: At; t0?: number; t1?: number; lines?: string[]; x?: number; y?: number; off?: true };
-export type InsertFix = { at: At; t0?: number; t1?: number; text?: string; x?: number; y?: number; w?: number; off?: true };
+export type InsertFix = {
+  at: At; t0?: number; t1?: number; text?: string; x?: number; y?: number; w?: number; off?: true;
+  src?: string; from?: number; layout?: BrollLayout; audio?: boolean; // перебивка (fullscreen): клип, момент, вид, звук клипа
+};
+/** Вид перебивки: клип на весь кадр или клип с лицом окошком. */
+export type BrollLayout = 'full' | 'pip';
+/** Клип перебивки руками — из перебивок Павла (как образец src вставки в схеме timeline.json). */
+export const BROLL_SRC = /^in\/uploads\/upload-b\d{1,2}\.[a-z0-9]{1,5}$/;
+const BROLL_FIELDS = ['src', 'from', 'layout', 'audio'] as const; // edits.BROLL_FIELDS движка
 /** Место блока на кадре руками, px кадра: у акцента — центр блока, у вставки — левый верхний угол и ширина. */
 export type Place = { x: number; y: number; w?: number };
 /** Финальная карточка: строки (1–2) и ник ('' — без ника); off — карточки нет. */
@@ -75,6 +83,7 @@ export const LIMITS = {
   handle: 60, // знаков в нике карточки
   accentAt: { x: { min: 60, max: 890 }, y: { min: 120, max: 1530 } }, // центр акцента на кадре — в безопасной зоне
   insertBox: { x: { min: 60, max: 810 }, y: { min: 120, max: 1490 }, w: { min: 80, max: 830 } }, // рамка вставки — как answers.insertBoxes
+  brollFrom: { min: 0, max: 36000 }, // с — с какой секунды клипа перебивка
 } as const;
 /** Трек музыки из библиотеки (как Music.file в схеме timeline.json). */
 export const MUSIC_FILE = /^assets\/music\/[^/]+\.(mp3|wav|m4a|aac|ogg|flac)$/;
@@ -239,12 +248,13 @@ type TextBase = {
   hook?: { text: string; until: number } | null;
   cta?: (Span2 & { lines: string[]; word: string }) | null;
   accents?: (Span2 & { lines: { text: string }[]; x?: number; y?: number })[] | null;
-  inserts?: (Partial<Span2> & { kind: string; text?: string; x?: number; y?: number; w?: number; off?: boolean })[] | null;
+  inserts?: (Partial<Span2> & { kind: string; text?: string; x?: number; y?: number; w?: number; off?: boolean; src?: string })[] | null;
   words?: (Span2 & { text: string })[] | null;
 };
 
 /** Текст и вставки Павла поверх edit — как apply_text движка: хук — конец и текст; титр, акценты, вставки — по месту в
- *  речи (`at`); место на кадре — центр акцента, рамка вставки (у fullscreen её нет); вставка с off остаётся в списке
+ *  речи (`at`); место на кадре — центр акцента, рамка вставки (у fullscreen её нет — у неё клип, момент клипа, вид и
+ *  звук перебивки); вставка с off остаётся в списке
  *  (номера звуков те же); слова — по точному t0, t1, пустое — нет в субтитрах. Правок нет — тот же edit. */
 export function applyText<T extends TextBase>(edit: T, text?: TextEdits, words?: readonly WordFix[]): T {
   if (!text && !words?.length) return edit;
@@ -267,6 +277,7 @@ export function applyText<T extends TextBase>(edit: T, text?: TextEdits, words?:
       const changed = { ...item, ...pick(c, ['t0', 't1'] as const) };
       if ('text' in c && 'text' in item) changed.text = c.text; // текст — только у текстовых вставок
       if ('x' in item && 'w' in item) Object.assign(changed, pick(c, ['x', 'y', 'w'] as const)); // рамка — у вставок на кадре (не fullscreen)
+      if (item.kind === 'fullscreen') Object.assign(changed, pick(c, BROLL_FIELDS)); // перебивка: клип, момент, вид, звук
       return timed(name, changed);
     }) as T['inserts'];
   }
@@ -736,8 +747,10 @@ function parseText(x: unknown): TextEdits | null {
   const { accentAt: ac, insertBox: ib } = LIMITS;
   if (!list(accents, ['at', 't0', 't1', 'lines', 'x', 'y', 'off'], (o) => okLines(o.lines) && whole(o, ['x', 'y'])
     && inRange(o.x, ac.x) && inRange(o.y, ac.y))) return null;
-  if (!list(inserts, ['at', 't0', 't1', 'text', 'x', 'y', 'w', 'off'], (o) => (o.text === undefined || isLine(o.text)) && whole(o, ['x', 'y', 'w'])
-    && inRange(o.x, ib.x) && inRange(o.y, ib.y) && inRange(o.w, ib.w))) return null;
+  if (!list(inserts, ['at', 't0', 't1', 'text', 'x', 'y', 'w', 'off', ...BROLL_FIELDS], (o) => (o.text === undefined || isLine(o.text)) && whole(o, ['x', 'y', 'w'])
+    && inRange(o.x, ib.x) && inRange(o.y, ib.y) && inRange(o.w, ib.w)
+    && (o.src === undefined || (typeof o.src === 'string' && BROLL_SRC.test(o.src))) && inRange(o.from, LIMITS.brollFrom)
+    && (o.layout === undefined || o.layout === 'full' || o.layout === 'pip') && (o.audio === undefined || typeof o.audio === 'boolean'))) return null;
   return x as TextEdits;
 }
 

@@ -1,6 +1,7 @@
 // Данные редактора (бета): черновик монтажа (edit.json), файлы редактора от vm prepare (editor.json), ссылки на прокси
 // (ассет черновика релиза — через /media) и ленту кадров (картинка ветки — через /file), стили и выбор Павла. Правки
 // руками — timeline.json: сохранение с ревизией (без force, гонка вкладок — конфликт) и «Монтировать» из редактора.
+import { brollProxy } from './broll.ts';
 import { parseLook, type BrandLook } from './brand.ts';
 import { commitFiles, listDir, readText } from './branch.ts';
 import { badSymbols, hasEmoji, MUSIC_FILE, parseTimeline, typedTexts, type HandEdits, type TimelineFile } from './edits.ts';
@@ -15,7 +16,10 @@ import { parseDraft, parseMedia, type Draft, type EditorMedia } from './tracks.t
 /** Что редактор отдаёт плееру из релиза: только прокси (готовый ролик — через download). */
 export const MEDIA_NAMES = ['proxy.mp4'] as const;
 export type MediaName = (typeof MEDIA_NAMES)[number];
-export const isMediaName = (x: string): x is MediaName => (MEDIA_NAMES as readonly string[]).includes(x);
+/** Прокси перебивки (vm broll пишет out/broll-<b>.mp4 — brollProxy в lib/broll.ts). */
+const BROLL_PROXY = /^broll-b\d{1,2}\.mp4$/;
+/** Что плеер берёт из релиза: прокси исходника и прокси перебивок (клип целиком лежит там кусками — его не отдаём). */
+export const isMediaName = (x: string): boolean => (MEDIA_NAMES as readonly string[]).includes(x) || BROLL_PROXY.test(x);
 
 /** Что из правок руками примет движок задачи: ветка задачи создаётся из master один раз, и сессия монтирует её движком
  *  своей поры — новых полей timeline.json старый движок не примет (схема без лишних полей). По схеме в ветке: `edits` —
@@ -23,14 +27,15 @@ export const isMediaName = (x: string): x is MediaName => (MEDIA_NAMES as readon
  *  кусков (фаза 4), `text` — текст и вставки, слова субтитров (фаза 5), `picture` — сила зума, ч/б-куски, переходы и
  *  затемнение фона, `track` — другой трек музыки, `card` — текст финальной карточки, `video` — скорость ролика и тизер,
  *  `place` — место вставок и акцентов на кадре (фаза 5в), `looks` — свои куски ч/б и фильтров Павла, края и фильтр
- *  кусков сессии. */
+ *  кусков сессии, `broll` — клип, момент, вид и звук перебивки. */
 export type Abilities = {
   edits: boolean; move: boolean; text: boolean; picture: boolean; track: boolean; card: boolean; video: boolean; place: boolean;
   looks: boolean; // свои куски ч/б и фильтров, края и фильтр кусков сессии
+  broll: boolean; // перебивка руками: клип, момент клипа, вид, звук клипа
 };
 export const ENGINE_SCHEMA = 'engine/vm/schemas/timeline.json';
-const ALL: Abilities = { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: true };
-const NONE: Abilities = { edits: false, move: false, text: false, picture: false, track: false, card: false, video: false, place: false, looks: false };
+const ALL: Abilities = { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: true, broll: true };
+const NONE: Abilities = { edits: false, move: false, text: false, picture: false, track: false, card: false, video: false, place: false, looks: false, broll: false };
 
 /**
  * Что Павел правит в редакторе. `editable` — правки сохраняются (у задачи есть черновик, сессия не работает, её движок
@@ -47,6 +52,7 @@ export function editorGates(editable: boolean, mounted: boolean, a: Abilities = 
     // старый движок кусков руками не знает — только убрать и вернуть кусок сессии, после монтажа
     looks: editable && (a.looks || (mounted && a.picture)), lookHand: editable && a.looks,
     speed: after && a.video, teaser: after && a.video, text: after && a.text, card: after && a.card, place: after && a.text && a.place,
+    broll: after && a.text && a.broll,
   };
 }
 
@@ -64,6 +70,7 @@ export function abilitiesOf(schema: string | null): Abilities {
       track: 'file' in (parsed.$defs?.Music?.properties ?? {}), card: 'end' in text, video: 'teaser' in props && 'speed' in props,
       place: 'x' in (text.inserts?.items?.properties ?? {}),
       looks: 't0' in ((props.looks as { items?: { properties?: object } } | undefined)?.items?.properties ?? {}),
+      broll: 'layout' in (text.inserts?.items?.properties ?? {}),
     };
   } catch {
     return ALL;
@@ -90,7 +97,25 @@ export function refusedBy(a: Abilities, hand: HandEdits): string | null {
   if (!a.place && placed) {
     return 'Эта задача создана до перетаскивания вставок и акцентов в редакторе: её движок их места не примет — место здесь меняется через «Поправить»';
   }
+  if (!a.broll && hand.text?.inserts?.some((f) => f.src !== undefined || f.from !== undefined || f.layout !== undefined || f.audio !== undefined)) {
+    return 'Эта задача создана до перебивок в редакторе: её движок не примет другой клип, момент, вид или звук перебивки — они здесь меняются через «Поправить»';
+  }
   return null;
+}
+
+/** Перебивка задачи для редактора: путь, как в edit.json, имя у Павла; `url` — что показывает плеер (видео — прокси из
+ *  релиза, картинка — /upload; прокси ещё нет — null). */
+export type BrollClip = { src: string; name: string; video: boolean; url: string | null };
+
+/** Перебивки задачи по job.json и ассетам релиза (out/released.json). */
+export function brollClips(id: string, files: { job?: { uploads?: { file: string; name: string; kind?: string }[] } | null; released: Released | null } | null): BrollClip[] {
+  return (files?.job?.uploads ?? []).flatMap((u): BrollClip[] => {
+    const name = /^in\/uploads\/([^/]+)$/.exec(u.file)?.[1];
+    if (u.kind !== 'broll' || !name) return [];
+    if (isUploadPicture(name)) return [{ src: u.file, name: u.name, video: false, url: `/api/jobs/${id}/upload?name=${encodeURIComponent(name)}` }];
+    const proxy = brollProxy(u.file);
+    return [{ src: u.file, name: u.name, video: true, url: proxy && mediaAsset(files, proxy) ? `/api/jobs/${id}/media?name=${proxy}` : null }];
+  });
 }
 
 export type EditorData = {
@@ -109,6 +134,7 @@ export type EditorData = {
   beats: BeatsFile | null; // доли музыки (beats.json от vm render): вставки и зум встают на них, как в ролике
   library: string[]; // треки библиотеки в ветке задачи (assets/music/…): другой трек — из них
   rev: number; // ревизия timeline.json в ветке (нет — 0): от неё сохраняется следующая
+  brolls: BrollClip[]; // перебивки задачи (job.json.uploads, kind broll): клип на замену и его видео для плеера
   brandLook: BrandLook | null; // «Мой стиль» из копии бренда задачи: до монтажа стиль начинается с него, как на «Превью»
   // пока Claude монтирует новый стиль из редактора (или этот монтаж сорвался) — прошлый выбор (fix.json, styleFrom): ролик
   // ещё в нём, и новый ляжет поверх него (vm style --onto); иначе — null
@@ -123,7 +149,7 @@ async function musicLibrary(gh: GH, head: string): Promise<string[]> {
 }
 
 /** Картинка загрузки Павла (вставка к ролику `upload-i<n>`, картинка к ответу `upload-q-…`) — её отдаёт /upload. */
-export const isUploadPicture = (name: string): boolean => /^upload-(i\d{1,3}|q-[a-z0-9_-]{1,41})\.(png|jpe?g|webp|gif)$/.test(name);
+export const isUploadPicture = (name: string): boolean => /^upload-(i\d{1,3}|b\d{1,2}|q-[a-z0-9_-]{1,41})\.(png|jpe?g|webp|gif)$/.test(name);
 
 /** Ассеты картинки загрузки `name` по порядку: целый ассет или куски `<name>.part-NNNNN` (так их кладёт загрузка — и из
  *  одного куска); нет первого куска или пропуск в середине — null. */
@@ -155,6 +181,15 @@ export function layerUrl(id: string, head: string | null, path: string): string 
   const upload = /^in\/uploads\/([^/]+)$/.exec(path)?.[1];
   if (upload && isUploadPicture(upload)) return `/api/jobs/${id}/upload?name=${encodeURIComponent(upload)}`;
   return `/api/jobs/${id}/file?path=${encodeURIComponent(path)}${head ? `&v=${head}` : ''}`;
+}
+
+const UPLOAD_VIDEO = /^in\/uploads\/[^/]+\.(mp4|mov|m4v|webm|mkv)$/i;
+/** Что плеер показывает за перебивку `src`: клип перебивок — его адрес (видео — прокси; его ещё нет — null), другое видео
+ *  из загрузок — null (целиком его не отдаём: на кадре метка), остальное — как картинки слоя (layerUrl). */
+export function coverUrl(id: string, head: string | null, brolls: readonly BrollClip[], src: string): string | null {
+  const clip = brolls.find((b) => b.src === src);
+  if (clip) return clip.url;
+  return UPLOAD_VIDEO.test(src) ? null : layerUrl(id, head, src);
 }
 
 /** Ассет `name` из out/released.json ветки; не файл редактора или его нет — null. */
@@ -197,6 +232,7 @@ export async function loadEditor(gh: GH, id: string): Promise<EditorData | null>
     beats: parseBeats(json(beats)),
     library,
     ...timelineOf(timeline),
+    brolls: brollClips(id, f),
     brandLook: parseLook(f?.job?.brand?.look),
     // монтирует правку или она сорвалась — ролик ещё в прошлом стиле; вышла новая версия (result) — уже в новом
     styleFrom: loaded.view.screen === 'working' || (loaded.view.screen === 'error' && loaded.view.step === 'fix')

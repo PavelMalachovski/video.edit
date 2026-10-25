@@ -13,3 +13,12 @@ def test_the_job_source_action_imports_without_numpy():
     code = BLOCK + "import vm.fetch, vm.source, vm.job\n"
     run = subprocess.run([sys.executable, "-c", code], cwd=ENGINE, capture_output=True, text=True, check=False)
     assert run.returncode == 0, run.stderr
+
+
+def test_the_page_e2e_imports_the_engine_without_pillow():
+    """e2e страницы в CI ставит только jsonschema, numpy и soundfile (.github/workflows/ci.yml) и сверяет кадр с
+    vm.render.timeline: render и то, что он тянет, не берут Pillow при импорте (маска окошка перебивки — внутри)."""
+    code = "import sys\nfor m in ('PIL', 'fontTools', 'onnxruntime', 'sherpa_onnx'): sys.modules[m] = None\n" \
+        "import vm.edits, vm.overlay, vm.render, vm.beats\n"
+    run = subprocess.run([sys.executable, "-c", code], cwd=ENGINE, capture_output=True, text=True, check=False)
+    assert run.returncode == 0, run.stderr

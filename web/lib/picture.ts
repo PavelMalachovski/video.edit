@@ -3,8 +3,8 @@
 // LOOK_CSS), вспышка и смаз —
 // по кадру на экране, как ffmpeg рисует каждый кадр (transitions.flash_alpha: белизна кадра от fade альфы;
 // blur_sigma: sigma ступеней gblur по x — здесь размытие во все стороны: CSS иначе не умеет), перебивка на весь кадр
-// (fullscreen). Слой с текстом — поверх, его это не трогает.
-import type { Layer } from './tracks.ts';
+// (fullscreen: с момента клипа, лицо окошком — pip). Слой с текстом — поверх, его это не трогает.
+import type { DraftInsert, Layer } from './tracks.ts';
 import { FPS, insertSpans } from './overlay.ts';
 import { blurSigma, flashAlpha, lookSpans, transitionMarks, zoomLevels } from './zoom.ts';
 
@@ -24,7 +24,9 @@ export const LOOK_CSS: Readonly<Record<string, string>> = {
 /** CSS filter кадра с фильтром `look` (нет фильтра — пусто). */
 export const lookFilter = (look: string | null): string => (look === null ? '' : look === 'bw' ? BW_FILTER : LOOK_CSS[look] ?? '');
 
-export type Cover = { t0: number; t1: number; src: string; video: boolean };
+/** Перебивка на кадре: окно в ролике (с), клип, видео ли это; с какой секунды клипа (не дальше, чем позволяет его длина
+ *  — clipStart), вид (`pip` — лицо окошком поверх клипа, lib/broll.ts) и звук клипа тихим фоном. */
+export type Cover = { t0: number; t1: number; src: string; video: boolean; from: number; layout: 'full' | 'pip'; audio: boolean };
 /** Что нужно плееру, чтобы в любой момент знать картинку: считается один раз на черновик. */
 export type PictureModel = {
   level: (t: number) => number; face: { x: number; y: number }; looks: [number, number, string][];
@@ -43,9 +45,12 @@ export function pictureModel(layer: Layer, { face }: { face?: { x: number; y: nu
   const marks = transitionMarks(edit.transitions ?? [], tl);
   const video = Math.round(tl.duration * FPS);
   const covers: Cover[] = insertSpans(edit, tl).flatMap(([n, start, stop]) => {
-    const ins = (edit.inserts ?? [])[n];
+    const ins = (edit.inserts ?? [])[n] as DraftInsert;
     if (ins.kind !== 'fullscreen' || !ins.src || start >= video) return [];
-    return [{ t0: start / FPS, t1: Math.min(stop, video) / FPS, src: ins.src, video: VIDEO.test(ins.src) }];
+    return [{
+      t0: start / FPS, t1: Math.min(stop, video) / FPS, src: ins.src, video: VIDEO.test(ins.src),
+      from: Math.max(0, Number(ins.from) || 0), layout: ins.layout === 'pip' ? 'pip' : 'full', audio: ins.audio === true,
+    }];
   });
   return {
     level: zoomLevels(edit.zooms ?? [], tl, marks.filter((m) => m.kind === 'zoom').map((m) => m.t)),

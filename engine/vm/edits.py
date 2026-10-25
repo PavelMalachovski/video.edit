@@ -301,10 +301,13 @@ def _lines(lines: list[dict], texts: list[str] | None) -> list[dict]:
     return [{**line, "text": text} for line, text in zip(lines, texts, strict=True)]
 
 
+BROLL_FIELDS = ("src", "from", "layout", "audio")  # что Павел меняет у перебивки (вставки fullscreen)
+
+
 def apply_text(edit: dict, text: dict | None, words: list | None = None) -> dict:
     """Текст и вставки Павла (`timeline.json` → `text`, `words`) поверх edit; правок нет — тот же edit. Место на кадре:
     у акцента `x, y` — центр блока, у вставки с рамкой `x, y, w` — левый верхний угол и ширина (в безопасной зоне их
-    держит страница, схема — пределы)."""
+    держит страница, схема — пределы); у перебивки (fullscreen) — клип из перебивок Павла, `from`, `layout`, `audio`."""
     if not text and not words:
         return edit
     out = {**edit}
@@ -329,6 +332,8 @@ def apply_text(edit: dict, text: dict | None, words: list | None = None) -> dict
             changed["text"] = c["text"]
         if "x" in item and "w" in item:  # место и ширина — у вставок с рамкой на кадре (у fullscreen их нет)
             changed.update({k: c[k] for k in ("x", "y", "w") if k in c})
+        if item.get("kind") == "fullscreen":  # перебивка: клип, момент клипа, вид, звук клипа
+            changed.update({k: c[k] for k in BROLL_FIELDS if k in c})
         return _timed(name, changed)
 
     if text.get("accents") and edit.get("accents"):

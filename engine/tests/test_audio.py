@@ -411,3 +411,26 @@ def test_music_placed_past_its_track_or_the_video_is_a_warning(tmp_path):
     assert samples.shape[1] / rate == pytest.approx(3.0, abs=0.05)
     _, _, _, warnings = mix(tmp_path, voice, speed=1.0, final_dur=3.0, sfx=[], music={"file": str(music), "gainDb": -14, "at": 3.0})
     assert any("после конца ролика" in w for w in warnings)
+
+
+def test_a_b_roll_clip_sounds_quietly_from_its_place_in_the_clip(tmp_path):
+    """Звук перебивки — тихий фон под голосом (решение Павла 25.10): со своего места в клипе (`from`), только в её окне,
+    с мягкими краями, выровненный к BROLL_LUFS — далеко под голосом (−14)."""
+    voice = bursts(tmp_path / "voice.wav", 440, 6, "lt(t,0)")  # тишина: слышно только перебивку
+    clip = bursts(tmp_path / "clip.wav", 1000, 10, "gte(t,3)")  # в клипе первые 3 с тишина, дальше — тон
+    _, samples, rate, warnings = mix(tmp_path, voice, speed=1.0, final_dur=6.0, music=None, sfx=[], beds=[(2.0, clip, 3.0, 2.0)])
+    assert warnings == []
+    window, before, after = samples[0, int(2.3 * rate):int(3.7 * rate)], samples[0, int(0.5 * rate):int(1.5 * rate)], samples[0, int(4.5 * rate):int(5.5 * rate)]
+    assert rms_db(before) < -70 and rms_db(after) < -70, "вне окна перебивки её не слышно"
+    assert -40 < rms_db(window) < -24, f"тихий фон, а не тишина и не громко: {rms_db(window):.1f} дБ"
+
+
+def test_a_b_roll_clip_without_sound_or_unreadable_is_skipped(tmp_path):
+    voice = bursts(tmp_path / "voice.wav", 440, 3, "lt(t,0)")
+    silent = tmp_path / "silent.mp4"
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=64x64:d=3",
+                    "-c:v", "libx264", str(silent)], check=True)
+    _, samples, _, warnings = mix(tmp_path, voice, speed=1.0, final_dur=3.0, music=None, sfx=[], beds=[(1.0, silent, 0.0, 1.0)])
+    assert warnings == [] and rms_db(samples[0]) < -70, "клип без звука — молча без фона"
+    _, _, _, warnings = mix(tmp_path, voice, speed=1.0, final_dur=3.0, music=None, sfx=[], beds=[(1.0, tmp_path / "nope.mp4", 0.0, 1.0)])
+    assert any("nope.mp4" in w for w in warnings)

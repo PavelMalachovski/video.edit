@@ -39,6 +39,7 @@ from pathlib import Path
 from . import beats, edits, matte, transitions
 from .asr import Word
 from .audio import MIN_MUSIC, QUIET_LUFS, audio_graph
+from .broll import PIP, face_box, pip_mask
 from .job import Job, validate
 from .looks import paint, rgb_chain
 from .media import (
@@ -258,7 +259,7 @@ def render(job: Job, out_dir: Path, name: str = "final", preset: str = "veryfast
             video = "[vcd]"
         else:
             missing.append(note)
-    picture, more, skipped = _picture(job, edit, tl, info, _count(inputs), hold, missing, warnings, video)
+    picture, more, skipped, beds = _picture(job, edit, tl, info, _count(inputs), hold, missing, warnings, video)
     inputs += more
     chains += picture
     chains += _layers(edit["style"], tl)
@@ -267,7 +268,7 @@ def render(job: Job, out_dir: Path, name: str = "final", preset: str = "veryfast
     lufs = loudness(source) if info.has_audio else None
     quiet = lufs is not None and lufs < QUIET_LUFS
     extra, sound, notes = audio_graph("[ac]", edit["speed"], total, music, sfx, inputs_offset=_count(inputs), denoise=quiet,
-                                      voice_level=edit.get("voice"))
+                                      voice_level=edit.get("voice"), beds=beds)
     inputs += extra
     chains.append(sound)
     chains.append(f"[aout]atrim=start_sample={AAC_PRIMING}[aenc]")
@@ -546,11 +547,16 @@ def colour_chains(head: str, spans: list[tuple[int, int, str]], out: str) -> lis
     return chains
 
 
-def _picture(job, edit, tl, info, index, hold, missing, warnings, video="[vc]") -> tuple[list[str], list[str], set[int]]:
-    """Ускорение, цвет, ч/б-куски, зум, фон, перебивки, переходы, стоп-кадр → `[vh]`; плюс входы для перебивок и номера
-    перебивок, которых в ролике не будет (файла нет, не читается, начало после конца) — их звук не нужен."""
+def _picture(job, edit, tl, info, index, hold, missing, warnings, video="[vc]") -> tuple[list[str], list[str], set[int], list[tuple]]:
+    """Ускорение, цвет, ч/б-куски, зум, фон, перебивки, переходы, стоп-кадр → `[vh]`; плюс входы для перебивок, номера
+    перебивок, которых в ролике не будет (файла нет, не читается, начало после конца) — их звук не нужен, и звук
+    перебивок тихим фоном для `audio_graph` (`beds`: время финала, файл, с какой секунды файла, секунд).
+
+    Перебивка видео начинается с `from` клипа (клип короче — так, чтобы окно поместилось); `layout: pip` — клип на весь
+    кадр, а кадр говорящего (кусок вокруг лица, `broll.face_box`) окошком `broll.PIP` со скруглёнными углами."""
     chains = []
     inputs: list[str] = []
+    beds: list[tuple] = []
     cuts = transitions.marks(edit, tl)
     chain = f"{video}setpts=PTS/{edit['speed']:g},fps={FPS},{COLOR}"
     colour = colour_chains(chain, look_spans(edit, tl), "[vlk]")
@@ -595,10 +601,21 @@ def _picture(job, edit, tl, info, index, hold, missing, warnings, video="[vc]") 
             skipped.add(i)
             continue
         suffix = path.suffix.lower()
+        skip = 0.0
         if suffix in IMAGES:
             inputs += ["-loop", "1", "-framerate", str(FPS)]
         elif suffix in LOOPED:
             inputs += ["-stream_loop", "-1"]
+        else:  # видео: с `from` клипа, но не дальше, чем позволяет его длина
+            try:
+                length = probe(path).duration
+            except MediaError:
+                length = 0.0
+            skip = max(0.0, min(float(ins.get("from") or 0.0), length - seconds))
+            if skip > 0:
+                inputs += ["-ss", f"{skip:.6f}"]
+            if ins.get("audio"):
+                beds.append((first / FPS, str(path), skip, seconds))
         inputs += ["-t", f"{seconds:.6f}", "-i", str(path)]
         # HDR (HLG/PQ с телефона) — в SDR так же, как исходник в normalize; остальное — из своей матрицы в BT.709
         color = HDR_TO_SDR if hdr else f"{TO_709},format=yuv420p"
@@ -607,11 +624,24 @@ def _picture(job, edit, tl, info, index, hold, missing, warnings, video="[vc]") 
             f"[{index}:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},fps={FPS},"
             f"{color},setpts=PTS-STARTPTS+{first}[fs{i}]"
         )
+        index += 1
+        if ins.get("layout") == "pip":  # лицо окошком поверх клипа: тот же кадр говорящего, кусок вокруг лица
+            x, y, w, h = face_box(edit.get("face") or {}, W, H)
+            inputs += ["-loop", "1", "-i", str(pip_mask(job.path("work/broll-mask.png")))]
+            chains.append(f"{current}split=2[vb{i}][vs{i}]")
+            chains.append(f"[vs{i}]trim=start_frame={first}:end_frame={after},crop={w}:{h}:{x}:{y},"
+                          f"scale={PIP['w']}:{PIP['h']},format=yuva420p[vp{i}]")
+            chains.append(f"[{index}:v]format=gray[vm{i}]")
+            chains.append(f"[vp{i}][vm{i}]alphamerge[va{i}]")
+            chains.append(f"[fs{i}][va{i}]overlay={PIP['x']}:{PIP['y']}:shortest=1[fp{i}]")
+            current, clip = f"[vb{i}]", f"[fp{i}]"
+            index += 1
+        else:
+            clip = f"[fs{i}]"
         # границы окна — посередине между кадрами: кадр first виден, кадр after — уже нет, без ошибок округления
         a, b = (first - 0.5) / FPS, (after - 0.5) / FPS
-        chains.append(f"{current}[fs{i}]overlay=0:0:enable='gte(t,{a:.6f})*lt(t,{b:.6f})'[vf{i}]")
+        chains.append(f"{current}{clip}overlay=0:0:enable='gte(t,{a:.6f})*lt(t,{b:.6f})'[vf{i}]")
         current = f"[vf{i}]"
-        index += 1
 
     effects = transitions.picture_chains(cuts, current, "[vt]", (W, H), FPS)  # после перебивок: стык виден и на них
     if effects:
@@ -621,7 +651,7 @@ def _picture(job, edit, tl, info, index, hold, missing, warnings, video="[vc]") 
         chains.append(f"{current}tpad=stop_mode=clone:stop_duration={hold:.6f}[vh]")
     else:
         chains.append(f"{current}null[vh]")
-    return chains, inputs, skipped
+    return chains, inputs, skipped, beds
 
 
 def _card_seconds(edit: dict) -> float:

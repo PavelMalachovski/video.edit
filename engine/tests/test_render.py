@@ -910,3 +910,67 @@ def test_text_and_inserts_edited_in_the_editor_reach_the_video(tmp_path, sources
     for words in (subtitled(events_after), srt_after):
         assert "телефоне." in words and not {"телефне.", "эээ"} & words, "опечатка исправлена, «эээ» в субтитрах нет"
     assert job.read("edit.json") == session, "edit.json сессии не меняется"
+
+
+# ---------- перебивки: с места в клипе, окошко лица, звук клипа тихим фоном ----------
+
+
+def b_roll_clip(path, *, tone: bool = False):
+    """Клип перебивки 640×360: 2 с красный, потом 4 с зелёный; `tone` — со звуком 1000 Гц."""
+    audio = ["-f", "lavfi", "-i", "sine=f=1000:r=48000:d=6", "-c:a", "aac"] if tone else []
+    ffmpeg("-f", "lavfi", "-i", "color=c=red:s=640x360:r=30:d=2", "-f", "lavfi", "-i", "color=c=lime:s=640x360:r=30:d=4",
+           *audio[:4], "-filter_complex", "[0:v][1:v]concat=n=2:v=1[v]", "-map", "[v]",
+           *(["-map", "2:a", *audio[4:], "-shortest"] if tone else []), "-c:v", "libx264", "-pix_fmt", "yuv420p", path)
+    return path
+
+
+def test_b_roll_starts_from_its_place_in_the_clip(tmp_path, sources):
+    job = make_job(tmp_path, sources["short"], keep=[[0.0, 6.0]])
+    b_roll_clip(job.path("in/uploads/upload-b1.mp4"))
+    edit = job.read("edit.json")
+    edit["inserts"] = [{"kind": "fullscreen", "src": "in/uploads/upload-b1.mp4", "t0": 1.0, "t1": 3.0, "from": 2.5, "sfx": None}]
+    job.write("edit.json", edit)
+    render(job, job.path("out"), preset="ultrafast")
+    final = job.path("out") / "final.mp4"
+    assert close(frame(final, 1.5)[300, 540], (0, 255, 0), tol=40), "с 2,5 с клипа — зелёная часть, а не красное начало"
+
+
+def test_b_roll_pip_keeps_the_face_in_a_rounded_corner_window(tmp_path, sources, render_shot):
+    from vm.broll import PIP
+
+    job = make_job(tmp_path, sources["short"], keep=[[0.0, 6.0]])
+    b_roll_clip(job.path("in/uploads/upload-b1.mp4"))
+    edit = job.read("edit.json")
+    edit["inserts"] = [{"kind": "fullscreen", "src": "in/uploads/upload-b1.mp4", "t0": 1.0, "t1": 4.0, "from": 2.0, "layout": "pip", "sfx": None}]
+    job.write("edit.json", edit)
+    render(job, job.path("out"), preset="ultrafast")
+    final = job.path("out") / "final.mp4"
+    render_shot("b-roll-pip", final)
+    shot = frame(final, 2.5)
+    lime = (0, 255, 0)
+    assert close(shot[1200, 540], lime, tol=40), "клип — на весь кадр"
+    inside = shot[PIP["y"] + PIP["h"] // 2, PIP["x"] + PIP["w"] // 2]
+    assert not close(inside, lime, tol=60), f"в окошке — кадр говорящего, а не клип: {inside}"
+    assert close(shot[PIP["y"] + 2, PIP["x"] + 2], lime, tol=60), "скруглённый угол окошка — прозрачный"
+    assert close(frame(final, 5.0)[1200, 540], lime, tol=60) is False, "после окна — снова говорящий"
+
+
+def test_b_roll_sound_plays_quietly_only_in_its_window(tmp_path, sources):
+    job = make_job(tmp_path, sources["short"], keep=[[0.0, 6.0]])
+    b_roll_clip(job.path("in/uploads/upload-b1.mp4"), tone=True)
+    edit = job.read("edit.json")
+    edit["inserts"] = [{"kind": "fullscreen", "src": "in/uploads/upload-b1.mp4", "t0": 2.0, "t1": 4.0, "audio": True, "sfx": None}]
+    job.write("edit.json", edit)
+    render(job, job.path("out"), preset="ultrafast")
+    raw = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(job.path("out") / "final.mp4"),
+                          "-ac", "1", "-ar", "48000", "-f", "f32le", "-"], check=True, capture_output=True).stdout
+    audio = np.frombuffer(raw, np.float32)
+
+    def tone(a, b):  # доля 1000 Гц в спектре куска
+        x = audio[int(a * 48000):int(b * 48000)]
+        spectrum = np.abs(np.fft.rfft(x * np.hanning(len(x))))
+        freqs = np.fft.rfftfreq(len(x), 1 / 48000)
+        return spectrum[(freqs > 950) & (freqs < 1050)].max() / (spectrum.max() + 1e-12)
+
+    assert tone(2.3, 3.7) > 0.05, "в окне перебивки слышен её фон"
+    assert tone(4.5, 5.8) < 0.01, "после окна — нет"

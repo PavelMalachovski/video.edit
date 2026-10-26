@@ -1,6 +1,6 @@
 // Файлы задачи jobs/<id>/ в ветке claude/job-<id> — контракт страницы и сессии монтажа. Типы повторяют схемы движка
 // (engine/vm/schemas/*.json; тесты сверяют перечни с ними). Страница пишет job.json, answers.json, restyle.json,
-// fix.json; сессия — status.json, questions.json, styles.json, result.json; Action — out/released.json.
+// fix.json; сессия — status.json, questions.json, styles.json, result.json; страница (lib/outputs.ts) — out/released.json.
 import { isBrollFile, isUploadFile, isVoiceFile, MAX_NOTE, videoFile, type VideoClaim } from './jobs.ts';
 import type { Step } from './routine.ts';
 import type { Brand } from './brand.ts';

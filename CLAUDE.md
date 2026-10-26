@@ -21,7 +21,7 @@
 | `template/` | слой текста и вставок (HTML/JS): им рисуют и кадры финала, и превью на странице (копия в `web/public/template` при сборке) |
 | `.claude/skills/video-montage/SKILL.md` | часть 1 — правила монтажа (их меняет только Павел), часть 2 — как работает сервис |
 | `setup/` | `cloud-setup.sh` — облачное окружение; `routine-prompt.md` — промпт рутины |
-| `.github/` | Action `job-outputs`: готовые ролики из `jobs/<id>/out/` → черновик релиза `job-<id>` |
+| `.github/` | CI, CodeQL, Action `job-source` (готовый исходник задачи); `job-outputs` — запасной перенос `out/` вручную |
 | `assets/` | файлы Павла: логотипы, музыка, звуки, шрифты, вставки — только читаем |
 | `legacy/` | справочная копия прошлого скилла; в работе не используется |
 
@@ -66,6 +66,8 @@
 - Сервис (страница и сессии монтажа) не меняет правила SKILL.md и `assets/`.
 - Не выдумывать логотипы реальных компаний (вместо них — стикер с текстом); у maysoulme берём только приёмы, не файлы.
 - Ветку задачи не переписывать: страница коммитит без `force` и повторяет коммит, если сессия или Action успели раньше.
+- Доставка ролика не зависит от GitHub Actions (минуты кончаются — 26.10 ролик не дошёл): готовые файлы из `out/` в
+  черновик переносит страница (`web/lib/outputs.ts`).
 
 ## Меняются только вместе
 - Превью = финал: всё, что видно на превью, рисует `template/`.
@@ -127,6 +129,9 @@
   `placeBlock`, `blockPlace`, `LIMITS.insertBox`, `LIMITS.accentAt`, `parseTimeline` в `web/lib/edits.ts`, раздел `text`;
   рамка в зоне — `moveBox`, `resizeBox`, `moveCentre` в `web/lib/style.ts`; ручки — `web/app/handles.tsx` (и на
   «Превью»); старая задача — `abilitiesOf` (`place`).
+- Готовые файлы задачи — в черновик: `vm push --outputs` (`out/<имя>.part-aa…` по 95 МБ и `<имя>.sha256`) ↔
+  `planOutputs`, `deliverOutputs` в `web/lib/outputs.ts` (запускает `deliverLater` в опросе задачи и редактора;
+  `outputs` в `readJobFiles`) и запасной `.github/scripts/move-job-outputs.sh`; `released.json` — список ассетов черновика.
 - Картинки Павла в релизе — куски `<файл>.part-NNNNN` (даже один): `chunkName` в `web/lib/jobs.ts` и `fetch.PART` в
   `engine/vm/fetch.py` ↔ `uploadParts` в `web/lib/editordata.ts` (кадр редактора склеивает их так же).
 - Картинки слоя в редакторе: `render._resolve` (от папки задачи, потом от корня) ↔ `layerUrl` в `web/lib/editordata.ts`

@@ -454,8 +454,8 @@ def drop_parts(out: Path, name: str) -> None:
 
 def split_outputs(job: Job) -> list[Path]:
     """Файлы out/ больше 95 МБ → `<имя>.part-aa`, `-ab`, … по 95 МБ и `<имя>.sha256` (как `split -b 95M -a 2` и
-    `sha256sum`); целый файл уходит в work/out/ (в git его нет). Их склеит Action job-outputs. → новые части.
-    У каждого целого файла сначала убираются части прежней версии (иначе Action склеил бы и их); скрытые файлы —
+    `sha256sum`); целый файл уходит в work/out/ (в git его нет). Их склеит страница (web/lib/outputs.ts). → новые части.
+    У каждого целого файла сначала убираются части прежней версии (иначе страница склеила бы и их); скрытые файлы —
     временные файлы сборки, их не трогаем (и в git их нет)."""
     out = job.path("out")
     made: list[Path] = []
@@ -600,7 +600,7 @@ def _parser() -> argparse.ArgumentParser:
 
     push_ = command("push", _push, "коммит и пуш папки задачи")
     push_.add_argument("-m", "--message", required=True, help="сообщение коммита")
-    push_.add_argument("--outputs", action="store_true", help="файлы out/ больше 95 МБ — частями (их склеит Action)")
+    push_.add_argument("--outputs", action="store_true", help="файлы out/ больше 95 МБ — частями (их склеит страница)")
     return parser
 
 

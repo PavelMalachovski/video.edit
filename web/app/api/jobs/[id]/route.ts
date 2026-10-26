@@ -5,8 +5,13 @@ import { isJobId } from '@/lib/jobs.ts';
 import { canRun, loadJob, type JobData } from '@/lib/jobview.ts';
 import { deleteJob } from '@/lib/steps.ts';
 import { gh } from '@/lib/env.ts';
+import { deliverLater } from '../deliver.ts';
+
+export const maxDuration = 60; // и перенос готовых файлов после ответа (after)
 
 // Экран задачи: состояние и файлы сессии на голове ветки (страница опрашивает раз в 5–30 с; то же содержимое — 304).
+// Сессия оставила готовые файлы в out/ ветки — после ответа они переносятся в черновик (lib/outputs.ts): ролик появится
+// на следующем опросе.
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
@@ -15,6 +20,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     const loaded = await loadJob(g, id, 'all');
     if (!loaded) return NextResponse.json({ error: 'Задача не найдена' }, { status: 404 });
     const f = loaded.files;
+    deliverLater(g, id, f?.outputs);
     const data: JobData = {
       view: loaded.view,
       releaseId: loaded.release.id,

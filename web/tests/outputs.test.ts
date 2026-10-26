@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { deliverOutputs, planOutputs } from '../lib/outputs.ts';
+import { deliverOutputs, LOCK, planOutputs, releasedDownload } from '../lib/outputs.ts';
 import { getHead } from '../lib/branch.ts';
 import { readJobFiles } from '../lib/jobview.ts';
 import { withFake } from './helpers.ts';
@@ -110,4 +110,28 @@ test('the job files say when out/ has files to deliver', () => withFake(async ({
   assert.equal((await readJobFiles(gh, ID, head))?.outputs, true);
   const none = fake.commit(`claude/job-${ID}`, { [`${DIR}/out/final.mp4`]: null, [`${DIR}/out/released.json`]: '{}' });
   assert.equal((await readJobFiles(gh, ID, none))?.outputs, false);
+}));
+
+test('two deliveries at once: the second sees the lock in the draft and leaves the files to the first', () => withFake(async ({ fake, gh }) => {
+  fake.addAsset(`job-${ID}`, 'manifest.json', '{}');
+  fake.addAsset(`job-${ID}`, LOCK, ''); // первый перенос (другой экземпляр страницы) ещё идёт
+  fake.commit(`claude/job-${ID}`, { [`${DIR}/out/final.mp4`]: 'x' });
+  assert.equal(await deliverOutputs(gh, ID), false);
+  assert.equal(fake.read(`claude/job-${ID}`, `${DIR}/out/final.mp4`), 'x');
+  assert.equal(await deliverOutputs(gh, ID, { staleMs: 0 }), true, 'замок брошен (экземпляр оборвался) — перенос берёт его себе');
+  const release = (await (await fetch(`${gh.api}/repos/o/r/releases`)).json())[0];
+  assert.deepEqual(release.assets.map((a: { name: string }) => a.name).sort(), ['final.mp4', 'manifest.json'], 'замок снят и в списке его нет');
+  const released = JSON.parse(fake.read(`claude/job-${ID}`, `${DIR}/out/released.json`) ?? '{}');
+  assert.ok(!released.assets.some((a: { name: string }) => a.name === LOCK));
+}));
+
+test('released.json points at an asset that is gone: the file is found by name in the draft and released.json is repaired', () => withFake(async ({ fake, gh }) => {
+  fake.addAsset(`job-${ID}`, 'manifest.json', '{}');
+  const proxy = fake.addAsset(`job-${ID}`, 'proxy.mp4', 'видео');
+  fake.commit(`claude/job-${ID}`, { [`${DIR}/out/released.json`]: JSON.stringify({ release_id: 1, assets: [{ name: 'proxy.mp4', id: 99999, size: 10 }], at: '' }) });
+  const got = await releasedDownload(gh, ID, { release_id: 1, assets: [{ name: 'proxy.mp4', id: 99999, size: 10 }], at: '' }, 'proxy.mp4');
+  assert.ok(got && 'location' in got && got.location.endsWith(`/__blob/${proxy.id}`), JSON.stringify(got));
+  const released = JSON.parse(fake.read(`claude/job-${ID}`, `${DIR}/out/released.json`) ?? '{}');
+  assert.equal(released.assets.find((a: { name: string }) => a.name === 'proxy.mp4').id, proxy.id, 'released.json — по живому черновику');
+  assert.equal(await releasedDownload(gh, ID, released, 'final.mp4'), null, 'такого файла нет');
 }));

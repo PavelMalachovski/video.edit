@@ -5,12 +5,18 @@
 // есть), файл с тем же именем в черновике заменяется, из ветки файлы уходят, `out/released.json` — список ассетов.
 import crypto from 'node:crypto';
 import { commitFiles, getHead, listDir, readRaw, type DirEntry, type FileMap } from './branch.ts';
-import { findReleaseByTag, listAllAssets, uploadAsset, type Asset, type GH } from './github.ts';
+import { assetDownload, createAsset, deleteAsset, findReleaseByTag, GitHubError, listAllAssets, uploadAsset, type Asset, type GH } from './github.ts';
+import type { Released } from './jobfiles.ts';
 import { jobBranch, jobDir, jobTag } from './jobs.ts';
 
 const PART = /^(.+)\.part-[a-z]{2,}$/;
 const SHA = /^(.+)\.sha256$/;
 const RELEASED = 'released.json';
+/** Замок переноса в черновике: имя ассета у GitHub уникально, второй такой не создать — так два экземпляра страницы
+ *  (опрос задачи и редактора, второе устройство) не переносят одни и те же файлы разом (26.10: гонка оставила в
+ *  released.json ассет, который другой перенос уже заменил, — плеер редактора не грузил прокси). */
+export const LOCK = 'delivering.lock';
+const STALE_MS = 3 * 60_000; // замок старше — его экземпляр оборвался (у функции 60 с)
 
 /** Один файл черновика: имя, из каких файлов out/ он склеивается (по порядку), его размер и файл с суммой. */
 export type Output = { name: string; parts: string[]; size: number; sha256: string | null };
@@ -45,7 +51,31 @@ const TYPES: Record<string, string> = {
 };
 const typeOf = (name: string): string => TYPES[/\.([a-z0-9]+)$/.exec(name)?.[1] ?? ''] ?? 'application/octet-stream';
 /** Ассет догружен до конца (оборванная загрузка остаётся в состоянии starter — её как будто нет). */
-const whole = (a: Asset): boolean => a.state === undefined || a.state === 'uploaded';
+const whole = (a: Asset): boolean => (a.state === undefined || a.state === 'uploaded') && a.name !== LOCK;
+
+/** released.json по живому списку черновика. */
+async function releasedOf(gh: GH, releaseId: number): Promise<Released> {
+  const assets = (await listAllAssets(gh, releaseId)).filter(whole);
+  return { release_id: releaseId, assets: assets.map((a) => ({ name: a.name, id: a.id, size: a.size })), at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z') };
+}
+const releasedText = (r: Released): string => `${JSON.stringify(r, null, 1)}\n`;
+
+/** Взять замок переноса; занят (и не брошен) — false. */
+async function lock(gh: GH, releaseId: number, staleMs: number): Promise<boolean> {
+  const held = (await listAllAssets(gh, releaseId)).find((a) => a.name === LOCK);
+  if (held) {
+    const age = held.created_at ? Date.now() - Date.parse(held.created_at) : null;
+    if (age === null ? staleMs > 0 : age <= staleMs) return false;
+    await deleteAsset(gh, held.id);
+  }
+  try {
+    await createAsset(gh, releaseId, LOCK, new Uint8Array(0));
+    return true;
+  } catch (e) {
+    if (e instanceof GitHubError && e.status === 422) return false; // другой экземпляр успел первым
+    throw e;
+  }
+}
 const BUDGET_MS = 30_000; // новый файл начинаем, только пока прошло меньше: у функции 60 с, перенос файла — до ~20 с
 
 /**
@@ -57,7 +87,7 @@ const BUDGET_MS = 30_000; // новый файл начинаем, только 
  * хоть один файл — true. Черновика нет (задачу удаляют) — ничего. Сумма не сошлась — этот файл остаётся в ветке, остальные
  * переносятся, потом — ошибка.
  */
-export async function deliverOutputs(gh: GH, id: string, opts: { budgetMs?: number } = {}): Promise<boolean> {
+export async function deliverOutputs(gh: GH, id: string, opts: { budgetMs?: number; staleMs?: number } = {}): Promise<boolean> {
   const started = Date.now();
   const branch = jobBranch(id);
   const out = `${jobDir(id)}/out`;
@@ -69,10 +99,23 @@ export async function deliverOutputs(gh: GH, id: string, opts: { budgetMs?: numb
   if (!outputs.length) return false;
   const release = await findReleaseByTag(gh, jobTag(id));
   if (!release) return false;
+  if (!(await lock(gh, release.id, opts.staleMs ?? STALE_MS))) return false; // переносит другой экземпляр
+  try {
+    return await deliverLocked(gh, id, release.id, head, outputs, sha, started, opts.budgetMs ?? BUDGET_MS);
+  } finally {
+    const held = (await listAllAssets(gh, release.id)).find((a) => a.name === LOCK);
+    if (held) await deleteAsset(gh, held.id);
+  }
+}
+
+async function deliverLocked(gh: GH, id: string, releaseId: number, head: string, outputs: Output[], sha: Map<string, string>, started: number,
+  budgetMs: number): Promise<boolean> {
+  const branch = jobBranch(id);
+  const out = `${jobDir(id)}/out`;
   let moved = false;
   const broken: string[] = [];
   for (const [k, o] of outputs.entries()) {
-    if (k > 0 && Date.now() - started > (opts.budgetMs ?? BUDGET_MS)) break;
+    if (k > 0 && Date.now() - started > budgetMs) break;
     const chunks = await Promise.all(o.parts.map((p) => bytesOf(gh, head, `${out}/${p}`)));
     const data = new Uint8Array(o.size);
     let at = 0;
@@ -88,13 +131,12 @@ export async function deliverOutputs(gh: GH, id: string, opts: { budgetMs?: numb
         continue;
       }
     }
-    await uploadAsset(gh, release.id, o.name, data, typeOf(o.name)); // тот же файл в черновике — заменяется
+    await uploadAsset(gh, releaseId, o.name, data, typeOf(o.name)); // тот же файл в черновике — заменяется
     const files = [...o.parts, ...(o.sha256 ? [o.sha256] : [])];
     await commitFiles(gh, branch, async (now): Promise<FileMap> => {
-      const assets = (await listAllAssets(gh, release.id)).filter(whole);
-      const released = { release_id: release.id, assets: assets.map((a) => ({ name: a.name, id: a.id, size: a.size })),
-        at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z') };
-      const map: FileMap = { [`${out}/${RELEASED}`]: `${JSON.stringify(released, null, 1)}\n` };
+      const released = await releasedOf(gh, releaseId);
+      const assets = released.assets;
+      const map: FileMap = { [`${out}/${RELEASED}`]: releasedText(released) };
       const there = new Map(((await listDir(gh, now, out)) ?? []).map((e) => [e.name, e.sha]));
       const same = files.every((f) => there.get(f) === sha.get(f)); // сессия не перезалила ни одной части
       const delivered = assets.some((a) => a.name === o.name && a.size === o.size);
@@ -105,4 +147,29 @@ export async function deliverOutputs(gh: GH, id: string, opts: { budgetMs?: numb
   }
   if (broken.length) throw new Error(broken.join('; '));
   return moved;
+}
+
+/**
+ * Скачать файл задачи `name` по released.json: 302-ссылка или ответ (как assetDownload); в released.json его нет — null.
+ * Ассета с этим id в черновике уже нет (его заменил другой перенос или Action) — файл берётся по имени из живого списка
+ * черновика, а released.json в ветке переписывается по нему: плеер и «Скачать» не ломаются от устаревшего списка.
+ */
+export async function releasedDownload(gh: GH, id: string, released: Released | null, name: string): Promise<{ location: string } | { response: Response } | null> {
+  const listed = released?.assets.find((a) => a.name === name);
+  if (!listed) return null;
+  try {
+    return await assetDownload(gh, listed.id);
+  } catch (e) {
+    if (!(e instanceof GitHubError && e.status === 404)) throw e;
+  }
+  const release = await findReleaseByTag(gh, jobTag(id));
+  if (!release) return null;
+  const fresh = await releasedOf(gh, release.id);
+  const live = fresh.assets.find((a) => a.name === name);
+  try { // починить список в ветке; не вышло — не страшно, следующий запрос найдёт файл так же
+    await commitFiles(gh, jobBranch(id), { [`${jobDir(id)}/out/${RELEASED}`]: releasedText(fresh) }, `outputs(${id}): released.json — по черновику`);
+  } catch (e) {
+    console.error(`released.json ${id}:`, e);
+  }
+  return live ? assetDownload(gh, live.id) : null;
 }

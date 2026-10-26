@@ -1,6 +1,7 @@
 // Минимальный клиент GitHub REST для черновиков релизов (токен — только на сервере).
 export type GH = { token: string; repo: string; fetch?: typeof fetch; api?: string; uploads?: string };
-export type Asset = { id: number; name: string; size: number; state?: string }; // state: uploaded, или starter — загрузка оборвалась
+// state: uploaded, или starter — загрузка оборвалась; created_at — когда загружен (замок переноса — lib/outputs.ts)
+export type Asset = { id: number; name: string; size: number; state?: string; created_at?: string };
 export type Release = { id: number; tag_name: string; name: string | null; draft: boolean; created_at?: string; assets: Asset[] };
 
 export const apiBase = (gh: GH): string => gh.api ?? 'https://api.github.com';
@@ -122,11 +123,18 @@ export async function uploadAsset(gh: GH, releaseId: number, name: string, data:
   return { id: a.id, name: a.name, size: a.size };
 }
 
+/** Новый ассет; такой уже есть — GitHubError 422 (не заменяет, в отличие от uploadAsset). */
+export async function createAsset(gh: GH, releaseId: number, name: string, data: Uint8Array): Promise<Asset> {
+  const url = `${uploadsBase(gh)}/repos/${gh.repo}/releases/${releaseId}/assets?name=${encodeURIComponent(name)}`;
+  const a = ok(await call<Asset>(gh, 'POST', url, data as BodyInit, { 'Content-Type': 'application/octet-stream' }), `upload ${name}`);
+  return { id: a.id, name: a.name, size: a.size };
+}
+
 export async function listAllAssets(gh: GH, releaseId: number): Promise<Asset[]> {
   const all: Asset[] = [];
   for (let page = 1; page <= 20; page++) {
     const batch = ok(await call<Asset[]>(gh, 'GET', `${apiBase(gh)}/repos/${gh.repo}/releases/${releaseId}/assets?per_page=100&page=${page}`), 'list assets');
-    all.push(...batch.map((a) => ({ id: a.id, name: a.name, size: a.size, ...(a.state ? { state: a.state } : {}) })));
+    all.push(...batch.map((a) => ({ id: a.id, name: a.name, size: a.size, ...(a.state ? { state: a.state } : {}), ...(a.created_at ? { created_at: a.created_at } : {}) })));
     if (batch.length < 100) break;
   }
   return all;

@@ -1,76 +1,81 @@
 {
- "release_id": 424127178,
  "assets": [
   {
-   "name": "final-cover.png",
-   "id": 678024480,
-   "size": 3070494
+   "id": 677850086,
+   "name": "source.part-00000",
+   "size": 4194304
   },
   {
-   "name": "final.mp4",
-   "id": 678024290,
-   "size": 26868609
+   "id": 677850121,
+   "name": "source.part-00001",
+   "size": 4194304
   },
   {
-   "name": "final.srt",
-   "id": 678024953,
-   "size": 458
+   "id": 677850142,
+   "name": "source.part-00002",
+   "size": 4194304
   },
   {
-   "name": "manifest.json",
+   "id": 677850165,
+   "name": "source.part-00003",
+   "size": 4194304
+  },
+  {
+   "id": 677850201,
+   "name": "source.part-00004",
+   "size": 4194304
+  },
+  {
+   "id": 677850260,
+   "name": "source.part-00005",
+   "size": 4194304
+  },
+  {
+   "id": 677850280,
+   "name": "source.part-00007",
+   "size": 632832
+  },
+  {
+   "id": 677850291,
+   "name": "source.part-00006",
+   "size": 4194304
+  },
+  {
    "id": 677850358,
+   "name": "manifest.json",
    "size": 410
   },
   {
-   "name": "matte-a15f12f7fe8a.json",
+   "id": 678024290,
+   "name": "final.mp4",
+   "size": 26868609
+  },
+  {
+   "id": 678024480,
+   "name": "final-cover.png",
+   "size": 3070494
+  },
+  {
+   "id": 678024953,
+   "name": "final.srt",
+   "size": 458
+  },
+  {
    "id": 678024958,
+   "name": "matte-a15f12f7fe8a.json",
    "size": 32
   },
   {
+   "id": 678025354,
    "name": "proxy.mp4",
-   "id": 678025138,
    "size": 1925941
   },
   {
-   "name": "source.part-00000",
-   "id": 677850086,
-   "size": 4194304
-  },
-  {
-   "name": "source.part-00001",
-   "id": 677850121,
-   "size": 4194304
-  },
-  {
-   "name": "source.part-00002",
-   "id": 677850142,
-   "size": 4194304
-  },
-  {
-   "name": "source.part-00003",
-   "id": 677850165,
-   "size": 4194304
-  },
-  {
-   "name": "source.part-00004",
-   "id": 677850201,
-   "size": 4194304
-  },
-  {
-   "name": "source.part-00005",
-   "id": 677850260,
-   "size": 4194304
-  },
-  {
-   "name": "source.part-00006",
-   "id": 677850291,
-   "size": 4194304
-  },
-  {
-   "name": "source.part-00007",
-   "id": 677850280,
-   "size": 632832
+   "id": 678026254,
+   "name": "matte-a15f12f7fe8a.mkv",
+   "size": 1847025
   }
  ],
- "at": "2026-10-26T11:56:13Z"
+ "release_id": 424127178,
+ "at": "2026-10-26T11:56:43Z"
 }

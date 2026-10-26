@@ -9,6 +9,7 @@ import {
   type UploadRef,
 } from './jobfiles.ts';
 import { jobBranch, jobDir, jobTag } from './jobs.ts';
+import { planOutputs } from './outputs.ts';
 import type { Step } from './routine.ts';
 import { parseScript, type Script, type ScriptRequest } from './script.ts';
 
@@ -27,6 +28,7 @@ export type JobFiles = {
   fix: FixFile | null;
   restyle: RestyleFile | null;
   released: Released | null;
+  outputs?: boolean; // в out/ ветки лежат готовые файлы, которые ещё не в черновике (их переносит lib/outputs.ts)
 };
 
 export type Screen = 'uploading' | 'not_started' | 'working' | 'questions' | 'result' | 'script' | 'error';
@@ -105,6 +107,10 @@ async function cachedNames(gh: GH, head: string, dir: string): Promise<Set<strin
   return new Set(JSON.parse(CACHE.get(key) as string) as string[]);
 }
 
+/** Есть ли в out/ готовые файлы для черновика (по именам; что считается — planOutputs). */
+const hasOutputs = (names: Set<string>): boolean =>
+  planOutputs([...names].map((name) => ({ name, type: 'file' as const, sha: '', size: 0 }))).outputs.length > 0;
+
 function parse<T>(text: string | null): T | null {
   if (text === null) return null;
   try {
@@ -150,6 +156,7 @@ export async function readJobFiles(gh: GH, id: string, head: string, parts: 'lis
     fix: json<FixFile>('fix.json'),
     restyle: json<RestyleFile>('restyle.json'),
     released: names.has('out') ? parse<Released>(await cachedText(gh, head, `${dir}/out/released.json`)) : null,
+    outputs: parts === 'all' && names.has('out') ? hasOutputs((await cachedNames(gh, head, `${dir}/out`)) ?? new Set()) : false,
   };
 }
 

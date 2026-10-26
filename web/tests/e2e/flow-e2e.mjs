@@ -931,12 +931,15 @@ const segments = [
     await page.getByText('Предыдущая версия').waitFor({ timeout: 7000 });
     check(await page.getByText('Что я сделал').count() === 0, 'пока в релизе только final.mp4, это ещё не «Готово»');
 
-    await asset('final-v2.mp4', crypto.randomBytes(40 * 1024));
-    await session(ctx, { 'status.json': { state: 'rendered', phase: 'Загружаю', message: 'Правка 2 собрана', at: iso() },
-      'out/released.json': await released(['final.mp4', 'final.srt', 'final-v2.mp4']) });
-    await page.getByText('Что я сделал').waitFor({ timeout: 7000 });
+    // ролик правки сессия оставляет в ветке (out/), в черновик его переносит сама страница — без Action (26.10)
+    const v2 = crypto.randomBytes(40 * 1024);
+    await session(ctx, { 'status.json': { state: 'rendered', phase: 'Загружаю', message: 'Правка 2 собрана', at: iso() }, 'out/final-v2.mp4': v2 });
+    await page.getByText('Что я сделал').waitFor({ timeout: 20_000 });
     const src = await page.locator('video').getAttribute('src');
     check(/name=final-v2\.mp4$/.test(src ?? ''), `видео второй версии: ${src}`);
+    check((await branchFile(ctx, 'out/final-v2.mp4')) === null, 'ролик правки убран из ветки');
+    const gotV2 = await page.request.get(`${APP}/api/jobs/${ctx.jobId}/download?name=final-v2.mp4`, { maxRedirects: 0 });
+    check(Buffer.from(await (await fetch(gotV2.headers().location)).arrayBuffer()).equals(v2), 'перенесённый ролик правки — байт в байт');
     check(await page.getByText('логотип левее').count() > 0, 'прошлая правка не показана');
 
     // правка не получилась — вернуть готовый ролик и попросить иначе

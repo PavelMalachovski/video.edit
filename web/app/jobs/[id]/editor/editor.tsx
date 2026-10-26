@@ -101,7 +101,7 @@ export default function Editor({ id }: { id: string }) {
     saveLang(storage(), l);
   };
 
-  // данные: сразу и снова, пока черновика или прокси ещё нет (сессия пишет, Action переносит прокси в релиз) или Claude монтирует
+  // данные: сразу и снова, пока черновика или прокси ещё нет (сессия пишет, страница переносит прокси в релиз) или Claude монтирует
   const last = useRef<{ etag: string; data: EditorData } | null>(null); // то же содержимое — 304 без тела (трафик Vercel)
   const load = useCallback(async (): Promise<EditorData | null> => {
     try {

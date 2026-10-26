@@ -1,13 +1,11 @@
 # Готовые файлы задачи (ролик, субтитры) сессия Claude пушит в ветку claude/job-<id>,
-# в папку jobs/<id>/out/. Этот workflow переносит их в черновик релиза job-<id>
-# (у облачной сессии нет прав на релизы), убирает из ветки и пишет released.json.
-# Файлы больше 95 МБ приходят частями <имя>.part-aa, .part-ab… (лимит GitHub на файл
-# в git — 100 МБ) и склеиваются здесь. Подробности: docs/spikes/2026-10-results.md.
+# в папку jobs/<id>/out/. Переносит их в черновик релиза job-<id> сама страница (web/lib/outputs.ts), когда её
+# открыли: Action стоил минут, а кончились минуты — ролик не доходил (26.10). Этот workflow — запасной, вручную на ветке
+# задачи (Run workflow → ветка claude/job-<id>): то же самое — склеить части <имя>.part-aa…, перенести, убрать из ветки,
+# записать released.json. Подробности: docs/spikes/2026-10-results.md.
 name: job-outputs
 on:
-  push:
-    branches: ['claude/job-*']
-    paths: ['jobs/*/out/**']
+  workflow_dispatch:
 permissions:
   contents: write
 concurrency:

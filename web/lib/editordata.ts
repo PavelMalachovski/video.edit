@@ -126,7 +126,8 @@ export type EditorData = {
   head: string | null;
   draft: Draft | null;
   media: EditorMedia | null;
-  proxyUrl: string | null; // прокси уже в релизе (Action перенёс)
+  proxyUrl: string | null; // прокси уже в релизе (перенесён из ветки)
+  outputs: boolean; // в out/ ветки ждут переноса готовые файлы (прокси, ролик): их переносит сервер (lib/outputs.ts)
   filmUrl: string | null;
   styles: Styles | null;
   answers: AnswersFile | null;
@@ -225,6 +226,7 @@ export async function loadEditor(gh: GH, id: string): Promise<EditorData | null>
     head,
     draft: parseDraft(json(edit)),
     media,
+    outputs: f?.outputs ?? false,
     proxyUrl: media?.proxy && mediaAsset(f, 'proxy.mp4') ? `/api/jobs/${id}/media?name=proxy.mp4` : null,
     filmUrl: media && head ? `/api/jobs/${id}/file?path=${encodeURIComponent(media.film.file)}&v=${head}` : null,
     styles: f?.styles ?? null,

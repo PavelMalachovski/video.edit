@@ -1,9 +1,7 @@
 {
-  "state": "queued",
-  "phase": "Запускаю сессию",
-  "message": "Claude смонтирует ролик по ответам",
-  "at": "2026-10-26T11:13:52.040Z",
-  "needs": null,
-  "progress": null,
-  "error": null
+  "state": "error",
+  "phase": "Ошибка",
+  "message": "Ролик смонтирован (лежит в ветке задачи, out/final.mp4), но GitHub Actions не запускается — похоже, кончились минуты Actions или лимит расходов. Пополни лимит в настройках GitHub (Billing) и нажми «Повторить» — ролик загрузится без нового монтажа.",
+  "at": "2026-10-26T11:15:51Z",
+  "error": "job-outputs (и job-source) падают за 2-3 с без логов на всех задачах с 10:56 UTC: runner не стартует — вероятно, исчерпаны минуты Actions/spending limit; run 40311475069"
 }

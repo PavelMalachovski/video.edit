@@ -1,5 +1,5 @@
 {
-  "speed": 1.1,
+  "speed": 1.2,
   "keep": [
     [
       0.26,
@@ -181,15 +181,18 @@
     "x": 0.46,
     "y": 0.47
   },
-  "music": null,
+  "music": {
+    "file": "assets/music/did-i-drive-you-away.m4a",
+    "gainDb": -14
+  },
   "hold": 0.0,
   "transitions": [],
   "style": {
-    "font": "forum",
+    "font": "montserrat",
     "hand": "caveat",
     "colors": {
-      "text": "#FFFFFF",
-      "accent": "#EDE4C1",
+      "text": "#FFF1C2",
+      "accent": "#FFD23F",
       "bar": "#EDE4C1",
       "plate": "#111111",
       "outline": "#000000"
@@ -198,16 +201,32 @@
       "mode": "soft",
       "words": 3,
       "size": 64,
-      "y": 1440
+      "y": 1560
     },
     "hook": {
       "mode": "accent",
       "size": 108,
-      "y": 420
+      "y": 280
     },
     "bar": {
       "pos": "bottom",
       "height": 6
     }
-  }
+  },
+  "dim": 0.3,
+  "cover": {
+    "t": 4.4,
+    "text": "как стать успешным на самом деле"
+  },
+  "teaser": null,
+  "end": {
+    "seconds": 2,
+    "lines": [
+      "Подпишись — дальше больше 👇"
+    ],
+    "handle": null,
+    "logo": null,
+    "sfx": null
+  },
+  "ab": null
 }

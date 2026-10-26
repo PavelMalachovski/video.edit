@@ -1,0 +1,17 @@
+{
+  "id": "261023-111742-yb6m",
+  "name": "IMG_8843.MP4",
+  "size": 694171915,
+  "type": "video/mp4",
+  "duration": 221.216667,
+  "createdAt": "2026-10-26T10:40:14.097Z",
+  "brief": "",
+  "uploads": [],
+  "runs": [
+    {
+      "step": "analyze",
+      "attempt": 1,
+      "at": "2026-10-26T10:40:14.219Z"
+    }
+  ]
+}

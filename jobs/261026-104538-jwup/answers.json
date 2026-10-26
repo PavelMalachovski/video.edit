@@ -1,0 +1,31 @@
+{
+  "answers": {
+    "cut": "all",
+    "hook": "h1",
+    "music": "did-i-drive-you-away.m4a",
+    "bw": [
+      "bw-1"
+    ],
+    "dim": "30",
+    "end": "e1"
+  },
+  "style": {
+    "variant": "A",
+    "font": "montserrat",
+    "hand": "caveat",
+    "colors": {
+      "text": "#FFF1C2",
+      "accent": "#FFD23F",
+      "bar": "#EDE4C1"
+    },
+    "subY": 1560,
+    "hookY": 280
+  },
+  "speed": 1.2,
+  "cover": {
+    "frame": 1,
+    "text": "как стать успешным на самом деле"
+  },
+  "uploads": {},
+  "brief": ""
+}

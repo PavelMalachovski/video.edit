@@ -1,0 +1,56 @@
+{
+ "release_id": 424127178,
+ "assets": [
+  {
+   "name": "final.mp4",
+   "id": 678024290,
+   "size": 26868609
+  },
+  {
+   "name": "manifest.json",
+   "id": 677850358,
+   "size": 410
+  },
+  {
+   "name": "source.part-00000",
+   "id": 677850086,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00001",
+   "id": 677850121,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00002",
+   "id": 677850142,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00003",
+   "id": 677850165,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00004",
+   "id": 677850201,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00005",
+   "id": 677850260,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00006",
+   "id": 677850291,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00007",
+   "id": 677850280,
+   "size": 632832
+  }
+ ],
+ "at": "2026-10-26T11:55:53Z"
+}

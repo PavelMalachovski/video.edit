@@ -1,0 +1,17 @@
+{
+  "id": "261026-104538-jwup",
+  "name": "1000053846.mp4",
+  "size": 29992960,
+  "type": "video/mp4",
+  "duration": 11.933367,
+  "createdAt": "2026-10-26T10:46:00.375Z",
+  "brief": "",
+  "uploads": [],
+  "runs": [
+    {
+      "step": "analyze",
+      "attempt": 1,
+      "at": "2026-10-26T10:46:00.512Z"
+    }
+  ]
+}

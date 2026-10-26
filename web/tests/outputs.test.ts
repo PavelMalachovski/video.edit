@@ -52,15 +52,56 @@ test('the page moves the finished video from the job branch into its draft relea
   assert.equal(files?.outputs, false);
 }));
 
-test('a part that does not match its sha256 is not delivered and stays in the branch', () => withFake(async ({ fake, gh }) => {
+test('a part that does not match its sha256 is not delivered and stays in the branch; the rest is delivered', () => withFake(async ({ fake, gh }) => {
   fake.addAsset(`job-${ID}`, 'manifest.json', '{}');
   fake.commit(`claude/job-${ID}`, {
     [`${DIR}/out/final.mp4.part-aa`]: 'abc', [`${DIR}/out/final.mp4.part-ab`]: 'def', [`${DIR}/out/final.mp4.sha256`]: `${'0'.repeat(64)}  final.mp4\n`,
+    [`${DIR}/out/final.srt`]: 'субтитры',
   });
   await assert.rejects(deliverOutputs(gh, ID), /sha256/);
   assert.equal(fake.read(`claude/job-${ID}`, `${DIR}/out/final.mp4.part-aa`), 'abc');
+  assert.equal(fake.read(`claude/job-${ID}`, `${DIR}/out/final.srt`), null, 'субтитры перенесены');
   const release = (await (await fetch(`${gh.api}/repos/o/r/releases`)).json())[0];
-  assert.deepEqual(release.assets.map((a: { name: string }) => a.name), ['manifest.json'], 'битый ролик в черновик не попал');
+  assert.deepEqual(release.assets.map((a: { name: string }) => a.name).sort(), ['final.srt', 'manifest.json'], 'битый ролик в черновик не попал');
+}));
+
+test('the main video goes first; what does not fit the time is left for the next poll', () => withFake(async ({ fake, gh }) => {
+  fake.addAsset(`job-${ID}`, 'manifest.json', '{}');
+  fake.commit(`claude/job-${ID}`, { [`${DIR}/out/final-ad.mp4`]: 'ad', [`${DIR}/out/final.mp4`]: 'main', [`${DIR}/out/final-b.mp4`]: 'b' });
+  assert.equal(await deliverOutputs(gh, ID, { budgetMs: 0 }), true);
+  assert.equal(fake.read(`claude/job-${ID}`, `${DIR}/out/final.mp4`), null, 'основной ролик — первым');
+  assert.equal(fake.read(`claude/job-${ID}`, `${DIR}/out/final-ad.mp4`), 'ad', 'остальное — в следующий раз');
+  const released = JSON.parse(fake.read(`claude/job-${ID}`, `${DIR}/out/released.json`) ?? '{}');
+  assert.ok(released.assets.some((a: { name: string }) => a.name === 'final.mp4'));
+  assert.equal(await deliverOutputs(gh, ID), true);
+  assert.equal(fake.read(`claude/job-${ID}`, `${DIR}/out/final-ad.mp4`), null);
+}));
+
+test('a file the session pushes again while it is delivered stays in the branch and goes next time; same size, new content replaces', () => withFake(async ({ fake, gh }) => {
+  fake.addAsset(`job-${ID}`, 'manifest.json', '{}');
+  fake.addAsset(`job-${ID}`, 'final.srt', 'старые'); // прошлый рендер: тот же размер в байтах
+  fake.commit(`claude/job-${ID}`, { [`${DIR}/out/final.srt`]: 'первые' });
+  let once = true;
+  fake.onBeforePatch = () => {
+    if (!once) return;
+    once = false;
+    fake.commit(`claude/job-${ID}`, { [`${DIR}/out/final.srt`]: 'вторые' }); // сессия перезалила, пока страница переносила
+  };
+  await deliverOutputs(gh, ID);
+  fake.onBeforePatch = null;
+  assert.equal(fake.read(`claude/job-${ID}`, `${DIR}/out/final.srt`), 'вторые', 'новую версию не убрали из ветки');
+  await deliverOutputs(gh, ID);
+  assert.equal(fake.read(`claude/job-${ID}`, `${DIR}/out/final.srt`), null);
+  const released = JSON.parse(fake.read(`claude/job-${ID}`, `${DIR}/out/released.json`) ?? '{}');
+  const srt = released.assets.find((a: { name: string }) => a.name === 'final.srt');
+  const got = await fetch(`${gh.api}/repos/o/r/releases/assets/${srt.id}`, { headers: { Accept: 'application/octet-stream' } });
+  assert.equal(await got.text(), 'вторые', 'в черновике — последняя версия, хоть размер и тот же');
+}));
+
+test('no draft release — nothing is delivered (the job was deleted)', () => withFake(async ({ fake, gh }) => {
+  fake.commit(`claude/job-${ID}`, { [`${DIR}/out/final.mp4`]: 'x' });
+  assert.equal(await deliverOutputs(gh, ID), false);
+  assert.deepEqual(await (await fetch(`${gh.api}/repos/o/r/releases`)).json(), [], 'черновик не создан заново');
 }));
 
 test('the job files say when out/ has files to deliver', () => withFake(async ({ fake, gh }) => {

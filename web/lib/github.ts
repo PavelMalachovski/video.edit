@@ -1,6 +1,6 @@
 // Минимальный клиент GitHub REST для черновиков релизов (токен — только на сервере).
 export type GH = { token: string; repo: string; fetch?: typeof fetch; api?: string; uploads?: string };
-export type Asset = { id: number; name: string; size: number };
+export type Asset = { id: number; name: string; size: number; state?: string }; // state: uploaded, или starter — загрузка оборвалась
 export type Release = { id: number; tag_name: string; name: string | null; draft: boolean; created_at?: string; assets: Asset[] };
 
 export const apiBase = (gh: GH): string => gh.api ?? 'https://api.github.com';
@@ -126,7 +126,7 @@ export async function listAllAssets(gh: GH, releaseId: number): Promise<Asset[]>
   const all: Asset[] = [];
   for (let page = 1; page <= 20; page++) {
     const batch = ok(await call<Asset[]>(gh, 'GET', `${apiBase(gh)}/repos/${gh.repo}/releases/${releaseId}/assets?per_page=100&page=${page}`), 'list assets');
-    all.push(...batch.map((a) => ({ id: a.id, name: a.name, size: a.size })));
+    all.push(...batch.map((a) => ({ id: a.id, name: a.name, size: a.size, ...(a.state ? { state: a.state } : {}) })));
     if (batch.length < 100) break;
   }
   return all;

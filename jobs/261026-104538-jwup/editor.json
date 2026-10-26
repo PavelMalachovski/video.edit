@@ -1,0 +1,27 @@
+{
+  "duration": 11.947,
+  "proxy": {
+    "file": "out/proxy.mp4",
+    "width": 540,
+    "height": 960,
+    "key": 0.5
+  },
+  "film": {
+    "file": "film.jpg",
+    "step": 0.5,
+    "w": 54,
+    "h": 96,
+    "n": 24
+  },
+  "peaks": {
+    "perS": 50,
+    "data": "AAAAAAEDBQUKCQkGBwgKCAgICAwLERoVCxILD0NESDkjGJGvtpewxcCwiGB7gWxCPDAaEjQUFyhkYmR1jF8rJxQhFsLIvlYyKA4ibaliQiYvKBNPbRqWhks0J0F/dmdeYltOXFFZbYeRg3GDiq2iUjEoIR8OFElDNycZFBATI5PMrZZ+TkFZXTohFxtKZoSMfHB+XUMnGBodEA0QDRAQDg4KCg4NHxiGoqeacEw+IxYPEAsVGoSIh4qSfG5lRi0bEA0OEBAIDQoOCQ0KCAsOY6F7jnFOZoqVlFYjKA0ZGCcgHT93cnJbKxEbEhwRCRgJCw4MCwsICggICgkJCggJCwkUDhENDgsMDg0SEBMQExISFhkPFQ8LEQ8LDBQRDw8onZybtLvh5Mt8QFtGPzP+2bZQSyMaEQ0fLxUWDg4iGdn0u8Z7RCMbGBQTFyNK/++Of3ZbXjEtYqiyn3EuLg8PFBYMGR4hH2GPnqFeMhYRFRwXEhMNCw4MDgoJCw4NCRILEAwNDhNql5N8n5t8QSxNTCYj3ubQnLutrLOeZToYDTMcXW3I4NmJfnut1MyJl5SwzcageUt5k4V4RC8XFh8hJSIPf5GUmZx0WikcExIREAwRDgwOEBUQDw0SFRMODQsMCQoMDRYbEs7+/9CRgU0nGhoXHYf//8n1+tyzh1zf///Tw62oh2aNmH1ualRIKRsWFB8iJBsTHGiAdlNAJSISGhkTExMZFhIUFxISEA4REw4LEw0MDQoTFA4SDA4OEhAPDQwOEg8ODgkAAAAAAAAAAAAAAAAAAA=="
+  },
+  "videos": [
+    {
+      "name": "1000053846.mp4",
+      "t0": 0.0,
+      "t1": 11.947
+    }
+  ]
+}

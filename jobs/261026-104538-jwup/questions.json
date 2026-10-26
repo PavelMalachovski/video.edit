@@ -1,0 +1,14 @@
+{"questions": [
+ {"id": "cut", "type": "choice", "title": "Резать паузы?", "body": "Плотно — вырезаю паузу 1,1 с в середине и тишину по краям, будет ~0:10; мягко — почти так же, ~0:10; только края — ~0:11.",
+  "options": [{"id": "all", "label": "Плотно, как в эталоне"}, {"id": "soft", "label": "Мягче: короткие паузы остаются"}, {"id": "edges", "label": "Только края"}], "default": "all"},
+ {"id": "hook", "type": "choice", "title": "Хук — текст на первые 2–3 секунды",
+  "options": [{"id": "h1", "label": "как стать успешным на самом деле"}, {"id": "h2", "label": "весь секрет успеха в двух словах"}, {"id": "h3", "label": "успех проще чем кажется"}, {"id": "own", "label": "Свой текст"}, {"id": "none", "label": "Без хука"}], "default": "h1"},
+ {"id": "music", "type": "choice", "title": "Музыка под голос?", "body": "Трек будет тихим фоном и приглушится под речью.",
+  "options": [{"id": "none", "label": "Без музыки"}, {"id": "mysterious-and-sad.m4a", "label": "Mysterious and Sad"}, {"id": "sleepwalker-slowed.m4a", "label": "Sleepwalker (slowed)"}, {"id": "did-i-drive-you-away.m4a", "label": "Did I Drive You Away"}, {"id": "diedlonely-in-the-bleak.m4a", "label": "diedlonely — In the Bleak"}, {"id": "etern-brodyaga.mp3", "label": "Etern — Бродяга"}, {"id": "atlxs-passo.mp3", "label": "ATLXS — Passo"}, {"id": "sayfalse-esse.mp3", "label": "SayFalse — Esse"}, {"id": "banana-cake.m4a", "label": "Banana Cake"}, {"id": "playboi-carti-made-it.m4a", "label": "Playboi Carti — Made It"}, {"id": "tory-lanez-broke.m4a", "label": "Tory Lanez — Broke"}], "default": "none"},
+ {"id": "bw", "type": "multi", "title": "Ч/б-кусок", "body": "Финальная фраза без цвета — как вторая камера, ставит точку.",
+  "options": [{"id": "bw-1", "label": "0:07 — „ничего не придумывайте, просто делайте“"}], "default": ["bw-1"]},
+ {"id": "dim", "type": "choice", "title": "Затемнить фон?", "layout": "frames",
+  "options": [{"id": "none", "label": "Как есть", "image": "q-dim-none.jpg"}, {"id": "30", "label": "Темнее на 30 %", "image": "q-dim-30.jpg"}, {"id": "50", "label": "Темнее на 50 %", "image": "q-dim-50.jpg"}], "default": "30"},
+ {"id": "end", "type": "choice", "title": "Финальная карточка — призыв в конце",
+  "options": [{"id": "e1", "label": "Подпишись — дальше больше 👇"}, {"id": "e2", "label": "Сохрани, чтобы не забыть"}, {"id": "e3", "label": "Напиши в комментариях, что тебе мешает"}, {"id": "own", "label": "Свой текст"}, {"id": "none", "label": "Без карточки"}], "default": "e1"}
+]}

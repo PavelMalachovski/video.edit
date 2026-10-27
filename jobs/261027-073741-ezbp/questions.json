@@ -1,0 +1,213 @@
+{
+ "questions": [
+  {
+   "id": "cut",
+   "type": "choice",
+   "title": "Резать паузы и оговорки?",
+   "body": "Плотно — 34 паузы, «и…» на 0:10, оговорка «смиряться собственным какой» на 0:42 и первый дубль «как раз-таки та мысль, которая…» (2:24–2:45, оставил второй, полный), будет ~2:47 (+4 с тизера); мягко — ~2:53; только края — ~3:29.",
+   "options": [
+    {
+     "id": "all",
+     "label": "Плотно, как в эталоне"
+    },
+    {
+     "id": "soft",
+     "label": "Мягче: короткие паузы остаются"
+    },
+    {
+     "id": "edges",
+     "label": "Только тишина в начале и в конце"
+    }
+   ],
+   "default": "all"
+  },
+  {
+   "id": "hook",
+   "type": "choice",
+   "title": "Хук — текст на первых секундах",
+   "options": [
+    {
+     "id": "h1",
+     "label": "у кого я никогда не учусь"
+    },
+    {
+     "id": "h2",
+     "label": "учитель без провалов не учитель"
+    },
+    {
+     "id": "h3",
+     "label": "учись у тех кто падал"
+    },
+    {
+     "id": "own",
+     "label": "Свой текст"
+    },
+    {
+     "id": "none",
+     "label": "Без хука"
+    }
+   ],
+   "default": "h1"
+  },
+  {
+   "id": "teaser",
+   "type": "choice",
+   "title": "Начать с самой сильной фразы?",
+   "body": "Главная мысль звучит на 0:26 — «я никогда не пойду обучаться к человеку, который не проходил провалы» (≈4 с). Ролик начнётся с неё, потом пойдёт с начала.",
+   "options": [
+    {
+     "id": "yes",
+     "label": "Да: «я никогда не пойду обучаться к человеку, который не проходил провалы»"
+    },
+    {
+     "id": "no",
+     "label": "Нет, с начала"
+    }
+   ],
+   "default": "yes"
+  },
+  {
+   "id": "bw",
+   "type": "multi",
+   "title": "Ч/б-куски",
+   "options": [
+    {
+     "id": "bw-1",
+     "label": "0:45 — „и смиряться с собственной ничтожностью“"
+    },
+    {
+     "id": "bw-2",
+     "label": "2:48 — „в какую-то пучину страданий“"
+    },
+    {
+     "id": "bw-3",
+     "label": "3:26 — „но я тем самым становлюсь искренним, честным человеком“"
+    }
+   ],
+   "default": [
+    "bw-1",
+    "bw-2",
+    "bw-3"
+   ]
+  },
+  {
+   "id": "dim",
+   "type": "choice",
+   "layout": "frames",
+   "title": "Затемнить фон?",
+   "options": [
+    {
+     "id": "none",
+     "label": "Как есть",
+     "image": "q-dim-none.jpg"
+    },
+    {
+     "id": "30",
+     "label": "Темнее на 30 %",
+     "image": "q-dim-30.jpg"
+    },
+    {
+     "id": "50",
+     "label": "Темнее на 50 %",
+     "image": "q-dim-50.jpg"
+    }
+   ],
+   "default": "30"
+  },
+  {
+   "id": "music",
+   "type": "choice",
+   "title": "Музыка",
+   "options": [
+    {
+     "id": "atlxs-passo.mp3",
+     "label": "Atlxs — Passo"
+    },
+    {
+     "id": "banana-cake.m4a",
+     "label": "Banana Cake"
+    },
+    {
+     "id": "did-i-drive-you-away.m4a",
+     "label": "Did I Drive You Away"
+    },
+    {
+     "id": "diedlonely-in-the-bleak.m4a",
+     "label": "diedlonely — In the Bleak"
+    },
+    {
+     "id": "etern-brodyaga.mp3",
+     "label": "Etern — Бродяга"
+    },
+    {
+     "id": "mysterious-and-sad.m4a",
+     "label": "Mysterious and Sad"
+    },
+    {
+     "id": "playboi-carti-made-it.m4a",
+     "label": "Playboi Carti — Made It"
+    },
+    {
+     "id": "sayfalse-esse.mp3",
+     "label": "sayfalse — Esse"
+    },
+    {
+     "id": "sleepwalker-slowed.m4a",
+     "label": "Sleepwalker (slowed)"
+    },
+    {
+     "id": "tory-lanez-broke.m4a",
+     "label": "Tory Lanez — Broke"
+    },
+    {
+     "id": "none",
+     "label": "Без музыки"
+    }
+   ],
+   "default": "none"
+  },
+  {
+   "id": "stars",
+   "type": "multi",
+   "title": "Звёздочки в «денежных» словах",
+   "body": "Чтобы алгоритм не резал охват: слово на 1:24 «вложил много денег».",
+   "options": [
+    {
+     "id": "денег",
+     "label": "д*нег"
+    }
+   ],
+   "default": [
+    "денег"
+   ]
+  },
+  {
+   "id": "end",
+   "type": "choice",
+   "title": "Финальная карточка с призывом",
+   "options": [
+    {
+     "id": "e1",
+     "label": "Сохрани, чтобы не забыть 👇"
+    },
+    {
+     "id": "e2",
+     "label": "А ты у кого учишься? Пиши в комментариях 👇"
+    },
+    {
+     "id": "e3",
+     "label": "Подпишись, если откликается"
+    },
+    {
+     "id": "own",
+     "label": "Свой текст"
+    },
+    {
+     "id": "none",
+     "label": "Без карточки"
+    }
+   ],
+   "default": "e1"
+  }
+ ]
+}

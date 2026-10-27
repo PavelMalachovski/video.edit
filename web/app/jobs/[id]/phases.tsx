@@ -108,9 +108,10 @@ export default function Phases({ view, repo, onAction }: { view: JobView; repo: 
   if (view.stuck === 'delivery') {
     return (
       <div className="card alert">
-        <b>Ролик собран, но не перенесён в релиз — посмотрите Actions</b>
-        <a href={`https://github.com/${repo}/actions`} target="_blank" rel="noreferrer">GitHub Actions</a>
-        <ActionButton label="Повторить" action="retry" onAction={onAction} />
+        <b>Ролик собран, но в черновик пока не перенёсся</b>
+        <div className="muted">Страница переносит его сама, пока открыта, — подождите пару минут. «Смонтировать заново» запустит
+          монтаж ещё раз — нужно, только если ролик так и не появится.</div>
+        <ActionButton label="Смонтировать заново" action="retry" onAction={onAction} />
         {previous}
       </div>
     );

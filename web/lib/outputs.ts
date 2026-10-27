@@ -69,7 +69,8 @@ async function lock(gh: GH, releaseId: number, staleMs: number): Promise<boolean
     await deleteAsset(gh, held.id);
   }
   try {
-    await createAsset(gh, releaseId, LOCK, new Uint8Array(0));
+    // не пустой: пустой файл GitHub в релиз не примет (27.10 из-за этого не переносился ни один ролик)
+    await createAsset(gh, releaseId, LOCK, new TextEncoder().encode(`${new Date().toISOString()}\n`));
     return true;
   } catch (e) {
     if (e instanceof GitHubError && e.status === 422) return false; // другой экземпляр успел первым

@@ -1,5 +1,5 @@
 {
-  "speed": 1.1,
+  "speed": 1.3,
   "keep": [
     [
       16.18,
@@ -800,7 +800,7 @@
     {
       "t0": 92.199,
       "t1": 92.599,
-      "text": "деньги"
+      "text": "д*ньги"
     },
     {
       "t0": 92.639,
@@ -809,8 +809,8 @@
     }
   ],
   "hook": {
-    "text": "мой мужчина исполнил детскую мечту",
-    "until": 19.16
+    "text": "Есть то, что ценнее",
+    "until": 19.64
   },
   "cta": null,
   "inserts": [],
@@ -1081,20 +1081,19 @@
     "x": 0.49,
     "y": 0.43
   },
-  "music": null,
+  "music": {
+    "file": "assets/music/diedlonely-in-the-bleak.m4a",
+    "gainDb": -14
+  },
   "hold": 0.0,
   "transitions": [],
-  "teaser": {
-    "t0": 85.78,
-    "t1": 88.84,
-    "sfx": null
-  },
+  "teaser": null,
   "style": {
     "font": "forum",
     "hand": "caveat",
     "colors": {
       "text": "#FFFFFF",
-      "accent": "#EDE4C1",
+      "accent": "#FECB3E",
       "bar": "#EDE4C1",
       "plate": "#111111",
       "outline": "#000000"
@@ -1114,5 +1113,12 @@
       "pos": "bottom",
       "height": 6
     }
-  }
+  },
+  "dim": 0.4,
+  "end": null,
+  "cover": {
+    "t": 17.3,
+    "text": "Есть то, что ценнее"
+  },
+  "ab": null
 }

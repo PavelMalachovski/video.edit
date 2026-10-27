@@ -1,0 +1,204 @@
+{
+  "questions": [
+    {
+      "id": "cut",
+      "type": "choice",
+      "title": "Резать паузы и оговорки?",
+      "body": "Плотно — паузы, повтор «готова готова», недосказанная фраза «и мысль, которую я хочу вам донести… заключается» (0:30) и повтор «получилось что» (0:41): будет ~0:54. Мягко — ~0:57. Только края — ~1:08.",
+      "options": [
+        {
+          "id": "all",
+          "label": "Плотно, как в эталоне"
+        },
+        {
+          "id": "soft",
+          "label": "Мягче: короткие паузы остаются"
+        },
+        {
+          "id": "edges",
+          "label": "Только края"
+        }
+      ],
+      "default": "all"
+    },
+    {
+      "id": "hook",
+      "type": "choice",
+      "title": "Хук на первые 2,5 секунды",
+      "options": [
+        {
+          "id": "h1",
+          "label": "как я перестала страдать"
+        },
+        {
+          "id": "h2",
+          "label": "перестань себя заставлять"
+        },
+        {
+          "id": "h3",
+          "label": "медаль за самые большие страдания"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без хука"
+        }
+      ],
+      "default": "h1"
+    },
+    {
+      "id": "music",
+      "type": "choice",
+      "title": "Музыка под голос",
+      "body": "Тихо под речью, на 14 дБ тише голоса. Ролик спокойный, исповедальный — подойдёт что-то негромкое.",
+      "options": [
+        {
+          "id": "atlxs-passo",
+          "label": "Atlxs — Passo"
+        },
+        {
+          "id": "banana-cake",
+          "label": "Banana Cake"
+        },
+        {
+          "id": "did-i-drive-you-away",
+          "label": "Did I Drive You Away"
+        },
+        {
+          "id": "diedlonely-in-the-bleak",
+          "label": "Diedlonely — In the Bleak"
+        },
+        {
+          "id": "etern-brodyaga",
+          "label": "Etern — Бродяга"
+        },
+        {
+          "id": "mysterious-and-sad",
+          "label": "Mysterious and Sad (спокойная, грустная)"
+        },
+        {
+          "id": "playboi-carti-made-it",
+          "label": "Playboi Carti — Made It"
+        },
+        {
+          "id": "sayfalse-esse",
+          "label": "Sayfalse — Esse"
+        },
+        {
+          "id": "sleepwalker-slowed",
+          "label": "Sleepwalker (slowed)"
+        },
+        {
+          "id": "tory-lanez-broke",
+          "label": "Tory Lanez — Broke"
+        },
+        {
+          "id": "none",
+          "label": "Без музыки"
+        }
+      ],
+      "default": "mysterious-and-sad"
+    },
+    {
+      "id": "stars",
+      "type": "multi",
+      "title": "Звёздочки в рискованных словах",
+      "body": "В субтитрах: «деньги» (0:09) и мат «отъебаться» (0:43) — со звёздочкой алгоритмы реже режут охват. Звук не меняется.",
+      "options": [
+        {
+          "id": "dengi",
+          "label": "д*ньги"
+        },
+        {
+          "id": "otebatsya",
+          "label": "отъ*баться"
+        }
+      ],
+      "default": [
+        "dengi",
+        "otebatsya"
+      ]
+    },
+    {
+      "id": "bw",
+      "type": "multi",
+      "title": "Ч/б-куски",
+      "body": "Эмоциональные фразы — без цвета и темнее, как вторая камера.",
+      "options": [
+        {
+          "id": "bw-1",
+          "label": "0:19 — «и всё это приносило мне страдания»"
+        },
+        {
+          "id": "bw-2",
+          "label": "0:43 — «а отъебаться наконец-то от себя»"
+        },
+        {
+          "id": "bw-3",
+          "label": "0:51 — «не заставляя себя вообще ничего»"
+        }
+      ],
+      "default": [
+        "bw-1",
+        "bw-2",
+        "bw-3"
+      ]
+    },
+    {
+      "id": "dim",
+      "type": "choice",
+      "title": "Затемнить фон?",
+      "layout": "frames",
+      "body": "Светлая стена за спиной станет темнее, лицо и текст — как были.",
+      "options": [
+        {
+          "id": "none",
+          "label": "Как есть",
+          "image": "q-dim-none.jpg"
+        },
+        {
+          "id": "30",
+          "label": "Темнее на 30 %",
+          "image": "q-dim-30.jpg"
+        },
+        {
+          "id": "50",
+          "label": "Темнее на 50 %",
+          "image": "q-dim-50.jpg"
+        }
+      ],
+      "default": "30"
+    },
+    {
+      "id": "end",
+      "type": "choice",
+      "title": "Финальная карточка",
+      "options": [
+        {
+          "id": "e1",
+          "label": "Сохрани, чтобы не забыть 👇"
+        },
+        {
+          "id": "e2",
+          "label": "Подпишись, если узнала себя"
+        },
+        {
+          "id": "e3",
+          "label": "А ты из-за чего страдаешь? Пиши 👇"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без карточки"
+        }
+      ],
+      "default": "e1"
+    }
+  ]
+}

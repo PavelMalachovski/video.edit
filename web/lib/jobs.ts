@@ -138,7 +138,7 @@ export const MAX_UPLOAD_PARTS = 900 - MAX_BROLL;
 export const MAX_ANSWER_IMAGE_BYTES = 20 * 1024 ** 2;
 export const MAX_BRIEF = 4000;
 export const MAX_NOTE = 2000;
-export const LONG_VIDEO_SEC = 300;
+export const LONG_VIDEO_SEC = 360; // длиннее — предупреждение под видео (загрузку не останавливает)
 export const INSERT_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'video/mp4', 'video/quicktime'] as const;
 
 export const partsOf = (size: number): number => Math.max(1, Math.ceil(size / CHUNK_SIZE));

@@ -1,5 +1,5 @@
 {
-  "speed": 1.1,
+  "speed": 1.3,
   "keep": [
     [
       0.78,
@@ -108,7 +108,7 @@
     {
       "t0": 0.88,
       "t1": 1.64,
-      "text": "Отъебитесь"
+      "text": "Отъ*битесь"
     },
     {
       "t0": 1.64,
@@ -838,7 +838,7 @@
     {
       "t0": 66.765,
       "t1": 67.285,
-      "text": "стоит"
+      "text": "ст*ит"
     },
     {
       "t0": 67.285,
@@ -1383,7 +1383,7 @@
   ],
   "hook": {
     "text": "отстаньте уже от родителей",
-    "until": 3.3
+    "until": 4.32
   },
   "cta": null,
   "inserts": [],
@@ -1694,7 +1694,10 @@
     "x": 0.45,
     "y": 0.4
   },
-  "music": null,
+  "music": {
+    "file": "assets/music/diedlonely-in-the-bleak.m4a",
+    "gainDb": -14
+  },
   "hold": 0.0,
   "transitions": [],
   "style": {
@@ -1702,7 +1705,7 @@
     "hand": "caveat",
     "colors": {
       "text": "#FFFFFF",
-      "accent": "#EDE4C1",
+      "accent": "#FEE4A8",
       "bar": "#EDE4C1",
       "plate": "#111111",
       "outline": "#000000"
@@ -1711,7 +1714,8 @@
       "mode": "soft",
       "words": 3,
       "size": 64,
-      "y": 1440
+      "y": 1440,
+      "shade": 0.1
     },
     "hook": {
       "mode": "accent",
@@ -1722,5 +1726,13 @@
       "pos": "bottom",
       "height": 6
     }
-  }
+  },
+  "dim": 0.3,
+  "cover": {
+    "t": 4.8,
+    "text": "отстаньте уже от родителей"
+  },
+  "teaser": null,
+  "end": null,
+  "ab": null
 }

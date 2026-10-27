@@ -1,0 +1,326 @@
+{
+ "release_id": 425164863,
+ "assets": [
+  {
+   "name": "final.mp4",
+   "id": 681569744,
+   "size": 77951339
+  },
+  {
+   "name": "manifest.json",
+   "id": 680876588,
+   "size": 856
+  },
+  {
+   "name": "source-2.part-00000",
+   "id": 680875905,
+   "size": 4194304
+  },
+  {
+   "name": "source-2.part-00001",
+   "id": 680875922,
+   "size": 4194304
+  },
+  {
+   "name": "source-2.part-00002",
+   "id": 680875936,
+   "size": 4194304
+  },
+  {
+   "name": "source-2.part-00003",
+   "id": 680875955,
+   "size": 4194304
+  },
+  {
+   "name": "source-2.part-00004",
+   "id": 680875974,
+   "size": 4194304
+  },
+  {
+   "name": "source-2.part-00005",
+   "id": 680875990,
+   "size": 4194304
+  },
+  {
+   "name": "source-2.part-00006",
+   "id": 680876013,
+   "size": 4194304
+  },
+  {
+   "name": "source-2.part-00007",
+   "id": 680876036,
+   "size": 4194304
+  },
+  {
+   "name": "source-2.part-00008",
+   "id": 680876081,
+   "size": 4194304
+  },
+  {
+   "name": "source-2.part-00009",
+   "id": 680876116,
+   "size": 4194304
+  },
+  {
+   "name": "source-2.part-00010",
+   "id": 680876143,
+   "size": 4194304
+  },
+  {
+   "name": "source-2.part-00011",
+   "id": 680876171,
+   "size": 4194304
+  },
+  {
+   "name": "source-2.part-00012",
+   "id": 680876202,
+   "size": 4194304
+  },
+  {
+   "name": "source-2.part-00013",
+   "id": 680876222,
+   "size": 4194304
+  },
+  {
+   "name": "source-2.part-00014",
+   "id": 680876254,
+   "size": 4194304
+  },
+  {
+   "name": "source-2.part-00015",
+   "id": 680876270,
+   "size": 4194304
+  },
+  {
+   "name": "source-2.part-00016",
+   "id": 680876304,
+   "size": 4194304
+  },
+  {
+   "name": "source-2.part-00017",
+   "id": 680876333,
+   "size": 4194304
+  },
+  {
+   "name": "source-2.part-00018",
+   "id": 680876362,
+   "size": 4194304
+  },
+  {
+   "name": "source-2.part-00019",
+   "id": 680876397,
+   "size": 4194304
+  },
+  {
+   "name": "source-2.part-00020",
+   "id": 680876425,
+   "size": 4194304
+  },
+  {
+   "name": "source-2.part-00021",
+   "id": 680876447,
+   "size": 4194304
+  },
+  {
+   "name": "source-2.part-00022",
+   "id": 680876464,
+   "size": 4194304
+  },
+  {
+   "name": "source-2.part-00023",
+   "id": 680876484,
+   "size": 4194304
+  },
+  {
+   "name": "source-2.part-00024",
+   "id": 680876506,
+   "size": 4194304
+  },
+  {
+   "name": "source-2.part-00025",
+   "id": 680876540,
+   "size": 4194304
+  },
+  {
+   "name": "source-2.part-00026",
+   "id": 680876542,
+   "size": 290398
+  },
+  {
+   "name": "source-fca2070c1276.json",
+   "id": 680881821,
+   "size": 126
+  },
+  {
+   "name": "source-fca2070c1276.mp4.part-00000",
+   "id": 680881301,
+   "size": 268435456
+  },
+  {
+   "name": "source-fca2070c1276.mp4.part-00001",
+   "id": 680881685,
+   "size": 47348775
+  },
+  {
+   "name": "source.part-00000",
+   "id": 680875167,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00001",
+   "id": 680875181,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00002",
+   "id": 680875228,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00003",
+   "id": 680875248,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00004",
+   "id": 680875291,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00005",
+   "id": 680875307,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00006",
+   "id": 680875331,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00007",
+   "id": 680875344,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00008",
+   "id": 680875384,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00009",
+   "id": 680875397,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00010",
+   "id": 680875425,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00011",
+   "id": 680875441,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00012",
+   "id": 680875456,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00013",
+   "id": 680875472,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00014",
+   "id": 680875497,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00015",
+   "id": 680875521,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00016",
+   "id": 680875544,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00017",
+   "id": 680875552,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00018",
+   "id": 680875585,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00019",
+   "id": 680875617,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00020",
+   "id": 680875649,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00021",
+   "id": 680875661,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00022",
+   "id": 680875697,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00023",
+   "id": 680875726,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00024",
+   "id": 680875763,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00025",
+   "id": 680875777,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00026",
+   "id": 680875798,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00027",
+   "id": 680875812,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00028",
+   "id": 680875833,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00029",
+   "id": 680875842,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00030",
+   "id": 680875862,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00031",
+   "id": 680875876,
+   "size": 2671328
+  }
+ ],
+ "at": "2026-10-27T12:42:11Z"
+}

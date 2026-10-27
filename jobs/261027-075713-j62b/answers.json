@@ -1,0 +1,36 @@
+{
+  "answers": {
+    "cut": "all",
+    "hook": "h3",
+    "music": "diedlonely-in-the-bleak",
+    "stars": [
+      "dengi",
+      "otebatsya"
+    ],
+    "bw": [
+      "bw-1",
+      "bw-2",
+      "bw-3"
+    ],
+    "dim": "30",
+    "end": "none"
+  },
+  "style": {
+    "variant": "A",
+    "font": "forum",
+    "hand": "caveat",
+    "colors": {
+      "text": "#FFFFFF",
+      "accent": "#FEE4A8",
+      "bar": "#EDE4C1"
+    },
+    "subShade": 0.15
+  },
+  "speed": 1.3,
+  "cover": {
+    "frame": 0,
+    "text": "медаль за самые большие страдания"
+  },
+  "uploads": {},
+  "brief": ""
+}

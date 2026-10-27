@@ -438,7 +438,7 @@ export default function Uploader() {
             })}
             {sources.length > 1 && typeof duration === 'number' ? <div className="muted small mono">Вместе {mmss(duration)}</div> : null}
             {measuring ? <div className="muted small">Смотрю видео…</div> : null}
-            {long ? <div className="warn small">Ролик длиннее 5 минут — монтаж может не уложиться.</div> : null}
+            {long ? <div className="warn small">Ролик длиннее {LONG_VIDEO_SEC / 60} минут — монтаж может не уложиться.</div> : null}
             {sourceError ? <div className="err small">{sourceError}</div> : null}
             {totalError ? <div className="err small">{totalError}</div> : null}
             {!match?.ok ? (

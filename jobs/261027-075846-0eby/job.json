@@ -1,0 +1,17 @@
+{
+  "id": "261027-075846-0eby",
+  "name": "IMG_8935.mov",
+  "size": 454383262,
+  "type": "video/quicktime",
+  "duration": 144.2,
+  "createdAt": "2026-10-27T08:00:55.351Z",
+  "brief": "",
+  "uploads": [],
+  "runs": [
+    {
+      "step": "analyze",
+      "attempt": 1,
+      "at": "2026-10-27T08:00:55.470Z"
+    }
+  ]
+}

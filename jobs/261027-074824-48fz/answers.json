@@ -1,0 +1,36 @@
+{
+  "answers": {
+    "cut": "all",
+    "hook": "h1",
+    "teaser": "no",
+    "word": "own",
+    "word.own": "VECHNOST",
+    "bw": [
+      "bw-1",
+      "bw-2",
+      "bw-3"
+    ],
+    "dim": "40",
+    "music": "diedlonely-in-the-bleak.m4a",
+    "hold": "0",
+    "end": "none"
+  },
+  "style": {
+    "variant": "A",
+    "font": "forum",
+    "hand": "caveat",
+    "colors": {
+      "text": "#FFFFFF",
+      "accent": "#FEE4A8",
+      "bar": "#EDE4C1"
+    },
+    "subShade": 0.15
+  },
+  "speed": 1.3,
+  "cover": {
+    "frame": 0,
+    "text": "мечта сбылась а дальше кризис"
+  },
+  "uploads": {},
+  "brief": ""
+}

@@ -1,0 +1,202 @@
+{
+  "questions": [
+    {
+      "id": "cut",
+      "type": "choice",
+      "title": "Резать паузы и оговорки?",
+      "body": "Плотно — 14 пауз и одна оговорка («которые» перед «о которых»), будет ~1:03; мягко — ~1:06; только края — ~1:13.",
+      "options": [
+        {
+          "id": "all",
+          "label": "Плотно, как в эталоне"
+        },
+        {
+          "id": "soft",
+          "label": "Мягче: короткие паузы остаются"
+        },
+        {
+          "id": "edges",
+          "label": "Только тишина в начале и в конце"
+        }
+      ],
+      "default": "all"
+    },
+    {
+      "id": "hook",
+      "type": "choice",
+      "title": "Хук — текст на первые 2,5 секунды",
+      "options": [
+        {
+          "id": "h1",
+          "label": "как найти внутри себя покой"
+        },
+        {
+          "id": "h2",
+          "label": "стань себе другом"
+        },
+        {
+          "id": "h3",
+          "label": "почему важно подружиться с собой"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без хука"
+        }
+      ],
+      "default": "h1"
+    },
+    {
+      "id": "teaser",
+      "type": "choice",
+      "title": "Начать с самой сильной фразы?",
+      "body": "«Не бойтесь быть себе другом» звучит на 1:09 исходника — ролик начнётся с неё (~2,5 с), потом пойдёт с начала.",
+      "options": [
+        {
+          "id": "yes",
+          "label": "Да: «не бойтесь быть себе другом»"
+        },
+        {
+          "id": "no",
+          "label": "Нет, с начала"
+        }
+      ],
+      "default": "yes"
+    },
+    {
+      "id": "bw",
+      "type": "multi",
+      "title": "Ч/б-куски",
+      "body": "Эмоциональные фразы — без цвета и темнее, как вторая камера.",
+      "options": [
+        {
+          "id": "bw-1",
+          "label": "0:07 — «можно найти внутри себя чувство покоя и безопасности»"
+        },
+        {
+          "id": "bw-2",
+          "label": "0:39 — «и не бойтесь, что это вас может уничтожить»"
+        },
+        {
+          "id": "bw-3",
+          "label": "0:53 — «так что не бойтесь отпускать себя»"
+        }
+      ],
+      "default": [
+        "bw-1",
+        "bw-2",
+        "bw-3"
+      ]
+    },
+    {
+      "id": "dim",
+      "type": "choice",
+      "title": "Затемнить фон?",
+      "layout": "frames",
+      "body": "Фон за тобой станет темнее, лицо и текст — как были.",
+      "options": [
+        {
+          "id": "none",
+          "label": "Как есть",
+          "image": "q-dim-none.jpg"
+        },
+        {
+          "id": "30",
+          "label": "Темнее на 30 %",
+          "image": "q-dim-30.jpg"
+        },
+        {
+          "id": "50",
+          "label": "Темнее на 50 %",
+          "image": "q-dim-50.jpg"
+        }
+      ],
+      "default": "30"
+    },
+    {
+      "id": "music",
+      "type": "choice",
+      "title": "Музыка",
+      "body": "Тихо под голосом, с первого кадра до последнего.",
+      "options": [
+        {
+          "id": "atlxs-passo",
+          "label": "ATLXS — Passo"
+        },
+        {
+          "id": "banana-cake",
+          "label": "Banana Cake"
+        },
+        {
+          "id": "did-i-drive-you-away",
+          "label": "Did I Drive You Away"
+        },
+        {
+          "id": "diedlonely-in-the-bleak",
+          "label": "diedlonely — In the Bleak"
+        },
+        {
+          "id": "etern-brodyaga",
+          "label": "Etern — Бродяга"
+        },
+        {
+          "id": "mysterious-and-sad",
+          "label": "Mysterious and Sad"
+        },
+        {
+          "id": "playboi-carti-made-it",
+          "label": "Playboi Carti — Made It"
+        },
+        {
+          "id": "sayfalse-esse",
+          "label": "SAYFALSE — Esse"
+        },
+        {
+          "id": "sleepwalker-slowed",
+          "label": "Sleepwalker (slowed)"
+        },
+        {
+          "id": "tory-lanez-broke",
+          "label": "Tory Lanez — Broke"
+        },
+        {
+          "id": "none",
+          "label": "Без музыки"
+        }
+      ],
+      "default": "none"
+    },
+    {
+      "id": "end",
+      "type": "choice",
+      "title": "Финальная карточка с призывом",
+      "body": "2 секунды в конце: затемнённый последний кадр и призыв.",
+      "options": [
+        {
+          "id": "e1",
+          "label": "Подпишись, чтобы подружиться с собой 🤍"
+        },
+        {
+          "id": "e2",
+          "label": "Сохрани, чтобы не забыть 👇"
+        },
+        {
+          "id": "e3",
+          "label": "Напиши в комментариях, с какой частью себя дружишь"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без карточки"
+        }
+      ],
+      "default": "e1"
+    }
+  ]
+}

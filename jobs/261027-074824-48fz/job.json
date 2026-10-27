@@ -1,0 +1,17 @@
+{
+  "id": "261027-074824-48fz",
+  "name": "IMG_8923.mov",
+  "size": 646521399,
+  "type": "video/quicktime",
+  "duration": 204.96666666666667,
+  "createdAt": "2026-10-27T07:51:18.930Z",
+  "brief": "",
+  "uploads": [],
+  "runs": [
+    {
+      "step": "analyze",
+      "attempt": 1,
+      "at": "2026-10-27T07:51:19.046Z"
+    }
+  ]
+}

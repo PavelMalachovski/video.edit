@@ -1,0 +1,34 @@
+{
+  "answers": {
+    "cut": "all",
+    "hook": "h1",
+    "teaser": "no",
+    "bw": [
+      "bw-1",
+      "bw-2",
+      "bw-3",
+      "bw-4"
+    ],
+    "dim": "30",
+    "music": "diedlonely-in-the-bleak.m4a",
+    "end": "none"
+  },
+  "style": {
+    "variant": "A",
+    "font": "forum",
+    "hand": "caveat",
+    "colors": {
+      "text": "#FFFFFF",
+      "accent": "#FEE4A8",
+      "bar": "#EDE4C1"
+    },
+    "subShade": 0.15
+  },
+  "speed": 1.3,
+  "cover": {
+    "frame": 0,
+    "text": "любите себя со всех сторон"
+  },
+  "uploads": {},
+  "brief": ""
+}

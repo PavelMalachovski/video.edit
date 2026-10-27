@@ -332,6 +332,7 @@ export async function startFake({ port = 0 } = {}) {
         failed3 = true;
         return send(res, 502, { message: 'boom' });
       }
+      if (!raw.length) return send(res, 400, { message: 'Bad Content-Length: 0' }); // как GitHub: пустой файл в релиз не загрузить
       if (r.assets.some((a) => a.name === name)) return send(res, 422, { errors: [{ code: 'already_exists' }] });
       const a = { id: nextId++, name, size: raw.length };
       r.assets.push(a);

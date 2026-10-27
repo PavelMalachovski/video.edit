@@ -1,0 +1,200 @@
+{
+  "questions": [
+    {
+      "id": "cut",
+      "type": "choice",
+      "title": "Резать паузы и оговорки?",
+      "body": "Плотно — 14 пауз и одна оговорка («которые… о которых»), будет ~1:03; мягко — ~1:06; только края — ~1:13 (с тизером — на 2 с дольше).",
+      "options": [
+        {
+          "id": "all",
+          "label": "Плотно, как в эталоне"
+        },
+        {
+          "id": "soft",
+          "label": "Мягче: короткие паузы остаются"
+        },
+        {
+          "id": "edges",
+          "label": "Только тишина в начале и в конце"
+        }
+      ],
+      "default": "all"
+    },
+    {
+      "id": "hook",
+      "type": "choice",
+      "title": "Хук в первые 2 секунды",
+      "options": [
+        {
+          "id": "h1",
+          "label": "как найти покой внутри себя"
+        },
+        {
+          "id": "h2",
+          "label": "стань себе другом"
+        },
+        {
+          "id": "h3",
+          "label": "все твои субличности важны"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без хука"
+        }
+      ],
+      "default": "h1"
+    },
+    {
+      "id": "teaser",
+      "type": "choice",
+      "title": "Начать с самой сильной фразы?",
+      "body": "«не бойтесь быть себе другом» (1:09) — ролик начнётся с неё, потом пойдёт с начала, и она прозвучит ещё раз на своём месте.",
+      "options": [
+        {
+          "id": "yes",
+          "label": "Да: «не бойтесь быть себе другом»"
+        },
+        {
+          "id": "no",
+          "label": "Нет, с начала"
+        }
+      ],
+      "default": "yes"
+    },
+    {
+      "id": "bw",
+      "type": "multi",
+      "title": "Ч/б-куски",
+      "body": "Эмоциональные фразы станут чёрно-белыми и темнее — как вторая камера.",
+      "options": [
+        {
+          "id": "bw-1",
+          "label": "0:49 — «и не бойтесь, что это вас может уничтожить»"
+        },
+        {
+          "id": "bw-2",
+          "label": "0:58 — «о которых вы раньше только мечтали»"
+        },
+        {
+          "id": "bw-3",
+          "label": "1:09 — «не бойтесь быть себе другом»"
+        }
+      ],
+      "default": [
+        "bw-1",
+        "bw-2",
+        "bw-3"
+      ]
+    },
+    {
+      "id": "dim",
+      "type": "choice",
+      "title": "Затемнить фон?",
+      "layout": "frames",
+      "options": [
+        {
+          "id": "none",
+          "label": "Как есть",
+          "image": "q-dim-none.jpg"
+        },
+        {
+          "id": "30",
+          "label": "Темнее на 30 %",
+          "image": "q-dim-30.jpg"
+        },
+        {
+          "id": "50",
+          "label": "Темнее на 50 %",
+          "image": "q-dim-50.jpg"
+        }
+      ],
+      "default": "30"
+    },
+    {
+      "id": "music",
+      "type": "choice",
+      "title": "Музыка под голос?",
+      "body": "Тихо, на 14 дБ ниже голоса, сама приглушается под речью.",
+      "options": [
+        {
+          "id": "atlxs-passo",
+          "label": "Atlxs — Passo"
+        },
+        {
+          "id": "banana-cake",
+          "label": "Banana Cake"
+        },
+        {
+          "id": "did-i-drive-you-away",
+          "label": "Did I Drive You Away"
+        },
+        {
+          "id": "diedlonely-in-the-bleak",
+          "label": "Diedlonely — In the Bleak"
+        },
+        {
+          "id": "etern-brodyaga",
+          "label": "Etern — Бродяга"
+        },
+        {
+          "id": "mysterious-and-sad",
+          "label": "Mysterious and Sad"
+        },
+        {
+          "id": "playboi-carti-made-it",
+          "label": "Playboi Carti — Made It"
+        },
+        {
+          "id": "sayfalse-esse",
+          "label": "Sayfalse — Esse"
+        },
+        {
+          "id": "sleepwalker-slowed",
+          "label": "Sleepwalker (slowed)"
+        },
+        {
+          "id": "tory-lanez-broke",
+          "label": "Tory Lanez — Broke"
+        },
+        {
+          "id": "none",
+          "label": "Без музыки"
+        }
+      ],
+      "default": "none"
+    },
+    {
+      "id": "end",
+      "type": "choice",
+      "title": "Финальная карточка с призывом",
+      "options": [
+        {
+          "id": "e1",
+          "label": "Сохрани, чтобы вернуться к этому 👇"
+        },
+        {
+          "id": "e2",
+          "label": "Подпишись — будет ещё про субличности"
+        },
+        {
+          "id": "e3",
+          "label": "Напиши, что откликнулось 👇"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без карточки"
+        }
+      ],
+      "default": "e1"
+    }
+  ]
+}

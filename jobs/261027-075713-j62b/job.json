@@ -1,0 +1,35 @@
+{
+  "id": "261027-075713-j62b",
+  "name": "IMG_8933.mov",
+  "size": 132694752,
+  "type": "video/quicktime",
+  "duration": 76.96666666666667,
+  "createdAt": "2026-10-27T07:58:11.707Z",
+  "brief": "",
+  "uploads": [],
+  "videos": [
+    {
+      "file": "in/source.mov",
+      "asset": "source",
+      "name": "IMG_8933.mov",
+      "size": 132694752,
+      "type": "video/quicktime",
+      "duration": 42.233333333333334
+    },
+    {
+      "file": "in/source-2.mov",
+      "asset": "source-2",
+      "name": "IMG_8934.mov",
+      "size": 109342302,
+      "type": "video/quicktime",
+      "duration": 34.733333333333334
+    }
+  ],
+  "runs": [
+    {
+      "step": "analyze",
+      "attempt": 1,
+      "at": "2026-10-27T07:58:11.887Z"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "id": "261028-121926-l4o0",
+  "name": "D2704EF9-6875-47D8-B47D-170BD8AF055B.mp4",
+  "size": 703196278,
+  "type": "video/mp4",
+  "duration": 224.78333333333333,
+  "createdAt": "2026-10-28T12:23:20.667Z",
+  "brief": "",
+  "uploads": [],
+  "runs": [
+    {
+      "step": "analyze",
+      "attempt": 1,
+      "at": "2026-10-28T12:23:20.805Z"
+    }
+  ]
+}

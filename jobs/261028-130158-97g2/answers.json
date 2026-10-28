@@ -1,0 +1,35 @@
+{
+  "answers": {
+    "cut": "all",
+    "hook": "own",
+    "hook.own": "Психология против эзотерики: часть 2",
+    "teaser": "no",
+    "bw": [
+      "bw-1",
+      "bw-2",
+      "bw-3"
+    ],
+    "dim": "30",
+    "music": "diedlonely-in-the-bleak.m4a",
+    "end": "none",
+    "stars": []
+  },
+  "style": {
+    "variant": "A",
+    "font": "forum",
+    "hand": "caveat",
+    "colors": {
+      "text": "#FFFFFF",
+      "accent": "#FEE4A8",
+      "bar": "#EDE4C1"
+    },
+    "subShade": 0.15
+  },
+  "speed": 1.3,
+  "cover": {
+    "frame": 0,
+    "text": "Психология против эзотерики: часть 2"
+  },
+  "uploads": {},
+  "brief": ""
+}

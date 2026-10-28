@@ -1,0 +1,17 @@
+{
+  "id": "261028-130158-97g2",
+  "name": "E746FEC0-D8A8-4BCB-9F1B-3CA421F98C2D.mp4",
+  "size": 771646374,
+  "type": "video/mp4",
+  "duration": 246.6,
+  "createdAt": "2026-10-28T13:04:39.306Z",
+  "brief": "",
+  "uploads": [],
+  "runs": [
+    {
+      "step": "analyze",
+      "attempt": 1,
+      "at": "2026-10-28T13:04:39.432Z"
+    }
+  ]
+}

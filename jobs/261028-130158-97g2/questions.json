@@ -1,0 +1,212 @@
+{
+  "questions": [
+    {
+      "id": "cut",
+      "type": "choice",
+      "title": "Резать паузы и оговорки?",
+      "body": "Плотно — 35 пауз и 8 дублей и оговорок (повторы «психологи с пеной у рта», «но правда в том, что…», «как что-то, с чем нужно…», «потому что я использую…»), будет ~2:55; мягко — ~3:03; только края — ~3:45.",
+      "options": [
+        {
+          "id": "all",
+          "label": "Плотно, как в эталоне"
+        },
+        {
+          "id": "soft",
+          "label": "Мягче: короткие паузы остаются"
+        },
+        {
+          "id": "edges",
+          "label": "Только тишина в начале и в конце"
+        }
+      ],
+      "default": "all"
+    },
+    {
+      "id": "hook",
+      "type": "choice",
+      "title": "Хук на первые секунды",
+      "options": [
+        {
+          "id": "h1",
+          "label": "кто из них прав на сто процентов"
+        },
+        {
+          "id": "h2",
+          "label": "психология или эзотерика кто прав"
+        },
+        {
+          "id": "h3",
+          "label": "тебя не нужно чинить"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без хука"
+        }
+      ],
+      "default": "h1"
+    },
+    {
+      "id": "teaser",
+      "type": "choice",
+      "title": "Начать с самой сильной фразы?",
+      "body": "Фраза «то, что мы пытаемся починить следствие, а не причину» звучит на 1:43 — ролик начнётся с неё, потом пойдёт с начала.",
+      "options": [
+        {
+          "id": "yes",
+          "label": "Да: „мы пытаемся починить следствие, а не причину“"
+        },
+        {
+          "id": "no",
+          "label": "Нет, начать как снято"
+        }
+      ],
+      "default": "yes"
+    },
+    {
+      "id": "bw",
+      "type": "multi",
+      "title": "Ч/б-куски",
+      "body": "Эмоциональные фразы — без цвета и темнее, как вторая камера.",
+      "options": [
+        {
+          "id": "bw-1",
+          "label": "1:12 — „человек — это не просто набор мыслей“"
+        },
+        {
+          "id": "bw-2",
+          "label": "1:40 — „мы упускаем что-то очень важное и главное“"
+        },
+        {
+          "id": "bw-3",
+          "label": "2:07 — „если вы тоже устали собирать себя вслепую“"
+        }
+      ],
+      "default": [
+        "bw-1",
+        "bw-2",
+        "bw-3"
+      ]
+    },
+    {
+      "id": "dim",
+      "type": "choice",
+      "title": "Затемнить фон?",
+      "layout": "frames",
+      "options": [
+        {
+          "id": "none",
+          "label": "Как есть",
+          "image": "q-dim-none.jpg"
+        },
+        {
+          "id": "30",
+          "label": "Темнее на 30 %",
+          "image": "q-dim-30.jpg"
+        },
+        {
+          "id": "50",
+          "label": "Темнее на 50 %",
+          "image": "q-dim-50.jpg"
+        }
+      ],
+      "default": "30"
+    },
+    {
+      "id": "music",
+      "type": "choice",
+      "title": "Музыка под голос",
+      "options": [
+        {
+          "id": "mysterious-and-sad.m4a",
+          "label": "Mysterious and Sad — задумчивая"
+        },
+        {
+          "id": "sleepwalker-slowed.m4a",
+          "label": "Sleepwalker (slowed) — спокойная"
+        },
+        {
+          "id": "did-i-drive-you-away.m4a",
+          "label": "Did I Drive You Away"
+        },
+        {
+          "id": "diedlonely-in-the-bleak.m4a",
+          "label": "Diedlonely — In the Bleak"
+        },
+        {
+          "id": "banana-cake.m4a",
+          "label": "Banana Cake"
+        },
+        {
+          "id": "atlxs-passo.mp3",
+          "label": "ATLXS — Passo"
+        },
+        {
+          "id": "etern-brodyaga.mp3",
+          "label": "Etern — Бродяга"
+        },
+        {
+          "id": "sayfalse-esse.mp3",
+          "label": "SayFalse — Esse"
+        },
+        {
+          "id": "playboi-carti-made-it.m4a",
+          "label": "Playboi Carti — Made It"
+        },
+        {
+          "id": "tory-lanez-broke.m4a",
+          "label": "Tory Lanez — Broke"
+        },
+        {
+          "id": "none",
+          "label": "Без музыки"
+        }
+      ],
+      "default": "none"
+    },
+    {
+      "id": "end",
+      "type": "choice",
+      "title": "Финальная карточка",
+      "options": [
+        {
+          "id": "e1",
+          "label": "Запись на консультацию — по ссылке в шапке 👇"
+        },
+        {
+          "id": "e2",
+          "label": "Подпишись, чтобы не пропустить третью часть"
+        },
+        {
+          "id": "e3",
+          "label": "Сохрани, чтобы вернуться к этому"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без карточки"
+        }
+      ],
+      "default": "e1"
+    },
+    {
+      "id": "stars",
+      "type": "multi",
+      "title": "Звёздочки в словах",
+      "body": "«Денежное» слово про услугу — алгоритмы могут занизить показы.",
+      "options": [
+        {
+          "id": "konsultaciyu",
+          "label": "конс*льтацию"
+        }
+      ],
+      "default": []
+    }
+  ]
+}

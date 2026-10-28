@@ -1,0 +1,151 @@
+{
+  "frame": "frame.png",
+  "frameTime": 120.3,
+  "sample": {
+    "hook": "кто из них прав на сто процентов",
+    "words": [
+      "система,",
+      "где",
+      "всё",
+      "взаимосвязано,",
+      "где"
+    ],
+    "spoken": 1,
+    "end": {
+      "lines": [
+        "Запись на консультацию — по ссылке в шапке 👇"
+      ]
+    }
+  },
+  "fonts": {
+    "main": [
+      "forum",
+      "montserrat",
+      "unbounded",
+      "rubik",
+      "oswald",
+      "russo-one",
+      "comfortaa",
+      "Arial Narrow",
+      "Cormorant",
+      "Gilroy",
+      "Helvetica",
+      "Neutral Face",
+      "Playfair Display"
+    ],
+    "hand": [
+      "caveat",
+      "marck-script",
+      "bad-script"
+    ]
+  },
+  "variants": [
+    {
+      "id": "A",
+      "label": "Стиль эталона",
+      "spec": {
+        "font": "forum",
+        "hand": "caveat",
+        "colors": {
+          "text": "#FFFFFF",
+          "accent": "#EDE4C1",
+          "bar": "#EDE4C1",
+          "plate": "#111111",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "soft",
+          "words": 3,
+          "size": 64,
+          "y": 1440
+        },
+        "hook": {
+          "mode": "accent",
+          "size": 108,
+          "y": 330
+        },
+        "bar": {
+          "pos": "bottom",
+          "height": 6
+        }
+      }
+    },
+    {
+      "id": "B",
+      "label": "Антиква Cormorant, пудровый акцент, субтитры на груди, шкала сверху",
+      "spec": {
+        "font": "Cormorant",
+        "hand": "caveat",
+        "colors": {
+          "text": "#FFFFFF",
+          "accent": "#F2C9C9",
+          "bar": "#F2C9C9",
+          "plate": "#111111",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "soft",
+          "words": 3,
+          "size": 64,
+          "y": 1250
+        },
+        "hook": {
+          "mode": "accent",
+          "size": 108,
+          "y": 330
+        },
+        "bar": {
+          "pos": "top",
+          "height": 6
+        }
+      }
+    },
+    {
+      "id": "C",
+      "label": "Прежний жёлтый",
+      "spec": {
+        "font": "montserrat",
+        "hand": "caveat",
+        "colors": {
+          "text": "#FFFFFF",
+          "accent": "#FFD23F",
+          "bar": "#FFD23F",
+          "plate": "#111111",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "karaoke",
+          "words": 3,
+          "size": 64,
+          "y": 1300
+        },
+        "hook": {
+          "mode": "plate",
+          "size": 72,
+          "y": 330
+        },
+        "bar": {
+          "pos": "bottom",
+          "height": 14
+        }
+      }
+    }
+  ],
+  "cover": {
+    "frames": [
+      {
+        "t": 20.6,
+        "image": "cover-1.jpg"
+      },
+      {
+        "t": 120.3,
+        "image": "cover-2.jpg"
+      },
+      {
+        "t": 160.3,
+        "image": "cover-3.jpg"
+      }
+    ],
+    "text": "кто из них прав на сто процентов"
+  }
+}

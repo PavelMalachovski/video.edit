@@ -23,6 +23,7 @@
       "accent": "#FEE4A8",
       "bar": "#EDE4C1"
     },
+    "hookSize": 120,
     "subShade": 0.1
   },
   "speed": 1.3,

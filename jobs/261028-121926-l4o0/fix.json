@@ -1,0 +1,22 @@
+{
+  "fixes": [
+    {
+      "text": "Правки в редакторе",
+      "at": "2026-10-29T11:16:44.519Z",
+      "version": 2,
+      "timeline": 22,
+      "style": true,
+      "styleFrom": {
+        "variant": "A",
+        "font": "forum",
+        "hand": "caveat",
+        "colors": {
+          "text": "#FFFFFF",
+          "accent": "#FEE4A8",
+          "bar": "#EDE4C1"
+        },
+        "subShade": 0.1
+      }
+    }
+  ]
+}

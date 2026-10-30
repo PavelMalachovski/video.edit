@@ -1,0 +1,17 @@
+{
+  "id": "261030-181845-djfd",
+  "name": "IMG_9056.mov",
+  "size": 331545737,
+  "type": "video/quicktime",
+  "duration": 105.13333333333334,
+  "createdAt": "2026-10-30T18:21:30.906Z",
+  "brief": "Вырежи паузы. Не ускоряй.",
+  "uploads": [],
+  "runs": [
+    {
+      "step": "analyze",
+      "attempt": 1,
+      "at": "2026-10-30T18:21:31.010Z"
+    }
+  ]
+}

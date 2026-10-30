@@ -1,7 +1,7 @@
 // Файлы задачи jobs/<id>/ в ветке claude/job-<id> — контракт страницы и сессии монтажа. Типы повторяют схемы движка
 // (engine/vm/schemas/*.json; тесты сверяют перечни с ними). Страница пишет job.json, answers.json, restyle.json,
 // fix.json; сессия — status.json, questions.json, styles.json, result.json; страница (lib/outputs.ts) — out/released.json.
-import { isBrollFile, isUploadFile, isVoiceFile, MAX_NOTE, videoFile, type VideoClaim } from './jobs.ts';
+import { isBrollFile, isUploadFile, isVoiceFile, MAX_NOTE, videoFile, type Character, type VideoClaim } from './jobs.ts';
 import type { Step } from './routine.ts';
 import type { Brand } from './brand.ts';
 import type { ScriptRequest } from './script.ts';
@@ -210,6 +210,7 @@ export type Manifest = {
   userAgent?: string; startedAt?: number; finishedAt?: number; retries?: number; completedAt?: string;
   brief?: string; duration?: number | null; uploads?: ManifestUpload[];
   videos?: VideoClaim[]; // несколько видео — все по порядку (первое — то же, что сверху); одно — поля нет
+  format?: 'character'; character?: Character; // разбор персонажа из фильма; обычный ролик — полей нет
 };
 /** Видео задачи в job.json: `file` — куда его кладёт `vm fetch` (от папки задачи), длительность — если браузер узнал. */
 export type VideoRef = { file: string; asset: string; name: string; size: number; type: string; duration: number | null };
@@ -224,6 +225,8 @@ export type JobFile = {
   brand?: Brand; // копия «Моего бренда» на момент старта; логотип — путь от папки задачи (in/brand/logo.png)
   kind?: 'script'; // задача-сценарий: видео нет, сессия пишет script.json (нет поля — видео)
   script?: ScriptRequest; // запрос сценария с экрана «Новый сценарий»
+  format?: 'character'; // формат «Разбор персонажа»: свои правила монтажа (SKILL.md); нет поля — обычный ролик
+  character?: Character; // его фильм, персонаж и актёр — по ним подписи и кадры
 };
 
 export function buildJobFile(m: Manifest, now: Date): JobFile {
@@ -237,6 +240,7 @@ export function buildJobFile(m: Manifest, now: Date): JobFile {
     ...(m.videos ? {
       videos: m.videos.map((v) => ({ file: videoFile(v.asset, v.name), asset: v.asset, name: v.name, size: v.size, type: v.type, duration: v.duration ?? null })),
     } : {}),
+    ...(m.format === 'character' && m.character ? { format: 'character' as const, character: { ...m.character } } : {}),
     runs: [],
   };
 }

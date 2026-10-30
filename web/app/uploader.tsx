@@ -7,9 +7,9 @@ import { useRouter } from 'next/navigation';
 import { errorText, message, post, storage } from '@/lib/client.ts';
 import { bytes, mmss } from '@/lib/format.ts';
 import {
-  checkBroll, checkInsert, checkSources, checkTotal, checkVoice, INSERT_TYPES, isBrollFile, LONG_VIDEO_SEC, MAX_BRIEF, MAX_BROLL, MAX_INSERTS,
+  checkBroll, checkCharacter, checkInsert, checkSources, checkTotal, checkVoice, INSERT_TYPES, isBrollFile, LONG_VIDEO_SEC, MAX_BRIEF, MAX_BROLL, MAX_INSERTS,
   MAX_VIDEOS, uploadAssetName, VOICE_EXT,
-  videoAsset, voiceAssetName,
+  CHARACTER_FIELD, videoAsset, voiceAssetName, type Character,
 } from '@/lib/jobs.ts';
 import {
   clearPending, loadPending, matchPending, planChunks, resumeDone, runUpload, sameSelection, savePending, sentVideos, type Pending,
@@ -27,6 +27,21 @@ type Phase = 'idle' | 'shrinking' | 'uploading' | 'completing' | 'launching' | '
 // files: ассеты видео (source, source-2…), вставок и озвучки → выбранные файлы; send — видео, уменьшенные в браузере
 // (что уходит в черновик вместо выбранного файла)
 type Active = { p: Pending; files: Map<string, File>; send: Map<string, File> };
+// формат задачи: обычный ролик или разбор персонажа из фильма (поля — как набраны; в задачу уходят без пробелов по краям)
+type Breakdown = { on: boolean; film: string; name: string; actor: string };
+const PLAIN: Breakdown = { on: false, film: '', name: '', actor: '' };
+/** Разбор для задачи; обычный ролик или нет фильма — нет. */
+function characterOf(b: Breakdown): Character | undefined {
+  if (!b.on) return undefined;
+  const c = checkCharacter({ film: b.film, name: b.name, actor: b.actor });
+  return 'character' in c && c.character ? c.character : undefined;
+}
+/** Незаконченная загрузка с этим разбором (или без него). */
+function withCharacter(p: Pending, b: Breakdown): Pending {
+  const { character: _, ...rest } = p;
+  const c = characterOf(b);
+  return c ? { ...rest, character: c } : rest;
+}
 type Video = { asset: string; file: File; expect?: number }; // expect — размер копии из незаконченной загрузки
 
 /** Длительность по метаданным `<video>`; не узнал за 5 с (или файл не читается) — null. */
@@ -91,6 +106,8 @@ export default function Uploader() {
   const [original, setOriginal] = useState(false); // галочка «загрузить оригинал»: без уменьшения в браузере
   const [shrinkNote, setShrinkNote] = useState('');
   const briefRef = useRef('');
+  const [breakdown, setBreakdown] = useState<Breakdown>(PLAIN);
+  const breakdownRef = useRef<Breakdown>(PLAIN);
   const active = useRef<Active | null>(null);
   const launched = useRef<string | null>(null);
 
@@ -99,6 +116,11 @@ export default function Uploader() {
     const next = p ? null : takeNextBrief(storage()); // ТЗ от «Снять по сценарию» — если не продолжаем загрузку
     const text = p?.brief ?? next;
     if (p) setPending(p);
+    if (p?.character) {
+      const b = { on: true, film: p.character.film, name: p.character.name ?? '', actor: p.character.actor ?? '' };
+      setBreakdown(b);
+      breakdownRef.current = b;
+    }
     if (text === null || text === undefined) return;
     setBrief(text);
     briefRef.current = text;
@@ -116,7 +138,8 @@ export default function Uploader() {
   // длина всех видео вместе; хоть одно не узнал — неизвестна
   const duration = measuring ? undefined : sources.every((f) => typeof durations.get(f) === 'number')
     ? sources.reduce((sum, f) => sum + (durations.get(f) as number), 0) : null;
-  const canStart = !!source && !sourceError && !totalError && !busy && !measuring;
+  const noFilm = breakdown.on && !characterOf(breakdown);
+  const canStart = !!source && !sourceError && !totalError && !busy && !measuring && !noFilm;
   const label = sources.length > 1 ? `${sources[0].name} + ${sources.length - 1}` : source?.name ?? '';
 
   /** Ещё видео — в конец списка (то же второй раз не берётся); длительность каждого смотрим сразу. */
@@ -182,6 +205,15 @@ export default function Uploader() {
     }
   }
 
+  function changeBreakdown(next: Breakdown) {
+    setBreakdown(next);
+    breakdownRef.current = next;
+    if (active.current) { // поля можно поправить, пока идёт загрузка: уходят в manifest.json в конце
+      active.current = { ...active.current, p: withCharacter(active.current.p, next) };
+      savePending(storage(), active.current.p);
+    }
+  }
+
   /** Новая задача: черновик, затем все куски. */
   async function startNew() {
     if (!source || !canStart) return;
@@ -212,11 +244,11 @@ export default function Uploader() {
       const more: PendingInsert[] = sources.slice(1).map((f, k) => ({
         asset: videoAsset(k + 1), name: f.name, size: f.size, type: f.type, lastModified: f.lastModified, ...shrunk(videoAsset(k + 1)),
       }));
-      const p: Pending = {
+      const p: Pending = withCharacter({
         jobId, releaseId, source: { name: source.name, size: source.size, lastModified: source.lastModified, ...shrunk('source') },
         brief: briefRef.current, duration: duration ?? null,
         inserts: list, voice: said, ...(more.length ? { more } : {}),
-      };
+      }, breakdownRef.current);
       const files = new Map<string, File>([...sources.map((f, k) => [videoAsset(k), f] as [string, File]), ...list.map((i, k) => [i.asset, extras[k]] as [string, File])]);
       if (said && voice) files.set(said.asset, voice);
       await upload({ p, files, send }, new Set());
@@ -242,7 +274,8 @@ export default function Uploader() {
     const last = pending.voice ? Number(/^upload-voice-(\d+)/.exec(pending.voice.asset)?.[1] ?? 1) : 0;
     const said = match.voice ? pending.voice : voice
       ? { asset: voiceAssetName(voice.name, voice.type, last + 1), name: voice.name, size: voice.size, type: voice.type, lastModified: voice.lastModified } : undefined;
-    const p: Pending = { ...pending, brief: briefRef.current, duration: duration ?? pending.duration, inserts: [...kept, ...added], voice: said };
+    const p: Pending = withCharacter({ ...pending, brief: briefRef.current, duration: duration ?? pending.duration, inserts: [...kept, ...added], voice: said },
+      breakdownRef.current);
     const files = new Map<string, File>([...match.videos, ...match.inserts, ...fresh.map((x) => [x.a.asset, x.f] as [string, File])]);
     setSources([...match.videos.values()]); // видео — в порядке задачи, даже если выбраны заново в другом
     if (said && voice) files.set(said.asset, voice);
@@ -337,11 +370,14 @@ export default function Uploader() {
         return { asset, name, size: 'shrunk' in v ? v.shrunk ?? size : size, type: out(asset).type, lastModified, parts: partsOf(asset),
           duration: typeof d === 'number' ? d : null };
       });
+      // фильм стёрли во время загрузки — не запускать обычный ролик молча: впишет — «Продолжить загрузку»
+      if (breakdownRef.current.on && !characterOf(breakdownRef.current)) throw new Error('Напишите фильм или сериал — без него разбор не запустить');
       const c = await post(`/api/jobs/${p.jobId}/complete`, {
         releaseId: p.releaseId, name: first.name, size: first.size, type: first.type, lastModified: first.lastModified,
         parts: partsOf('source'), userAgent: navigator.userAgent, brief: briefRef.current.trim(), duration: p.duration,
         uploads: extra.map((i) => ({ asset: i.asset, name: i.name, size: i.shrunk ?? i.size, type: out(i.asset).type, parts: partsOf(i.asset) })),
         ...(all.length > 1 ? { videos: all } : {}),
+        ...(characterOf(breakdownRef.current) ? { character: characterOf(breakdownRef.current) } : {}),
       });
       if (!c.ok) throw new Error(await errorText(c, 'Проверка загрузки не прошла'));
       clearPending(storage()); // всё в черновике — продолжать больше нечего, запуск повторяется и со страницы задачи
@@ -459,6 +495,29 @@ export default function Uploader() {
                 {phase === 'uploading' || phase === 'shrinking' ? <div className="muted small">Не закрывайте страницу до конца загрузки.</div> : null}
               </>
             ) : null}
+          </div>
+        ) : null}
+      </section>
+
+      <section className="card">
+        <div className="seg" role="group" aria-label="Что за ролик">
+          <button type="button" aria-pressed={!breakdown.on} disabled={busy} onClick={() => changeBreakdown({ ...breakdown, on: false })}>Обычный ролик</button>
+          <button type="button" aria-pressed={breakdown.on} disabled={busy} onClick={() => changeBreakdown({ ...breakdown, on: true })}>Разбор персонажа</button>
+        </div>
+        {breakdown.on ? (
+          <div className="breakdown">
+            <label htmlFor="film" className="label">Фильм или сериал</label>
+            <input id="film" type="text" maxLength={CHARACTER_FIELD} placeholder="Пианист" value={breakdown.film}
+              onChange={(e) => changeBreakdown({ ...breakdown, film: e.target.value })} />
+            <label htmlFor="character" className="label">Персонаж <span className="muted">· необязательно</span></label>
+            <input id="character" type="text" maxLength={CHARACTER_FIELD} placeholder="Владислав Шпильман" value={breakdown.name}
+              onChange={(e) => changeBreakdown({ ...breakdown, name: e.target.value })} />
+            <label htmlFor="actor" className="label">Актёр <span className="muted">· необязательно</span></label>
+            <input id="actor" type="text" maxLength={CHARACTER_FIELD} placeholder="Эдриан Броуди" value={breakdown.actor}
+              onChange={(e) => changeBreakdown({ ...breakdown, actor: e.target.value })} />
+            <div className="muted small">Кадры из фильма и фото актёра добавьте в «Перебивки»: Claude поставит их на слова, о которых
+              они, подпишет имена, а перечисление покажет серией.</div>
+            {noFilm ? <div className="err small">Напишите фильм или сериал</div> : null}
           </div>
         ) : null}
       </section>

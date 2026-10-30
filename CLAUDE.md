@@ -202,5 +202,11 @@
   звук клипа — `audio.BROLL_NORM` (и фон в ролике, и звук прокси, который играет плеер); правки руками (`src`, `from`,
   `layout`, `audio`) — `edits.BROLL_FIELDS` и схема `timeline.json` ↔ `applyText`, `BROLL_SRC`, `LIMITS.brollFrom`,
   `parseTimeline`, раздел `text`; старая задача — `abilitiesOf` (`broll`).
+- Разбор персонажа (формат задачи): поля — `checkCharacter`, `CHARACTER_FIELD` в `web/lib/jobs.ts` (маршрут `/complete`,
+  незаконченная загрузка — `withCharacter` в `web/app/uploader.tsx`, `isPending`) → `job.json.format`, `character`
+  (`buildJobFile`) ↔ SKILL.md, часть 1, раздел 10. Подпись перебивки (`caption` у `fullscreen`): `_inserts` в
+  `engine/vm/overlay.py` (пока видна — субтитров нет), схема `edit.json`, `fonts.texts`, `qa.TEXTS` ↔ `insertPieces` в
+  `web/lib/overlay.ts`; рисует `drawCaption` в `template/overlay.js`. Серия — следующая перебивка обрывает предыдущую:
+  `insert_spans` ↔ `insertSpans`; раздел `overlay` общей фикстуры.
 - Озвучка: ассет `upload-voice.*` и `kind: "audio"` в `job.json.uploads` — `web/lib/jobs.ts` (`voiceAssetName`,
   `isVoiceFile`) и `web/lib/jobfiles.ts` (`buildJobFile`); их читает `engine/vm/prepare.py` (`_voice`).

@@ -6,6 +6,7 @@ import {
   imageType, audioType, audioPaths, checkSource, checkInsert, checkTotal, partsOf, verifyParts, MAX_SOURCE_BYTES, MAX_INSERT_BYTES,
   checkBroll, checkUploadClaims, isBrollFile, MAX_BROLL, MAX_INSERTS, MAX_UPLOAD_PARTS,
   checkVoice, isVoiceFile, MAX_VOICE_BYTES, voiceAssetName, checkVideos, isSourceFile, MAX_VIDEOS, videoAsset, videoFile, checkSources,
+  checkCharacter, CHARACTER_FIELD,
 } from '../lib/jobs.ts';
 
 test('job id is UTC date-time plus 4 base36 chars', () => {
@@ -213,4 +214,24 @@ test('the uploads a finished upload claims: inserts, B-roll clips and one voiceo
 
 test('upload parts leave room in the release for one editor proxy per B-roll clip', () => {
   assert.equal(MAX_UPLOAD_PARTS + MAX_BROLL, 900);
+});
+
+test('a character breakdown: the film is required, the character and the actor are not; fields are trimmed', () => {
+  assert.deepEqual(checkCharacter(undefined), { character: null }, 'обычный ролик — без разбора');
+  assert.deepEqual(checkCharacter(null), { character: null });
+  assert.deepEqual(checkCharacter({ film: ' Пианист ', name: 'Владислав Шпильман', actor: ' Эдриан Броуди ' }),
+    { character: { film: 'Пианист', name: 'Владислав Шпильман', actor: 'Эдриан Броуди' } });
+  assert.deepEqual(checkCharacter({ film: 'Локи', name: '', actor: '  ' }), { character: { film: 'Локи' } }, 'пустые поля — без них');
+  assert.deepEqual(checkCharacter({ film: 'Локи', actor: 'Том\tХиддлстоун\n' }), { character: { film: 'Локи', actor: 'Том Хиддлстоун' } },
+    'таб и перевод строки из вставленного текста — пробел');
+  const bad: [unknown, string][] = [
+    ['Пианист', 'не объект'],
+    [{ name: 'Локи' }, 'без фильма'],
+    [{ film: '   ' }, 'фильм из пробелов'],
+    [{ film: 'x'.repeat(CHARACTER_FIELD + 1) }, 'длинный фильм'],
+    [{ film: 'Локи', actor: 7 }, 'актёр — не текст'],
+    [{ film: 'Локи', name: 'x'.repeat(CHARACTER_FIELD + 1) }, 'длинное имя'],
+    [{ film: 'Локи\u0000' }, 'управляющий символ'],
+  ];
+  for (const [raw, why] of bad) assert.ok('error' in checkCharacter(raw), why);
 });

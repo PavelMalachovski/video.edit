@@ -305,6 +305,12 @@ const segments = [
     await page.getByRole('button', { name: 'clip.mov — раньше' }).click();
     await page.getByText('1. clip.mov').waitFor();
     await page.fill('#brief', 'ХУК: Как я учу чешский');
+    // разбор персонажа: без фильма не загрузить; фильм и актёр уходят в job.json
+    await page.getByRole('button', { name: 'Разбор персонажа' }).click();
+    await page.getByText('Напишите фильм или сериал').waitFor();
+    check(await page.getByRole('button', { name: 'Загрузить', exact: true }).isDisabled(), 'разбор без фильма загружается');
+    await page.fill('#film', ' Локи ');
+    await page.fill('#actor', 'Том Хиддлстоун');
     await page.setInputFiles('#inserts', insert);
     await page.getByText('logo.png').waitFor();
     await page.setInputFiles('#voice', voice);
@@ -323,6 +329,7 @@ const segments = [
       await page.reload();
       await page.getByText('Загрузка clip.mov + 1 не закончена: выберите те же видео').waitFor();
       check(await page.inputValue('#brief') === 'ХУК: Как я учу чешский', 'ТЗ не восстановилось после перезагрузки');
+      check(await page.inputValue('#film') === 'Локи', 'фильм разбора не восстановился после перезагрузки');
       await page.setInputFiles('#source', [second, source]); // те же видео в другом порядке — загрузка та же
       await page.setInputFiles('#inserts', insert);
       await page.setInputFiles('#voice', voice);
@@ -375,6 +382,8 @@ const segments = [
     // задача взяла копию бренда: job.json.brand и логотип в своей папке
     const job = JSON.parse((await branchFile(ctx, 'job.json')) ?? '{}');
     check(job.brand?.handle === '@pavel.malakhouski' && job.brand?.logo === 'in/brand/logo.png', `job.json.brand: ${JSON.stringify(job.brand)}`);
+    check(job.format === 'character' && isDeepStrictEqual(job.character, { film: 'Локи', actor: 'Том Хиддлстоун' }),
+      `разбор в job.json: ${JSON.stringify([job.format, job.character])}`);
     check(job.uploads?.some((u) => u.file === 'in/uploads/upload-voice.m4a' && u.kind === 'audio'), `озвучка в job.json: ${JSON.stringify(job.uploads)}`);
     check(isDeepStrictEqual(job.videos?.map((v) => v.file), ['in/source.mov', 'in/source-2.mov']), `видео в job.json: ${JSON.stringify(job.videos)}`);
     check((await branchFile(ctx, 'in/brand/logo.png')) !== null, 'логотип бренда не скопирован в задачу');

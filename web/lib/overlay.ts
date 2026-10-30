@@ -29,6 +29,7 @@ export type AccentSpec = { t0: number; t1: number; x: number; y: number; lines: 
 export type InsertSpec = {
   kind: string; t0: number; t1: number; src?: string; text?: string; title?: string; x?: number | null; y?: number | null; w?: number | null;
   params?: Record<string, unknown>;
+  caption?: string; // подпись перебивки (fullscreen): её рисует шаблон
   off?: boolean; // выключил Павел в редакторе: в ролике её нет, номер остаётся
 };
 /** То из edit.json (уже с правками руками), из чего строится слой; `style` — стиль, который увидит ролик. */
@@ -303,22 +304,32 @@ export function hookEnd(edit: OverlayEdit, tl: Timeline): number {
 }
 
 /** Кадры показа вставок `[номер в edit.inserts, первый кадр, кадр после последнего]`: не раньше конца хука, не короче
- *  1,5 с, не дальше своей серии кусков. Все виды, и fullscreen; выключенных Павлом (`off`) — нет (insert_spans движка). */
+ *  1,5 с, не дальше своей серии кусков; вставка на весь кадр — не дальше начала следующей такой (серия перебивок). Все
+ *  виды, и fullscreen; выключенных Павлом (`off`) — нет (insert_spans движка). */
 export function insertSpans(edit: OverlayEdit, tl: Timeline): [number, number, number][] {
   const afterHook = hookEnd(edit, tl);
   const minShow = Math.ceil(MIN_SHOW * FPS - 1e-9);
-  return (edit.inserts || []).flatMap((ins, i): [number, number, number][] => {
+  const spans = (edit.inserts || []).flatMap((ins, i): [number, number, number][] => {
     if (ins.off) return []; // номер остаётся: по нему ключи звуков insert:<n> и рамки в boxes.json
     const [a, b] = tl.span(Number(ins.t0), Number(ins.t1));
     const start = Math.max(frameOf(a), afterHook);
     return [[i, start, Math.max(frameOf(b), start + minShow)]];
   });
+  // серия перебивок (перечисление — фото на каждое имя): следующая на весь кадр обрывает предыдущую; начались на одном
+  // кадре — видна более поздняя по номеру (ffmpeg кладёт её сверху), нижней в ролике нет
+  const full = (i: number) => (edit.inserts || [])[i].kind === 'fullscreen';
+  const starts = spans.filter(([i]) => full(i)).map(([j, start]) => [start, j] as const);
+  return spans.map(([i, start, stop]): [number, number, number] =>
+    [i, start, full(i) ? Math.min(stop, ...starts.filter(([s, j]) => s > start || (s === start && j > i)).map(([s]) => s)) : stop])
+    .filter(([, start, stop]) => stop > start);
 }
 
 function insertPieces(edit: OverlayEdit, tl: Timeline): Piece[] {
   const inserts = edit.inserts || [];
   return insertSpans(edit, tl).flatMap(([i, start, stop]): Piece[] => {
     const ins = inserts[i];
+    // подпись перебивки рисует шаблон
+    if (ins.kind === 'fullscreen' && ins.caption) return [{ start, stop, key: 'caption', value: { text: ins.caption } }];
     if (!DRAWN.includes(ins.kind)) return [];
     const missing = (['x', 'y', 'w'] as const).filter((k) => ins[k] === undefined || ins[k] === null);
     if (missing.length) throw new Error(`inserts[${i}]: вставке «${ins.kind}» нужно место на кадре — нет ${missing.join(', ')}`);
@@ -343,6 +354,6 @@ function stateOf(pieces: Piece[], frame: number): Record<string, unknown> {
     else state[p.key] = p.value;
   }
   if (inserts.length) state.inserts = inserts;
-  if ('accent' in state) delete state.sub; // слова акцента — и есть субтитры
+  if ('accent' in state || 'caption' in state) delete state.sub; // слова акцента и подпись перебивки — и есть субтитры
   return state;
 }

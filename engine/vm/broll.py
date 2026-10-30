@@ -14,7 +14,15 @@ from pathlib import Path
 
 from .audio import BROLL_NORM
 from .job import Job
-from .media import MediaError, _atomic, _ffmpeg, contact_sheet, extract_wav, probe
+from .media import (
+    HDR_TO_SDR,
+    MediaError,
+    _atomic,
+    _ffmpeg,
+    contact_sheet,
+    extract_wav,
+    probe,
+)
 
 # окошко: правый верхний угол, ниже шапки Reels и выше середины кадра (внизу — субтитры и шкала), 3:4
 PIP = {"x": 672, "y": 300, "w": 360, "h": 480, "r": 36}
@@ -63,12 +71,21 @@ def proxy(path: Path, out: Path, sound: bool) -> Path:
     with _atomic(Path(out)) as tmp:
         _ffmpeg(
             "-i", path, "-t", PROXY["seconds"], "-map", "0:v:0", *(["-map", "0:a:0"] if sound else []),
-            "-vf", f"{fit},fps=30,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", 30,
+            "-vf", f"{fit},fps=30,{_colour(path)}", "-c:v", "libx264", "-preset", "veryfast", "-crf", 30,
             "-maxrate", PROXY_RATE, "-bufsize", 2 * PROXY_RATE, "-g", gop, "-keyint_min", gop, "-sc_threshold", 0,
             *(["-af", f"{BROLL_NORM},aresample=48000", "-c:a", "aac", "-b:a", 64_000, "-ac", 2] if sound else []),
             "-movflags", "+faststart", *(["-shortest"] if sound else []), tmp,
         )
     return Path(out)
+
+
+def _colour(path: Path) -> str:
+    """Цвета прокси — как у клипа в ролике (render._picture): HDR с iPhone — в SDR тем же переводом, остальное — как есть."""
+    try:
+        hdr = probe(path).hdr
+    except MediaError:
+        hdr = False
+    return HDR_TO_SDR if hdr else "format=yuv420p"
 
 
 # ---------- vm broll: что за клипы — для Claude (шаг analyze) ----------

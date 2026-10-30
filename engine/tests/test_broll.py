@@ -145,3 +145,15 @@ def test_a_b_roll_without_a_readable_file_is_left_out_whole_and_reported(tmp_pat
     assert missing == ["нет файла перебивки in/uploads/nope.jpg — ролик без неё",
                        "файл перебивки in/uploads/broken.mp4 не читается — ролик без неё"]
     assert insert_spans(kept, Timeline([(0, 10)], 1.0)) == [(0, 60, 105), (3, 180, 225)]
+
+
+def test_the_proxy_of_an_hdr_clip_is_converted_like_the_video_will_be(tmp_path, hlg, hlg_sdr_source):
+    # iPhone пишет HLG (цвета BT.2020): прокси без перевода был бы в плеере втрое бледнее, чем клип в ролике
+    def saturation(path):
+        raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", "1", "-i", str(path), "-frames:v", "1", "-vf", "scale=54:96,format=yuv444p",
+                              "-f", "rawvideo", "-"], capture_output=True, check=True).stdout
+        n = len(raw) // 3
+        return sum(abs(x - 128) for x in raw[n:]) / (2 * n)  # U и V как записаны: без перевода по меткам цвета
+
+    out = broll.proxy(hlg, tmp_path / "broll-b1.mp4", sound=False)
+    assert abs(saturation(out) - saturation(hlg_sdr_source)) / saturation(hlg_sdr_source) < 0.1

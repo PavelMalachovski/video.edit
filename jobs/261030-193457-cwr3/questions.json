@@ -1,0 +1,200 @@
+{
+  "questions": [
+    {
+      "id": "cut",
+      "type": "choice",
+      "title": "Резать паузы и оговорки?",
+      "body": "Плотно — 13 пауз, дубль «я не так часто делюсь…», фальстарты «я очень давно, очень часто…», «я так уже настроенная» и путаница в конце («а что вам наконец-то…» — оставил последнюю полную фразу): будет ~1:55. Мягко — ~2:08, только края — ~2:13.",
+      "options": [
+        {
+          "id": "all",
+          "label": "Плотно, как в эталоне"
+        },
+        {
+          "id": "soft",
+          "label": "Мягче: паузы до 0,45 с остаются"
+        },
+        {
+          "id": "edges",
+          "label": "Только начало и конец"
+        }
+      ],
+      "default": "all"
+    },
+    {
+      "id": "hook",
+      "type": "choice",
+      "title": "Хук — текст на первые 2–3 секунды",
+      "options": [
+        {
+          "id": "h1",
+          "label": "почему я бросила любимое дело"
+        },
+        {
+          "id": "h2",
+          "label": "я бросила танцы и вот почему"
+        },
+        {
+          "id": "h3",
+          "label": "проблема может быть не в вас"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без хука"
+        }
+      ],
+      "default": "h1"
+    },
+    {
+      "id": "teaser",
+      "type": "choice",
+      "title": "Начать с самой сильной фразы?",
+      "body": "Фраза на 2:23 (по исходнику): «Возможно, проблема здесь не в вас» — ролик начнётся с неё, потом пойдёт с начала, и она прозвучит ещё раз на своём месте.",
+      "options": [
+        {
+          "id": "yes",
+          "label": "Да: «Возможно, проблема здесь не в вас»"
+        },
+        {
+          "id": "no",
+          "label": "Нет, с начала"
+        }
+      ],
+      "default": "yes"
+    },
+    {
+      "id": "bw",
+      "type": "multi",
+      "title": "Ч/б-куски",
+      "body": "Эмоциональные фразы — без цвета и темнее, как вторая камера.",
+      "options": [
+        {
+          "id": "bw-1",
+          "label": "1:51 — „а зачем я вообще себя насилую?“"
+        },
+        {
+          "id": "bw-2",
+          "label": "2:08 — „подсознательно я чувствую, что просто теряю там время“"
+        },
+        {
+          "id": "bw-3",
+          "label": "2:23 — „возможно, проблема здесь не в вас“"
+        }
+      ],
+      "default": [
+        "bw-1",
+        "bw-2",
+        "bw-3"
+      ]
+    },
+    {
+      "id": "dim",
+      "type": "choice",
+      "title": "Затемнить фон?",
+      "layout": "frames",
+      "options": [
+        {
+          "id": "none",
+          "label": "Как есть",
+          "image": "q-dim-none.jpg"
+        },
+        {
+          "id": "30",
+          "label": "Темнее на 30 %",
+          "image": "q-dim-30.jpg"
+        },
+        {
+          "id": "50",
+          "label": "Темнее на 50 %",
+          "image": "q-dim-50.jpg"
+        }
+      ],
+      "default": "30"
+    },
+    {
+      "id": "music",
+      "type": "choice",
+      "title": "Музыка фоном",
+      "body": "Тихо под голосом, с первого кадра до последнего.",
+      "options": [
+        {
+          "id": "mysterious-and-sad.m4a",
+          "label": "Mysterious and Sad — спокойная, задумчивая"
+        },
+        {
+          "id": "sleepwalker-slowed.m4a",
+          "label": "Sleepwalker (slowed) — медленная, атмосферная"
+        },
+        {
+          "id": "did-i-drive-you-away.m4a",
+          "label": "Did I Drive You Away — лирическая"
+        },
+        {
+          "id": "diedlonely-in-the-bleak.m4a",
+          "label": "In the Bleak — мрачноватая"
+        },
+        {
+          "id": "atlxs-passo.mp3",
+          "label": "Atlxs — Passo"
+        },
+        {
+          "id": "sayfalse-esse.mp3",
+          "label": "Sayfalse — Esse"
+        },
+        {
+          "id": "etern-brodyaga.mp3",
+          "label": "Etern — Бродяга"
+        },
+        {
+          "id": "banana-cake.m4a",
+          "label": "Banana Cake"
+        },
+        {
+          "id": "playboi-carti-made-it.m4a",
+          "label": "Playboi Carti — Made It"
+        },
+        {
+          "id": "tory-lanez-broke.m4a",
+          "label": "Tory Lanez — Broke"
+        },
+        {
+          "id": "none",
+          "label": "Без музыки"
+        }
+      ],
+      "default": "mysterious-and-sad.m4a"
+    },
+    {
+      "id": "end",
+      "type": "choice",
+      "title": "Финальная карточка — призыв в конце",
+      "options": [
+        {
+          "id": "e1",
+          "label": "А у вас было такое? Пишите в комментариях 👇"
+        },
+        {
+          "id": "e2",
+          "label": "Сохрани, чтобы не забыть 👇"
+        },
+        {
+          "id": "e3",
+          "label": "Подпишись — дальше больше честных историй"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без карточки"
+        }
+      ],
+      "default": "e1"
+    }
+  ]
+}

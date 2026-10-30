@@ -1,0 +1,51 @@
+{
+  "answers": {
+    "cut": "all",
+    "stickers": [
+      "s1",
+      "s2",
+      "s3"
+    ],
+    "stars": [],
+    "music": "playboi-carti-made-it.m4a",
+    "dim": "30",
+    "end": "none"
+  },
+  "style": {
+    "variant": "C",
+    "font": "montserrat",
+    "hand": "caveat",
+    "colors": {
+      "text": "#FFFFFF",
+      "accent": "#FFD23F",
+      "bar": "#FFD23F"
+    },
+    "subY": 930,
+    "subSize": 70,
+    "subShade": 0
+  },
+  "speed": 1.1,
+  "insertBoxes": {
+    "s1": {
+      "x": 60,
+      "y": 148,
+      "w": 830
+    },
+    "s3": {
+      "x": 120,
+      "y": 1152,
+      "w": 770
+    },
+    "s2": {
+      "x": 400,
+      "y": 490,
+      "w": 490
+    }
+  },
+  "cover": {
+    "frame": 0,
+    "text": "зачем е*ать мозг себе если можно мне"
+  },
+  "uploads": {},
+  "brief": "Вторую часть видео сократи до 7-10 секунд \nНадпись вся на видео: «Зачем ебать мозг себе, если можно мне? 50€/70минут\nЗапись в боте, ссылка в шапке»"
+}

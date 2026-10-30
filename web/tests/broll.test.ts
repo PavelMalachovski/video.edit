@@ -1,14 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { brollProxy, clipStart, faceBox, PIP, pipSource } from '../lib/broll.ts';
+import { brollProxy, clipStart, faceBox, PIP, WINDOW, pipSource } from '../lib/broll.ts';
 
 const SHARED = JSON.parse(fs.readFileSync(new URL('../../engine/tests/fixtures/overlay-events.json', import.meta.url), 'utf8')) as {
-  broll: { pip: typeof PIP; faces: [{ x?: number; y?: number }, [number, number, number, number]][] };
+  broll: { pip: typeof PIP; window: typeof WINDOW; faces: [{ x?: number; y?: number }, [number, number, number, number]][] };
 };
 
 test('the face window and the piece of the frame in it are the engine\'s (shared fixture written by the engine)', () => {
   assert.deepEqual(PIP, SHARED.broll.pip);
+  assert.deepEqual(WINDOW, SHARED.broll.window, 'клип в окошке — там же, где его ставит рендер');
   for (const [face, box] of SHARED.broll.faces) assert.deepEqual(faceBox(face), { x: box[0], y: box[1], w: box[2], h: box[3] }, JSON.stringify(face));
 });
 

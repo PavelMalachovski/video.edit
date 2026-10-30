@@ -29,7 +29,6 @@ import { loadLang, saveLang, tr, type Key, type Lang } from '@/lib/i18n.ts';
 import type { StyleChoice, StyleSpec } from '@/lib/jobfiles.ts';
 import { buildOverlayEvents, eventIndexAt, hookEnd, type LayerEvent } from '@/lib/overlay.ts';
 import { pictureModel, type Cover } from '@/lib/picture.ts';
-import { HALF } from '@/lib/zoom.ts';
 import { missingLetters, typedText } from '@/lib/fontchars.ts';
 import { advance, afterEnded, locate, stillSource, tailAt } from '@/lib/player.ts';
 import {
@@ -1243,7 +1242,8 @@ export default function Editor({ id }: { id: string }) {
           {mount.state === 'error' ? <p className="ed-note ed-flag bad" role="alert">{T('mountFailed', { e: mount.error ?? '' })}</p> : null}
           {tracks && draft && sel?.kind === 'block' ? (
             <BlockPanel T={T} sel={sel} tracks={tracks} draft={draft} hand={hand} editable={canText} note={editable ? textNote : null} onEdit={edit} sec={sec}
-              letters={letters} placing={placing} brolls={gates.broll ? data?.brolls ?? [] : undefined} />
+              letters={letters} placing={placing} brolls={gates.broll ? data?.brolls ?? [] : undefined}
+              windowed={data?.abilities.tear ?? true} />
           ) : null}
           {tracks && draft && sel?.kind === 'sub' ? (
             <WordsPanel T={T} sel={sel} tracks={tracks} draft={draft} hand={hand} editable={canText} note={editable ? textNote : null} onEdit={edit} sec={sec}
@@ -1254,6 +1254,7 @@ export default function Editor({ id }: { id: string }) {
           ) : null}
           {tracks && (sel?.kind === 'look' || sel?.kind === 'transition') ? (
             <PicturePick T={T} sel={sel} tracks={tracks} hand={hand} editable={sel.kind === 'look' ? canLook : canMarks} shape={canShape}
+              tear={data?.abilities.tear ?? true}
               note={editable ? (sel.kind === 'look' && canLook ? null : pictureNote) : null} onEdit={edit} sec={sec} />
           ) : null}
           {tracks ? (
@@ -1429,9 +1430,9 @@ export default function Editor({ id }: { id: string }) {
                   const name = T(KIND_NAMES[x.kind as TransitionKind] ?? 'transition');
                   return (
                     <div key={`t${i}`} data-kind="transition" data-at={x.at}
-                      className={`ed-clip tr ${x.kind}${x.off ? ' ghost' : ''}${picked ? ' sel' : ''}`} style={{ left: X(x.t - HALF), width: Math.max(18, X(2 * HALF)) }}
+                      className={`ed-clip tr ${x.kind}${x.off ? ' ghost' : ''}${picked ? ' sel' : ''}`} style={{ left: X(x.t0), width: Math.max(18, X(x.t1 - x.t0)) }}
                       title={`${T('transition')} · ${name} · ${tenths(x.t)}${x.off ? ` · ${T('removed')}` : ''}`}
-                      onClick={() => { if (clicks.click()) { setSel({ kind: 'transition', at: x.at }); seek(Math.max(0, x.t - HALF)); } }}>
+                      onClick={() => { if (clicks.click()) { setSel({ kind: 'transition', at: x.at }); seek(Math.max(0, x.t0)); } }}>
                       <span>{name.slice(0, 1)}</span>
                     </div>
                   );

@@ -21,8 +21,10 @@ WIDTH, HEIGHT = 1080, 1920  # вертикальный кадр
 FPS = 30
 AUDIO_RATE = 48000
 HDR_TRANSFERS = {"arib-std-b67", "smpte2084"}  # HLG, PQ
-# HDR → SDR — решение Плана 1 (docs/spikes/2026-10-results.md): прямой перевод цветов без tone mapping
-HDR_TO_SDR = "zscale=t=bt709:m=bt709:p=bt709:r=tv:npl=100,format=yuv420p"
+# HDR → SDR — решение Плана 1 (docs/spikes/2026-10-results.md): прямой перевод цветов без tone mapping. Белый — 203 нит
+# (BT.2408: так пишет iPhone, HLG 75 %); с npl=100 всё ярче 100 нит — кожа в хорошем свете — уходило в белое (30.10.2026:
+# засвеченные лица на превью и в ролике)
+HDR_TO_SDR = "zscale=t=bt709:m=bt709:p=bt709:r=tv:npl=203,format=yuv420p"
 BT709 = ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709"]
 GRID_CELL = (108, 192)  # 10×10 клеток на кадре 1080×1920: по клетке можно назвать, куда указывает палец
 THUMB_WIDTH = 180  # колонка контактного листа: 6 колонок — ровно 1080 px

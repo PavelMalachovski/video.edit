@@ -202,5 +202,27 @@
   звук клипа — `audio.BROLL_NORM` (и фон в ролике, и звук прокси, который играет плеер); правки руками (`src`, `from`,
   `layout`, `audio`) — `edits.BROLL_FIELDS` и схема `timeline.json` ↔ `applyText`, `BROLL_SRC`, `LIMITS.brollFrom`,
   `parseTimeline`, раздел `text`; старая задача — `abilitiesOf` (`broll`).
+- Разбор персонажа (формат задачи): поля — `checkCharacter`, `CHARACTER_FIELD` в `web/lib/jobs.ts` (маршрут `/complete`,
+  незаконченная загрузка — `withCharacter` в `web/app/uploader.tsx`, `isPending`) → `job.json.format`, `character`
+  (`buildJobFile`) ↔ SKILL.md, часть 1, раздел 10. Подпись перебивки (`caption` у `fullscreen`): `_inserts` в
+  `engine/vm/overlay.py` (пока видна — субтитров нет), схема `edit.json`, `fonts.texts`, `qa.TEXTS` ↔ `insertPieces` в
+  `web/lib/overlay.ts`; рисует `drawCaption` в `template/overlay.js`. Серия — следующая перебивка обрывает предыдущую:
+  `insert_spans` ↔ `insertSpans`; раздел `overlay` общей фикстуры. Свои места субтитров (`edit.subPlaces`): `_subtitles` в
+  `overlay.py` (место — по первому слову блока, `sub.y`) ↔ `subtitlePieces` в `web/lib/overlay.ts`, `parseDraft` и
+  `layerEdit` в `web/lib/tracks.ts`; рисуют `drawSub`, `drawSoftSub` (`sub.y`); по лицу — `qa.check_layout` (`raised`).
+  Рваная бумага и глитч (переходы `tear`, `glitch`): кадры щели и краёв — `engine/vm/tear.py` (`FRAMES`, собирает
+  `template/tear/`: `python3 -m vm.tear`); окна, привязка к перебивке и полосы — `lead`, `tears`, `tear_frame`,
+  `glitch_bands`, `GLITCH` в `engine/vm/transitions.py` (рисуют `render._tears` и `picture_chains`) ↔ `transitionLead`,
+  `tearsOf`, `tearFrame`, `glitchBands`, `TEAR`, `GLITCH` в `web/lib/zoom.ts`, `pictureAt` в `web/lib/picture.ts` и
+  `Picture` в `web/app/jobs/[id]/editor/frame.tsx` (маска щели, `grayscale(1)` ↔ `hue=s=0`); раздел `look` общей
+  фикстуры; виды — схемы `edit.json`, `timeline.json` ↔ `TRANSITION_KINDS`; старая задача — `abilitiesOf` (`tear`).
+  Кадры из TMDB: `engine/vm/tmdb.py` (`vm tmdb`, токен `TMDB_TOKEN` в окружении рутины, домены `api.themoviedb.org` и
+  `image.tmdb.org`) → `found/tmdb-<n>.jpg` в ветке задачи ↔ `coverUrl`/`layerUrl` редактора (путь от папки задачи) и
+  `render._resolve`; SKILL.md — шаг analyze и раздел 10.
+  Клип в окошке (`layout: window`): `WINDOW` и `pip_mask` в `engine/vm/broll.py`, `render._picture` ↔ `WINDOW` в
+  `web/lib/broll.ts`, `Picture` в `frame.tsx` (окошко и глитч), раздел `broll` фикстуры; разрыв в окошко не ведёт
+  (`tears` ↔ `tearsOf`); старая задача — `abilitiesOf.tear`. Стикеры влетают (`params.enter`: `FLY` кадров) —
+  `_inserts` в `overlay.py` ↔ `insertPieces` в `web/lib/overlay.ts`; рисует `drawInserts` в `template/inserts.js` (и наклон
+  `params.tilt`, свечение `params.glow` — рамка вставки с ними).
 - Озвучка: ассет `upload-voice.*` и `kind: "audio"` в `job.json.uploads` — `web/lib/jobs.ts` (`voiceAssetName`,
   `isVoiceFile`) и `web/lib/jobfiles.ts` (`buildJobFile`); их читает `engine/vm/prepare.py` (`_voice`).

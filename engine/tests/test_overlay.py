@@ -120,6 +120,19 @@ def test_subtitles_are_the_engine_events_on_the_frame_grid():
         assert at(events, middle)["sub"] == {k: s[k] for k in ("words", "active", "visible")}
 
 
+def test_a_flying_insert_comes_in_over_eight_frames():
+    # стикер-картинка влетает сбоку (формат разбора: футболки у лица) — дольше обычного появления
+    edit = make_edit(inserts=[picture(4.0, 7.0, params={"cutout": True, "enter": "left", "tilt": -8})])
+    events = build_overlay_events(edit, timeline(edit))
+    start = next(i for i, e in enumerate(events) if e["state"].get("inserts"))
+    steps = events[start : start + 8]
+    assert [e["state"]["inserts"][0]["anim"] for e in steps] == pytest.approx([(k + 1) / 8 for k in range(8)])
+    assert all(e["t1"] - e["t0"] == pytest.approx(FRAME) for e in steps[:-1]) and steps[-1]["t1"] == pytest.approx(7.0)
+    odd = make_edit(inserts=[picture(4.0, 7.0, params={"enter": "up"})])  # не сторона — обычное появление за 3 кадра
+    shown = [e for e in build_overlay_events(odd, timeline(odd)) if e["state"].get("inserts")]
+    assert [e["state"]["inserts"][0]["anim"] for e in shown[:3]] == pytest.approx([1 / 3, 2 / 3, 1])
+
+
 def test_insert_appearance_has_three_anim_steps():
     edit = make_edit(inserts=[picture(4.0, 7.0)])
     events = build_overlay_events(edit, timeline(edit))
@@ -189,6 +202,36 @@ def test_thesis_sticker_is_drawn_by_the_template():
 def test_fullscreen_inserts_are_left_to_ffmpeg():
     edit = make_edit(inserts=[{"kind": "fullscreen", "src": "in/uploads/upload-i1.mov", "t0": 3.0, "t1": 5.0}])
     assert build_overlay_events(edit, timeline(edit)) == [{"t0": 0, "t1": pytest.approx(10.0), "state": {}}]
+
+
+def fullscreen(t0, t1, **extra):
+    return {"kind": "fullscreen", "src": "in/uploads/upload-b1.jpg", "t0": t0, "t1": t1, **extra}
+
+
+def test_a_series_of_fullscreen_inserts_take_turns_instead_of_piling_up():
+    # перечисление: фото на каждое имя — следующая перебивка обрывает предыдущую; последняя — не короче 1,5 с
+    edit = make_edit(inserts=[fullscreen(2.0, 2.6), fullscreen(3.0, 3.5), picture(3.2, 3.4), fullscreen(4.0, 4.4)])
+    assert insert_spans(edit, timeline(edit)) == [(0, 60, 90), (1, 90, 120), (2, 96, 141), (3, 120, 165)]
+
+
+def test_of_fullscreen_inserts_starting_together_only_the_top_one_is_shown():
+    # ffmpeg кладёт более позднюю по номеру сверху: нижняя не видна — ни её подписи, ни звука (хук сдвинул обе на свой конец)
+    edit = make_edit(hook={"text": "Хук", "until": 2.0},
+                     inserts=[fullscreen(1.0, 3.0, caption="Эдриан"), fullscreen(1.5, 2.5), fullscreen(4.0, 5.0)])
+    assert insert_spans(edit, timeline(edit)) == [(1, 60, 105), (2, 120, 165)]
+    assert "caption" not in at(build_overlay_events(edit, timeline(edit)), 2.5)
+
+
+def test_a_fullscreen_caption_is_drawn_by_the_template_and_replaces_subtitles():
+    words = [{"t0": 2.0, "t1": 2.5, "text": "Эдриан"}, {"t0": 2.55, "t1": 2.9, "text": "Броуди,"},
+             {"t0": 3.0, "t1": 3.4, "text": "Том"}, {"t0": 3.45, "t1": 3.9, "text": "Хиддлстоун."}]
+    edit = make_edit(words=words, inserts=[fullscreen(2.0, 2.9, caption="Эдриан Броуди"),
+                                           fullscreen(3.0, 3.9, caption="Том Хиддлстоун"), fullscreen(6.0, 7.0)])
+    events = build_overlay_events(edit, timeline(edit))
+    assert at(events, 2.5) == {"caption": {"text": "Эдриан Броуди"}}
+    assert at(events, 3.2) == {"caption": {"text": "Том Хиддлстоун"}}
+    assert at(events, 4.5 - FRAME)["caption"] == {"text": "Том Хиддлстоун"}  # последняя в серии — 1,5 с, подпись с ней
+    assert "caption" not in at(events, 4.5) and "caption" not in at(events, 6.5)
 
 
 def test_anim_insert_changes_every_frame():
@@ -360,6 +403,40 @@ def test_a_soft_block_in_the_middle_of_a_sentence_keeps_its_capital():
     assert at(events, 1.1)["sub"]["opens"] is True
     second = at(events, 2.3)["sub"]
     assert second["words"][0] == "Павлом" and second["opens"] is False
+
+
+def test_a_subtitle_block_starting_inside_a_place_stands_at_its_height():
+    # формат разбора: Claude поднимает субтитры над головой на своих фразах (subPlaces); блок — по своему первому слову
+    sentence = words((1.0, 1.2, "Этот"), (1.3, 1.5, "типаж"), (1.6, 1.8, "редко"), (2.4, 2.6, "к"), (2.7, 2.9, "этому"),
+                     (3.0, 3.3, "типажу."), (4.0, 4.3, "Вот."))
+    for style in (SOFT_STYLE, STYLE):
+        edit = make_edit(words=sentence, style=style, subPlaces=[{"t0": 2.4, "t1": 3.3, "y": 380}], keep=[[0.0, 2.0], [2.3, 10.0]])
+        events = build_overlay_events(edit, timeline(edit))
+        tl = timeline(edit)
+        assert "y" not in at(events, tl.to_final_snap(1.1))["sub"]
+        assert at(events, tl.to_final_snap(2.5))["sub"]["y"] == 380
+        assert at(events, tl.to_final_snap(3.1))["sub"]["y"] == 380
+        assert "y" not in at(events, tl.to_final_snap(4.1))["sub"]
+
+
+def test_a_subtitle_block_keeps_one_place_for_all_its_lines():
+    # место — по первому слову блока: вторая строка не прыгает, даже если фраза места кончилась или началась между строк
+    for place, y in (({"t0": 1.0, "t1": 1.5, "y": 380}, 380), ({"t0": 1.9, "t1": 3.0, "y": 380}, None)):
+        edit = make_edit(words=SIX, style=SOFT_STYLE, subPlaces=[place])
+        events = build_overlay_events(edit, timeline(edit))
+        assert at(events, 1.1)["sub"].get("y") == y and at(events, 2.0)["sub"].get("y") == y, place
+
+
+def test_a_block_whose_first_word_got_no_time_still_takes_its_own_place():
+    # «и» и «вот» начались в один момент: первое событие блока выпало — блок не должен взять место предыдущего
+    said = words((0.5, 0.7, "Это"), (0.8, 1.0, "такой"), (1.1, 1.4, "типаж."), (2.6, 2.6, "И"), (2.6, 3.0, "вот"), (3.1, 3.4, "он."))
+    edit = make_edit(words=said, subPlaces=[{"t0": 0.4, "t1": 2.0, "y": 380}])
+    events = build_overlay_events(edit, timeline(edit))
+    assert at(events, 0.9)["sub"]["y"] == 380
+    assert "y" not in at(events, 2.8)["sub"] and "y" not in at(events, 3.2)["sub"]
+    edit["subPlaces"] = [{"t0": 2.5, "t1": 3.5, "y": 380}]
+    events = build_overlay_events(edit, timeline(edit))
+    assert "y" not in at(events, 0.9)["sub"] and at(events, 2.8)["sub"]["y"] == 380
 
 
 def test_hook_in_accent_mode_comes_out_of_blur_frame_by_frame():
@@ -558,7 +635,7 @@ def test_the_render_timeline_refuses_what_the_shared_fixture_refuses(bad):
 @pytest.mark.parametrize("case", SHARED["look"], ids=lambda c: c["name"])
 def test_zoom_transitions_and_looks_match_the_shared_fixture(case):
     got = json.loads(json.dumps(shared_events.look_case(case)))
-    assert got == {k: case[k] for k in ("zoom", "marks", "looks", "spans", "flash", "blur")}
+    assert got == {k: case[k] for k in ("zoom", "marks", "looks", "spans", "flash", "blur", "tears", "glitch")}
 
 
 def test_the_shared_fixture_has_flash_and_blur_by_frame_and_the_bw_filter_of_the_engine():

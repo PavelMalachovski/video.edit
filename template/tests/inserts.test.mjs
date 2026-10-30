@@ -347,3 +347,49 @@ test('an unknown sticker tone is an error', async () => {
   await assert.rejects(render([{ kind: 'text', text: 'Свет', x: 120, y: 700, w: 300, anim: 1, t: 0, params: { tone: 'neon' } }]), /tone/);
   await page.reload();
 });
+
+// ---------- формат разбора: стикеры-картинки влетают сбоку, карточка профиля со свечением ----------
+
+function rectOf(i = 0) {
+  return page.evaluate((k) => {
+    const r = document.querySelector(`#inserts .ins[data-i="${k}"]`).getBoundingClientRect();
+    return { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+  }, i);
+}
+
+test('a picture with params.enter flies in from its side, opaque all the way, and lands on its place', async () => {
+  const from = { left: (r) => r.right <= 0, right: (r) => r.left >= 1080, top: (r) => r.bottom <= 0, bottom: (r) => r.top >= 1920 };
+  for (const [side, outside] of Object.entries(from)) {
+    await render([photo({ anim: 0, params: { enter: side } })]);
+    assert.ok(outside(await rectOf()), `${side}: в начале — за краем кадра ${JSON.stringify(await rectOf())}`);
+    await render([photo({ anim: 0.4, params: { enter: side } })]);
+    assert.equal((await look()).opacity, 1, `${side}: влетает, а не проявляется`);
+    await render([photo({ anim: 1, params: { enter: side } })]);
+    const r = await rectOf();
+    assert.ok(Math.abs(r.left - 100) < 0.5 && Math.abs(r.top - 300) < 0.5, `${side}: на месте ${JSON.stringify(r)}`);
+  }
+});
+
+test('a tilted or glowing picture stays inside its reported box; the glow is light around the picture', async () => {
+  for (const params of [{ tilt: 8 }, { tilt: -12, cutout: true }, { glow: true }, { glow: true, tilt: 6, enter: 'bottom' }]) {
+    const ins = params.cutout ? { kind: 'image', src: 'cutout.png', x: 200, y: 400, w: 400, t: 0, anim: 1, params } : photo({ x: 200, y: 400, params });
+    await render([ins]);
+    const [box] = (await boxes()).inserts;
+    const seen = await drawnBox();
+    assert.ok(seen.x >= box.x && seen.y >= box.y && seen.x + seen.w <= box.x + box.w && seen.y + seen.h <= box.y + box.h,
+      `${JSON.stringify(params)}: drawn ${JSON.stringify(seen)} outside ${JSON.stringify(box)}`);
+    if (params.tilt && !params.glow && !params.cutout) assert.ok(seen.w > 400 + 20, `${JSON.stringify(params)}: повёрнута ${JSON.stringify(seen)}`);
+  }
+  await render([photo({ x: 200, y: 400, params: { glow: true } })]);
+  const halo = await pixels({ x: 200 + 160, y: 400 - 14, width: 80, height: 8 }); // над картинкой — свет
+  let lit = 0;
+  for (let k = 0; k < halo.length; k += 4) if (halo[k + 3] > 40 && halo[k] > 200 && halo[k + 1] > 200 && halo[k + 2] > 200) lit++;
+  assert.ok(lit > 100, `свечение над картинкой: ${lit}`);
+});
+
+test('in the ads zone a tilted glowing picture is lifted whole above the ad button', async () => {
+  const ins = photo({ x: 200, y: 1100, params: { tilt: 12, glow: true } });
+  await page.evaluate(([s, i]) => window.renderState(s, { inserts: i, zone: 'ads' }), [SPEC, [ins]]);
+  const [box] = (await boxes()).inserts;
+  assert.ok(box.y >= 270 && box.y + box.h <= 1250, JSON.stringify(box));
+});

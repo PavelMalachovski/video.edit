@@ -7,9 +7,11 @@
 
 Времена в edit.json — по исходнику; в время финала их переводит `Timeline` (момент, попавший в вырезку,
 переходит на начало следующего отрезка). Правила вставок: пока виден хук, вставок нет (начало сдвигается на
-конец хука); показ не короче 1,5 с; появление — три кадра (`anim` = 1/3, 2/3, 1); у анимации (`kind: anim`)
+конец хука); показ не короче 1,5 с; появление — три кадра (`anim` = 1/3, 2/3, 1), влетающей сбоку (`params.enter`) —
+восемь; у анимации (`kind: anim`)
 каждый кадр свой (`t` — секунды от начала показа). Полноэкранные вставки (`fullscreen`) монтирует ffmpeg,
-в слой они не попадают. Что видно в последний кадр ролика, остаётся и на стоп-кадре.
+в слой попадает только их подпись (`caption` → `state.caption`; пока она видна, субтитров нет); следующая перебивка
+обрывает предыдущую (серия). Что видно в последний кадр ролика, остаётся и на стоп-кадре.
 
 Финальная карточка (`edit.end`) идёт после стоп-кадра ещё `seconds`: на ней ничего другого нет, и каждый её кадр
 свой (`state.end.t` — секунды от начала карточки: призыв «дышит»).
@@ -34,6 +36,8 @@ from .timeline import Timeline
 
 FPS = 30
 APPEAR = 3  # кадров появления вставки
+FLY = 8  # кадров, за которые влетает вставка с `params.enter` (стикер-картинка формата разбора)
+SIDES = ("left", "right", "top", "bottom")  # откуда влетает; другое значение — обычное появление
 MIN_SHOW = 1.5  # с — вставка показывается не короче
 DRAWN = ("image", "badge", "sticker", "text", "anim")  # что рисует шаблон; fullscreen — ffmpeg
 INSERT_FIELDS = ("kind", "src", "text", "title", "x", "y", "w", "params")
@@ -93,7 +97,7 @@ def build_overlay_events(edit: dict, tl: Timeline) -> list[dict]:
             continue
         borders.update((piece.start, piece.stop))
         if piece.insert:
-            borders.update(f for f in range(piece.start + 1, piece.start + APPEAR) if f < piece.stop)
+            borders.update(f for f in range(piece.start + 1, piece.start + piece.appear) if f < piece.stop)
         if piece.every_frame or piece.timed:
             borders.update(range(piece.start, piece.stop))
         borders.update(range(piece.start, min(piece.stop, piece.start + piece.appear + 1)))
@@ -123,14 +127,26 @@ def _frame(t: float) -> int:
 
 
 def _subtitles(edit: dict, tl: Timeline) -> list[_Piece]:
-    """Субтитры без слов акцентных фраз (их показывает акцент); у soft — строки блока и появление новой строки."""
+    """Субтитры без слов акцентных фраз (их показывает акцент); у soft — строки блока и появление новой строки; блок,
+    который начинается внутри фразы `edit.subPlaces`, — на её высоте `y` (`sub.y`; нет — высота стиля)."""
     spoken = [Word(w["t0"], w["t1"], w["text"]) for w in edit.get("words") or []]
     style = edit["style"]["subtitles"]
     hidden = [(float(a["t0"]), float(a["t1"])) for a in edit.get("accents") or []]
     soft = style["mode"] == "soft"
+    # свои места субтитров (формат разбора: над головой на своих фразах) — кадры финала фразы и высота
+    places = [(*(_frame(t) for t in tl.span(float(p["t0"]), float(p["t1"]))), p["y"]) for p in edit.get("subPlaces") or []]
     pieces = []
+    y, previous = None, None
     for e in build_sub_events(spoken, tl, style["mode"], style["words"], hidden=hidden):
         sub = {"words": list(e["words"]), "active": e["active"], "visible": e["visible"]}
+        # новый блок (другие слова или счёт слов начался заново; первое событие блока без времени выпадает): место — по
+        # его первому показу, все строки и слова блока — там же
+        if previous is None or e["words"] != previous["words"] or e["active"] <= previous["active"]:
+            start = _frame(e["t0"])
+            y = next((y for a, b, y in places if a <= start < b), None)
+        previous = e
+        if y is not None:
+            sub["y"] = y
         if soft:  # opens — блок начинает предложение: иначе шаблон сделал бы строчным и имя посреди фразы
             sub["lines"] = list(e["lines"])
             sub["opens"] = e["opens"]
@@ -244,8 +260,8 @@ def _hook_end(edit: dict, tl: Timeline) -> int:
 
 def insert_spans(edit: dict, tl: Timeline) -> list[tuple[int, int, int]]:
     """Кадры показа вставок `(номер в edit.inserts, первый кадр, кадр после последнего)` по правилам: не раньше
-    конца хука, не короче 1,5 с. Все виды, в том числе fullscreen (её монтирует ffmpeg, а звук — в нужный кадр);
-    выключенных Павлом (`off`) — нет."""
+    конца хука, не короче 1,5 с; вставка на весь кадр — не дальше начала следующей такой (серия). Все виды, в том числе
+    fullscreen (её монтирует ffmpeg, а звук — в нужный кадр); выключенных Павлом (`off`) — нет."""
     after_hook = _hook_end(edit, tl)
     min_show = math.ceil(MIN_SHOW * FPS - 1e-9)
     spans = []
@@ -256,7 +272,12 @@ def insert_spans(edit: dict, tl: Timeline) -> list[tuple[int, int, int]]:
         start = max(_frame(a), after_hook)
         stop = max(_frame(b), start + min_show)
         spans.append((i, start, stop))
-    return spans
+    # серия перебивок (перечисление — фото на каждое имя): следующая на весь кадр обрывает предыдущую; начались на одном
+    # кадре — видна более поздняя по номеру (ffmpeg кладёт её сверху), нижней в ролике нет
+    full = [(start, i) for i, start, _ in spans if edit["inserts"][i]["kind"] == "fullscreen"]
+    cut = [(i, start, min([stop, *(s for s, j in full if s > start or (s == start and j > i))]))
+           if edit["inserts"][i]["kind"] == "fullscreen" else (i, start, stop) for i, start, stop in spans]
+    return [span for span in cut if span[2] > span[1]]
 
 
 def _inserts(edit: dict, tl: Timeline) -> list[_Piece]:
@@ -264,13 +285,16 @@ def _inserts(edit: dict, tl: Timeline) -> list[_Piece]:
     pieces = []
     for i, start, stop in insert_spans(edit, tl):
         ins = inserts[i]
+        if ins["kind"] == "fullscreen" and ins.get("caption"):  # подпись перебивки рисует шаблон
+            pieces.append(_Piece(start, stop, "caption", {"text": ins["caption"]}))
         if ins["kind"] not in DRAWN:
             continue
         missing = [k for k in ("x", "y", "w") if ins.get(k) is None]
         if missing:
             raise ValueError(f"inserts[{i}]: вставке «{ins['kind']}» нужно место на кадре — нет {', '.join(missing)}")
         value = {**{k: ins[k] for k in INSERT_FIELDS if k in ins}, "n": i}  # номер — для рамок в boxes.json и QA
-        pieces.append(_Piece(start, stop, f"insert{i}", value, insert=True, every_frame=ins["kind"] == "anim"))
+        frames_in = FLY if (ins.get("params") or {}).get("enter") in SIDES else APPEAR  # влетает сбоку — дольше
+        pieces.append(_Piece(start, stop, f"insert{i}", value, insert=True, every_frame=ins["kind"] == "anim", appear=frames_in))
     return pieces
 
 
@@ -284,7 +308,7 @@ def _state(pieces: list[_Piece], frame: int) -> dict:
         if piece.insert:
             shown = frame - piece.start
             moving = shown / FPS if piece.every_frame else 0  # время нужно только анимации
-            inserts.append({**piece.value, "anim": min(1, (shown + 1) / APPEAR), "t": moving})
+            inserts.append({**piece.value, "anim": min(1, (shown + 1) / piece.appear), "t": moving})
         elif piece.timed:
             state[piece.key] = {**piece.value, "t": (frame - piece.start) / FPS}
         elif piece.accent:
@@ -295,6 +319,6 @@ def _state(pieces: list[_Piece], frame: int) -> dict:
             state[piece.key] = piece.value
     if inserts:
         state["inserts"] = inserts
-    if "accent" in state:
-        state.pop("sub", None)  # слова акцента — и есть субтитры
+    if "accent" in state or "caption" in state:
+        state.pop("sub", None)  # слова акцента и подпись перебивки — и есть субтитры
     return state

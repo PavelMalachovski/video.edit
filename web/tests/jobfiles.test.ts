@@ -70,6 +70,18 @@ test('buildJobFile takes brief, duration and uploads from the manifest', () => {
   assert.equal(buildJobFile({ ...m, brief: undefined, duration: undefined, uploads: undefined }, NOW).duration, null);
 });
 
+test('a character breakdown goes from the manifest into job.json; an ordinary video has no such fields', () => {
+  const m: Manifest = {
+    job: '261030-070509-abcd', name: 'IMG_1.MOV', size: 100, type: 'video/quicktime', lastModified: 1, parts: 1, chunkSize: 4,
+    format: 'character', character: { film: 'Локи', name: 'Локи', actor: 'Том Хиддлстоун' },
+  };
+  const job = buildJobFile(m, NOW);
+  assert.equal(job.format, 'character');
+  assert.deepEqual(job.character, { film: 'Локи', name: 'Локи', actor: 'Том Хиддлстоун' });
+  const plain = buildJobFile({ ...m, format: undefined, character: undefined }, NOW);
+  assert.equal('format' in plain || 'character' in plain, false);
+});
+
 test('several videos go into job.json in their order, each where vm fetch puts it', () => {
   const m: Manifest = {
     job: '261010-070509-abcd', name: 'IMG_1.MOV', size: 150, type: 'video/quicktime', lastModified: 1, parts: 1, chunkSize: 4, duration: 95,

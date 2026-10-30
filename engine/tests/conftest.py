@@ -135,9 +135,10 @@ def hlg_sdr_source() -> Path:
 
 
 def _hdr_clip(name: str, transfer: str, dur: int, size: str) -> Path:
-    # настоящий HDR, а не SDR с чужой меткой: цвета переведены в BT.2020 с кривой HLG/PQ, 10 бит (как в Плане 1)
+    # настоящий HDR, а не SDR с чужой меткой: цвета переведены в BT.2020 с кривой HLG/PQ, 10 бит (как в Плане 1); белый
+    # SDR — 203 нит, как пишет iPhone (BT.2408). С npl=100 туда и обратно круг замыкался и засветку лиц тест не видел
     convert = (
-        f"zscale=tin=bt709:min=bt709:pin=bt709:rin=tv:t={transfer}:m=bt2020nc:p=bt2020:r=tv:npl=100,"
+        f"zscale=tin=bt709:min=bt709:pin=bt709:rin=tv:t={transfer}:m=bt2020nc:p=bt2020:r=tv:npl=203,"
         "format=yuv420p10le"
     )
     return cached(

@@ -3,6 +3,7 @@
 // blur_sigma) и ч/б-куски (render.look_windows). Кадр финала рисует ffmpeg; страница повторяет то же CSS-преобразованием
 // <video> (слой с текстом — поверх, его не трогают).
 // Общая фикстура engine/tests/fixtures/overlay-events.json (look); меняются только вместе.
+import { frameOf, insertSpans, type OverlayEdit } from './overlay.ts';
 import { pyRound } from './pyround.ts';
 import type { Timeline } from './timeline.ts';
 
@@ -14,6 +15,13 @@ export const MAX_SHOT = 1.3; // смена крупности и наезд (с�
 export const HALF = 0.12; // с — половина перехода на стыке
 export const PUNCH = 0.25; // толчок зума: на стыке картинка крупнее в 1,25 раза
 export const BLUR: readonly [number, number][] = [[8, 1.0], [14, 2 / 3], [24, 1 / 3]]; // смаз: sigma по x, px; доля полуокна
+export const TEAR = 9; // кадров рваной бумаги до стыка (vm/tear.py FRAMES)
+// глитч: полосы [y0, y1, сдвиг по x], px кадра 1080×1920 — на кадре до стыка, на стыке и после (transitions.GLITCH)
+export const GLITCH: readonly (readonly (readonly [number, number, number])[])[] = [
+  [[620, 700, 50], [1180, 1230, -40]],
+  [[300, 420, -70], [760, 900, 60], [1400, 1460, 30]],
+  [[980, 1060, -40]],
+];
 const TO_CUT = 0.25; // с исходника — край ч/б-куска так близко к краю отрезка встаёт на склейку
 
 export type Zoom = { t: number; level: number; over?: number };
@@ -94,13 +102,73 @@ export function zoomLevels(zooms: readonly Zoom[], tl: Timeline, punches: readon
 /** Переход на стыке во времени финала: `t` — стык, `source` — его t из edit.json. */
 export type TransitionMark = { t: number; kind: string; source: number };
 
+/** Сколько секунд переход идёт до стыка: с этого места — и его звук (transitions.lead). */
+export const transitionLead = (kind: string): number => (kind === 'tear' ? TEAR / FPS : kind === 'glitch' ? 1 / FPS : HALF);
+const transitionTail = (kind: string): number => (kind === 'tear' ? 0 : kind === 'glitch' ? (GLITCH.length - 1) / FPS : HALF);
+
 /** Переходы edit.json во времени финала по порядку; у самого начала и конца ролика их нет (transitions.marks). */
 export function transitionMarks(transitions: readonly TransitionSpec[], tl: Timeline): TransitionMark[] {
   return transitions
     .filter((x) => !x.off) // убранный Павлом в редакторе — не в ролике
     .map((x) => ({ t: tl.toFinalSnap(Number(x.t)), kind: x.kind, source: Number(x.t) }))
     .sort((a, b) => a.t - b.t || a.source - b.source)
-    .filter((m) => HALF <= m.t && m.t <= tl.duration - HALF);
+    .filter((m) => transitionLead(m.kind) <= m.t && m.t <= tl.duration - transitionTail(m.kind));
+}
+
+/** Рваная бумага: переход, перебивка (номер в edit.inserts), в которую он открывается, и её первый кадр — стык. */
+export type TearMark = { mark: TransitionMark; insert: number; join: number };
+
+/** Разрывы, у которых перебивка на весь кадр начинается ближе TEAR кадров к стыку: стык — её первый кадр; ближайшая,
+ *  при равенстве — раньше по номеру (transitions.tears). */
+export function tearsOf(transitions: readonly TransitionSpec[], edit: OverlayEdit, tl: Timeline): TearMark[] {
+  const inserts = edit.inserts ?? [];
+  // в клип в окошке разрыв не ведёт: кадр остаётся
+  const starts = insertSpans(edit, tl).filter(([i]) => inserts[i].kind === 'fullscreen' && (inserts[i] as { layout?: string }).layout !== 'window')
+    .map(([i, start]) => [start, i] as const);
+  return transitionMarks(transitions, tl).filter((m) => m.kind === 'tear').flatMap((mark): TearMark[] => {
+    const frame = frameOf(mark.t);
+    const near = starts.filter(([start]) => Math.abs(start - frame) < TEAR && start >= TEAR)
+      .map(([start, i]) => [Math.abs(start - frame), i, start] as const)
+      .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    return near.length ? [{ mark, insert: near[0][1], join: near[0][2] }] : [];
+  });
+}
+
+/** Где переход идёт в ролике, с: разрыв — TEAR кадров до своей перебивки (без неё — до стыка: в ролике его не будет),
+ *  глитч — кадр до стыка, стык и кадр после, остальные — стык ± HALF. */
+export function transitionWindow(m: TransitionMark, tears: readonly TearMark[]): [number, number] {
+  if (m.kind === 'tear') {
+    const join = tears.find((x) => x.mark === m)?.join;
+    return join === undefined ? [m.t - TEAR / FPS, m.t] : [(join - TEAR) / FPS, join / FPS];
+  }
+  if (m.kind === 'glitch') {
+    const join = frameOf(m.t);
+    return [(join - 1) / FPS, (join - 1 + GLITCH.length) / FPS];
+  }
+  return [m.t - HALF, m.t + HALF];
+}
+
+/** Переходы ролика и когда начинается каждый — с этого места его звук (transitions.sound_starts): разрыв — за TEAR кадров
+ *  до своей перебивки, без перебивки его нет; остальные — за `transitionLead` до стыка. */
+export function transitionSoundStarts(transitions: readonly TransitionSpec[], edit: OverlayEdit, tl: Timeline): [TransitionMark, number][] {
+  const torn = tearsOf(transitions, edit, tl);
+  return transitionMarks(transitions, tl).flatMap((m): [TransitionMark, number][] => {
+    if (m.kind !== 'tear') return [[m, Math.max(0, m.t - transitionLead(m.kind))]];
+    const x = torn.find((y) => y.mark.t === m.t && y.mark.source === m.source);
+    return x ? [[m, (x.join - TEAR) / FPS]] : [];
+  });
+}
+
+/** Какой кадр рваной бумаги (0..TEAR−1) на кадре n финала со стыком `join`; не в её окне — null (transitions.tear_frame). */
+export function tearFrame(join: number, n: number): number | null {
+  const k = n - (join - TEAR);
+  return k >= 0 && k < TEAR ? k : null;
+}
+
+/** Полосы глитча со стыком на кадре `join` на кадре n финала; не в его окне — пусто (transitions.glitch_bands). */
+export function glitchBands(join: number, n: number): [number, number, number][] {
+  const k = n - join + 1;
+  return k >= 0 && k < GLITCH.length ? GLITCH[k].map((b) => [...b] as [number, number, number]) : [];
 }
 
 // Вспышку и смаз ffmpeg включает по времени кадра n · (1/30) в double, а края окон читает из шести знаков движка

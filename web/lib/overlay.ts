@@ -9,6 +9,8 @@ import { Timeline } from './timeline.ts';
 
 export const FPS = 30;
 const APPEAR = 3; // кадров появления вставки
+const FLY = 8; // кадров, за которые влетает вставка с params.enter (стикер-картинка формата разбора)
+const SIDES: readonly unknown[] = ['left', 'right', 'top', 'bottom']; // откуда влетает; другое — обычное появление
 const MIN_SHOW = 1.5; // с — вставка показывается не короче
 const DRAWN = ['image', 'badge', 'sticker', 'text', 'anim']; // что рисует шаблон; fullscreen — ffmpeg
 const INSERT_FIELDS = ['kind', 'src', 'text', 'title', 'x', 'y', 'w', 'params'] as const;
@@ -29,6 +31,7 @@ export type AccentSpec = { t0: number; t1: number; x: number; y: number; lines: 
 export type InsertSpec = {
   kind: string; t0: number; t1: number; src?: string; text?: string; title?: string; x?: number | null; y?: number | null; w?: number | null;
   params?: Record<string, unknown>;
+  caption?: string; // подпись перебивки (fullscreen): её рисует шаблон
   off?: boolean; // выключил Павел в редакторе: в ролике её нет, номер остаётся
 };
 /** То из edit.json (уже с правками руками), из чего строится слой; `style` — стиль, который увидит ролик. */
@@ -39,6 +42,7 @@ export type OverlayEdit = {
   cta?: { t0: number; t1: number; lines: string[]; word: string } | null;
   accents?: AccentSpec[] | null;
   inserts?: InsertSpec[] | null;
+  subPlaces?: { t0: number; t1: number; y: number }[] | null; // свои места субтитров: блок — на высоте y фразы своего первого слова
   hold?: number | null;
   end?: { seconds: number; lines: string[]; handle?: string | null; logo?: string | null } | null;
   zone?: string | null;
@@ -99,7 +103,7 @@ export function buildOverlayEvents(edit: OverlayEdit, tl: Timeline): LayerEvent[
     if (p.stop <= p.start) continue;
     borders.add(p.start);
     borders.add(p.stop);
-    if (p.insert) add(p.start + 1, Math.min(p.start + APPEAR, p.stop));
+    if (p.insert) add(p.start + 1, Math.min(p.start + (p.appear ?? APPEAR), p.stop));
     if (p.everyFrame || p.timed) add(p.start, p.stop);
     add(p.start, Math.min(p.stop, p.start + (p.appear ?? 0) + 1));
     for (const [a, b] of p.accent?.moving ?? []) add(Math.max(a, p.start), Math.min(b, p.stop) + 1);
@@ -194,8 +198,24 @@ function subtitlePieces(edit: OverlayEdit, tl: Timeline): Piece[] {
   const style = edit.style.subtitles;
   const hidden = (edit.accents || []).map((a) => [Number(a.t0), Number(a.t1)]);
   const soft = style.mode === 'soft';
+  // свои места субтитров (формат разбора: над головой на своих фразах) — кадры финала фразы и высота
+  const places = (edit.subPlaces || []).map((p) => {
+    const [a, b] = tl.span(Number(p.t0), Number(p.t1));
+    return [frameOf(a), frameOf(b), p.y] as const;
+  });
+  let y: number | undefined;
+  let previous: { words: readonly string[]; active: number } | null = null;
+  const same = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((w, i) => w === b[i]);
   return buildSubEvents(edit.words || [], tl, style.mode, style.words, hidden).map((e) => {
     const sub: Record<string, unknown> = { words: [...e.words], active: e.active, visible: e.visible };
+    // новый блок (другие слова или счёт слов начался заново; первое событие блока без времени выпадает): место — по
+    // его первому показу, все строки и слова блока — там же
+    if (!previous || !same(e.words, previous.words) || e.active <= previous.active) {
+      const start = frameOf(e.t0);
+      y = places.find(([a, b]) => a <= start && start < b)?.[2];
+    }
+    previous = e;
+    if (y !== undefined) sub.y = y;
     if (soft) { // opens — блок начинает предложение: иначе шаблон сделал бы строчным и имя посреди фразы
       sub.lines = [...(e.lines as number[])];
       sub.opens = e.opens;
@@ -303,29 +323,40 @@ export function hookEnd(edit: OverlayEdit, tl: Timeline): number {
 }
 
 /** Кадры показа вставок `[номер в edit.inserts, первый кадр, кадр после последнего]`: не раньше конца хука, не короче
- *  1,5 с, не дальше своей серии кусков. Все виды, и fullscreen; выключенных Павлом (`off`) — нет (insert_spans движка). */
+ *  1,5 с, не дальше своей серии кусков; вставка на весь кадр — не дальше начала следующей такой (серия перебивок). Все
+ *  виды, и fullscreen; выключенных Павлом (`off`) — нет (insert_spans движка). */
 export function insertSpans(edit: OverlayEdit, tl: Timeline): [number, number, number][] {
   const afterHook = hookEnd(edit, tl);
   const minShow = Math.ceil(MIN_SHOW * FPS - 1e-9);
-  return (edit.inserts || []).flatMap((ins, i): [number, number, number][] => {
+  const spans = (edit.inserts || []).flatMap((ins, i): [number, number, number][] => {
     if (ins.off) return []; // номер остаётся: по нему ключи звуков insert:<n> и рамки в boxes.json
     const [a, b] = tl.span(Number(ins.t0), Number(ins.t1));
     const start = Math.max(frameOf(a), afterHook);
     return [[i, start, Math.max(frameOf(b), start + minShow)]];
   });
+  // серия перебивок (перечисление — фото на каждое имя): следующая на весь кадр обрывает предыдущую; начались на одном
+  // кадре — видна более поздняя по номеру (ffmpeg кладёт её сверху), нижней в ролике нет
+  const full = (i: number) => (edit.inserts || [])[i].kind === 'fullscreen';
+  const starts = spans.filter(([i]) => full(i)).map(([j, start]) => [start, j] as const);
+  return spans.map(([i, start, stop]): [number, number, number] =>
+    [i, start, full(i) ? Math.min(stop, ...starts.filter(([s, j]) => s > start || (s === start && j > i)).map(([s]) => s)) : stop])
+    .filter(([, start, stop]) => stop > start);
 }
 
 function insertPieces(edit: OverlayEdit, tl: Timeline): Piece[] {
   const inserts = edit.inserts || [];
   return insertSpans(edit, tl).flatMap(([i, start, stop]): Piece[] => {
     const ins = inserts[i];
+    // подпись перебивки рисует шаблон
+    if (ins.kind === 'fullscreen' && ins.caption) return [{ start, stop, key: 'caption', value: { text: ins.caption } }];
     if (!DRAWN.includes(ins.kind)) return [];
     const missing = (['x', 'y', 'w'] as const).filter((k) => ins[k] === undefined || ins[k] === null);
     if (missing.length) throw new Error(`inserts[${i}]: вставке «${ins.kind}» нужно место на кадре — нет ${missing.join(', ')}`);
     const value: Record<string, unknown> = {};
     for (const k of INSERT_FIELDS) if (k in ins) value[k] = ins[k];
     value.n = i; // номер — для рамок в boxes.json и QA
-    return [{ start, stop, key: `insert${i}`, value, insert: true, everyFrame: ins.kind === 'anim', n: i }];
+    const appear = SIDES.includes((ins.params as { enter?: unknown } | undefined)?.enter) ? FLY : APPEAR; // влетает сбоку — дольше
+    return [{ start, stop, key: `insert${i}`, value, insert: true, everyFrame: ins.kind === 'anim', n: i, appear }];
   });
 }
 
@@ -336,13 +367,13 @@ function stateOf(pieces: Piece[], frame: number): Record<string, unknown> {
     if (!(p.start <= frame && frame < p.stop)) continue;
     if (p.insert) {
       const shown = frame - p.start;
-      inserts.push({ ...p.value, anim: Math.min(1, (shown + 1) / APPEAR), t: p.everyFrame ? shown / FPS : 0 });
+      inserts.push({ ...p.value, anim: Math.min(1, (shown + 1) / (p.appear ?? APPEAR)), t: p.everyFrame ? shown / FPS : 0 });
     } else if (p.timed) state[p.key] = { ...p.value, t: (frame - p.start) / FPS };
     else if (p.accent) state[p.key] = accentState(p, frame);
     else if (frame - p.start < (p.appear ?? 0)) state[p.key] = { ...p.value, t: (frame - p.start + 1) / FPS };
     else state[p.key] = p.value;
   }
   if (inserts.length) state.inserts = inserts;
-  if ('accent' in state) delete state.sub; // слова акцента — и есть субтитры
+  if ('accent' in state || 'caption' in state) delete state.sub; // слова акцента и подпись перебивки — и есть субтитры
   return state;
 }

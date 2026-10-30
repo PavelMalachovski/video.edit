@@ -992,3 +992,69 @@ def test_b_roll_sound_plays_quietly_only_in_its_window(tmp_path, sources):
 
     assert tone(2.3, 3.7) > 0.05, "в окне перебивки слышен её фон"
     assert tone(4.5, 5.8) < 0.01, "после окна — нет"
+
+
+# ---------- рваная бумага и глитч (формат «Разбор персонажа») ----------
+
+
+def test_the_tear_opens_onto_the_b_roll_in_grey_with_paper_edges_and_the_glitch_shifts_bands(tmp_path, sources):
+    from vm import tear
+    from vm.transitions import GLITCH, TEAR
+
+    job = make_job(tmp_path, sources["short"], keep=[[0.0, 6.0]])
+    ffmpeg("-f", "lavfi", "-i", "color=c=blue:s=640x360", "-frames:v", "1", job.path("in/uploads/upload-b1.png"))
+    edit = job.read("edit.json")
+    edit["inserts"] = [{"kind": "fullscreen", "src": "in/uploads/upload-b1.png", "t0": 2.0, "t1": 3.0, "sfx": None}]
+    edit["transitions"] = [{"t": 2.0, "kind": "tear", "sfx": None}, {"t": 4.5, "kind": "glitch", "sfx": None}]
+    job.write("edit.json", edit)
+    render(job, job.path("out"), preset="ultrafast")
+    final = job.path("out") / "final.mp4"
+    slit, edge = tear.frame(TEAR - 1)
+    last = frame(final, (60 - 1) / 30)  # последний кадр разрыва: стык — кадр 60
+    ys, xs = np.nonzero(slit[900:1000])
+    inside = last[900 + ys[len(ys) // 2], xs[len(xs) // 2]].astype(int)
+    assert inside.max() - inside.min() < 25, f"в щели — перебивка в ч/б, а не синяя: {inside}"
+    # серый — как у CSS grayscale(1) в редакторе: яркость по BT.709 (синий — 0,0722 · 255 ≈ 18; по BT.601 вышло бы 29);
+    # растр затемняет часть точек — берём светлую середину между ними
+    gray = np.sort(last[900:1000, 520:560].astype(int).mean(axis=2).ravel())[-200:].mean()
+    assert abs(gray - 0.0722 * 255) < 6, f"серый в щели — по BT.709: {gray:.1f}"
+    paper = np.nonzero(edge[960, :, 3] == 255)[0]
+    assert close(last[960, paper[len(paper) // 2]], tear.PAPER, tol=30), "края — белая бумага"
+    talking = lambda t, y, x: tuple(int(c) for c in frame(job.path("source.mp4"), t)[y, x])
+    assert close(last[960, 20], talking((60 - 1) / 30, 960, 20), tol=30), "вдали от щели — говорящий"
+    assert close(frame(final, 2.5)[960, 540], (0, 0, 255), tol=40), "после разрыва — перебивка в цвете"
+    at = (60 - TEAR - 1) / 30
+    assert close(frame(final, at)[960, 540], talking(at, 960, 540), tol=30), "до окна — без разрыва"
+    # кадр в кадр: на первом кадре окна — кадр 0 щели (у кадра 1 щель шире и закрыла бы это место бумаги)
+    slit0, edge0 = tear.frame(0)
+    inner = np.nonzero(slit0[960])[0].min() - 1  # бумага вплотную к трещине
+    assert edge0[960, inner, 3] == 255 and tear.frame(1)[0][960, inner] == 255
+    # яркость: цвет у края в 1 px размывает 4:2:0, а серая перебивка (синяя в ч/б) — тёмная
+    assert frame(final, (60 - TEAR) / 30)[960, inner].astype(int).mean() > 200, "первый кадр окна — кадр 0 разрыва"
+    # глитч: на стыке полоса кадра — копия со сдвигом
+    join = round(4.5 * 30)
+    y0, y1, dx = GLITCH[1][1]
+    row = (y0 + y1) // 2
+    shifted, plain = frame(final, join / 30)[row].astype(int), frame(job.path("source.mp4"), join / 30)[row].astype(int)
+    assert np.abs(shifted[200 + dx : 800 + dx] - plain[200:800]).mean() < np.abs(shifted[200:800] - plain[200:800]).mean()
+
+
+def test_b_roll_in_a_window_plays_over_the_talking_head_in_a_rounded_corner(tmp_path, sources):
+    from vm.broll import WINDOW
+
+    job = make_job(tmp_path, sources["short"], keep=[[0.0, 6.0]])
+    b_roll_clip(job.path("in/uploads/upload-b1.mp4"))
+    edit = job.read("edit.json")
+    edit["inserts"] = [{"kind": "fullscreen", "src": "in/uploads/upload-b1.mp4", "t0": 1.0, "t1": 3.0, "layout": "window", "sfx": None}]
+    edit["transitions"] = [{"t": 1.0, "kind": "tear", "sfx": None}]  # в окошко разрыв не ведёт
+    job.write("edit.json", edit)
+    render(job, job.path("out"), preset="ultrafast")
+    final = job.path("out") / "final.mp4"
+    shot, talk = frame(final, 1.5), frame(job.path("source.mp4"), 1.5)
+    red = (255, 0, 0)
+    assert close(shot[WINDOW["y"] + WINDOW["h"] // 2, WINDOW["x"] + WINDOW["w"] // 2], red, tol=40), "в окошке — клип"
+    assert close(shot[1200, 700], tuple(int(c) for c in talk[1200, 700]), tol=30), "вне окошка — говорящий"
+    corner = shot[WINDOW["y"] + 2, WINDOW["x"] + 2]
+    assert close(corner, tuple(int(c) for c in talk[WINDOW["y"] + 2, WINDOW["x"] + 2]), tol=40), "скруглённый угол — прозрачный"
+    gap = frame(final, (30 - 4) / 30)[960, 540]
+    assert close(gap, tuple(int(c) for c in frame(job.path("source.mp4"), (30 - 4) / 30)[960, 540]), tol=40), "разрыва нет"

@@ -14,7 +14,7 @@ from pathlib import Path
 
 from vm import beats, edits, fonts, transitions
 from vm.asr import Word
-from vm.broll import PIP, face_box
+from vm.broll import PIP, WINDOW, face_box
 from vm.looks import LOOKS, css_filter
 from vm.overlay import FPS, build_overlay_events, insert_spans
 from vm.render import (
@@ -169,6 +169,39 @@ OVERLAY = [
      "keep": [[0.0, 3.0], [3.2, 3.9]], "speed": 1.0, "teaser": None,
      "edit": {"words": TRICKY, "style": _style("soft", 2), "hook": {"text": "Ну что", "until": 0.35},
               "end": {"seconds": 1.0, "lines": ["Пока"]}}},
+    {"name": "a series of b-roll on a list of names: each cuts the previous off, captions instead of subtitles",
+     "keep": [[0.3, 4.6], [5.1, 9.5]], "speed": 1.1, "teaser": None,
+     "edit": {"words": SPEECH, "style": _style("soft", 3),
+              "inserts": [{"kind": "fullscreen", "src": "in/uploads/upload-b1.jpg", "t0": 2.6, "t1": 3.0, "caption": "Эдриан Броуди"},
+                          {"kind": "fullscreen", "src": "in/uploads/upload-b2.jpg", "t0": 3.1, "t1": 3.4, "caption": "Том Хиддлстоун"},
+                          {"kind": "image", "src": "a.png", "t0": 3.2, "t1": 3.6, "x": 100, "y": 100, "w": 300},
+                          {"kind": "fullscreen", "src": "in/uploads/upload-b3.mp4", "t0": 3.5, "t1": 4.0, "caption": "Питер Капальди", "off": True},
+                          {"kind": "fullscreen", "src": "in/uploads/upload-b4.mp4", "t0": 3.6, "t1": 4.2},
+                          {"kind": "fullscreen", "src": "in/uploads/upload-b5.jpg", "t0": 7.0, "t1": 7.5, "caption": "Лыков"}]}},
+    {"name": "subtitles in their own places: a block takes the place of its first word, all its lines stay there",
+     "keep": [[0.3, 4.6], [5.1, 9.5]], "speed": 1.1, "teaser": None,
+     "edit": {"words": SPEECH, "style": _style("soft", 3), "subPlaces": [{"t0": 2.6, "t1": 4.0, "y": 380}, {"t0": 7.0, "t1": 9.5, "y": 1100}]}},
+    {"name": "subtitles in their own places in karaoke, an accent among them",
+     "keep": [[0.3, 9.5]], "speed": 1.0, "teaser": None,
+     "edit": {"words": SPEECH, "style": _style("karaoke", 3, "plate"), "accents": [ACCENT],
+              "subPlaces": [{"t0": 0.3, "t1": 3.0, "y": 300}, {"t0": 6.0, "t1": 6.5, "y": 1600}]}},
+    {"name": "subtitles in their own places: a block whose first word got no time (two words start together)",
+     "keep": [[0.0, 9.5]], "speed": 1.0, "teaser": None,
+     "edit": {"words": [{"t0": 0.5, "t1": 0.7, "text": "Это"}, {"t0": 0.8, "t1": 1.0, "text": "такой"},
+                        {"t0": 1.1, "t1": 1.4, "text": "типаж."}, {"t0": 2.6, "t1": 2.6, "text": "И"},
+                        {"t0": 2.6, "t1": 3.0, "text": "вот"}, {"t0": 3.1, "t1": 3.4, "text": "он."}],
+              "style": _style("karaoke", 3, "plate"), "subPlaces": [{"t0": 0.4, "t1": 2.0, "y": 380}]}},
+    {"name": "a sticker picture flies in from the side over eight frames, another pops in over three",
+     "keep": [[0.3, 9.5]], "speed": 1.0, "teaser": None,
+     "edit": {"words": SPEECH, "style": _style("soft", 3),
+              "inserts": [{"kind": "image", "src": "a.png", "t0": 2.0, "t1": 4.0, "x": 640, "y": 300, "w": 260,
+                           "params": {"cutout": True, "enter": "right", "tilt": 8}},
+                          {"kind": "image", "src": "b.png", "t0": 2.5, "t1": 4.0, "x": 80, "y": 900, "w": 260, "params": {"glow": True}}]}},
+    {"name": "b-roll starting on one frame (pushed to the end of the hook): only the top one is shown, with its caption",
+     "keep": [[0.3, 9.5]], "speed": 1.0, "teaser": None,
+     "edit": {"words": SPEECH, "style": _style("karaoke", 3, "plate"), "hook": {"text": "Кто такой Локи", "until": 2.5},
+              "inserts": [{"kind": "fullscreen", "src": "in/uploads/upload-b1.jpg", "t0": 1.0, "t1": 3.0, "caption": "Локи"},
+                          {"kind": "fullscreen", "src": "in/uploads/upload-b2.jpg", "t0": 2.0, "t1": 3.5, "caption": "Тор"}]}},
     {"name": "nothing to draw", "keep": [[0.0, 2.0]], "speed": 1.0, "teaser": None,
      "edit": {"words": [], "style": _style("karaoke", 3)}},
 ]
@@ -228,6 +261,16 @@ LOOK = [
               "transitions": [{"t": 1.02, "kind": "flash"}, {"t": 2.5, "kind": "zoom"}, {"t": 3.82, "kind": "blur"},
                               {"t": 4.22, "kind": "flash"}, {"t": 7.48, "kind": "blur"}, {"t": 8.32, "kind": "flash"}],
               "looks": []}},
+    {"name": "a tear onto a b-roll a beat moved, a tear with no b-roll near, glitches; a tear needs room before its seam",
+     "keep": [[0.0, 4.0], [4.3, 10.0]], "speed": 1.0, "teaser": None,
+     "edit": {"zooms": [], "looks": [],
+              "transitions": [{"t": 2.0, "kind": "tear"}, {"t": 5.0, "kind": "tear"}, {"t": 7.0, "kind": "glitch"},
+                              {"t": 0.02, "kind": "glitch"}, {"t": 0.2, "kind": "tear"}, {"t": 8.5, "kind": "tear", "off": True},
+                              {"t": 7.3, "kind": "tear"}],
+              "inserts": [{"kind": "fullscreen", "src": "a.jpg", "t0": 2.2, "t1": 3.0},
+                          {"kind": "fullscreen", "src": "b.jpg", "t0": 5.9, "t1": 6.5},
+                          {"kind": "fullscreen", "src": "c.jpg", "t0": 8.5, "t1": 9.0},
+                          {"kind": "fullscreen", "src": "d.mp4", "t0": 7.3, "t1": 8.0, "layout": "window"}]}},
     {"name": "filters set by hand: one look per frame, the later piece wins; neighbours of one look merge; off is in colour",
      "keep": [[0.0, 4.0], [4.5, 9.0]], "speed": 1.1, "teaser": [6.0, 7.5],
      "edit": {"zooms": [], "transitions": [],
@@ -446,6 +489,11 @@ def look_case(case: dict) -> dict:
                   for m in marks if m.kind == "flash"],
         "blur": [{"t": m.t, "frames": [[n, transitions.blur_sigma(m.t, n)] for n in _around(m.t)]}
                  for m in marks if m.kind == "blur"],
+        "tears": [{"t": x.mark.t, "insert": x.insert, "join": x.join,
+                   "frames": [[n, transitions.tear_frame(x.join, n)] for n in range(x.join - 12, x.join + 3)]}
+                  for x in transitions.tears(edit, tl)],
+        "glitch": [{"t": m.t, "frames": [[n, transitions.glitch_bands(round(m.t * 30), n)] for n in _around(m.t)]}
+                   for m in marks if m.kind == "glitch"],
     }
 
 
@@ -499,7 +547,7 @@ BROLL_FACES = [{"x": 0.5, "y": 0.5}, {"x": 0.5, "y": 0.3}, {"x": 0.1, "y": 0.05}
 
 def broll_case() -> dict:
     """Окошко лица перебивки (broll.PIP) и кусок кадра в нём по точке лица (face_box) — так его рисует плеер редактора."""
-    return {"pip": PIP, "faces": [[face, list(face_box(face))] for face in BROLL_FACES]}
+    return {"pip": PIP, "window": WINDOW, "faces": [[face, list(face_box(face))] for face in BROLL_FACES]}
 
 
 def build() -> dict:

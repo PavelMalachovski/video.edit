@@ -3,7 +3,7 @@
 // минута ожидания после ответа «лимит», продолжение с уже загруженных кусков; ответ, который повтор не исправит
 // (сайт на паузе, вход истёк, кусок неверный), останавливает загрузку сразу.
 import { PAUSED, statusText } from './client.ts';
-import { CHUNK_SIZE, chunkName, isBrollFile, isJobId, isSourceFile, isUploadFile, isVoiceFile, videoAsset } from './jobs.ts';
+import { checkCharacter, CHUNK_SIZE, chunkName, isBrollFile, isJobId, isSourceFile, isUploadFile, isVoiceFile, videoAsset, type Character } from './jobs.ts';
 
 export type PutResult = { ok: true } | { ok: false; status: number };
 
@@ -102,6 +102,7 @@ export type Pending = {
   brief: string; duration: number | null; inserts: PendingInsert[];
   voice?: PendingInsert; // озвучка — своя запись голоса
   more?: PendingInsert[]; // ещё видео задачи по порядку: source-2, source-3…
+  character?: Character; // разбор персонажа: фильм, персонаж, актёр (нет — обычный ролик)
 };
 type Picked = { name: string; size: number; lastModified: number };
 
@@ -159,6 +160,7 @@ const isPending = (x: unknown): x is Pending => {
   return typeof p === 'object' && p !== null && typeof p.jobId === 'string' && isJobId(p.jobId) && Number.isInteger(p.releaseId)
     && typeof p.source?.name === 'string' && Number.isFinite(p.source.size) && Number.isFinite(p.source.lastModified) && okShrunk(p.source)
     && typeof p.brief === 'string' && Array.isArray(p.inserts) && p.inserts.every((i) => typeof i?.asset === 'string' && isUploadFile(i.asset))
+    && (p.character === undefined || 'character' in checkCharacter(p.character))
     && (p.voice === undefined || (typeof p.voice?.asset === 'string' && isVoiceFile(p.voice.asset)))
     && (p.more === undefined || (Array.isArray(p.more) && p.more.every((v) => typeof v?.asset === 'string' && v.asset !== 'source'
       && isSourceFile(v.asset) && typeof v.name === 'string' && typeof v.type === 'string' && Number.isFinite(v.size) && v.size > 0

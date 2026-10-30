@@ -31,8 +31,10 @@ W, H = 1080, 1920
 SLOTS = ("hook", "subs", "accent", "insert", "cta")  # порядок клеток листа 3×2: слева направо, сверху вниз
 HEAD = 0.5  # с — начало музыки, которое должно звучать
 SILENT_DB = -50.0  # пик тише этого — тишина
-NAMES = {"sub": "субтитры", "hook": "хук", "cta": "титр", "accent": "акцент", "end": "финальная карточка"}
-TEXTS = ("sub", "hook", "cta", "accent")  # тексты слоя: друг на друге не стоят
+NAMES = {"sub": "субтитры", "hook": "хук", "cta": "титр", "accent": "акцент", "caption": "подпись перебивки",
+         "end": "финальная карточка"}
+TEXTS = ("sub", "hook", "cta", "accent", "caption")  # тексты слоя: друг на друге не стоят
+LOW = ("sub", "caption")  # могут опускаться до низа субтитров; подпись — на перебивке, лица говорящего под ней нет
 HOOK_BY = 1.0  # с — хук на экране не позже: мысль ролика — в первые 2 с (гайд «Всё о Reels»)
 MAX_LENGTH = 90.0  # с — длина, которую советует гайд
 CHECKS = {  # строки чек-листа на экране «Готово»; подпись к посту Claude пишет после рендера — её строку ставит страница
@@ -128,9 +130,10 @@ def check_layout(boxes_by_event: list[dict], face_at_rest: dict | None, inserts:
         if boxes.get("end") and _outside(boxes["end"], safe):  # карточка — на затемнённом кадре: лицо закрывать можно
             problem(f"{NAMES['end']} вне безопасной зоны", e)
         for key, b in texts:
-            if _outside(b, {**safe, "y1": safe.get("subs_y1", safe["y1"])} if key == "sub" else safe):
+            if _outside(b, {**safe, "y1": safe.get("subs_y1", safe["y1"])} if key in LOW else safe):
                 problem(f"{NAMES[key]} вне безопасной зоны", e)
-            if face and key != "sub" and _gap(b, face) < FACE_GAP:
+            raised = key == "sub" and face and b["y"] + b["h"] / 2 < face["y"] + face["h"] / 2  # subPlaces: над головой
+            if face and (key not in LOW or raised) and _gap(b, face) < FACE_GAP:
                 problem(f"{NAMES[key]} на лице или ближе {FACE_GAP} px к нему", e)
         for (ka, a), (kb, b) in ((x, y) for i, x in enumerate(texts) for y in texts[i + 1 :]):
             if _overlap(a, b):

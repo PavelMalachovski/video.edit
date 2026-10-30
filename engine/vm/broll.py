@@ -14,10 +14,21 @@ from pathlib import Path
 
 from .audio import BROLL_NORM
 from .job import Job
-from .media import MediaError, _atomic, _ffmpeg, contact_sheet, extract_wav, probe
+from .media import (
+    HDR_TO_SDR,
+    MediaError,
+    _atomic,
+    _ffmpeg,
+    contact_sheet,
+    extract_wav,
+    probe,
+)
 
 # окошко: правый верхний угол, ниже шапки Reels и выше середины кадра (внизу — субтитры и шкала), 3:4
 PIP = {"x": 672, "y": 300, "w": 360, "h": 480, "r": 36}
+# клип в окошке (`layout: window`, формат разбора: «разбирали…» — свой прошлый ролик поверх говорящего): слева сверху,
+# 3:4, как окошко лица, но меньше — лицо говорящего остаётся открытым
+WINDOW = {"x": 60, "y": 300, "w": 300, "h": 400, "r": 28}
 # кусок кадра с лицом: тоже 3:4, половина ширины кадра — лицо крупно, но не в упор
 FACE = {"w": 540, "h": 720}
 FACE_AT = 0.4  # точка лица — на этой доле высоты окошка (глаза выше середины, как в портрете)
@@ -33,8 +44,8 @@ def face_box(face: dict, width: int = 1080, height: int = 1920) -> tuple[int, in
     return x, y, w, h
 
 
-def pip_mask(path: Path) -> Path:
-    """Маска окошка (серая PNG размером окошка): 255 — видно, 0 — скруглённые углы."""
+def pip_mask(path: Path, box: dict = PIP) -> Path:
+    """Маска окошка `box` (PIP или WINDOW; серая PNG размером окошка): 255 — видно, 0 — скруглённые углы."""
     from PIL import (  # здесь, а не при импорте: render без Pillow нужен e2e страницы
         Image,
         ImageDraw,
@@ -42,8 +53,8 @@ def pip_mask(path: Path) -> Path:
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    mask = Image.new("L", (PIP["w"], PIP["h"]), 0)
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, PIP["w"] - 1, PIP["h"] - 1), radius=PIP["r"], fill=255)
+    mask = Image.new("L", (box["w"], box["h"]), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, box["w"] - 1, box["h"] - 1), radius=box["r"], fill=255)
     mask.save(path)
     return path
 
@@ -63,12 +74,21 @@ def proxy(path: Path, out: Path, sound: bool) -> Path:
     with _atomic(Path(out)) as tmp:
         _ffmpeg(
             "-i", path, "-t", PROXY["seconds"], "-map", "0:v:0", *(["-map", "0:a:0"] if sound else []),
-            "-vf", f"{fit},fps=30,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", 30,
+            "-vf", f"{fit},fps=30,{_colour(path)}", "-c:v", "libx264", "-preset", "veryfast", "-crf", 30,
             "-maxrate", PROXY_RATE, "-bufsize", 2 * PROXY_RATE, "-g", gop, "-keyint_min", gop, "-sc_threshold", 0,
             *(["-af", f"{BROLL_NORM},aresample=48000", "-c:a", "aac", "-b:a", 64_000, "-ac", 2] if sound else []),
             "-movflags", "+faststart", *(["-shortest"] if sound else []), tmp,
         )
     return Path(out)
+
+
+def _colour(path: Path) -> str:
+    """Цвета прокси — как у клипа в ролике (render._picture): HDR с iPhone — в SDR тем же переводом, остальное — как есть."""
+    try:
+        hdr = probe(path).hdr
+    except MediaError:
+        hdr = False
+    return HDR_TO_SDR if hdr else "format=yuv420p"
 
 
 # ---------- vm broll: что за клипы — для Claude (шаг analyze) ----------

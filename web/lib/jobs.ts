@@ -126,6 +126,31 @@ export function checkVideos(videos: unknown, top: { name: string; size: number; 
   return all ? { error: all } : { videos: out };
 }
 
+// ---------- разбор персонажа ----------
+
+/** Формат «Разбор персонажа» (переключатель на экране загрузки): фильм или сериал, персонаж, актёр. */
+export type Character = { film: string; name?: string; actor?: string };
+export const CHARACTER_FIELD = 120; // знаков в каждом поле
+
+/** Поля разбора, как их шлёт страница: нет — обычный ролик; фильм — обязательно, остальное — если заполнено. */
+export function checkCharacter(raw: unknown): { character: Character | null } | { error: string } {
+  if (raw === undefined || raw === null) return { character: null };
+  if (typeof raw !== 'object' || Array.isArray(raw)) return { error: 'разбор персонажа: нужен объект' };
+  const fields = raw as Record<string, unknown>;
+  const out: Record<string, string> = {};
+  for (const key of ['film', 'name', 'actor'] as const) {
+    const v = fields[key];
+    if (v === undefined || v === null) continue;
+    if (typeof v !== 'string') return { error: `разбор персонажа: ${key} — текст` };
+    const text = v.replace(/\s+/gu, ' ').trim(); // таб и перевод строки из вставленного текста — пробел
+    if (text.length > CHARACTER_FIELD) return { error: `разбор персонажа: ${key} длиннее ${CHARACTER_FIELD} знаков` };
+    if (/[\u0000-\u001f\u007f]/.test(text)) return { error: `разбор персонажа: ${key} — без управляющих символов` };
+    if (text) out[key] = text;
+  }
+  if (!out.film) return { error: 'разбор персонажа: нужен фильм или сериал' };
+  return { character: out as Character };
+}
+
 // ---------- пределы ----------
 
 export const MAX_SOURCE_BYTES = 3 * 1024 ** 3;

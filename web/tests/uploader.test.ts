@@ -273,3 +273,12 @@ test('a pending upload remembers the size of each shrunk video; the chunks follo
     assert.equal(loadPending(store), null, JSON.stringify(bad));
   }
 });
+
+test('a stopped character breakdown remembers its film, character and actor; a broken one is not resumed', () => {
+  const store = memoryStorage();
+  const p: Pending = { ...pending, character: { film: 'Локи', actor: 'Том Хиддлстоун' } };
+  savePending(store, p);
+  assert.deepEqual(loadPending(store), p);
+  store.setItem('vm:pending', JSON.stringify({ ...pending, character: { actor: 'без фильма' } }));
+  assert.equal(loadPending(store), null);
+});

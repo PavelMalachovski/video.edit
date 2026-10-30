@@ -433,3 +433,26 @@ test('the teaser off and another speed by hand: the video plays without the teas
   assert.ok(near(draftTracks(fast).duration, 3.5 / 1.5), 'ролик короче');
   assert.equal(withHandEdits(DRAFT, { edits: [] }).draft, DRAFT, 'правок нет — тот же черновик');
 });
+
+test('the editor keeps the session\'s own places of subtitles: its frame draws them where the video will', () => {
+  const places = [{ t0: 0.2, t1: 0.8, y: 380 }];
+  const d = parseDraft({ ...DRAFT, subPlaces: [...places, { t0: 1, t1: 2 }, { t0: 1, t1: 2, y: 'верх' }] });
+  assert.deepEqual(d?.subPlaces, places, 'кривые места — без них');
+  assert.deepEqual(draftTracks(d!).layer.edit.subPlaces, places);
+  assert.equal(draftTracks(parseDraft(DRAFT)!).layer.edit.subPlaces?.length ?? 0, 0);
+});
+
+test('torn paper on the picture track stands over its window before its b-roll and sounds from there; with no b-roll — no sound', () => {
+  const d = parseDraft({
+    ...DRAFT, keep: [[0, 9]], speed: 1, hook: null,
+    inserts: [{ kind: 'fullscreen', src: 'in/uploads/upload-b1.jpg', t0: 3.1, t1: 4 }],
+    transitions: [{ t: 3, kind: 'tear', sfx: 'assets/sfx/rip.mp3' }, { t: 6, kind: 'tear', sfx: 'assets/sfx/rip.mp3' }, { t: 7, kind: 'glitch' }],
+  })!;
+  const t = draftTracks(d, { sourceDuration: 9 });
+  const [tear, lone, glitch] = t.transitions;
+  assert.deepEqual([tear.t0, tear.t1], [(93 - 9) / 30, 93 / 30], 'окно разрыва — 9 кадров до перебивки (3,1 с), а не вокруг t');
+  assert.deepEqual([lone.t0, lone.t1], [6 - 9 / 30, 6]);
+  assert.deepEqual([glitch.t0, glitch.t1], [209 / 30, 212 / 30], 'глитч — кадр до стыка, стык и кадр после');
+  const rips = t.sounds.filter((s) => s.key?.startsWith('transition'));
+  assert.deepEqual(rips.map((s) => s.t0), [(93 - 9) / 30], 'звук — с начала окна; разрыв без перебивки не звучит');
+});

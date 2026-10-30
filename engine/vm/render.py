@@ -33,13 +33,13 @@ import math
 import os
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import beats, edits, matte, transitions
 from .asr import Word
 from .audio import MIN_MUSIC, QUIET_LUFS, audio_graph
-from .broll import PIP, face_box, pip_mask
+from .broll import PIP, WINDOW, face_box, pip_mask
 from .job import Job, validate
 from .looks import paint, rgb_chain
 from .media import (
@@ -131,6 +131,7 @@ class Layer:
     boxes: list[dict]  # boxes.json: [{t0, t1, frame, boxes}]
     warnings: list[str]
     beats: dict | None = None  # монтаж в такт: {bpm, moved}; без музыки — None
+    missing: list[str] = field(default_factory=list)  # перебивки без файла или с нечитаемым: ролик без них
 
 
 def variant_b(edit: dict) -> dict:
@@ -206,11 +207,35 @@ def draw_layer(job: Job, edit: dict | None = None, work: str = "work/render") ->
     beyond = (timeline(edit).duration - tl.duration) * edit["speed"]
     if beyond > 0.1:
         warnings.append(f"keep заходит за конец исходника ({info.duration:.1f} с): {beyond:.1f} с отрезков отброшено")
-    warnings += transitions.warnings(edit, tl)
+    edit, broken = drop_broken_brolls(job, edit)
     edit, beat = on_beats(job, edit, tl)
+    warnings += transitions.warnings(edit, tl)  # по тому, что пойдёт в ролик: без битых перебивок, на долях музыки
     frames = _layer(job, edit, tl, job.path(work))
     boxes = json.loads((frames.parent / "boxes.json").read_text(encoding="utf-8"))
-    return Layer(edit, info, tl, frames, boxes, warnings, beat)
+    return Layer(edit, info, tl, frames, boxes, warnings, beat, broken)
+
+
+def drop_broken_brolls(job: Job, edit: dict) -> tuple[dict, list[str]]:
+    """Вставки на весь кадр, файла которых нет или он не читается, в ролике не будет совсем — как выключенных (`off`):
+    они не обрывают соседнюю в серии, не рисуют подпись и не звучат. → (копия edit, строки для `missing`)."""
+    inserts = [dict(i) for i in edit.get("inserts") or []]
+    missing = []
+    for ins in inserts:
+        if ins["kind"] != "fullscreen" or ins.get("off"):
+            continue
+        path = _resolve(job, ins.get("src"))
+        if path is None:
+            missing.append(f"нет файла перебивки {ins.get('src')} — ролик без неё")
+            ins["off"] = True
+            continue
+        try:
+            hdr = probe(path).hdr
+        except MediaError:
+            hdr = None
+        if hdr is None or not _decodes(path):
+            missing.append(f"файл перебивки {ins.get('src')} не читается — ролик без неё")
+            ins["off"] = True
+    return ({**edit, "inserts": inserts} if missing else edit), missing
 
 
 def render(job: Job, out_dir: Path, name: str = "final", preset: str = "veryfast", edit: dict | None = None,
@@ -223,7 +248,7 @@ def render(job: Job, out_dir: Path, name: str = "final", preset: str = "veryfast
     drawn = draw_layer(job, edit, work)
     edit, info, tl, layer = drawn.edit, drawn.info, drawn.tl, drawn.frames
     source = job.path("source.mp4")
-    missing: list[str] = []
+    missing: list[str] = list(drawn.missing)
     warnings = list(drawn.warnings)
     hold = float(edit.get("hold") or 0.0) + _card_seconds(edit)  # карточка стоит на том же стоп-кадре
     total = tl.duration + hold
@@ -587,19 +612,8 @@ def _picture(job, edit, tl, info, index, hold, missing, warnings, video="[vc]") 
         if seconds <= 0:  # начинается после конца ролика
             skipped.add(i)
             continue
-        path = _resolve(job, ins.get("src"))
-        if path is None:
-            missing.append(f"нет файла перебивки {ins.get('src')} — ролик без неё")
-            skipped.add(i)
-            continue
-        try:
-            hdr = probe(path).hdr
-        except MediaError:
-            hdr = None
-        if hdr is None or not _decodes(path):
-            missing.append(f"файл перебивки {ins.get('src')} не читается — ролик без неё")
-            skipped.add(i)
-            continue
+        path = _resolve(job, ins.get("src"))  # есть и читается: остальные выключил drop_broken_brolls
+        hdr = probe(path).hdr
         suffix = path.suffix.lower()
         skip = 0.0
         if suffix in IMAGES:
@@ -619,6 +633,21 @@ def _picture(job, edit, tl, info, index, hold, missing, warnings, video="[vc]") 
         inputs += ["-t", f"{seconds:.6f}", "-i", str(path)]
         # HDR (HLG/PQ с телефона) — в SDR так же, как исходник в normalize; остальное — из своей матрицы в BT.709
         color = HDR_TO_SDR if hdr else f"{TO_709},format=yuv420p"
+        if ins.get("layout") == "window":  # клип в окошке поверх говорящего: в окошко 3:4, углы скруглены
+            box = WINDOW
+            chains.append(
+                f"[{index}:v]scale={box['w']}:{box['h']}:force_original_aspect_ratio=increase,crop={box['w']}:{box['h']},fps={FPS},"
+                f"{color},tpad=stop_mode=clone:stop_duration={seconds:.6f},setpts=PTS-STARTPTS+{first},format=yuva420p[fw{i}]"
+            )
+            index += 1
+            inputs += ["-loop", "1", "-i", str(pip_mask(job.path("work/window-mask.png"), WINDOW))]
+            chains.append(f"[{index}:v]format=gray[wm{i}]")
+            chains.append(f"[fw{i}][wm{i}]alphamerge[wa{i}]")
+            index += 1
+            a, b = (first - 0.5) / FPS, (after - 0.5) / FPS
+            chains.append(f"{current}[wa{i}]overlay={box['x']}:{box['y']}:enable='gte(t,{a:.6f})*lt(t,{b:.6f})'[vf{i}]")
+            current = f"[vf{i}]"
+            continue
         # после fps=30 шаг времени — 1/30 с: +first ставит первый кадр перебивки ровно на кадр first финала
         chains.append(
             f"[{index}:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},fps={FPS},"
@@ -644,6 +673,10 @@ def _picture(job, edit, tl, info, index, hold, missing, warnings, video="[vc]") 
         chains.append(f"{current}{clip}overlay=0:0:enable='gte(t,{a:.6f})*lt(t,{b:.6f})'[vf{i}]")
         current = f"[vf{i}]"
 
+    torn, more, current = _tears(job, edit, tl, current, index, skipped, missing)  # рваная бумага: перед своей перебивкой
+    chains += torn
+    inputs += more
+    index += _count(more)
     effects = transitions.picture_chains(cuts, current, "[vt]", (W, H), FPS)  # после перебивок: стык виден и на них
     if effects:
         chains += effects
@@ -653,6 +686,65 @@ def _picture(job, edit, tl, info, index, hold, missing, warnings, video="[vc]") 
     else:
         chains.append(f"{current}null[vh]")
     return chains, inputs, skipped, beds
+
+
+def _tears(job: Job, edit: dict, tl: Timeline, current: str, index: int, skipped: set[int],
+           missing: list[str]) -> tuple[list[str], list[str], str]:
+    """Рваная бумага (transitions.tears): TEAR кадров до перебивки кадр рвётся — в щели (template/tear/slit-NN.png) первый
+    кадр перебивки в ч/б (`hue=s=0` — то же, что CSS grayscale(1) плеера) с растром (dots.png), поверх — края бумаги
+    (edge-NN.png). → (цепочки, входы, метка картинки после них)."""
+    chains: list[str] = []
+    inputs: list[str] = []
+    tear = TEMPLATE / "tear"
+    inserts = edit.get("inserts") or []
+    spans = {i: (first, after) for i, first, after in insert_spans(edit, tl)}
+    for n, found in enumerate(transitions.tears(edit, tl)):
+        if found.insert in skipped or found.insert not in spans:
+            continue
+        ins = inserts[found.insert]
+        still = _tear_still(job, ins, spans[found.insert], tl.duration, job.path(f"work/render/tear-{n}.png"))
+        if still is None:
+            missing.append(f"кадр перебивки {ins.get('src')} для рваной бумаги не взять — переход без неё")
+            continue
+        start = found.join - transitions.TEAR
+        seconds = f"{transitions.TEAR / FPS:.6f}"
+        s, m, e, d = index, index + 1, index + 2, index + 3
+        inputs += ["-loop", "1", "-framerate", str(FPS), "-t", seconds, "-i", str(still),
+                   "-framerate", str(FPS), "-i", str(tear / "slit-%02d.png"),
+                   "-framerate", str(FPS), "-i", str(tear / "edge-%02d.png"),
+                   "-loop", "1", "-framerate", str(FPS), "-t", seconds, "-i", str(tear / "dots.png")]
+        index += 4
+        # в YUV — матрицей BT.709 (TO_709): hue=s=0 оставляет яркость Y, и она — та же, что у CSS grayscale(1) редактора
+        chains.append(f"[{s}:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1,{TO_709},format=yuv420p,hue=s=0[tg{n}]")
+        chains.append(f"[{d}:v]format=yuva420p[td{n}]")
+        chains.append(f"[tg{n}][td{n}]overlay=0:0:shortest=1,format=yuv420p[tp{n}]")
+        chains.append(f"[{m}:v]format=rgba,alphaextract[tm{n}]")
+        chains.append(f"[tp{n}][tm{n}]alphamerge,setpts=PTS-STARTPTS+{start}[ts{n}]")
+        chains.append(f"[{e}:v]format=yuva420p,setpts=PTS-STARTPTS+{start}[te{n}]")
+        # окно — посередине между кадрами: кадр start виден, кадр join — уже перебивка
+        window = f"enable='gte(t,{(start - 0.5) / FPS:.6f})*lt(t,{(found.join - 0.5) / FPS:.6f})'"
+        chains.append(f"{current}[ts{n}]overlay=0:0:{window}[tx{n}]")
+        chains.append(f"[tx{n}][te{n}]overlay=0:0:{window}[ty{n}]")
+        current = f"[ty{n}]"
+    return chains, inputs, current
+
+
+def _tear_still(job: Job, ins: dict, span: tuple[int, int], duration: float, out: Path) -> Path | None:
+    """Первый кадр перебивки, каким его покажет ролик (с `from` у видео, HDR — в SDR): то, что видно в щели."""
+    path = _resolve(job, ins.get("src"))
+    if path is None:
+        return None
+    try:
+        info = probe(path)
+    except MediaError:
+        return None
+    seconds = min(span[1] / FPS, duration) - span[0] / FPS  # окно перебивки в ролике — как в _picture
+    skip = 0.0 if path.suffix.lower() in IMAGES | LOOPED else max(0.0, min(float(ins.get("from") or 0.0), info.duration - seconds))
+    color = f"{HDR_TO_SDR},format=rgb24" if info.hdr else "format=rgb24"  # в RGB по меткам цвета клипа, как его покажет ролик
+    out.parent.mkdir(parents=True, exist_ok=True)
+    done = subprocess.run(["ffmpeg", "-hide_banner", "-v", "error", "-nostdin", "-y", "-ss", f"{skip:.6f}", "-i", str(path),
+                           "-frames:v", "1", "-vf", color, str(out)], capture_output=True, check=False, timeout=120)
+    return out if done.returncode == 0 and out.is_file() else None
 
 
 def _card_seconds(edit: dict) -> float:
@@ -730,7 +822,7 @@ def _sounds(job: Job, edit: dict, tl: Timeline, skip: set[int]) -> tuple[list, d
         else:
             add("teaser", tl.teaser_duration, path)
     sources = [t.get("t") for t in edit.get("transitions") or []]
-    for cut in transitions.marks(edit, tl):  # свуш перехода — с началом перехода
+    for cut, start in transitions.sound_starts(edit, tl):  # свуш перехода — с началом перехода
         if not cut.sfx:
             continue
         path = _resolve(job, cut.sfx)
@@ -738,7 +830,7 @@ def _sounds(job: Job, edit: dict, tl: Timeline, skip: set[int]) -> tuple[list, d
             when = f"{cut.t:.1f}".replace(".", ",")
             notes.append(f"нет звука {cut.sfx} — переход на {when} с без звука")
         else:
-            add(f"transition:{sources.index(cut.source)}" if cut.source in sources else "transition", max(0.0, cut.t - transitions.HALF), path)
+            add(f"transition:{sources.index(cut.source)}" if cut.source in sources else "transition", start, path)
     card = edit.get("end") or None
     if card and card.get("sfx"):  # звук появления карточки — сразу после стоп-кадра
         path = _resolve(job, card["sfx"])

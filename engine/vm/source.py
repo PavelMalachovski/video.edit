@@ -21,7 +21,7 @@ from pathlib import Path
 from .job import Job
 from .media import Probe, normalize, source_parts
 
-NORMALIZE = 1
+NORMALIZE = 2  # 2 — HDR: белый 203 нит, а не 100 (засветка лиц, 30.10.2026)
 
 
 def _job_json(job: Job) -> dict:

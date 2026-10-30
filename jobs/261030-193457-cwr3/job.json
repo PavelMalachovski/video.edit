@@ -1,0 +1,17 @@
+{
+  "id": "261030-193457-cwr3",
+  "name": "IMG_9054.mov",
+  "size": 529381000,
+  "type": "video/quicktime",
+  "duration": 167.76666666666668,
+  "createdAt": "2026-10-30T19:53:03.871Z",
+  "brief": "",
+  "uploads": [],
+  "runs": [
+    {
+      "step": "analyze",
+      "attempt": 1,
+      "at": "2026-10-30T19:53:03.991Z"
+    }
+  ]
+}

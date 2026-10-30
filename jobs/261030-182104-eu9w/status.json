@@ -1,9 +1,6 @@
 {
-  "state": "queued",
-  "phase": "Запускаю сессию",
-  "message": "Claude подготовит ещё три варианта",
-  "at": "2026-10-30T18:56:20.549Z",
-  "needs": null,
-  "progress": null,
-  "error": null
+  "state": "analyzing",
+  "phase": "Готовлю варианты",
+  "message": "Три новых стиля",
+  "at": "2026-10-30T18:57:37Z"
 }

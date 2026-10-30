@@ -392,6 +392,40 @@ def test_a_soft_block_in_the_middle_of_a_sentence_keeps_its_capital():
     assert second["words"][0] == "Павлом" and second["opens"] is False
 
 
+def test_a_subtitle_block_starting_inside_a_place_stands_at_its_height():
+    # формат разбора: Claude поднимает субтитры над головой на своих фразах (subPlaces); блок — по своему первому слову
+    sentence = words((1.0, 1.2, "Этот"), (1.3, 1.5, "типаж"), (1.6, 1.8, "редко"), (2.4, 2.6, "к"), (2.7, 2.9, "этому"),
+                     (3.0, 3.3, "типажу."), (4.0, 4.3, "Вот."))
+    for style in (SOFT_STYLE, STYLE):
+        edit = make_edit(words=sentence, style=style, subPlaces=[{"t0": 2.4, "t1": 3.3, "y": 380}], keep=[[0.0, 2.0], [2.3, 10.0]])
+        events = build_overlay_events(edit, timeline(edit))
+        tl = timeline(edit)
+        assert "y" not in at(events, tl.to_final_snap(1.1))["sub"]
+        assert at(events, tl.to_final_snap(2.5))["sub"]["y"] == 380
+        assert at(events, tl.to_final_snap(3.1))["sub"]["y"] == 380
+        assert "y" not in at(events, tl.to_final_snap(4.1))["sub"]
+
+
+def test_a_subtitle_block_keeps_one_place_for_all_its_lines():
+    # место — по первому слову блока: вторая строка не прыгает, даже если фраза места кончилась или началась между строк
+    for place, y in (({"t0": 1.0, "t1": 1.5, "y": 380}, 380), ({"t0": 1.9, "t1": 3.0, "y": 380}, None)):
+        edit = make_edit(words=SIX, style=SOFT_STYLE, subPlaces=[place])
+        events = build_overlay_events(edit, timeline(edit))
+        assert at(events, 1.1)["sub"].get("y") == y and at(events, 2.0)["sub"].get("y") == y, place
+
+
+def test_a_block_whose_first_word_got_no_time_still_takes_its_own_place():
+    # «и» и «вот» начались в один момент: первое событие блока выпало — блок не должен взять место предыдущего
+    said = words((0.5, 0.7, "Это"), (0.8, 1.0, "такой"), (1.1, 1.4, "типаж."), (2.6, 2.6, "И"), (2.6, 3.0, "вот"), (3.1, 3.4, "он."))
+    edit = make_edit(words=said, subPlaces=[{"t0": 0.4, "t1": 2.0, "y": 380}])
+    events = build_overlay_events(edit, timeline(edit))
+    assert at(events, 0.9)["sub"]["y"] == 380
+    assert "y" not in at(events, 2.8)["sub"] and "y" not in at(events, 3.2)["sub"]
+    edit["subPlaces"] = [{"t0": 2.5, "t1": 3.5, "y": 380}]
+    events = build_overlay_events(edit, timeline(edit))
+    assert "y" not in at(events, 0.9)["sub"] and at(events, 2.8)["sub"]["y"] == 380
+
+
 def test_hook_in_accent_mode_comes_out_of_blur_frame_by_frame():
     edit = make_edit(words=SIX, style=SOFT_STYLE, hook={"text": "я покупаю вещи", "until": 2.0})
     events = build_overlay_events(edit, timeline(edit))

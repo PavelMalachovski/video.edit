@@ -646,3 +646,17 @@ test('a long caption shrinks into the safe zone; no caption — nothing drawn', 
   assert.equal((await boxes()).caption, undefined);
   assert.equal(await drawnBox(page, scratch), null);
 });
+
+test('a subtitle block with its own place stands there in every mode; the rest — at the style\'s height', async () => {
+  for (const mode of ['soft', 'karaoke', 'plate', 'word', 'accumulate']) {
+    const s = spec({ sub: { mode, y: 1300 } });
+    const sub = { words: ['к', 'этому', 'типажу'], active: 0, visible: 3, lines: [3], opens: true };
+    await render(s, { sub: { ...sub, y: 380 } });
+    const up = (await boxes()).sub;
+    assert.ok(Math.abs(up.y + up.h / 2 - 380) <= 30, `${mode}: ${JSON.stringify(up)}`);
+    assert.ok(insideSubs(up), `${mode}: ${JSON.stringify(up)}`);
+    await render(s, { sub });
+    const down = (await boxes()).sub;
+    assert.ok(Math.abs(down.y + down.h / 2 - 1300) <= 30, `${mode}: ${JSON.stringify(down)}`);
+  }
+});

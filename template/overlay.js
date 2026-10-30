@@ -283,7 +283,8 @@ function drawSub({ spec, main }, sub) {
   if (!sub || !Array.isArray(sub.words) || sub.words.length === 0) return null;
   root.hidden = false;
   if (spec.subtitles.mode === 'soft') return drawSoftSub(root, { spec, main }, sub);
-  const { mode, size, y } = spec.subtitles;
+  const { mode, size } = spec.subtitles;
+  const y = sub.y ?? spec.subtitles.y; // своё место блока (формат разбора: над головой) — иначе высота стиля
   const c = spec.colors;
   const single = mode === 'word';
   const words = single ? [String(sub.words[sub.active] ?? sub.words[0])] : sub.words.map(String);
@@ -417,7 +418,8 @@ function progress(age, seconds) {
 }
 
 function drawSoftSub(root, { spec, main }, sub) {
-  const { size, y } = spec.subtitles;
+  const { size } = spec.subtitles;
+  const y = sub.y ?? spec.subtitles.y;
   const words = sub.words.map(String);
   const texts = softWords(words, sub.opens !== false);
   const counts = lineCounts(sub.lines, words.length, spec.subtitles.words);

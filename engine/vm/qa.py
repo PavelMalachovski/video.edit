@@ -132,7 +132,8 @@ def check_layout(boxes_by_event: list[dict], face_at_rest: dict | None, inserts:
         for key, b in texts:
             if _outside(b, {**safe, "y1": safe.get("subs_y1", safe["y1"])} if key in LOW else safe):
                 problem(f"{NAMES[key]} вне безопасной зоны", e)
-            if face and key not in LOW and _gap(b, face) < FACE_GAP:
+            raised = key == "sub" and face and b["y"] + b["h"] / 2 < face["y"] + face["h"] / 2  # subPlaces: над головой
+            if face and (key not in LOW or raised) and _gap(b, face) < FACE_GAP:
                 problem(f"{NAMES[key]} на лице или ближе {FACE_GAP} px к нему", e)
         for (ka, a), (kb, b) in ((x, y) for i, x in enumerate(texts) for y in texts[i + 1 :]):
             if _overlap(a, b):

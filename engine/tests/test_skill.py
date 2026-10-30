@@ -340,3 +340,21 @@ def test_long_commands_go_to_the_background_and_vm_wait_waits_for_them():
         assert command in text and "`vm wait`" in text[text.index(command):text.index(command) + 200], step
     commands = SKILL[SKILL.index("## Команды движка"):SKILL.index("## Файлы задачи")]
     assert "| `vm wait [--max S]` |" in commands and "pgrep" in commands and "600000" in commands
+
+
+# ---------- формат «Разбор персонажа» (решение Павла 30.10.2026) ----------
+
+
+def test_the_breakdown_style_is_a_valid_style_with_bold_soft_subtitles_and_subtitle_sized_accents():
+    import json
+
+    import jsonschema
+
+    rules = section("10. Формат «Разбор персонажа»")
+    spec = json.loads(re.search(r"```json\n(.*?)```", rules, re.DOTALL).group(1))
+    schema = json.loads((Path(__file__).resolve().parents[1] / "vm" / "schemas" / "styles.json").read_text(encoding="utf-8"))
+    jsonschema.validate(spec, {"$defs": schema["$defs"], "$ref": "#/$defs/StyleSpec"})
+    assert spec["font"] == "montserrat" and spec["subtitles"]["mode"] == "soft" and spec["hook"]["mode"] == "accent"
+    assert spec["hook"]["size"] < 1.4 * spec["subtitles"]["size"], "ударные фразы — кеглем субтитров, а не крупно"
+    for must in ("caption", "subPlaces", '`anim: "type"`', "Серия"):
+        assert must in rules, must

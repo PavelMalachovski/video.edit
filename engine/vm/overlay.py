@@ -124,14 +124,26 @@ def _frame(t: float) -> int:
 
 
 def _subtitles(edit: dict, tl: Timeline) -> list[_Piece]:
-    """Субтитры без слов акцентных фраз (их показывает акцент); у soft — строки блока и появление новой строки."""
+    """Субтитры без слов акцентных фраз (их показывает акцент); у soft — строки блока и появление новой строки; блок,
+    который начинается внутри фразы `edit.subPlaces`, — на её высоте `y` (`sub.y`; нет — высота стиля)."""
     spoken = [Word(w["t0"], w["t1"], w["text"]) for w in edit.get("words") or []]
     style = edit["style"]["subtitles"]
     hidden = [(float(a["t0"]), float(a["t1"])) for a in edit.get("accents") or []]
     soft = style["mode"] == "soft"
+    # свои места субтитров (формат разбора: над головой на своих фразах) — кадры финала фразы и высота
+    places = [(*(_frame(t) for t in tl.span(float(p["t0"]), float(p["t1"]))), p["y"]) for p in edit.get("subPlaces") or []]
     pieces = []
+    y, previous = None, None
     for e in build_sub_events(spoken, tl, style["mode"], style["words"], hidden=hidden):
         sub = {"words": list(e["words"]), "active": e["active"], "visible": e["visible"]}
+        # новый блок (другие слова или счёт слов начался заново; первое событие блока без времени выпадает): место — по
+        # его первому показу, все строки и слова блока — там же
+        if previous is None or e["words"] != previous["words"] or e["active"] <= previous["active"]:
+            start = _frame(e["t0"])
+            y = next((y for a, b, y in places if a <= start < b), None)
+        previous = e
+        if y is not None:
+            sub["y"] = y
         if soft:  # opens — блок начинает предложение: иначе шаблон сделал бы строчным и имя посреди фразы
             sub["lines"] = list(e["lines"])
             sub["opens"] = e["opens"]

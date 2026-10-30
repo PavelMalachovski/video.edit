@@ -9,9 +9,20 @@ from vm import tmdb
 from vm.job import Job
 
 
-def jpeg(color=(200, 30, 30), size=(780, 439)) -> bytes:
+def jpeg(seed: str = "", size=(780, 439)) -> bytes:
+    """Картинка со своим рисунком (у каждого пути — свой): одинаковые по смыслу картинки отсеиваются как повторы."""
+    import hashlib
+
+    from PIL import ImageDraw
+
+    h = hashlib.sha1(seed.encode()).digest()
+    im = Image.new("RGB", size, (h[0], h[1], h[2]))
+    draw = ImageDraw.Draw(im)
+    for k in range(6):
+        x, y = h[3 + k] * size[0] // 256, h[9 + k] * size[1] // 256
+        draw.rectangle((x, y, x + size[0] // 3, y + size[1] // 3), fill=(255 - h[k], h[k + 4], 255 - h[k + 8]))
     out = io.BytesIO()
-    Image.new("RGB", size, color).save(out, "JPEG")
+    im.save(out, "JPEG")
     return out.getvalue()
 
 
@@ -26,7 +37,7 @@ class FakeApi:
         assert url.startswith(tmdb.IMG) or token == "secret", "токен — только API, не CDN картинок"
         if url.startswith(tmdb.IMG):
             path = url.split("/t/p/", 1)[1].split("/", 1)[1]
-            return self.images.get("/" + path) or jpeg()
+            return self.images.get("/" + path) or jpeg("/" + path)
         path = url.removeprefix(tmdb.API).split("?", 1)[0]
         if path not in self.routes:
             raise tmdb.TmdbError(f"404 {path}")
@@ -34,10 +45,13 @@ class FakeApi:
 
 
 LOKI = {
-    "/search/multi": {"results": [
-        {"media_type": "movie", "id": 846214, "title": "Симпсоны: Добрый, Бартистый и Локистый", "original_title": "The Good, the Bart, and the Loki"},
-        {"media_type": "tv", "id": 84958, "name": "Локи", "original_name": "Loki"},
-        {"media_type": "person", "id": 91606, "name": "Tom Hiddleston"},
+    "/search/movie": {"results": [
+        {"id": 846214, "title": "Симпсоны: Добрый, Бартистый и Локистый", "original_title": "The Good, the Bart, and the Loki", "popularity": 9.1},
+    ]},
+    "/search/tv": {"results": [
+        {"id": 28511, "name": "Мифический детектив Локи: Рагнарёк", "original_name": "Mythical Detective Loki Ragnarok", "popularity": 3.2},
+        {"id": 99999, "name": "Локи", "original_name": "Loki", "popularity": 0.8},  # одноимённое и малоизвестное
+        {"id": 84958, "name": "Локи", "original_name": "Loki", "popularity": 120.5},
     ]},
     "/tv/84958/images": {"backdrops": [
         {"file_path": "/b1.jpg", "iso_639_1": None, "vote_average": 5.5, "width": 3840, "height": 2160},
@@ -68,7 +82,7 @@ def test_tmdb_finds_the_series_its_stills_the_character_and_his_photos(tmp_path)
     job = job_with(tmp_path, {"film": "Локи", "name": "Локи"})
     api = FakeApi(LOKI)
     found = tmdb.find(job, token="secret", get=api)
-    assert found["title"] == {"kind": "tv", "id": 84958, "name": "Локи"}, "сериал по точному названию, а не первый в поиске"
+    assert found["title"] == {"kind": "tv", "id": 84958, "name": "Локи"}, "точное название, из одноимённых — самое популярное"
     assert found["person"] == {"id": 91606, "name": "Tom Hiddleston"}, "актёр — по имени персонажа в ролях"
     kinds = [(f["kind"], f["source"]) for f in found["files"]]
     assert kinds == [("still", "/t1.jpg"), ("still", "/b3.jpg"), ("still", "/b1.jpg"), ("still", "/b2.jpg"),
@@ -94,7 +108,8 @@ def test_limits_and_no_title_found(tmp_path):
     found = tmdb.find(job_with(tmp_path, {"film": "Локи"}), token="secret", get=FakeApi(many))
     assert sum(f["kind"] == "still" for f in found["files"]) == tmdb.STILLS
     with pytest.raises(tmdb.TmdbError, match="не нашёл"):
-        tmdb.find(job_with(tmp_path / "2", {"film": "Нет такого"}), token="secret", get=FakeApi({"/search/multi": {"results": []}}))
+        tmdb.find(job_with(tmp_path / "2", {"film": "Нет такого"}), token="secret",
+                  get=FakeApi({"/search/movie": {"results": []}, "/search/tv": {"results": []}}))
 
 
 def test_without_a_token_or_a_breakdown_there_is_nothing_to_do(tmp_path, monkeypatch):
@@ -124,3 +139,55 @@ def test_vm_tmdb_says_why_there_is_nothing_and_does_not_fail(tmp_path, monkeypat
     job = job_with(tmp_path, {"film": "Локи"})
     main(["tmdb", str(job.root)])
     assert "TMDB_TOKEN" in capsys.readouterr().out
+
+
+def test_a_character_named_in_russian_is_found_among_roles_written_in_latin():
+    # в ролях TMDB имена — латиницей: Гермиона — Hermione Granger, Гарри — Harry Potter, Локи — Loki Laufeyson
+    roles = ["Harry Potter", "Hermione Granger", "Rubeus Hagrid", "Loki Laufeyson", "Mobius", "Baron", "Ron Weasley",
+             "Walter White", "Jack Torrance", "Mary Poppins", "Jesse Pinkman", "Данила Багров"]
+    names = ("Гермиона", "Гарри", "Хагрид", "Локи", "Мобиус", "Гэндальф", "Рон", "Уолтер Уайт", "Джек", "Мэри", "Джесси",
+             "Данила Багров", "Hermione")
+    assert [tmdb.role_of(name, roles) for name in names] == [
+        "Hermione Granger", "Harry Potter", "Rubeus Hagrid", "Loki Laufeyson", "Mobius", None, "Ron Weasley", "Walter White",
+        "Jack Torrance", "Mary Poppins", "Jesse Pinkman", "Данила Багров", "Hermione Granger"]
+
+
+def test_near_duplicate_pictures_are_kept_once(tmp_path):
+    # у TMDB одна и та же картинка лежит в разных размерах и с разным языком — вторую не берём
+    same = jpeg("/twin")
+    smaller = io.BytesIO()
+    Image.open(io.BytesIO(same)).resize((390, 220)).save(smaller, "JPEG", quality=70)
+    api = FakeApi(LOKI, images={"/b1.jpg": same, "/b3.jpg": smaller.getvalue()})
+    found = tmdb.find(job_with(tmp_path, {"film": "Локи", "name": "Локи"}), token="secret", get=api)
+    sources = [f["source"] for f in found["files"]]
+    assert ("/b1.jpg" in sources) != ("/b3.jpg" in sources), sources
+
+
+def test_the_best_matching_role_wins_across_the_cast(tmp_path):
+    routes = {**LOKI, "/tv/84958/aggregate_credits": {"cast": [
+        {"id": 7, "name": "Someone", "roles": [{"character": "Lokir"}]},  # похоже, но хуже
+        {"id": 91606, "name": "Tom Hiddleston", "roles": [{"character": "Loki"}]},
+    ]}}
+    found = tmdb.find(job_with(tmp_path, {"film": "Локи", "name": "Локи"}), token="secret", get=FakeApi(routes))
+    assert found["person"]["id"] == 91606
+
+
+def test_a_broken_answer_or_picture_does_not_crash_the_step_or_leave_stale_files(tmp_path):
+    job = job_with(tmp_path, {"film": "Локи", "name": "Локи"})
+    tmdb.find(job, token="secret", get=FakeApi(LOKI))
+    before = len(list(job.path("found").glob("tmdb-*.jpg")))
+    bad = FakeApi(LOKI, images={"/b3.jpg": b"<html>proxy error</html>"})
+    found = tmdb.find(job, token="secret", get=bad)  # битая картинка — пропущена, остальные на месте
+    assert "/b3.jpg" not in [f["source"] for f in found["files"]] and len(found["files"]) == before - 1
+    assert sorted(p.name for p in job.path("found").glob("tmdb-*.jpg")) == sorted(f["file"].split("/")[1] for f in found["files"])
+
+    def broken(url, token):
+        return b"not json"
+    with pytest.raises(tmdb.TmdbError):
+        tmdb.find(job, token="secret", get=broken)
+    assert not job.path("found/tmdb.json").exists(), "старый список не указывает на чужие файлы"
+
+
+def test_the_token_is_not_carried_over_a_redirect():
+    req = tmdb._request("https://api.themoviedb.org/3/configuration", "secret")
+    assert "Authorization" not in req.headers and req.unredirected_hdrs.get("Authorization") == "Bearer secret"

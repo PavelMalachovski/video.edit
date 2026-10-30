@@ -1,0 +1,160 @@
+{
+  "questions": [
+    {
+      "id": "hook",
+      "type": "choice",
+      "title": "Хук в начале",
+      "body": "Первые ~2,5 с, над головой. Последнее слово — крупно цветом шампань.",
+      "options": [
+        {
+          "id": "h1",
+          "label": "расслабься прямо сейчас"
+        },
+        {
+          "id": "h2",
+          "label": "практика после рабочего дня"
+        },
+        {
+          "id": "h3",
+          "label": "сними напряжение за минуту"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без хука"
+        }
+      ],
+      "default": "h1"
+    },
+    {
+      "id": "music",
+      "type": "choice",
+      "title": "Музыка",
+      "body": "Для практики расслабления спокойный трек тихим фоном (на 14 дБ тише голоса) хорошо держит настроение. Под речью сам приглушается.",
+      "options": [
+        {
+          "id": "mysterious-and-sad.m4a",
+          "label": "Mysterious and Sad — спокойный, задумчивый"
+        },
+        {
+          "id": "sleepwalker-slowed.m4a",
+          "label": "Sleepwalker (slowed) — медленный"
+        },
+        {
+          "id": "did-i-drive-you-away.m4a",
+          "label": "Did I Drive You Away"
+        },
+        {
+          "id": "diedlonely-in-the-bleak.m4a",
+          "label": "diedlonely — In the Bleak"
+        },
+        {
+          "id": "etern-brodyaga.mp3",
+          "label": "Etern — Бродяга"
+        },
+        {
+          "id": "atlxs-passo.mp3",
+          "label": "ATLXS — Passo"
+        },
+        {
+          "id": "sayfalse-esse.mp3",
+          "label": "SayFalse — Esse"
+        },
+        {
+          "id": "banana-cake.m4a",
+          "label": "Banana Cake"
+        },
+        {
+          "id": "playboi-carti-made-it.m4a",
+          "label": "Playboi Carti — Made It"
+        },
+        {
+          "id": "tory-lanez-broke.m4a",
+          "label": "Tory Lanez — Broke"
+        },
+        {
+          "id": "none",
+          "label": "Без музыки"
+        }
+      ],
+      "default": "none"
+    },
+    {
+      "id": "bw",
+      "type": "multi",
+      "title": "Ч/б-куски",
+      "body": "Кадр без цвета и чуть темнее на эмоциональных фразах — как вторая камера.",
+      "options": [
+        {
+          "id": "bw-1",
+          "label": "0:41 — «отпустить всё напряжение с плеч, из шеи и с головы»"
+        },
+        {
+          "id": "bw-2",
+          "label": "0:56 — «вы наконец-то можете ощутить себя в настоящем моменте»"
+        }
+      ],
+      "default": [
+        "bw-1",
+        "bw-2"
+      ]
+    },
+    {
+      "id": "dim",
+      "type": "choice",
+      "layout": "frames",
+      "title": "Затемнить фон?",
+      "body": "Фон за тобой темнее, лицо и текст — как были.",
+      "options": [
+        {
+          "id": "none",
+          "label": "Как есть",
+          "image": "q-dim-none.jpg"
+        },
+        {
+          "id": "30",
+          "label": "Темнее на 30 %",
+          "image": "q-dim-30.jpg"
+        },
+        {
+          "id": "50",
+          "label": "Темнее на 50 %",
+          "image": "q-dim-50.jpg"
+        }
+      ],
+      "default": "30"
+    },
+    {
+      "id": "end",
+      "type": "choice",
+      "title": "Финальная карточка",
+      "body": "2 с в конце: затемнённый последний кадр и призыв.",
+      "options": [
+        {
+          "id": "e1",
+          "label": "Сохрани, чтобы вернуться вечером 👇"
+        },
+        {
+          "id": "e2",
+          "label": "Отправь тому, кто устал за день"
+        },
+        {
+          "id": "e3",
+          "label": "Подпишись — ещё практики впереди"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без карточки"
+        }
+      ],
+      "default": "e1"
+    }
+  ]
+}

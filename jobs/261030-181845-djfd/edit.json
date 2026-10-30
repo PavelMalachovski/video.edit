@@ -840,8 +840,8 @@
     }
   ],
   "hook": {
-    "text": "расслабься прямо сейчас",
-    "until": 6.52
+    "text": "Практика: снимаем напряжение в теле за 1 минуту",
+    "until": 7.72
   },
   "cta": null,
   "inserts": [],
@@ -1005,18 +1005,7 @@
       "anim": "type"
     }
   ],
-  "looks": [
-    {
-      "t0": 54.749,
-      "t1": 59.229,
-      "look": "bw"
-    },
-    {
-      "t0": 76.789,
-      "t1": 81.349,
-      "look": "bw"
-    }
-  ],
+  "looks": [],
   "zooms": [
     {
       "t": 8.2,
@@ -1148,7 +1137,10 @@
     "x": 0.5,
     "y": 0.4
   },
-  "music": null,
+  "music": {
+    "file": "assets/music/diedlonely-in-the-bleak.m4a",
+    "gainDb": -14
+  },
   "hold": 0.0,
   "transitions": [],
   "style": {
@@ -1156,7 +1148,7 @@
     "hand": "caveat",
     "colors": {
       "text": "#FFFFFF",
-      "accent": "#EDE4C1",
+      "accent": "#FEE4A8",
       "bar": "#EDE4C1",
       "plate": "#111111",
       "outline": "#000000"
@@ -1165,16 +1157,25 @@
       "mode": "soft",
       "words": 3,
       "size": 64,
-      "y": 1440
+      "y": 1440,
+      "shade": 0.2
     },
     "hook": {
       "mode": "accent",
-      "size": 108,
+      "size": 120,
       "y": 300
     },
     "bar": {
       "pos": "bottom",
       "height": 6
     }
+  },
+  "dim": 0.3,
+  "end": null,
+  "teaser": null,
+  "ab": null,
+  "cover": {
+    "t": 20.5,
+    "text": "Практика: снимаем напряжение в теле за 1 минуту"
   }
 }

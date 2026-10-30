@@ -210,5 +210,14 @@
   `insert_spans` ↔ `insertSpans`; раздел `overlay` общей фикстуры. Свои места субтитров (`edit.subPlaces`): `_subtitles` в
   `overlay.py` (место — по первому слову блока, `sub.y`) ↔ `subtitlePieces` в `web/lib/overlay.ts`, `parseDraft` и
   `layerEdit` в `web/lib/tracks.ts`; рисуют `drawSub`, `drawSoftSub` (`sub.y`); по лицу — `qa.check_layout` (`raised`).
+  Рваная бумага и глитч (переходы `tear`, `glitch`): кадры щели и краёв — `engine/vm/tear.py` (`FRAMES`, собирает
+  `template/tear/`: `python3 -m vm.tear`); окна, привязка к перебивке и полосы — `lead`, `tears`, `tear_frame`,
+  `glitch_bands`, `GLITCH` в `engine/vm/transitions.py` (рисуют `render._tears` и `picture_chains`) ↔ `transitionLead`,
+  `tearsOf`, `tearFrame`, `glitchBands`, `TEAR`, `GLITCH` в `web/lib/zoom.ts`, `pictureAt` в `web/lib/picture.ts` и
+  `Picture` в `web/app/jobs/[id]/editor/frame.tsx` (маска щели, `grayscale(1)` ↔ `hue=s=0`); раздел `look` общей
+  фикстуры; виды — схемы `edit.json`, `timeline.json` ↔ `TRANSITION_KINDS`; старая задача — `abilitiesOf` (`tear`).
+  Кадры из TMDB: `engine/vm/tmdb.py` (`vm tmdb`, токен `TMDB_TOKEN` в окружении рутины, домены `api.themoviedb.org` и
+  `image.tmdb.org`) → `found/tmdb-<n>.jpg` в ветке задачи ↔ `coverUrl`/`layerUrl` редактора (путь от папки задачи) и
+  `render._resolve`; SKILL.md — шаг analyze и раздел 10.
 - Озвучка: ассет `upload-voice.*` и `kind: "audio"` в `job.json.uploads` — `web/lib/jobs.ts` (`voiceAssetName`,
   `isVoiceFile`) и `web/lib/jobfiles.ts` (`buildJobFile`); их читает `engine/vm/prepare.py` (`_voice`).

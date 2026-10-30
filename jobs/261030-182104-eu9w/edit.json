@@ -26,9 +26,9 @@
       "text": "Зачем ебать мозг себе, если можно мне?",
       "t0": 0.0,
       "t1": 20.6,
-      "x": 220,
-      "y": 135,
-      "w": 520,
+      "x": 60,
+      "y": 148,
+      "w": 830,
       "sfx": null,
       "params": {
         "tone": "dark"
@@ -40,9 +40,9 @@
       "text": "50€ / 70 минут",
       "t0": 0.0,
       "t1": 20.6,
-      "x": 270,
-      "y": 1040,
-      "w": 420,
+      "x": 400,
+      "y": 490,
+      "w": 490,
       "sfx": null,
       "params": {
         "tone": "accent"
@@ -54,9 +54,9 @@
       "text": "Запись в боте, ссылка в шапке",
       "t0": 0.0,
       "t1": 20.6,
-      "x": 190,
-      "y": 1220,
-      "w": 560,
+      "x": 120,
+      "y": 1152,
+      "w": 770,
       "sfx": null,
       "params": {
         "tone": "dark"
@@ -91,33 +91,45 @@
     "x": 0.5,
     "y": 0.36
   },
-  "music": null,
+  "music": {
+    "file": "assets/music/playboi-carti-made-it.m4a",
+    "gainDb": -14
+  },
   "hold": 0.0,
   "transitions": [],
   "style": {
-    "font": "forum",
+    "font": "montserrat",
     "hand": "caveat",
     "colors": {
       "text": "#FFFFFF",
-      "accent": "#EDE4C1",
-      "bar": "#EDE4C1",
+      "accent": "#FFD23F",
+      "bar": "#FFD23F",
       "plate": "#111111",
       "outline": "#000000"
     },
     "subtitles": {
-      "mode": "soft",
+      "mode": "karaoke",
       "words": 3,
-      "size": 64,
-      "y": 1440
+      "size": 70,
+      "y": 930,
+      "shade": 0
     },
     "hook": {
-      "mode": "accent",
-      "size": 108,
-      "y": 420
+      "mode": "plate",
+      "size": 72,
+      "y": 400
     },
     "bar": {
       "pos": "bottom",
-      "height": 6
+      "height": 14
     }
-  }
+  },
+  "dim": 0.3,
+  "cover": {
+    "t": 0.0,
+    "text": "зачем е*ать мозг себе если можно мне"
+  },
+  "teaser": null,
+  "end": null,
+  "ab": null
 }

@@ -28,7 +28,7 @@ export type InsertFix = {
   src?: string; from?: number; layout?: BrollLayout; audio?: boolean; // перебивка (fullscreen): клип, момент, вид, звук клипа
 };
 /** Вид перебивки: клип на весь кадр или клип с лицом окошком. */
-export type BrollLayout = 'full' | 'pip';
+export type BrollLayout = 'full' | 'pip' | 'window'; // window — клип окошком поверх говорящего (формат разбора)
 /** Клип перебивки руками — из перебивок Павла (как образец src вставки в схеме timeline.json). */
 export const BROLL_SRC = /^in\/uploads\/upload-b\d{1,2}\.[a-z0-9]{1,5}$/;
 const BROLL_FIELDS = ['src', 'from', 'layout', 'audio'] as const; // edits.BROLL_FIELDS движка
@@ -750,7 +750,7 @@ function parseText(x: unknown): TextEdits | null {
   if (!list(inserts, ['at', 't0', 't1', 'text', 'x', 'y', 'w', 'off', ...BROLL_FIELDS], (o) => (o.text === undefined || isLine(o.text)) && whole(o, ['x', 'y', 'w'])
     && inRange(o.x, ib.x) && inRange(o.y, ib.y) && inRange(o.w, ib.w)
     && (o.src === undefined || (typeof o.src === 'string' && BROLL_SRC.test(o.src))) && inRange(o.from, LIMITS.brollFrom)
-    && (o.layout === undefined || o.layout === 'full' || o.layout === 'pip') && (o.audio === undefined || typeof o.audio === 'boolean'))) return null;
+    && (o.layout === undefined || o.layout === 'full' || o.layout === 'pip' || o.layout === 'window') && (o.audio === undefined || typeof o.audio === 'boolean'))) return null;
   return x as TextEdits;
 }
 

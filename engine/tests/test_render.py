@@ -1037,3 +1037,24 @@ def test_the_tear_opens_onto_the_b_roll_in_grey_with_paper_edges_and_the_glitch_
     row = (y0 + y1) // 2
     shifted, plain = frame(final, join / 30)[row].astype(int), frame(job.path("source.mp4"), join / 30)[row].astype(int)
     assert np.abs(shifted[200 + dx : 800 + dx] - plain[200:800]).mean() < np.abs(shifted[200:800] - plain[200:800]).mean()
+
+
+def test_b_roll_in_a_window_plays_over_the_talking_head_in_a_rounded_corner(tmp_path, sources):
+    from vm.broll import WINDOW
+
+    job = make_job(tmp_path, sources["short"], keep=[[0.0, 6.0]])
+    b_roll_clip(job.path("in/uploads/upload-b1.mp4"))
+    edit = job.read("edit.json")
+    edit["inserts"] = [{"kind": "fullscreen", "src": "in/uploads/upload-b1.mp4", "t0": 1.0, "t1": 3.0, "layout": "window", "sfx": None}]
+    edit["transitions"] = [{"t": 1.0, "kind": "tear", "sfx": None}]  # в окошко разрыв не ведёт
+    job.write("edit.json", edit)
+    render(job, job.path("out"), preset="ultrafast")
+    final = job.path("out") / "final.mp4"
+    shot, talk = frame(final, 1.5), frame(job.path("source.mp4"), 1.5)
+    red = (255, 0, 0)
+    assert close(shot[WINDOW["y"] + WINDOW["h"] // 2, WINDOW["x"] + WINDOW["w"] // 2], red, tol=40), "в окошке — клип"
+    assert close(shot[1200, 700], tuple(int(c) for c in talk[1200, 700]), tol=30), "вне окошка — говорящий"
+    corner = shot[WINDOW["y"] + 2, WINDOW["x"] + 2]
+    assert close(corner, tuple(int(c) for c in talk[WINDOW["y"] + 2, WINDOW["x"] + 2]), tol=40), "скруглённый угол — прозрачный"
+    gap = frame(final, (30 - 4) / 30)[960, 540]
+    assert close(gap, tuple(int(c) for c in frame(job.path("source.mp4"), (30 - 4) / 30)[960, 540]), tol=40), "разрыва нет"

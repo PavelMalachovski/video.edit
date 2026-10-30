@@ -39,7 +39,7 @@ from pathlib import Path
 from . import beats, edits, matte, transitions
 from .asr import Word
 from .audio import MIN_MUSIC, QUIET_LUFS, audio_graph
-from .broll import PIP, face_box, pip_mask
+from .broll import PIP, WINDOW, face_box, pip_mask
 from .job import Job, validate
 from .looks import paint, rgb_chain
 from .media import (
@@ -633,6 +633,21 @@ def _picture(job, edit, tl, info, index, hold, missing, warnings, video="[vc]") 
         inputs += ["-t", f"{seconds:.6f}", "-i", str(path)]
         # HDR (HLG/PQ с телефона) — в SDR так же, как исходник в normalize; остальное — из своей матрицы в BT.709
         color = HDR_TO_SDR if hdr else f"{TO_709},format=yuv420p"
+        if ins.get("layout") == "window":  # клип в окошке поверх говорящего: в окошко 3:4, углы скруглены
+            box = WINDOW
+            chains.append(
+                f"[{index}:v]scale={box['w']}:{box['h']}:force_original_aspect_ratio=increase,crop={box['w']}:{box['h']},fps={FPS},"
+                f"{color},tpad=stop_mode=clone:stop_duration={seconds:.6f},setpts=PTS-STARTPTS+{first},format=yuva420p[fw{i}]"
+            )
+            index += 1
+            inputs += ["-loop", "1", "-i", str(pip_mask(job.path("work/window-mask.png"), WINDOW))]
+            chains.append(f"[{index}:v]format=gray[wm{i}]")
+            chains.append(f"[fw{i}][wm{i}]alphamerge[wa{i}]")
+            index += 1
+            a, b = (first - 0.5) / FPS, (after - 0.5) / FPS
+            chains.append(f"{current}[wa{i}]overlay={box['x']}:{box['y']}:enable='gte(t,{a:.6f})*lt(t,{b:.6f})'[vf{i}]")
+            current = f"[vf{i}]"
+            continue
         # после fps=30 шаг времени — 1/30 с: +first ставит первый кадр перебивки ровно на кадр first финала
         chains.append(
             f"[{index}:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},fps={FPS},"

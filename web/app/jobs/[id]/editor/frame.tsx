@@ -9,7 +9,7 @@ import type { Clock } from '@/lib/clock.ts';
 import type { Place } from '@/lib/edits.ts';
 import type { StyleSpec } from '@/lib/jobfiles.ts';
 import { eventIndexAt, FPS, type LayerEvent } from '@/lib/overlay.ts';
-import { clipStart, PIP, pipSource } from '@/lib/broll.ts';
+import { clipStart, PIP, pipSource, WINDOW } from '@/lib/broll.ts';
 import { lookFilter, pictureAt, type Cover, type PictureModel } from '@/lib/picture.ts';
 import { TEAR } from '@/lib/zoom.ts';
 import { INSERT_W, moveBox, moveCentre, resizeBox, underCaption, type BoxExt } from '@/lib/style.ts';
@@ -20,10 +20,24 @@ import PreviewFrame from '../../../preview-frame';
 const TEAR_DIR = '/template/tear'; // кадры рваной бумаги — те же картинки, что накладывает рендер (vm/tear.py)
 const GLITCH_DRAW = { w: 540, h: 960 }; // холст глитча, px: как прокси
 const PIP_DRAW = { w: 270, h: 360 }; // окошко лица в плеере, px холста: как кусок прокси 540×960 (faceBox — половина ширины)
+// клип в окошке поверх говорящего (layout window) — как WINDOW движка; иначе перебивка на весь кадр
+const WINDOW_STYLE = {
+  left: `${(WINDOW.x / 1080) * 100}%`, top: `${(WINDOW.y / 1920) * 100}%`, width: `${(WINDOW.w / 1080) * 100}%`, height: `${(WINDOW.h / 1920) * 100}%`,
+  borderRadius: `${(WINDOW.r / WINDOW.w) * 100}% / ${(WINDOW.r / WINDOW.h) * 100}%`,
+};
+const FULL_STYLE = { left: '', top: '', width: '', height: '', borderRadius: '' };
 const PIP_STYLE: CSSProperties = { // окошко на кадре — как PIP движка (доли кадра 1080×1920), углы — r PIP
   left: `${(PIP.x / 1080) * 100}%`, top: `${(PIP.y / 1920) * 100}%`, width: `${(PIP.w / 1080) * 100}%`, height: `${(PIP.h / 1920) * 100}%`,
   borderRadius: `${(PIP.r / PIP.w) * 100}% / ${(PIP.r / PIP.h) * 100}%`,
 };
+
+/** Кусок картинки или кадра клипа, который виден в рамке `box` при object-fit: cover (по центру), — [sx, sy, sw, sh]. */
+function coverCrop(el: HTMLImageElement | HTMLVideoElement, box: { w: number; h: number }): [number, number, number, number] {
+  const w = el instanceof HTMLVideoElement ? el.videoWidth : el.naturalWidth;
+  const h = el instanceof HTMLVideoElement ? el.videoHeight : el.naturalHeight;
+  const k = Math.min(w / box.w, h / box.h);
+  return [(w - box.w * k) / 2, (h - box.h * k) / 2, box.w * k, box.h * k];
+}
 
 /**
  * Картинка ролика на прокси `video`: зум и ч/б — стилем самого <video>, смаз — у картинки вместе с перебивкой, белый
@@ -78,6 +92,8 @@ export function Picture({ clock, model, video, src, duration, width, playing, cl
         }
         if (label.current) label.current.hidden = !(c && !url);
         if (pip.current) pip.current.hidden = !(c && c.layout === 'pip');
+        const place = c?.layout === 'window' ? WINDOW_STYLE : FULL_STYLE;
+        for (const el of [img.current, clip.current, label.current]) if (el) Object.assign(el.style, place);
       }
       const m = clip.current;
       if (shown?.video && c && m && !m.hidden && m.readyState > 0) { // перебивка-видео идёт с момента клипа, вместе с роликом
@@ -184,7 +200,9 @@ export function Picture({ clock, model, video, src, duration, width, playing, cl
       const kx = GLITCH_DRAW.w / 1080;
       const ky = GLITCH_DRAW.h / 1920;
       // откуда копировать: перебивка — её картинка (object-fit: cover), иначе — прокси с зумом к лицу и фильтром куска
-      const coverEl = p.cover ? (img.current && !img.current.hidden ? img.current : clip.current && !clip.current.hidden ? clip.current : null) : null;
+      const shownCover = p.cover ? (img.current && !img.current.hidden ? img.current : clip.current && !clip.current.hidden ? clip.current : null) : null;
+      const windowed = p.cover?.layout === 'window' ? shownCover : null; // клип в окошке — поверх говорящего
+      const coverEl = windowed ? null : shownCover;
       let source: CanvasImageSource | null = null;
       let sx = 0, sy = 0, scale = 1; // кадр 1080×1920 → источник: x = sx + X · scale
       if (coverEl) {
@@ -207,14 +225,27 @@ export function Picture({ clock, model, video, src, duration, width, playing, cl
       if (!source) return;
       // окошко лица (pip) — часть картинки, которую режут полосы: собрать кадр с ним на запасном холсте
       const face = p.cover?.layout === 'pip' && pip.current && !pip.current.hidden ? pip.current : null;
-      if (face) {
+      const inset = face ? { el: face as CanvasImageSource, box: PIP, crop: null } : windowed ? { el: windowed as CanvasImageSource, box: WINDOW, crop: coverCrop(windowed, WINDOW) } : null;
+      if (inset) {
         const whole = (composed.current ??= document.createElement('canvas'));
         whole.width = GLITCH_DRAW.w;
         whole.height = GLITCH_DRAW.h;
         const w = whole.getContext('2d');
         if (!w) return;
+        // фильтр куска — только у говорящего (в ролике он до перебивок); где ctx.filter нет (Safari) — у всего холста
+        const looked = !coverEl && p.look !== null;
+        if (looked && 'filter' in w) w.filter = lookFilter(p.look) || 'none';
         w.drawImage(source, sx, sy, 1080 * scale, 1920 * scale, 0, 0, GLITCH_DRAW.w, GLITCH_DRAW.h);
-        w.drawImage(face, PIP.x * kx, PIP.y * ky, PIP.w * kx, PIP.h * ky);
+        if ('filter' in w) w.filter = 'none';
+        canvas.style.filter = looked && !('filter' in w) ? lookFilter(p.look) : '';
+        const r = inset.box;
+        w.save();
+        w.beginPath(); // углы окошка скруглены, как маска ролика
+        w.roundRect(r.x * kx, r.y * ky, r.w * kx, r.h * ky, r.r * kx);
+        w.clip();
+        if (inset.crop) w.drawImage(inset.el, ...inset.crop, r.x * kx, r.y * ky, r.w * kx, r.h * ky);
+        else w.drawImage(inset.el, r.x * kx, r.y * ky, r.w * kx, r.h * ky);
+        w.restore();
         source = whole;
         sx = 0;
         sy = 0;

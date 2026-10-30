@@ -120,6 +120,19 @@ def test_subtitles_are_the_engine_events_on_the_frame_grid():
         assert at(events, middle)["sub"] == {k: s[k] for k in ("words", "active", "visible")}
 
 
+def test_a_flying_insert_comes_in_over_eight_frames():
+    # стикер-картинка влетает сбоку (формат разбора: футболки у лица) — дольше обычного появления
+    edit = make_edit(inserts=[picture(4.0, 7.0, params={"cutout": True, "enter": "left", "tilt": -8})])
+    events = build_overlay_events(edit, timeline(edit))
+    start = next(i for i, e in enumerate(events) if e["state"].get("inserts"))
+    steps = events[start : start + 8]
+    assert [e["state"]["inserts"][0]["anim"] for e in steps] == pytest.approx([(k + 1) / 8 for k in range(8)])
+    assert all(e["t1"] - e["t0"] == pytest.approx(FRAME) for e in steps[:-1]) and steps[-1]["t1"] == pytest.approx(7.0)
+    odd = make_edit(inserts=[picture(4.0, 7.0, params={"enter": "up"})])  # не сторона — обычное появление за 3 кадра
+    shown = [e for e in build_overlay_events(odd, timeline(odd)) if e["state"].get("inserts")]
+    assert [e["state"]["inserts"][0]["anim"] for e in shown[:3]] == pytest.approx([1 / 3, 2 / 3, 1])
+
+
 def test_insert_appearance_has_three_anim_steps():
     edit = make_edit(inserts=[picture(4.0, 7.0)])
     events = build_overlay_events(edit, timeline(edit))

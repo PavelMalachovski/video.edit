@@ -9,6 +9,8 @@ import { Timeline } from './timeline.ts';
 
 export const FPS = 30;
 const APPEAR = 3; // кадров появления вставки
+const FLY = 8; // кадров, за которые влетает вставка с params.enter (стикер-картинка формата разбора)
+const SIDES: readonly unknown[] = ['left', 'right', 'top', 'bottom']; // откуда влетает; другое — обычное появление
 const MIN_SHOW = 1.5; // с — вставка показывается не короче
 const DRAWN = ['image', 'badge', 'sticker', 'text', 'anim']; // что рисует шаблон; fullscreen — ffmpeg
 const INSERT_FIELDS = ['kind', 'src', 'text', 'title', 'x', 'y', 'w', 'params'] as const;
@@ -101,7 +103,7 @@ export function buildOverlayEvents(edit: OverlayEdit, tl: Timeline): LayerEvent[
     if (p.stop <= p.start) continue;
     borders.add(p.start);
     borders.add(p.stop);
-    if (p.insert) add(p.start + 1, Math.min(p.start + APPEAR, p.stop));
+    if (p.insert) add(p.start + 1, Math.min(p.start + (p.appear ?? APPEAR), p.stop));
     if (p.everyFrame || p.timed) add(p.start, p.stop);
     add(p.start, Math.min(p.stop, p.start + (p.appear ?? 0) + 1));
     for (const [a, b] of p.accent?.moving ?? []) add(Math.max(a, p.start), Math.min(b, p.stop) + 1);
@@ -353,7 +355,8 @@ function insertPieces(edit: OverlayEdit, tl: Timeline): Piece[] {
     const value: Record<string, unknown> = {};
     for (const k of INSERT_FIELDS) if (k in ins) value[k] = ins[k];
     value.n = i; // номер — для рамок в boxes.json и QA
-    return [{ start, stop, key: `insert${i}`, value, insert: true, everyFrame: ins.kind === 'anim', n: i }];
+    const appear = SIDES.includes((ins.params as { enter?: unknown } | undefined)?.enter) ? FLY : APPEAR; // влетает сбоку — дольше
+    return [{ start, stop, key: `insert${i}`, value, insert: true, everyFrame: ins.kind === 'anim', n: i, appear }];
   });
 }
 
@@ -364,7 +367,7 @@ function stateOf(pieces: Piece[], frame: number): Record<string, unknown> {
     if (!(p.start <= frame && frame < p.stop)) continue;
     if (p.insert) {
       const shown = frame - p.start;
-      inserts.push({ ...p.value, anim: Math.min(1, (shown + 1) / APPEAR), t: p.everyFrame ? shown / FPS : 0 });
+      inserts.push({ ...p.value, anim: Math.min(1, (shown + 1) / (p.appear ?? APPEAR)), t: p.everyFrame ? shown / FPS : 0 });
     } else if (p.timed) state[p.key] = { ...p.value, t: (frame - p.start) / FPS };
     else if (p.accent) state[p.key] = accentState(p, frame);
     else if (frame - p.start < (p.appear ?? 0)) state[p.key] = { ...p.value, t: (frame - p.start + 1) / FPS };

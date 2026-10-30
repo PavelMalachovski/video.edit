@@ -7,7 +7,8 @@
 
 Времена в edit.json — по исходнику; в время финала их переводит `Timeline` (момент, попавший в вырезку,
 переходит на начало следующего отрезка). Правила вставок: пока виден хук, вставок нет (начало сдвигается на
-конец хука); показ не короче 1,5 с; появление — три кадра (`anim` = 1/3, 2/3, 1); у анимации (`kind: anim`)
+конец хука); показ не короче 1,5 с; появление — три кадра (`anim` = 1/3, 2/3, 1), влетающей сбоку (`params.enter`) —
+восемь; у анимации (`kind: anim`)
 каждый кадр свой (`t` — секунды от начала показа). Полноэкранные вставки (`fullscreen`) монтирует ffmpeg,
 в слой попадает только их подпись (`caption` → `state.caption`; пока она видна, субтитров нет); следующая перебивка
 обрывает предыдущую (серия). Что видно в последний кадр ролика, остаётся и на стоп-кадре.
@@ -35,6 +36,8 @@ from .timeline import Timeline
 
 FPS = 30
 APPEAR = 3  # кадров появления вставки
+FLY = 8  # кадров, за которые влетает вставка с `params.enter` (стикер-картинка формата разбора)
+SIDES = ("left", "right", "top", "bottom")  # откуда влетает; другое значение — обычное появление
 MIN_SHOW = 1.5  # с — вставка показывается не короче
 DRAWN = ("image", "badge", "sticker", "text", "anim")  # что рисует шаблон; fullscreen — ffmpeg
 INSERT_FIELDS = ("kind", "src", "text", "title", "x", "y", "w", "params")
@@ -94,7 +97,7 @@ def build_overlay_events(edit: dict, tl: Timeline) -> list[dict]:
             continue
         borders.update((piece.start, piece.stop))
         if piece.insert:
-            borders.update(f for f in range(piece.start + 1, piece.start + APPEAR) if f < piece.stop)
+            borders.update(f for f in range(piece.start + 1, piece.start + piece.appear) if f < piece.stop)
         if piece.every_frame or piece.timed:
             borders.update(range(piece.start, piece.stop))
         borders.update(range(piece.start, min(piece.stop, piece.start + piece.appear + 1)))
@@ -290,7 +293,8 @@ def _inserts(edit: dict, tl: Timeline) -> list[_Piece]:
         if missing:
             raise ValueError(f"inserts[{i}]: вставке «{ins['kind']}» нужно место на кадре — нет {', '.join(missing)}")
         value = {**{k: ins[k] for k in INSERT_FIELDS if k in ins}, "n": i}  # номер — для рамок в boxes.json и QA
-        pieces.append(_Piece(start, stop, f"insert{i}", value, insert=True, every_frame=ins["kind"] == "anim"))
+        frames_in = FLY if (ins.get("params") or {}).get("enter") in SIDES else APPEAR  # влетает сбоку — дольше
+        pieces.append(_Piece(start, stop, f"insert{i}", value, insert=True, every_frame=ins["kind"] == "anim", appear=frames_in))
     return pieces
 
 
@@ -304,7 +308,7 @@ def _state(pieces: list[_Piece], frame: int) -> dict:
         if piece.insert:
             shown = frame - piece.start
             moving = shown / FPS if piece.every_frame else 0  # время нужно только анимации
-            inserts.append({**piece.value, "anim": min(1, (shown + 1) / APPEAR), "t": moving})
+            inserts.append({**piece.value, "anim": min(1, (shown + 1) / piece.appear), "t": moving})
         elif piece.timed:
             state[piece.key] = {**piece.value, "t": (frame - piece.start) / FPS}
         elif piece.accent:

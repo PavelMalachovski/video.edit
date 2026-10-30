@@ -240,6 +240,7 @@ test('what the job\'s engine takes is read from its own schema in the job branch
     assert.match(refusedBy({ ...abilitiesOf(SCHEMA_NOW), tear: false }, { edits: [], transitions: [{ at: 3, kind }] }) ?? '', /до рваной бумаги и глитча/, kind);
   }
   assert.equal(refusedBy({ ...abilitiesOf(SCHEMA_NOW), tear: false }, { edits: [], transitions: [{ at: 3, kind: 'blur' }] }), null, 'прежние виды — как всегда');
+  assert.match(refusedBy({ ...abilitiesOf(SCHEMA_NOW), tear: false }, { edits: [], text: { inserts: [{ at: [1, 2], layout: 'window' }] } }) ?? '', /клипа в окошке/);
   assert.match(refusedBy({ ...abilitiesOf(SCHEMA_NOW), broll: false }, { edits: [], text: { inserts: [{ at: [1, 2], layout: 'pip' }] } }) ?? '', /до перебивок/);
   assert.equal(refusedBy({ ...abilitiesOf(SCHEMA_NOW), broll: false }, { edits: [], text: { inserts: [{ at: [1, 2], t0: 1.2 }] } }), null, 'время вставки — как всегда');
   assert.deepEqual(abilitiesOf(olderSchema('picture')), { edits: true, move: true, text: true, ...none5c });

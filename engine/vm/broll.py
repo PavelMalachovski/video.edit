@@ -26,6 +26,9 @@ from .media import (
 
 # окошко: правый верхний угол, ниже шапки Reels и выше середины кадра (внизу — субтитры и шкала), 3:4
 PIP = {"x": 672, "y": 300, "w": 360, "h": 480, "r": 36}
+# клип в окошке (`layout: window`, формат разбора: «разбирали…» — свой прошлый ролик поверх говорящего): слева сверху,
+# 3:4, как окошко лица, но меньше — лицо говорящего остаётся открытым
+WINDOW = {"x": 60, "y": 300, "w": 300, "h": 400, "r": 28}
 # кусок кадра с лицом: тоже 3:4, половина ширины кадра — лицо крупно, но не в упор
 FACE = {"w": 540, "h": 720}
 FACE_AT = 0.4  # точка лица — на этой доле высоты окошка (глаза выше середины, как в портрете)
@@ -41,8 +44,8 @@ def face_box(face: dict, width: int = 1080, height: int = 1920) -> tuple[int, in
     return x, y, w, h
 
 
-def pip_mask(path: Path) -> Path:
-    """Маска окошка (серая PNG размером окошка): 255 — видно, 0 — скруглённые углы."""
+def pip_mask(path: Path, box: dict = PIP) -> Path:
+    """Маска окошка `box` (PIP или WINDOW; серая PNG размером окошка): 255 — видно, 0 — скруглённые углы."""
     from PIL import (  # здесь, а не при импорте: render без Pillow нужен e2e страницы
         Image,
         ImageDraw,
@@ -50,8 +53,8 @@ def pip_mask(path: Path) -> Path:
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    mask = Image.new("L", (PIP["w"], PIP["h"]), 0)
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, PIP["w"] - 1, PIP["h"] - 1), radius=PIP["r"], fill=255)
+    mask = Image.new("L", (box["w"], box["h"]), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, box["w"] - 1, box["h"] - 1), radius=box["r"], fill=255)
     mask.save(path)
     return path
 

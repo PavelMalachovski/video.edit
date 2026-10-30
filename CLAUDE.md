@@ -219,5 +219,10 @@
   Кадры из TMDB: `engine/vm/tmdb.py` (`vm tmdb`, токен `TMDB_TOKEN` в окружении рутины, домены `api.themoviedb.org` и
   `image.tmdb.org`) → `found/tmdb-<n>.jpg` в ветке задачи ↔ `coverUrl`/`layerUrl` редактора (путь от папки задачи) и
   `render._resolve`; SKILL.md — шаг analyze и раздел 10.
+  Клип в окошке (`layout: window`): `WINDOW` и `pip_mask` в `engine/vm/broll.py`, `render._picture` ↔ `WINDOW` в
+  `web/lib/broll.ts`, `Picture` в `frame.tsx` (окошко и глитч), раздел `broll` фикстуры; разрыв в окошко не ведёт
+  (`tears` ↔ `tearsOf`); старая задача — `abilitiesOf.tear`. Стикеры влетают (`params.enter`: `FLY` кадров) —
+  `_inserts` в `overlay.py` ↔ `insertPieces` в `web/lib/overlay.ts`; рисует `drawInserts` в `template/inserts.js` (и наклон
+  `params.tilt`, свечение `params.glow` — рамка вставки с ними).
 - Озвучка: ассет `upload-voice.*` и `kind: "audio"` в `job.json.uploads` — `web/lib/jobs.ts` (`voiceAssetName`,
   `isVoiceFile`) и `web/lib/jobfiles.ts` (`buildJobFile`); их читает `engine/vm/prepare.py` (`_voice`).

@@ -1242,7 +1242,8 @@ export default function Editor({ id }: { id: string }) {
           {mount.state === 'error' ? <p className="ed-note ed-flag bad" role="alert">{T('mountFailed', { e: mount.error ?? '' })}</p> : null}
           {tracks && draft && sel?.kind === 'block' ? (
             <BlockPanel T={T} sel={sel} tracks={tracks} draft={draft} hand={hand} editable={canText} note={editable ? textNote : null} onEdit={edit} sec={sec}
-              letters={letters} placing={placing} brolls={gates.broll ? data?.brolls ?? [] : undefined} />
+              letters={letters} placing={placing} brolls={gates.broll ? data?.brolls ?? [] : undefined}
+              windowed={data?.abilities.tear ?? true} />
           ) : null}
           {tracks && draft && sel?.kind === 'sub' ? (
             <WordsPanel T={T} sel={sel} tracks={tracks} draft={draft} hand={hand} editable={canText} note={editable ? textNote : null} onEdit={edit} sec={sec}

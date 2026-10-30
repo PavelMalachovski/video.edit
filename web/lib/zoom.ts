@@ -122,7 +122,9 @@ export type TearMark = { mark: TransitionMark; insert: number; join: number };
  *  при равенстве — раньше по номеру (transitions.tears). */
 export function tearsOf(transitions: readonly TransitionSpec[], edit: OverlayEdit, tl: Timeline): TearMark[] {
   const inserts = edit.inserts ?? [];
-  const starts = insertSpans(edit, tl).filter(([i]) => inserts[i].kind === 'fullscreen').map(([i, start]) => [start, i] as const);
+  // в клип в окошке разрыв не ведёт: кадр остаётся
+  const starts = insertSpans(edit, tl).filter(([i]) => inserts[i].kind === 'fullscreen' && (inserts[i] as { layout?: string }).layout !== 'window')
+    .map(([i, start]) => [start, i] as const);
   return transitionMarks(transitions, tl).filter((m) => m.kind === 'tear').flatMap((mark): TearMark[] => {
     const frame = frameOf(mark.t);
     const near = starts.filter(([start]) => Math.abs(start - frame) < TEAR && start >= TEAR)

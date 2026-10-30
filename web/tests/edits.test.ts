@@ -243,7 +243,7 @@ test('parseTimeline takes B-roll edits as the schema does: a clip of Pavel\'s B-
   const ins = SCHEMA.properties.text.properties.inserts.items.properties;
   assert.equal(ins.src.pattern.replaceAll('[0-9]', '\\d'), BROLL_SRC.source.replaceAll('\\/', '/'));
   assert.deepEqual({ min: ins.from.minimum, max: ins.from.maximum }, LIMITS.brollFrom);
-  assert.deepEqual(ins.layout.enum, ['full', 'pip']);
+  assert.deepEqual(ins.layout.enum, ['full', 'pip', 'window']);
 });
 
 test('emoji in a subtitle word are refused before saving, as the engine font check refuses them (shared emoji fixture)', () => {

@@ -32,7 +32,7 @@ export type Abilities = {
   edits: boolean; move: boolean; text: boolean; picture: boolean; track: boolean; card: boolean; video: boolean; place: boolean;
   looks: boolean; // свои куски ч/б и фильтров, края и фильтр кусков сессии
   broll: boolean; // перебивка руками: клип, момент клипа, вид, звук клипа
-  tear: boolean; // переходы «рваная бумага» и «глитч»
+  tear: boolean; // приёмы формата разбора: переходы «рваная бумага» и «глитч», клип в окошке
 };
 export const ENGINE_SCHEMA = 'engine/vm/schemas/timeline.json';
 const ALL: Abilities = { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: true, broll: true, tear: true };
@@ -101,6 +101,9 @@ export function refusedBy(a: Abilities, hand: HandEdits): string | null {
   }
   if (!a.tear && hand.transitions?.some((f) => f.kind === 'tear' || f.kind === 'glitch')) {
     return 'Эта задача создана до рваной бумаги и глитча: её движок этих переходов не примет — выбери вспышку, зум или смаз';
+  }
+  if (!a.tear && hand.text?.inserts?.some((f) => f.layout === 'window')) {
+    return 'Эта задача создана до клипа в окошке: её движок его не примет — выбери «На весь кадр» или «Лицо в окошке»';
   }
   if (!a.broll && hand.text?.inserts?.some((f) => f.src !== undefined || f.from !== undefined || f.layout !== undefined || f.audio !== undefined)) {
     return 'Эта задача создана до перебивок в редакторе: её движок не примет другой клип, момент, вид или звук перебивки — они здесь меняются через «Поправить»';

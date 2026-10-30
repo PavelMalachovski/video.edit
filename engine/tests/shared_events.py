@@ -14,7 +14,7 @@ from pathlib import Path
 
 from vm import beats, edits, fonts, transitions
 from vm.asr import Word
-from vm.broll import PIP, face_box
+from vm.broll import PIP, WINDOW, face_box
 from vm.looks import LOOKS, css_filter
 from vm.overlay import FPS, build_overlay_events, insert_spans
 from vm.render import (
@@ -191,6 +191,12 @@ OVERLAY = [
                         {"t0": 1.1, "t1": 1.4, "text": "типаж."}, {"t0": 2.6, "t1": 2.6, "text": "И"},
                         {"t0": 2.6, "t1": 3.0, "text": "вот"}, {"t0": 3.1, "t1": 3.4, "text": "он."}],
               "style": _style("karaoke", 3, "plate"), "subPlaces": [{"t0": 0.4, "t1": 2.0, "y": 380}]}},
+    {"name": "a sticker picture flies in from the side over eight frames, another pops in over three",
+     "keep": [[0.3, 9.5]], "speed": 1.0, "teaser": None,
+     "edit": {"words": SPEECH, "style": _style("soft", 3),
+              "inserts": [{"kind": "image", "src": "a.png", "t0": 2.0, "t1": 4.0, "x": 640, "y": 300, "w": 260,
+                           "params": {"cutout": True, "enter": "right", "tilt": 8}},
+                          {"kind": "image", "src": "b.png", "t0": 2.5, "t1": 4.0, "x": 80, "y": 900, "w": 260, "params": {"glow": True}}]}},
     {"name": "b-roll starting on one frame (pushed to the end of the hook): only the top one is shown, with its caption",
      "keep": [[0.3, 9.5]], "speed": 1.0, "teaser": None,
      "edit": {"words": SPEECH, "style": _style("karaoke", 3, "plate"), "hook": {"text": "Кто такой Локи", "until": 2.5},
@@ -259,10 +265,12 @@ LOOK = [
      "keep": [[0.0, 4.0], [4.3, 10.0]], "speed": 1.0, "teaser": None,
      "edit": {"zooms": [], "looks": [],
               "transitions": [{"t": 2.0, "kind": "tear"}, {"t": 5.0, "kind": "tear"}, {"t": 7.0, "kind": "glitch"},
-                              {"t": 0.02, "kind": "glitch"}, {"t": 0.2, "kind": "tear"}, {"t": 8.5, "kind": "tear", "off": True}],
+                              {"t": 0.02, "kind": "glitch"}, {"t": 0.2, "kind": "tear"}, {"t": 8.5, "kind": "tear", "off": True},
+                              {"t": 7.3, "kind": "tear"}],
               "inserts": [{"kind": "fullscreen", "src": "a.jpg", "t0": 2.2, "t1": 3.0},
                           {"kind": "fullscreen", "src": "b.jpg", "t0": 5.9, "t1": 6.5},
-                          {"kind": "fullscreen", "src": "c.jpg", "t0": 8.5, "t1": 9.0}]}},
+                          {"kind": "fullscreen", "src": "c.jpg", "t0": 8.5, "t1": 9.0},
+                          {"kind": "fullscreen", "src": "d.mp4", "t0": 7.3, "t1": 8.0, "layout": "window"}]}},
     {"name": "filters set by hand: one look per frame, the later piece wins; neighbours of one look merge; off is in colour",
      "keep": [[0.0, 4.0], [4.5, 9.0]], "speed": 1.1, "teaser": [6.0, 7.5],
      "edit": {"zooms": [], "transitions": [],
@@ -539,7 +547,7 @@ BROLL_FACES = [{"x": 0.5, "y": 0.5}, {"x": 0.5, "y": 0.3}, {"x": 0.1, "y": 0.05}
 
 def broll_case() -> dict:
     """Окошко лица перебивки (broll.PIP) и кусок кадра в нём по точке лица (face_box) — так его рисует плеер редактора."""
-    return {"pip": PIP, "faces": [[face, list(face_box(face))] for face in BROLL_FACES]}
+    return {"pip": PIP, "window": WINDOW, "faces": [[face, list(face_box(face))] for face in BROLL_FACES]}
 
 
 def build() -> dict:

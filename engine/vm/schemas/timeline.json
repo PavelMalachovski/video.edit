@@ -136,7 +136,7 @@
               "w": { "type": "number", "minimum": 80, "maximum": 830 },
               "src": { "description": "Перебивка — другой клип из перебивок Павла.", "type": "string", "pattern": "^in/uploads/upload-b[0-9]{1,2}\\.[a-z0-9]{1,5}$" },
               "from": { "description": "Перебивка — с какой секунды клипа.", "type": "number", "minimum": 0, "maximum": 36000 },
-              "layout": { "description": "Перебивка: full — клип на весь кадр, pip — лицо окошком поверх клипа.", "enum": ["full", "pip"] },
+              "layout": { "description": "Перебивка: full — клип на весь кадр, pip — лицо окошком поверх клипа, window — клип окошком поверх говорящего.", "enum": ["full", "pip", "window"] },
               "audio": { "description": "Перебивка — звук клипа тихим фоном.", "type": "boolean" },
               "off": { "const": true }
             }

@@ -25,6 +25,13 @@ export function ease(x) {
 const FRAME_COLOR = '#111111';
 const PHOTO_EXT = { x: 10, top: 8, bottom: 12 }; // тень 0 2px 10px вокруг прямоугольной картинки
 const CUTOUT_EXT = { x: 1, top: 1, bottom: 1 }; // контур 1 px по силуэту
+// формат разбора: карточка профиля светится (params.glow) — белое сияние вокруг картинки; поля сияния — в рамке
+const GLOW = 'drop-shadow(0 0 10px rgba(255, 255, 255, 0.95)) drop-shadow(0 0 22px rgba(255, 255, 255, 0.7))';
+const GLOW_EXT = { x: 48, top: 48, bottom: 48 };
+const FRAME_W = 1080; // кадр
+const FRAME_H = 1920;
+const FLY_GAP = 60; // px — откуда влетает картинка с params.enter: за краем кадра с таким запасом
+const FLY_SPIN = 18; // градусов — докручивается, пока летит
 const CARD_SHADOW = { blur: 24, dy: 8, color: 'rgba(0, 0, 0, 0.3)' };
 const CARD_EXT = { x: CARD_SHADOW.blur, top: CARD_SHADOW.blur - CARD_SHADOW.dy, bottom: CARD_SHADOW.blur + CARD_SHADOW.dy };
 const MARGIN = 48; // поле холста вокруг карточки — под тень
@@ -67,14 +74,16 @@ async function photo(ins) {
   img.draggable = false;
   Object.assign(img.style, { display: 'block', width: `${w}px`, height: `${h}px`, boxSizing: 'border-box' });
   const cutout = Boolean(ins.params?.cutout);
+  const glow = Boolean(ins.params?.glow);
   if (cutout) {
     const line = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => `drop-shadow(${dx}px ${dy}px 0 ${FRAME_COLOR})`).join(' ');
-    img.style.filter = line;
+    img.style.filter = glow ? `${line} ${GLOW}` : line;
   } else {
     Object.assign(img.style, { border: `1px solid ${FRAME_COLOR}`, borderRadius: '10px', boxShadow: '0 2px 10px rgba(0, 0, 0, 0.08)' });
+    if (glow) img.style.filter = GLOW;
   }
   await img.decode();
-  return { node: img, w, h, ext: cutout ? CUTOUT_EXT : PHOTO_EXT };
+  return { node: img, w, h, ext: glow ? GLOW_EXT : cutout ? CUTOUT_EXT : PHOTO_EXT };
 }
 
 // ---------- карточки на холсте ----------
@@ -496,11 +505,24 @@ export async function drawInserts(root, inserts, look) {
   const made = await Promise.all((inserts ?? []).map((ins) => content(ins, look)));
   root.replaceChildren();
   return made.map((m, i) => {
-    // в зоне рекламы вставка поднимается так, чтобы целиком (с тенью) стоять выше кнопки рекламы
-    const zone = look?.zone;
     const raw = inserts[i];
-    const ins = zone ? { ...raw, y: Math.round(clamp(raw.y, zone.y0 + m.ext.top, zone.y1 - m.h - m.ext.bottom)) } : raw;
+    const tilt = Number(raw.params?.tilt) || 0; // градусов: стикер-картинка чуть наискось
+    // наклон: рамка — вокруг повёрнутой картинки (вместе с её полями: тенью, контуром, сиянием)
+    const a = (Math.abs(tilt) * Math.PI) / 180;
+    const tw = m.w + 2 * m.ext.x;
+    const th = m.h + m.ext.top + m.ext.bottom;
+    const gx = tilt ? (tw * Math.cos(a) + th * Math.sin(a) - tw) / 2 : 0;
+    const gy = tilt ? (tw * Math.sin(a) + th * Math.cos(a) - th) / 2 : 0;
+    // в зоне рекламы вставка поднимается так, чтобы целиком (с тенью и наклоном) стоять выше кнопки рекламы
+    const zone = look?.zone;
+    const top = Math.ceil(zone ? zone.y0 + m.ext.top + gy : 0);
+    const low = Math.floor(zone ? zone.y1 - m.h - m.ext.bottom - gy : 0); // целиком в зоне и после округления рамки
+    const ins = zone ? { ...raw, y: Math.min(low, Math.max(top, Math.round(raw.y))) } : raw;
     const k = ease(ins.anim ?? 1);
+    const enter = ins.params?.enter; // влетает с этой стороны (left, right, top, bottom), а не проявляется
+    const away = { left: [-(ins.x + m.w + FLY_GAP), 0], right: [FRAME_W - ins.x + FLY_GAP, 0], top: [0, -(ins.y + m.h + FLY_GAP)],
+      bottom: [0, FRAME_H - ins.y + FLY_GAP] }[enter];
+    const spin = { left: -FLY_SPIN, right: FLY_SPIN, top: -FLY_SPIN, bottom: FLY_SPIN }[enter] ?? 0;
     const wrap = document.createElement('div');
     wrap.className = 'ins';
     wrap.dataset.i = String(i);
@@ -510,15 +532,17 @@ export async function drawInserts(root, inserts, look) {
       top: `${ins.y}px`,
       width: `${m.w}px`,
       height: `${m.h}px`,
-      opacity: String(k),
-      transform: `scale(${0.965 + 0.035 * k})`,
+      opacity: away ? '1' : String(k),
+      transform: away
+        ? `translate(${away[0] * (1 - k)}px, ${away[1] * (1 - k)}px) rotate(${tilt + spin * (1 - k)}deg)`
+        : `${tilt ? `rotate(${tilt}deg) ` : ''}scale(${0.965 + 0.035 * k})`,
       transformOrigin: '50% 50%',
     });
     wrap.append(m.node);
     root.append(wrap);
-    const x = Math.floor(ins.x - m.ext.x);
-    const y = Math.floor(ins.y - m.ext.top);
-    const box = { x, y, w: Math.ceil(ins.x + m.w + m.ext.x) - x, h: Math.ceil(ins.y + m.h + m.ext.bottom) - y };
+    const x = Math.floor(ins.x - m.ext.x - gx);
+    const y = Math.floor(ins.y - m.ext.top - gy);
+    const box = { x, y, w: Math.ceil(ins.x + m.w + m.ext.x + gx) - x, h: Math.ceil(ins.y + m.h + m.ext.bottom + gy) - y };
     if (Number.isInteger(ins.n)) box.n = ins.n;
     return box;
   });

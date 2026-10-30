@@ -109,7 +109,8 @@ def tears(edit: dict, tl: Timeline) -> list[Tear]:
     """Рваная бумага, у которой есть перебивка на весь кадр, начинающаяся ближе TEAR кадров к стыку (доли музыки могли
     сдвинуть перебивку): стык — её первый кадр; ближайшая, при равенстве — раньше по номеру."""
     inserts = edit.get("inserts") or []
-    starts = [(start, i) for i, start, _ in insert_spans(edit, tl) if inserts[i]["kind"] == "fullscreen"]
+    starts = [(start, i) for i, start, _ in insert_spans(edit, tl)  # в клип в окошке разрыв не ведёт: кадр остаётся
+              if inserts[i]["kind"] == "fullscreen" and inserts[i].get("layout") != "window"]
     found = []
     for m in marks(edit, tl):
         if m.kind != "tear":

@@ -148,8 +148,9 @@ function PlaceControls({ T, kind, now, moved, placing }: { T: TFn; kind: 'insert
 
 /** Перебивка (вставка fullscreen): какой клип из перебивок Павла, с какой секунды клипа, вид (на весь кадр или лицо
  *  окошком), звук клипа тихим фоном. Правка — timeline.json → text.inserts (edits.apply_text: src, from, layout, audio). */
-function BrollControls({ T, now, brolls, onFix }: {
+function BrollControls({ T, now, brolls, windowed, onFix }: {
   T: TFn; now: { src: string; from: number; layout: BrollLayout; audio: boolean }; brolls: readonly BrollClip[];
+  windowed: boolean; // движок задачи знает клип в окошке (формат разбора)
   onFix: (fix: { src?: string; from?: number; layout?: BrollLayout; audio?: boolean }) => void;
 }) {
   const id = useId();
@@ -174,9 +175,9 @@ function BrollControls({ T, now, brolls, onFix }: {
           }} />
       </label> : null}
       <div className="ed-btns" role="group" aria-label={T('brollLayout')}>
-        {(['full', 'pip'] as const).map((k) => (
+        {(['full', 'pip', 'window'] as const).filter((k) => k !== 'window' || windowed || now.layout === 'window').map((k) => (
           <button key={k} type="button" className="ed-toggle" aria-pressed={now.layout === k} onClick={() => onFix({ layout: k })}>
-            {T(k === 'full' ? 'brollFull' : 'brollPip')}
+            {T(k === 'full' ? 'brollFull' : k === 'pip' ? 'brollPip' : 'brollWindow')}
           </button>
         ))}
         {video ? <button type="button" className="ed-toggle" aria-pressed={now.audio} onClick={() => onFix({ audio: !now.audio })}>{T('brollAudio')}</button> : null}
@@ -186,8 +187,9 @@ function BrollControls({ T, now, brolls, onFix }: {
   );
 }
 
-export function BlockPanel({ T, sel, tracks, draft, hand, editable, note, onEdit, sec, letters = NO_LETTERS, placing, brolls }: {
+export function BlockPanel({ T, sel, tracks, draft, hand, editable, note, onEdit, sec, letters = NO_LETTERS, placing, brolls, windowed = true }: {
   T: TFn; sel: BlockSel; tracks: Tracks; draft: Draft; hand: HandEdits; editable: boolean;
+  windowed?: boolean; // движок задачи знает клип в окошке (старый — не предлагаем)
   note: string | null; // почему править нельзя (старый движок, ещё не смонтирован)
   onEdit: (next: HandEdits, key?: string) => void; sec: (s: number) => string; letters?: Letters;
   placing?: Placing; // место вставки и акцента на кадре (нет — не двигаются)
@@ -213,7 +215,7 @@ export function BlockPanel({ T, sel, tracks, draft, hand, editable, note, onEdit
         if (brolls && editable && ins.src) {
           const f = (fix ?? {}) as InsertFix;
           const now = { src: f.src ?? ins.src, from: f.from ?? ins.from ?? 0, layout: f.layout ?? ins.layout ?? 'full', audio: f.audio ?? ins.audio ?? false };
-          fields.push(<BrollControls key="broll" T={T} now={now} brolls={brolls}
+          fields.push(<BrollControls key="broll" T={T} now={now} brolls={brolls} windowed={windowed}
             onFix={(next) => onEdit(setBlock(hand, 'inserts', ref.at, ref.occurrence, next))} />);
         }
       }

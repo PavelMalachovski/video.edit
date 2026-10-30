@@ -94,14 +94,14 @@
     },
     {
       "id": "B",
-      "label": "Эталон, пудровый акцент и шкала сверху",
+      "label": "Эталон, антиква Cormorant, белый акцент",
       "spec": {
-        "font": "forum",
+        "font": "Cormorant",
         "hand": "caveat",
         "colors": {
           "text": "#FFFFFF",
-          "accent": "#F2C9C9",
-          "bar": "#F2C9C9",
+          "accent": "#FFFFFF",
+          "bar": "#FFFFFF",
           "plate": "#111111",
           "outline": "#000000"
         },
@@ -117,7 +117,7 @@
           "y": 420
         },
         "bar": {
-          "pos": "top",
+          "pos": "bottom",
           "height": 6
         }
       }

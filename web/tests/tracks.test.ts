@@ -433,3 +433,11 @@ test('the teaser off and another speed by hand: the video plays without the teas
   assert.ok(near(draftTracks(fast).duration, 3.5 / 1.5), 'ролик короче');
   assert.equal(withHandEdits(DRAFT, { edits: [] }).draft, DRAFT, 'правок нет — тот же черновик');
 });
+
+test('the editor keeps the session\'s own places of subtitles: its frame draws them where the video will', () => {
+  const places = [{ t0: 0.2, t1: 0.8, y: 380 }];
+  const d = parseDraft({ ...DRAFT, subPlaces: [...places, { t0: 1, t1: 2 }, { t0: 1, t1: 2, y: 'верх' }] });
+  assert.deepEqual(d?.subPlaces, places, 'кривые места — без них');
+  assert.deepEqual(draftTracks(d!).layer.edit.subPlaces, places);
+  assert.equal(draftTracks(parseDraft(DRAFT)!).layer.edit.subPlaces?.length ?? 0, 0);
+});

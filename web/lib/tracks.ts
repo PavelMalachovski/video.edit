@@ -31,6 +31,7 @@ export type Draft = {
   cta: (Span & { lines: string[]; word: string }) | null;
   inserts: DraftInsert[];
   accents?: AccentSpec[];
+  subPlaces?: { t0: number; t1: number; y: number }[]; // свои места субтитров (формат разбора): блок — на высоте y фразы
   looks?: (Span & { look: string; off?: boolean })[]; // off — Павел убрал в редакторе (applyPicture)
   zooms: { t: number; level: number; over?: number }[];
   face?: { x: number; y: number } | null; // лицо — доли кадра: зум приближает к нему
@@ -132,6 +133,7 @@ export function parseDraft(raw: unknown): Draft | null {
     inserts: list(raw.inserts, (i) => isSpan(i) && isStr(i.kind)),
     accents: list(raw.accents, (a) => isSpan(a) && Array.isArray(a.lines) && a.lines.length > 0 && a.lines.every((l) => isObj(l) && isStr(l.text))
       && isNum(a.x) && isNum(a.y)),
+    subPlaces: list(raw.subPlaces, (p) => isSpan(p) && isNum(p.y)),
     looks: list(raw.looks, (l) => isSpan(l) && isStr(l.look)),
     zooms: list(raw.zooms, (z) => isObj(z) && isNum(z.t) && isNum(z.level)),
     face: isObj(raw.face) && isNum(raw.face.x) && isNum(raw.face.y) ? { x: raw.face.x, y: raw.face.y } : null,
@@ -228,7 +230,7 @@ export function layerEdit(d: Draft, style: LayerStyle, tl: Timeline, beats: read
   const inserts = d.inserts.map((i) => ((i.question && !i.src && !TEXTUAL.includes(i.kind)) || unplaced(i) ? { ...i, kind: WAITING } : i));
   const timed = beats ? snapEdit({ zooms: d.zooms, inserts }, tl, beats).edit : { zooms: d.zooms, inserts };
   return {
-    words: d.words, style, hook: d.hook, cta: d.cta, accents: d.accents ?? [], inserts: timed.inserts as InsertSpec[], hold: d.hold ?? 0,
+    words: d.words, style, hook: d.hook, cta: d.cta, accents: d.accents ?? [], subPlaces: d.subPlaces ?? [], inserts: timed.inserts as InsertSpec[], hold: d.hold ?? 0,
     end: d.end ?? null, zooms: timed.zooms, looks: d.looks ?? [], transitions: d.transitions ?? [],
   };
 }

@@ -207,6 +207,8 @@
   (`buildJobFile`) ↔ SKILL.md, часть 1, раздел 10. Подпись перебивки (`caption` у `fullscreen`): `_inserts` в
   `engine/vm/overlay.py` (пока видна — субтитров нет), схема `edit.json`, `fonts.texts`, `qa.TEXTS` ↔ `insertPieces` в
   `web/lib/overlay.ts`; рисует `drawCaption` в `template/overlay.js`. Серия — следующая перебивка обрывает предыдущую:
-  `insert_spans` ↔ `insertSpans`; раздел `overlay` общей фикстуры.
+  `insert_spans` ↔ `insertSpans`; раздел `overlay` общей фикстуры. Свои места субтитров (`edit.subPlaces`): `_subtitles` в
+  `overlay.py` (место — по первому слову блока, `sub.y`) ↔ `subtitlePieces` в `web/lib/overlay.ts`, `parseDraft` и
+  `layerEdit` в `web/lib/tracks.ts`; рисуют `drawSub`, `drawSoftSub` (`sub.y`); по лицу — `qa.check_layout` (`raised`).
 - Озвучка: ассет `upload-voice.*` и `kind: "audio"` в `job.json.uploads` — `web/lib/jobs.ts` (`voiceAssetName`,
   `isVoiceFile`) и `web/lib/jobfiles.ts` (`buildJobFile`); их читает `engine/vm/prepare.py` (`_voice`).

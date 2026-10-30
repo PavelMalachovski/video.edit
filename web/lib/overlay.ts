@@ -40,6 +40,7 @@ export type OverlayEdit = {
   cta?: { t0: number; t1: number; lines: string[]; word: string } | null;
   accents?: AccentSpec[] | null;
   inserts?: InsertSpec[] | null;
+  subPlaces?: { t0: number; t1: number; y: number }[] | null; // свои места субтитров: блок — на высоте y фразы своего первого слова
   hold?: number | null;
   end?: { seconds: number; lines: string[]; handle?: string | null; logo?: string | null } | null;
   zone?: string | null;
@@ -195,8 +196,24 @@ function subtitlePieces(edit: OverlayEdit, tl: Timeline): Piece[] {
   const style = edit.style.subtitles;
   const hidden = (edit.accents || []).map((a) => [Number(a.t0), Number(a.t1)]);
   const soft = style.mode === 'soft';
+  // свои места субтитров (формат разбора: над головой на своих фразах) — кадры финала фразы и высота
+  const places = (edit.subPlaces || []).map((p) => {
+    const [a, b] = tl.span(Number(p.t0), Number(p.t1));
+    return [frameOf(a), frameOf(b), p.y] as const;
+  });
+  let y: number | undefined;
+  let previous: { words: readonly string[]; active: number } | null = null;
+  const same = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((w, i) => w === b[i]);
   return buildSubEvents(edit.words || [], tl, style.mode, style.words, hidden).map((e) => {
     const sub: Record<string, unknown> = { words: [...e.words], active: e.active, visible: e.visible };
+    // новый блок (другие слова или счёт слов начался заново; первое событие блока без времени выпадает): место — по
+    // его первому показу, все строки и слова блока — там же
+    if (!previous || !same(e.words, previous.words) || e.active <= previous.active) {
+      const start = frameOf(e.t0);
+      y = places.find(([a, b]) => a <= start && start < b)?.[2];
+    }
+    previous = e;
+    if (y !== undefined) sub.y = y;
     if (soft) { // opens — блок начинает предложение: иначе шаблон сделал бы строчным и имя посреди фразы
       sub.lines = [...(e.lines as number[])];
       sub.opens = e.opens;

@@ -314,3 +314,14 @@ def test_the_face_box_grows_with_the_zoom_around_the_face():
     assert face_box(face, zoom=1.0) == face_box(face)
 
 
+
+
+def test_a_b_roll_caption_is_checked_like_subtitles_but_not_against_the_face():
+    face = face_box({"x": 0.5, "y": 0.75})  # лица говорящего на перебивке не видно — подпись на его месте не беда
+    caption = {"x": 200, "y": 1380, "w": 600, "h": 120}
+    assert check_layout([event(2, 3, caption=caption)], face) == []
+    low = {**caption, "y": 1760}  # низ на 1880 — ниже, чем субтитрам можно
+    picture = {"x": 300, "y": 1300, "w": 300, "h": 200, "n": 0}
+    problems = check_layout([event(2, 3, caption=low), event(3, 4, caption=caption, inserts=[picture])], None)
+    assert problems == ["подпись перебивки вне безопасной зоны (2,0–3,0 с ролика)",
+                        "вставка 1 закрывает подпись перебивки (3,0–4,0 с ролика)"]

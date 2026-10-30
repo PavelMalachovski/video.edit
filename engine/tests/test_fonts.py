@@ -258,6 +258,16 @@ def test_the_end_card_is_drawn_by_the_main_font():
     assert "Mulțumesc" in main_text and "@pavel" in main_text
 
 
+def test_a_b_roll_caption_is_drawn_by_the_main_font():
+    e = edit(["ahoj"], font="russo-one")
+    e["inserts"] = [{"kind": "fullscreen", "src": "a.jpg", "t0": 1, "t1": 2, "caption": "Țepeș"},
+                    {"kind": "fullscreen", "src": "b.jpg", "t0": 3, "t1": 4, "caption": "Zoë", "off": True}]
+    (problem,) = fonts.check(e)
+    assert "russo-one" in problem and "Ț" in problem
+    main_text, _ = fonts.texts(e)
+    assert "Țepeș" in main_text and "Zoë" not in main_text
+
+
 def test_cli_fonts_counts_the_end_card_options_too(tmp_path, capsys):
     # призыв финальной карточки рисуется основным шрифтом: шрифт без его букв Павлу не предлагается
     job = Job(tmp_path / "jobs" / "abc")

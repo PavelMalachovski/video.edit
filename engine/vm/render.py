@@ -33,7 +33,7 @@ import math
 import os
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import beats, edits, matte, transitions
@@ -131,6 +131,7 @@ class Layer:
     boxes: list[dict]  # boxes.json: [{t0, t1, frame, boxes}]
     warnings: list[str]
     beats: dict | None = None  # монтаж в такт: {bpm, moved}; без музыки — None
+    missing: list[str] = field(default_factory=list)  # перебивки без файла или с нечитаемым: ролик без них
 
 
 def variant_b(edit: dict) -> dict:
@@ -207,10 +208,34 @@ def draw_layer(job: Job, edit: dict | None = None, work: str = "work/render") ->
     if beyond > 0.1:
         warnings.append(f"keep заходит за конец исходника ({info.duration:.1f} с): {beyond:.1f} с отрезков отброшено")
     warnings += transitions.warnings(edit, tl)
+    edit, broken = drop_broken_brolls(job, edit)
     edit, beat = on_beats(job, edit, tl)
     frames = _layer(job, edit, tl, job.path(work))
     boxes = json.loads((frames.parent / "boxes.json").read_text(encoding="utf-8"))
-    return Layer(edit, info, tl, frames, boxes, warnings, beat)
+    return Layer(edit, info, tl, frames, boxes, warnings, beat, broken)
+
+
+def drop_broken_brolls(job: Job, edit: dict) -> tuple[dict, list[str]]:
+    """Вставки на весь кадр, файла которых нет или он не читается, в ролике не будет совсем — как выключенных (`off`):
+    они не обрывают соседнюю в серии, не рисуют подпись и не звучат. → (копия edit, строки для `missing`)."""
+    inserts = [dict(i) for i in edit.get("inserts") or []]
+    missing = []
+    for ins in inserts:
+        if ins["kind"] != "fullscreen" or ins.get("off"):
+            continue
+        path = _resolve(job, ins.get("src"))
+        if path is None:
+            missing.append(f"нет файла перебивки {ins.get('src')} — ролик без неё")
+            ins["off"] = True
+            continue
+        try:
+            hdr = probe(path).hdr
+        except MediaError:
+            hdr = None
+        if hdr is None or not _decodes(path):
+            missing.append(f"файл перебивки {ins.get('src')} не читается — ролик без неё")
+            ins["off"] = True
+    return ({**edit, "inserts": inserts} if missing else edit), missing
 
 
 def render(job: Job, out_dir: Path, name: str = "final", preset: str = "veryfast", edit: dict | None = None,
@@ -223,7 +248,7 @@ def render(job: Job, out_dir: Path, name: str = "final", preset: str = "veryfast
     drawn = draw_layer(job, edit, work)
     edit, info, tl, layer = drawn.edit, drawn.info, drawn.tl, drawn.frames
     source = job.path("source.mp4")
-    missing: list[str] = []
+    missing: list[str] = list(drawn.missing)
     warnings = list(drawn.warnings)
     hold = float(edit.get("hold") or 0.0) + _card_seconds(edit)  # карточка стоит на том же стоп-кадре
     total = tl.duration + hold
@@ -587,19 +612,8 @@ def _picture(job, edit, tl, info, index, hold, missing, warnings, video="[vc]") 
         if seconds <= 0:  # начинается после конца ролика
             skipped.add(i)
             continue
-        path = _resolve(job, ins.get("src"))
-        if path is None:
-            missing.append(f"нет файла перебивки {ins.get('src')} — ролик без неё")
-            skipped.add(i)
-            continue
-        try:
-            hdr = probe(path).hdr
-        except MediaError:
-            hdr = None
-        if hdr is None or not _decodes(path):
-            missing.append(f"файл перебивки {ins.get('src')} не читается — ролик без неё")
-            skipped.add(i)
-            continue
+        path = _resolve(job, ins.get("src"))  # есть и читается: остальные выключил drop_broken_brolls
+        hdr = probe(path).hdr
         suffix = path.suffix.lower()
         skip = 0.0
         if suffix in IMAGES:

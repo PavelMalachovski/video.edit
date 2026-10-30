@@ -482,6 +482,40 @@ function drawSoftSub(root, { spec, main }, sub) {
   return box(shift(outer, dy));
 }
 
+// Подпись перебивки (формат «Разбор персонажа»: имя актёра на его фото) — основным шрифтом, в 1,4 раза крупнее
+// субтитров, одной строкой по центру безопасной зоны на высоте субтитров, тень как у soft; не влезает — ужимается,
+// а ниже MIN_SCALE переносится по словам.
+const CAPTION = 1.4;
+function drawCaption({ spec, main }, caption) {
+  const root = layer('caption');
+  if (!caption?.text) return null;
+  root.hidden = false;
+  const { size, y } = spec.subtitles;
+  const line = el('div', 'lines');
+  const words = appendWords(el('span'), caption.text);
+  line.append(words);
+  root.append(line);
+  Object.assign(line.style, {
+    fontFamily: `"${main.family}"`, fontWeight: String(main.weight), color: spec.colors.text, lineHeight: String(SOFT.line),
+    textShadow: SHADOW,
+  });
+  const width = WIDTH - 2 * SHADOW_EXT.x;
+  let px = size * CAPTION;
+  let wrap = false;
+  for (let scale = 1; ; scale *= SHRINK) {
+    px = size * CAPTION * Math.max(scale, MIN_SCALE);
+    wrap = scale <= MIN_SCALE;
+    Object.assign(line.style, { fontSize: `${px}px`, left: `${CX - width / 2}px`, width: `${width}px`, top: '0px', whiteSpace: wrap ? 'normal' : 'nowrap' });
+    if (line.scrollWidth <= width + 0.5 || wrap) break;
+  }
+  // одна строка — по настоящим буквам (центр — по ним), перенос — по строкам текста
+  const ink = wrap ? union(textRects(line)) : union([wordRect(words, main, px), ...emojiRects(line)]);
+  const outer = grow(ink, SHADOW_EXT.x, SHADOW_EXT.top, SHADOW_EXT.bottom);
+  const dy = keepInside(outer, Math.round(y - (ink.top + ink.bottom) / 2), SAFE.subsY1 ?? SAFE.y1);
+  line.style.top = `${dy}px`;
+  return box(shift(outer, dy));
+}
+
 /** Псевдослучайное 0..1 по строке и номеру буквы: порядок «вразнобой» одинаков на превью и во всех кадрах. */
 function scatter(text, k) {
   let h = 2166136261;
@@ -945,7 +979,7 @@ window.renderState = function renderState(spec, state = {}, opts = {}) {
 function texts(s) {
   const cta = s.cta ?? {};
   return [
-    s.hook?.text, s.cover?.text, ...(cta.lines ?? []), cta.word, ...(s.accent?.lines ?? []).map((l) => l?.text),
+    s.hook?.text, s.cover?.text, s.caption?.text, ...(cta.lines ?? []), cta.word, ...(s.accent?.lines ?? []).map((l) => l?.text),
     ...(s.inserts ?? []).flatMap((i) => [i.text, i.title]), ...(s.end?.lines ?? []),
   ];
 }
@@ -970,6 +1004,8 @@ async function draw(spec, state, opts) {
   if (cta) boxes.cta = cta;
   const accent = drawAccent(look, s.accent);
   if (accent) boxes.accent = accent;
+  const caption = drawCaption(look, s.caption);
+  if (caption) boxes.caption = caption;
   const card = drawEnd(look, s.end, s.end?.logo ? await logoImage(s.end.logo) : null);
   if (card) boxes.end = card;
   drawBar(spec, opts?.bar);

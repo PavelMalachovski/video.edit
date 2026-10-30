@@ -622,3 +622,27 @@ test('in the ads zone subtitles, a low sticker and the end card move up above th
   const card = (await boxes()).end;
   assert.ok(card.y >= ADS.y0 && card.y + card.h <= ADS.y1, JSON.stringify(card));
 });
+
+// ---------- подпись перебивки (формат «Разбор персонажа») ----------
+
+test('a b-roll caption: one line in the main font, bigger than subtitles, centred at their height, the box covers the ink', async () => {
+  const s = spec({ sub: { mode: 'soft', size: 64, y: 1440 } });
+  await render(s, { caption: { text: 'Эдриан Броуди' } });
+  const b = (await boxes()).caption;
+  assert.ok(b, 'caption box');
+  assert.ok(insideSubs(b), JSON.stringify(b));
+  assert.ok(Math.abs(b.x + b.w / 2 - (SAFE.x0 + SAFE.x1) / 2) <= 1, JSON.stringify(b));
+  assert.ok(Math.abs(b.y + b.h / 2 - 1442) <= 1, JSON.stringify(b)); // поля тени: сверху 12, снизу 16 — центр рамки на 2 ниже
+  assert.ok(b.h < 64 * 1.4 * 1.6, `one line: ${JSON.stringify(b)}`);
+  assert.ok(contains(b, await drawnBox(page, scratch)), 'ink and shadow inside the box');
+  assert.ok(share(await pixels(clipOf(b)), '#FFFFFF') > 0.05, 'white letters');
+});
+
+test('a long caption shrinks into the safe zone; no caption — nothing drawn', async () => {
+  await render(spec(), { caption: { text: 'Бенедикт Тимоти Карлтон Камбербэтч' } });
+  const b = (await boxes()).caption;
+  assert.ok(insideSubs(b), JSON.stringify(b));
+  await render(spec(), {});
+  assert.equal((await boxes()).caption, undefined);
+  assert.equal(await drawnBox(page, scratch), null);
+});

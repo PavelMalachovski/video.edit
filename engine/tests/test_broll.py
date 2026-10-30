@@ -126,3 +126,22 @@ def test_vm_broll_is_a_command(tmp_path, monkeypatch, capsys):
     assert main(["broll", str(job.root)]) == 0
     out = capsys.readouterr().out
     assert "Перебивок: 3" in out and "звук без речи" in out
+
+
+def test_a_b_roll_without_a_readable_file_is_left_out_whole_and_reported(tmp_path):
+    # такая перебивка не обрывает соседнюю в серии и не рисует свою подпись поверх лица — её как будто выключили
+    from vm.overlay import insert_spans
+    from vm.render import drop_broken_brolls
+    from vm.timeline import Timeline
+
+    job = b_roll_job(tmp_path)
+    job.path("in/uploads/broken.mp4").write_bytes(b"not a video")
+    full = lambda src, t0, t1, **extra: {"kind": "fullscreen", "src": src, "t0": t0, "t1": t1, **extra}
+    edit = {"inserts": [full("in/uploads/upload-b3.jpg", 2.0, 2.5), full("in/uploads/nope.jpg", 2.6, 3.0, caption="Том"),
+                        full("in/uploads/broken.mp4", 3.1, 3.4, caption="Питер"), full("in/uploads/upload-b2.mp4", 6.0, 7.0)]}
+    kept, missing = drop_broken_brolls(job, edit)
+    assert [bool(i.get("off")) for i in kept["inserts"]] == [False, True, True, False]
+    assert not any(i.get("off") for i in edit["inserts"]), "edit.json задачи не трогаем"
+    assert missing == ["нет файла перебивки in/uploads/nope.jpg — ролик без неё",
+                       "файл перебивки in/uploads/broken.mp4 не читается — ролик без неё"]
+    assert insert_spans(kept, Timeline([(0, 10)], 1.0)) == [(0, 60, 105), (3, 180, 225)]

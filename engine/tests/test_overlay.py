@@ -191,6 +191,36 @@ def test_fullscreen_inserts_are_left_to_ffmpeg():
     assert build_overlay_events(edit, timeline(edit)) == [{"t0": 0, "t1": pytest.approx(10.0), "state": {}}]
 
 
+def fullscreen(t0, t1, **extra):
+    return {"kind": "fullscreen", "src": "in/uploads/upload-b1.jpg", "t0": t0, "t1": t1, **extra}
+
+
+def test_a_series_of_fullscreen_inserts_take_turns_instead_of_piling_up():
+    # перечисление: фото на каждое имя — следующая перебивка обрывает предыдущую; последняя — не короче 1,5 с
+    edit = make_edit(inserts=[fullscreen(2.0, 2.6), fullscreen(3.0, 3.5), picture(3.2, 3.4), fullscreen(4.0, 4.4)])
+    assert insert_spans(edit, timeline(edit)) == [(0, 60, 90), (1, 90, 120), (2, 96, 141), (3, 120, 165)]
+
+
+def test_of_fullscreen_inserts_starting_together_only_the_top_one_is_shown():
+    # ffmpeg кладёт более позднюю по номеру сверху: нижняя не видна — ни её подписи, ни звука (хук сдвинул обе на свой конец)
+    edit = make_edit(hook={"text": "Хук", "until": 2.0},
+                     inserts=[fullscreen(1.0, 3.0, caption="Эдриан"), fullscreen(1.5, 2.5), fullscreen(4.0, 5.0)])
+    assert insert_spans(edit, timeline(edit)) == [(1, 60, 105), (2, 120, 165)]
+    assert "caption" not in at(build_overlay_events(edit, timeline(edit)), 2.5)
+
+
+def test_a_fullscreen_caption_is_drawn_by_the_template_and_replaces_subtitles():
+    words = [{"t0": 2.0, "t1": 2.5, "text": "Эдриан"}, {"t0": 2.55, "t1": 2.9, "text": "Броуди,"},
+             {"t0": 3.0, "t1": 3.4, "text": "Том"}, {"t0": 3.45, "t1": 3.9, "text": "Хиддлстоун."}]
+    edit = make_edit(words=words, inserts=[fullscreen(2.0, 2.9, caption="Эдриан Броуди"),
+                                           fullscreen(3.0, 3.9, caption="Том Хиддлстоун"), fullscreen(6.0, 7.0)])
+    events = build_overlay_events(edit, timeline(edit))
+    assert at(events, 2.5) == {"caption": {"text": "Эдриан Броуди"}}
+    assert at(events, 3.2) == {"caption": {"text": "Том Хиддлстоун"}}
+    assert at(events, 4.5 - FRAME)["caption"] == {"text": "Том Хиддлстоун"}  # последняя в серии — 1,5 с, подпись с ней
+    assert "caption" not in at(events, 4.5) and "caption" not in at(events, 6.5)
+
+
 def test_anim_insert_changes_every_frame():
     edit = make_edit(inserts=[{"kind": "anim", "t0": 4.0, "t1": 5.5, "x": 100, "y": 300, "w": 384, "params": {"name": "bachata"}}])
     events = build_overlay_events(edit, timeline(edit))

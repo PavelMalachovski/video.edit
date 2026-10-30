@@ -9,7 +9,8 @@
 переходит на начало следующего отрезка). Правила вставок: пока виден хук, вставок нет (начало сдвигается на
 конец хука); показ не короче 1,5 с; появление — три кадра (`anim` = 1/3, 2/3, 1); у анимации (`kind: anim`)
 каждый кадр свой (`t` — секунды от начала показа). Полноэкранные вставки (`fullscreen`) монтирует ffmpeg,
-в слой они не попадают. Что видно в последний кадр ролика, остаётся и на стоп-кадре.
+в слой попадает только их подпись (`caption` → `state.caption`; пока она видна, субтитров нет); следующая перебивка
+обрывает предыдущую (серия). Что видно в последний кадр ролика, остаётся и на стоп-кадре.
 
 Финальная карточка (`edit.end`) идёт после стоп-кадра ещё `seconds`: на ней ничего другого нет, и каждый её кадр
 свой (`state.end.t` — секунды от начала карточки: призыв «дышит»).
@@ -244,8 +245,8 @@ def _hook_end(edit: dict, tl: Timeline) -> int:
 
 def insert_spans(edit: dict, tl: Timeline) -> list[tuple[int, int, int]]:
     """Кадры показа вставок `(номер в edit.inserts, первый кадр, кадр после последнего)` по правилам: не раньше
-    конца хука, не короче 1,5 с. Все виды, в том числе fullscreen (её монтирует ffmpeg, а звук — в нужный кадр);
-    выключенных Павлом (`off`) — нет."""
+    конца хука, не короче 1,5 с; вставка на весь кадр — не дальше начала следующей такой (серия). Все виды, в том числе
+    fullscreen (её монтирует ffmpeg, а звук — в нужный кадр); выключенных Павлом (`off`) — нет."""
     after_hook = _hook_end(edit, tl)
     min_show = math.ceil(MIN_SHOW * FPS - 1e-9)
     spans = []
@@ -256,7 +257,12 @@ def insert_spans(edit: dict, tl: Timeline) -> list[tuple[int, int, int]]:
         start = max(_frame(a), after_hook)
         stop = max(_frame(b), start + min_show)
         spans.append((i, start, stop))
-    return spans
+    # серия перебивок (перечисление — фото на каждое имя): следующая на весь кадр обрывает предыдущую; начались на одном
+    # кадре — видна более поздняя по номеру (ffmpeg кладёт её сверху), нижней в ролике нет
+    full = [(start, i) for i, start, _ in spans if edit["inserts"][i]["kind"] == "fullscreen"]
+    cut = [(i, start, min([stop, *(s for s, j in full if s > start or (s == start and j > i))]))
+           if edit["inserts"][i]["kind"] == "fullscreen" else (i, start, stop) for i, start, stop in spans]
+    return [span for span in cut if span[2] > span[1]]
 
 
 def _inserts(edit: dict, tl: Timeline) -> list[_Piece]:
@@ -264,6 +270,8 @@ def _inserts(edit: dict, tl: Timeline) -> list[_Piece]:
     pieces = []
     for i, start, stop in insert_spans(edit, tl):
         ins = inserts[i]
+        if ins["kind"] == "fullscreen" and ins.get("caption"):  # подпись перебивки рисует шаблон
+            pieces.append(_Piece(start, stop, "caption", {"text": ins["caption"]}))
         if ins["kind"] not in DRAWN:
             continue
         missing = [k for k in ("x", "y", "w") if ins.get(k) is None]
@@ -295,6 +303,6 @@ def _state(pieces: list[_Piece], frame: int) -> dict:
             state[piece.key] = piece.value
     if inserts:
         state["inserts"] = inserts
-    if "accent" in state:
-        state.pop("sub", None)  # слова акцента — и есть субтитры
+    if "accent" in state or "caption" in state:
+        state.pop("sub", None)  # слова акцента и подпись перебивки — и есть субтитры
     return state

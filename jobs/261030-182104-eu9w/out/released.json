@@ -1,0 +1,111 @@
+{
+ "release_id": 429353860,
+ "assets": [
+  {
+   "name": "manifest.json",
+   "id": 693004201,
+   "size": 709
+  },
+  {
+   "name": "matte-c5ce1f6ae11f.json",
+   "id": 693091649,
+   "size": 20
+  },
+  {
+   "name": "source-ad7abe9486da.json",
+   "id": 693008159,
+   "size": 126
+  },
+  {
+   "name": "source-ad7abe9486da.mp4.part-00000",
+   "id": 693007923,
+   "size": 118127427
+  },
+  {
+   "name": "source.part-00000",
+   "id": 693003595,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00001",
+   "id": 693003611,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00002",
+   "id": 693003642,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00003",
+   "id": 693003672,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00004",
+   "id": 693003703,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00005",
+   "id": 693003737,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00006",
+   "id": 693003793,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00007",
+   "id": 693003836,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00008",
+   "id": 693003869,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00009",
+   "id": 693003905,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00010",
+   "id": 693003936,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00011",
+   "id": 693003983,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00012",
+   "id": 693004009,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00013",
+   "id": 693004036,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00014",
+   "id": 693004063,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00015",
+   "id": 693004105,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00016",
+   "id": 693004091,
+   "size": 263234
+  }
+ ],
+ "at": "2026-10-30T18:55:01Z"
+}

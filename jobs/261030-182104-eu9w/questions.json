@@ -1,0 +1,163 @@
+{
+  "questions": [
+    {
+      "id": "cut",
+      "type": "choice",
+      "title": "Сократить вторую часть?",
+      "body": "В видео нет речи, только жесты. Первая часть — до 0:10, вторая — с жеста «тсс». Вторую сократил до ~7,7 с: убрал повтор «тсс» (0:12,5–0:14,2) и хвост после 0:20,6. Ролик будет ~0:17 (с ускорением ×1,1).",
+      "options": [
+        {
+          "id": "all",
+          "label": "Да, вторая часть ~7,7 с"
+        },
+        {
+          "id": "edges",
+          "label": "Не резать — весь ролик, ~0:19"
+        }
+      ],
+      "default": "all"
+    },
+    {
+      "id": "stickers",
+      "type": "multi",
+      "title": "Надписи на весь ролик",
+      "body": "Текст из ТЗ — три надписи на всё видео: сверху над головой и две на груди. На превью их можно передвинуть и растянуть.",
+      "options": [
+        {
+          "id": "s1",
+          "label": "«Зачем ебать мозг себе, если можно мне?»"
+        },
+        {
+          "id": "s2",
+          "label": "«50€ / 70 минут»"
+        },
+        {
+          "id": "s3",
+          "label": "«Запись в боте, ссылка в шапке»"
+        }
+      ],
+      "default": [
+        "s1",
+        "s2",
+        "s3"
+      ]
+    },
+    {
+      "id": "stars",
+      "type": "multi",
+      "title": "Звёздочки в рискованных словах",
+      "body": "Мат Instagram может резать в охвате. Отмеченное пойдёт со звёздочкой; сними галочку — останется как написано.",
+      "options": [
+        {
+          "id": "ebat",
+          "label": "еб*ть"
+        }
+      ],
+      "default": [
+        "ebat"
+      ]
+    },
+    {
+      "id": "music",
+      "type": "choice",
+      "title": "Музыка",
+      "body": "В видео нет речи, звук — тишина комнаты: с треком ролик будет живее. Треки — чужие песни: в обычном Reels их могут заглушить.",
+      "options": [
+        {
+          "id": "atlxs-passo.mp3",
+          "label": "Atlxs — Passo"
+        },
+        {
+          "id": "banana-cake.m4a",
+          "label": "Banana Cake"
+        },
+        {
+          "id": "did-i-drive-you-away.m4a",
+          "label": "Did I Drive You Away"
+        },
+        {
+          "id": "diedlonely-in-the-bleak.m4a",
+          "label": "Diedlonely — In the Bleak"
+        },
+        {
+          "id": "etern-brodyaga.mp3",
+          "label": "Etern — Бродяга"
+        },
+        {
+          "id": "mysterious-and-sad.m4a",
+          "label": "Mysterious and Sad"
+        },
+        {
+          "id": "playboi-carti-made-it.m4a",
+          "label": "Playboi Carti — Made It"
+        },
+        {
+          "id": "sayfalse-esse.mp3",
+          "label": "Sayfalse — Esse"
+        },
+        {
+          "id": "sleepwalker-slowed.m4a",
+          "label": "Sleepwalker (slowed)"
+        },
+        {
+          "id": "tory-lanez-broke.m4a",
+          "label": "Tory Lanez — Broke"
+        },
+        {
+          "id": "none",
+          "label": "Без музыки"
+        }
+      ],
+      "default": "none"
+    },
+    {
+      "id": "dim",
+      "type": "choice",
+      "title": "Затемнить фон?",
+      "layout": "frames",
+      "options": [
+        {
+          "id": "none",
+          "label": "Как есть",
+          "image": "q-dim-none.jpg"
+        },
+        {
+          "id": "30",
+          "label": "Темнее на 30 %",
+          "image": "q-dim-30.jpg"
+        },
+        {
+          "id": "50",
+          "label": "Темнее на 50 %",
+          "image": "q-dim-50.jpg"
+        }
+      ],
+      "default": "30"
+    },
+    {
+      "id": "end",
+      "type": "choice",
+      "title": "Финальная карточка",
+      "body": "2 с в конце: затемнённый последний кадр и призыв. Запись и цена уже весь ролик на экране — можно и без неё.",
+      "options": [
+        {
+          "id": "e1",
+          "label": "Запись в боте — ссылка в шапке 👆"
+        },
+        {
+          "id": "e2",
+          "label": "Пиши в директ 👇"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Не надо"
+        }
+      ],
+      "default": "none"
+    }
+  ]
+}

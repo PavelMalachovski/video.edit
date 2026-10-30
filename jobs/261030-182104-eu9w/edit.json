@@ -1,0 +1,123 @@
+{
+  "speed": 1.1,
+  "keep": [
+    [
+      0.0,
+      12.5
+    ],
+    [
+      14.2,
+      20.6
+    ]
+  ],
+  "cuts": [
+    [
+      12.5,
+      14.2
+    ]
+  ],
+  "words": [],
+  "hook": null,
+  "cta": null,
+  "inserts": [
+    {
+      "kind": "text",
+      "id": "s1",
+      "text": "Зачем ебать мозг себе, если можно мне?",
+      "t0": 0.0,
+      "t1": 20.6,
+      "x": 220,
+      "y": 135,
+      "w": 520,
+      "sfx": null,
+      "params": {
+        "tone": "dark"
+      }
+    },
+    {
+      "kind": "text",
+      "id": "s2",
+      "text": "50€ / 70 минут",
+      "t0": 0.0,
+      "t1": 20.6,
+      "x": 270,
+      "y": 1040,
+      "w": 420,
+      "sfx": null,
+      "params": {
+        "tone": "accent"
+      }
+    },
+    {
+      "kind": "text",
+      "id": "s3",
+      "text": "Запись в боте, ссылка в шапке",
+      "t0": 0.0,
+      "t1": 20.6,
+      "x": 190,
+      "y": 1220,
+      "w": 560,
+      "sfx": null,
+      "params": {
+        "tone": "dark"
+      }
+    }
+  ],
+  "accents": [],
+  "looks": [],
+  "zooms": [
+    {
+      "t": 0.3,
+      "level": 1.08,
+      "over": 5.0
+    },
+    {
+      "t": 10.4,
+      "level": 1.12,
+      "over": 0
+    },
+    {
+      "t": 14.2,
+      "level": 1.0,
+      "over": 0
+    },
+    {
+      "t": 17.6,
+      "level": 1.12,
+      "over": 3.0
+    }
+  ],
+  "face": {
+    "x": 0.5,
+    "y": 0.36
+  },
+  "music": null,
+  "hold": 0.0,
+  "transitions": [],
+  "style": {
+    "font": "forum",
+    "hand": "caveat",
+    "colors": {
+      "text": "#FFFFFF",
+      "accent": "#EDE4C1",
+      "bar": "#EDE4C1",
+      "plate": "#111111",
+      "outline": "#000000"
+    },
+    "subtitles": {
+      "mode": "soft",
+      "words": 3,
+      "size": 64,
+      "y": 1440
+    },
+    "hook": {
+      "mode": "accent",
+      "size": 108,
+      "y": 420
+    },
+    "bar": {
+      "pos": "bottom",
+      "height": 6
+    }
+  }
+}

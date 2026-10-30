@@ -1,0 +1,173 @@
+{
+  "frame": "frame.png",
+  "frameTime": 9.0,
+  "sample": {
+    "words": [],
+    "spoken": 0,
+    "inserts": [
+      {
+        "kind": "text",
+        "id": "s1",
+        "text": "Зачем ебать мозг себе, если можно мне?",
+        "x": 220,
+        "y": 135,
+        "w": 520,
+        "params": {
+          "tone": "dark"
+        }
+      },
+      {
+        "kind": "text",
+        "id": "s2",
+        "text": "50€ / 70 минут",
+        "x": 270,
+        "y": 1040,
+        "w": 420,
+        "params": {
+          "tone": "accent"
+        }
+      },
+      {
+        "kind": "text",
+        "id": "s3",
+        "text": "Запись в боте, ссылка в шапке",
+        "x": 190,
+        "y": 1220,
+        "w": 560,
+        "params": {
+          "tone": "dark"
+        }
+      }
+    ]
+  },
+  "fonts": {
+    "main": [
+      "forum",
+      "montserrat",
+      "unbounded",
+      "rubik",
+      "oswald",
+      "russo-one",
+      "comfortaa",
+      "Cormorant",
+      "Gilroy",
+      "Helvetica",
+      "Neutral Face",
+      "Playfair Display"
+    ],
+    "hand": [
+      "caveat",
+      "marck-script",
+      "bad-script"
+    ]
+  },
+  "variants": [
+    {
+      "id": "A",
+      "label": "Стиль эталона: антиква Forum, шампань",
+      "spec": {
+        "font": "forum",
+        "hand": "caveat",
+        "colors": {
+          "text": "#FFFFFF",
+          "accent": "#EDE4C1",
+          "bar": "#EDE4C1",
+          "plate": "#111111",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "soft",
+          "words": 3,
+          "size": 64,
+          "y": 1440
+        },
+        "hook": {
+          "mode": "accent",
+          "size": 108,
+          "y": 420
+        },
+        "bar": {
+          "pos": "bottom",
+          "height": 6
+        }
+      }
+    },
+    {
+      "id": "B",
+      "label": "Эталон, пудровый акцент и шкала сверху",
+      "spec": {
+        "font": "forum",
+        "hand": "caveat",
+        "colors": {
+          "text": "#FFFFFF",
+          "accent": "#F2C9C9",
+          "bar": "#F2C9C9",
+          "plate": "#111111",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "soft",
+          "words": 3,
+          "size": 64,
+          "y": 1440
+        },
+        "hook": {
+          "mode": "accent",
+          "size": 108,
+          "y": 420
+        },
+        "bar": {
+          "pos": "top",
+          "height": 6
+        }
+      }
+    },
+    {
+      "id": "C",
+      "label": "Прежний домашний: Montserrat, жёлтый",
+      "spec": {
+        "font": "montserrat",
+        "hand": "caveat",
+        "colors": {
+          "text": "#FFFFFF",
+          "accent": "#FFD23F",
+          "bar": "#FFD23F",
+          "plate": "#111111",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "karaoke",
+          "words": 3,
+          "size": 64,
+          "y": 1300
+        },
+        "hook": {
+          "mode": "plate",
+          "size": 72,
+          "y": 400
+        },
+        "bar": {
+          "pos": "bottom",
+          "height": 14
+        }
+      }
+    }
+  ],
+  "cover": {
+    "frames": [
+      {
+        "t": 0.0,
+        "image": "cover-1.jpg"
+      },
+      {
+        "t": 11.5,
+        "image": "cover-2.jpg"
+      },
+      {
+        "t": 20.5,
+        "image": "cover-3.jpg"
+      }
+    ],
+    "text": "зачем е*ать мозг себе если можно мне"
+  }
+}

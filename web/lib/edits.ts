@@ -51,7 +51,7 @@ export type LookFix = { at?: At; off?: true; t0?: number; t1?: number; look?: Lo
 /** Какой кусок правят: кусок сессии — по месту `at` в edit.looks, свой — по номеру среди своих (`own`). */
 export type LookRef = { at: At } | { own: number };
 /** Виды переходов (edit.json, transitions.kind): вспышка, толчок зумом, смаз. */
-export const TRANSITION_KINDS = ['flash', 'zoom', 'blur'] as const;
+export const TRANSITION_KINDS = ['flash', 'zoom', 'blur', 'tear', 'glitch'] as const;
 export type TransitionKind = (typeof TRANSITION_KINDS)[number];
 export type TransitionFix = { at: number; kind?: TransitionKind; off?: true };
 /** Что правит Павел: куски, голос, музыка, звуки, текст и вставки, слова субтитров, картинка. */

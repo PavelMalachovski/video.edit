@@ -16,7 +16,7 @@ type TFn = (k: Key, v?: Record<string, string | number>) => string;
  *  по своему t. */
 export type PictureSel = { kind: 'look'; ref: LookRef } | { kind: 'transition'; at: number };
 
-export const KIND_NAMES: Record<TransitionKind, Key> = { flash: 'trFlash', zoom: 'trZoom', blur: 'trBlur' };
+export const KIND_NAMES: Record<TransitionKind, Key> = { flash: 'trFlash', zoom: 'trZoom', blur: 'trBlur', tear: 'trTear', glitch: 'trGlitch' };
 export const LOOK_NAMES: Record<LookKind, Key> = { bw: 'bw', sepia: 'lookSepia', warm: 'lookWarm', cold: 'lookCold', film: 'lookFilm' };
 const sameAt = (a: At, b: At) => a[0] === b[0] && a[1] === b[1];
 /** Тот же кусок: кусок сессии — по месту, свой — по номеру. */
@@ -71,8 +71,9 @@ export function PictureSection({ T, tracks, hand, dim, canZoom, canDim, note, on
 
 /** Выбранный кусок с фильтром или переход: убрать, вернуть, другой фильтр или вид перехода, «как у монтажа»; свой кусок —
  *  удалить. `editable` — убрать и вернуть кусок, переход; `shape` — фильтр куска и свои куски (старый движок их не знает). */
-export function PicturePick({ T, sel, tracks, hand, editable, shape, note, onEdit, sec }: {
+export function PicturePick({ T, sel, tracks, hand, editable, shape, tear = true, note, onEdit, sec }: {
   T: TFn; sel: PictureSel; tracks: Tracks; hand: HandEdits; editable: boolean; shape: boolean; note: string | null;
+  tear?: boolean; // движок задачи знает рваную бумагу и глитч (старый — нет: их и не предлагаем)
   onEdit: (next: HandEdits, key?: string) => void; sec: (s: number) => string;
 }) {
   if (sel.kind === 'look') {
@@ -118,7 +119,7 @@ export function PicturePick({ T, sel, tracks, hand, editable, shape, note, onEdi
       <h2>{T('transition')}{x.off ? ` · ${T('removed')}` : ''}</h2>
       <p className="ed-note mono">{tenths(x.t)}</p>
       <div className="ed-modes" role="group" aria-label={T('trKind')}>
-        {TRANSITION_KINDS.map((k) => (
+        {TRANSITION_KINDS.filter((k) => tear || (k !== 'tear' && k !== 'glitch') || k === kind).map((k) => (
           <button key={k} type="button" className="ed-mode" aria-pressed={!x.off && kind === k} disabled={!editable} onClick={() => set(k, false)}>
             {T(KIND_NAMES[k])}
           </button>

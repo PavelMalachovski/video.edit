@@ -255,6 +255,14 @@ LOOK = [
               "transitions": [{"t": 1.02, "kind": "flash"}, {"t": 2.5, "kind": "zoom"}, {"t": 3.82, "kind": "blur"},
                               {"t": 4.22, "kind": "flash"}, {"t": 7.48, "kind": "blur"}, {"t": 8.32, "kind": "flash"}],
               "looks": []}},
+    {"name": "a tear onto a b-roll a beat moved, a tear with no b-roll near, glitches; a tear needs room before its seam",
+     "keep": [[0.0, 4.0], [4.3, 10.0]], "speed": 1.0, "teaser": None,
+     "edit": {"zooms": [], "looks": [],
+              "transitions": [{"t": 2.0, "kind": "tear"}, {"t": 5.0, "kind": "tear"}, {"t": 7.0, "kind": "glitch"},
+                              {"t": 0.02, "kind": "glitch"}, {"t": 0.2, "kind": "tear"}, {"t": 8.5, "kind": "tear", "off": True}],
+              "inserts": [{"kind": "fullscreen", "src": "a.jpg", "t0": 2.2, "t1": 3.0},
+                          {"kind": "fullscreen", "src": "b.jpg", "t0": 5.9, "t1": 6.5},
+                          {"kind": "fullscreen", "src": "c.jpg", "t0": 8.5, "t1": 9.0}]}},
     {"name": "filters set by hand: one look per frame, the later piece wins; neighbours of one look merge; off is in colour",
      "keep": [[0.0, 4.0], [4.5, 9.0]], "speed": 1.1, "teaser": [6.0, 7.5],
      "edit": {"zooms": [], "transitions": [],
@@ -473,6 +481,11 @@ def look_case(case: dict) -> dict:
                   for m in marks if m.kind == "flash"],
         "blur": [{"t": m.t, "frames": [[n, transitions.blur_sigma(m.t, n)] for n in _around(m.t)]}
                  for m in marks if m.kind == "blur"],
+        "tears": [{"t": x.mark.t, "insert": x.insert, "join": x.join,
+                   "frames": [[n, transitions.tear_frame(x.join, n)] for n in range(x.join - 12, x.join + 3)]}
+                  for x in transitions.tears(edit, tl)],
+        "glitch": [{"t": m.t, "frames": [[n, transitions.glitch_bands(round(m.t * 30), n)] for n in _around(m.t)]}
+                   for m in marks if m.kind == "glitch"],
     }
 
 

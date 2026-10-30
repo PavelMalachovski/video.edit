@@ -208,7 +208,7 @@
         "additionalProperties": false,
         "properties": {
           "at": { "type": "number", "minimum": 0 },
-          "kind": { "enum": ["flash", "zoom", "blur"] },
+          "kind": { "enum": ["flash", "zoom", "blur", "tear", "glitch"] },
           "off": { "const": true }
         }
       }

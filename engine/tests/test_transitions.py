@@ -10,13 +10,19 @@ from vm.job import Job
 from vm.render import _sounds, timeline
 from vm.timeline import Timeline
 from vm.transitions import (
+    GLITCH,
     HALF,
     PUNCH,
+    TEAR,
     Mark,
     blur_sigma,
     flash_alpha,
+    glitch_bands,
+    lead,
     marks,
     picture_chains,
+    tear_frame,
+    tears,
     warnings,
 )
 from vm.zoom import zoom_at, zoom_filter
@@ -237,3 +243,70 @@ def test_blur_sigma_is_how_wide_ffmpeg_smears_a_sharp_edge_on_every_frame():
     levels = sorted(widths)
     assert levels == pytest.approx([8, math.hypot(8, 14), math.hypot(8, 14, 24)])
     assert max(widths[levels[0]]) < min(widths[levels[1]]) and max(widths[levels[1]]) < min(widths[levels[2]])
+
+
+# ---------- рваная бумага и глитч (формат «Разбор персонажа», 30.10.2026) ----------
+
+
+
+def test_a_tear_runs_before_its_seam_and_a_glitch_around_it():
+    assert lead("tear") == pytest.approx(TEAR / 30) and lead("glitch") == pytest.approx(1 / 30) and lead("flash") == HALF
+    edit = edit_with({"t": 0.2, "kind": "tear"}, {"t": 5.0, "kind": "tear"}, {"t": 0.02, "kind": "glitch"}, {"t": 8.0, "kind": "glitch"})
+    assert [(m.kind, m.source) for m in marks(edit, tl_of(edit))] == [("tear", 5.0), ("glitch", 8.0)], "до стыка не хватает кадров"
+
+
+def fullscreen(t0, t1, **extra):
+    return {"kind": "fullscreen", "src": "in/uploads/upload-b1.jpg", "t0": t0, "t1": t1, **extra}
+
+
+def test_a_tear_opens_onto_the_b_roll_that_starts_at_its_seam():
+    # бит музыки сдвинул перебивку на 0,2 с — разрыв идёт к ней; нет перебивки рядом — разрыва нет, и Claude об этом скажет
+    edit = {**edit_with({"t": 3.0, "kind": "tear"}, {"t": 6.0, "kind": "tear"}),
+            "inserts": [fullscreen(1.0, 2.0), fullscreen(3.2, 4.0), fullscreen(3.5, 4.5, off=True)], "hook": None}
+    (found,) = tears(edit, tl_of(edit))
+    assert (found.insert, found.join) == (1, 96) and found.mark.source == 3.0
+    said = warnings(edit, tl_of(edit))
+    assert said == ["рваная бумага на 6,0 с — не на входе в перебивку: её не будет (ставь её на начало перебивки)"]
+
+
+def test_the_tear_frames_are_the_nine_before_the_seam():
+    assert [tear_frame(96, n) for n in (86, 87, 95, 96)] == [None, 0, 8, None]
+
+
+def test_the_glitch_shifts_bands_on_three_frames_around_the_seam():
+    assert glitch_bands(240, 238) == [] and glitch_bands(240, 242) == []
+    assert [glitch_bands(240, n) for n in (239, 240, 241)] == [list(b) for b in GLITCH]
+    for bands in GLITCH:
+        assert bands and all(0 <= y0 < y1 <= 1920 and 0 < abs(dx) < 120 for y0, y1, dx in bands)
+
+
+def test_the_tear_and_glitch_sounds_start_with_them(tmp_path):
+    job = Job(tmp_path / "jobs" / "abc")
+    job.path("in/uploads").mkdir(parents=True)
+    job.path("in/uploads/rip.wav").write_bytes(b"RIFF")
+    edit = {"speed": 1.0, "keep": [[0.0, 9.0]], "hook": None, "music": None, "hold": 0.0,
+            "inserts": [fullscreen(3.0, 4.0)],
+            "transitions": [{"t": 3.1, "kind": "tear", "sfx": "in/uploads/rip.wav"}, {"t": 7.0, "kind": "glitch", "sfx": "in/uploads/rip.wav"},
+                            {"t": 5.0, "kind": "tear", "sfx": "in/uploads/rip.wav"}]}  # разрыв на 5 с — без перебивки: его нет
+    sfx, _, _ = _sounds(job, edit, timeline(edit), skip=set())
+    # разрыв звучит с начала своего окна — от первого кадра перебивки (3,0 с), а не от t
+    assert [t for t, _ in sfx] == [pytest.approx(3.0 - TEAR / 30), pytest.approx(7.0 - 1 / 30)]
+
+
+@needs_ffmpeg
+def test_the_glitch_slides_its_bands_sideways_on_its_frames_only():
+    edit = edit_with({"t": 1.0, "kind": "glitch"})
+    out = frames(chains_for(edit))
+    clean = frames([])
+    for n in range(out.shape[0]):
+        bands = glitch_bands(30, n)
+        if not bands:
+            assert np.array_equal(out[n], clean[n]), n
+            continue
+        for y0, y1, dx in bands:  # кадр 216×384: полосы и сдвиг — в пятую долю
+            a, b, d = round(y0 / 5), round(y1 / 5), round(dx / 5)
+            row = (a + b) // 2
+            if d > 0:
+                assert np.array_equal(out[n][row, d + 10 : 200], clean[n][row, 10 : 200 - d]), (n, row)
+            else:
+                assert np.array_equal(out[n][row, 10 : 200 + d], clean[n][row, 10 - d : 200]), (n, row)

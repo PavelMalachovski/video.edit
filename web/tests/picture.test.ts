@@ -87,3 +87,20 @@ test('a B-roll clip in the picture: its moment, a face window, its sound — as 
   const still = pictureAt(m, 6.9).cover;
   assert.deepEqual([still?.src, still?.from, still?.layout, still?.audio, still?.video], ['in/uploads/upload-b2.jpg', 0, 'full', false, false], 'по умолчанию — с начала, на весь кадр, без звука');
 });
+
+test('torn paper before its b-roll and the glitch around its seam — on the frames the video shows them', () => {
+  const draft: Draft = {
+    ...DRAFT, zooms: [], looks: [],
+    transitions: [{ t: 6, kind: 'tear' }, { t: 2.5, kind: 'glitch' }, { t: 3, kind: 'tear' }], // разрыв на 3 с — без перебивки
+  };
+  const m = pictureModel(draftTracks(draft, { sourceDuration: 9 }).layer, { face: DRAFT.face });
+  const at = (n: number) => pictureAt(m, (n + 0.5) / 30);
+  assert.equal(at(150 - 9 - 1).tear, null, 'до окна — без разрыва');
+  assert.deepEqual([at(141).tear?.k, at(149).tear?.k], [0, 8], 'девять кадров до перебивки (исходник 6 с — ролик 5 с, кадр 150)');
+  assert.equal(at(141).tear?.cover.src, 'in/uploads/upload-i1.mp4', 'в щели — перебивка, в которую он ведёт');
+  assert.equal(at(150).tear, null);
+  assert.equal(at(150).cover?.src, 'in/uploads/upload-i1.mp4', 'потом — сама перебивка');
+  assert.ok([60, 80, 90].every((n) => at(n).tear === null), 'разрыв без перебивки не рисуется');
+  assert.deepEqual([at(73).glitch, at(74).glitch.length, at(75).glitch.length, at(76).glitch.length, at(77).glitch],
+    [[], 2, 3, 1, []], 'глитч — кадр до стыка 2,5 с, стык и кадр после');
+});

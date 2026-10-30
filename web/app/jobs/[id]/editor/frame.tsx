@@ -11,11 +11,14 @@ import type { StyleSpec } from '@/lib/jobfiles.ts';
 import { eventIndexAt, FPS, type LayerEvent } from '@/lib/overlay.ts';
 import { clipStart, PIP, pipSource } from '@/lib/broll.ts';
 import { lookFilter, pictureAt, type Cover, type PictureModel } from '@/lib/picture.ts';
+import { TEAR } from '@/lib/zoom.ts';
 import { INSERT_W, moveBox, moveCentre, resizeBox, underCaption, type BoxExt } from '@/lib/style.ts';
 import { BoxHandle, DragHandle, type Box } from '../../../handles';
 import { PencilIcon } from '../../../icons';
 import PreviewFrame from '../../../preview-frame';
 
+const TEAR_DIR = '/template/tear'; // кадры рваной бумаги — те же картинки, что накладывает рендер (vm/tear.py)
+const GLITCH_DRAW = { w: 540, h: 960 }; // холст глитча, px: как прокси
 const PIP_DRAW = { w: 270, h: 360 }; // окошко лица в плеере, px холста: как кусок прокси 540×960 (faceBox — половина ширины)
 const PIP_STYLE: CSSProperties = { // окошко на кадре — как PIP движка (доли кадра 1080×1920), углы — r PIP
   left: `${(PIP.x / 1080) * 100}%`, top: `${(PIP.y / 1920) * 100}%`, width: `${(PIP.w / 1080) * 100}%`, height: `${(PIP.h / 1920) * 100}%`,
@@ -42,6 +45,12 @@ export function Picture({ clock, model, video, src, duration, width, playing, cl
   const clip = useRef<HTMLVideoElement>(null);
   const label = useRef<HTMLDivElement>(null);
   const pip = useRef<HTMLCanvasElement>(null);
+  const tearBox = useRef<HTMLDivElement>(null);
+  const tearImg = useRef<HTMLImageElement>(null);
+  const tearClip = useRef<HTMLVideoElement>(null);
+  const tearEdge = useRef<HTMLImageElement>(null);
+  const glitch = useRef<HTMLCanvasElement>(null);
+  const composed = useRef<HTMLCanvasElement | null>(null); // кадр с окошком лица — источник полос глитча
   const live = useRef({ playing, cover: '' });
   live.current.playing = playing;
 
@@ -93,6 +102,8 @@ export function Picture({ clock, model, video, src, duration, width, playing, cl
         if (pic.current) pic.current.style.filter = '';
         if (flash.current) flash.current.style.opacity = '0';
         show(null, 0);
+        drawTear(null);
+        drawGlitch(null);
         return;
       }
       if (v?.seeking) return; // кадр ещё старый — дорисуем по seeked
@@ -110,6 +121,109 @@ export function Picture({ clock, model, video, src, duration, width, playing, cl
       if (flash.current) flash.current.style.opacity = p.flash > 0 ? p.flash.toFixed(3) : '0';
       show(p.cover, t);
       if (p.cover?.layout === 'pip') drawPip(p.zoom, p.face, p.look);
+      drawTear(p.tear ?? upcoming(t));
+      drawGlitch(p.glitch.length ? p : null);
+    };
+    // разрыв в ближайшие 2 с: перебивку в щель — заранее (картинка загрузится, видео встанет на кадр), но не показывать
+    const upcoming = (t: number): { k: number; cover: Cover; early: true } | null => {
+      const next = (model?.tears ?? []).find((x) => (x.join - TEAR) / FPS - t > 0 && (x.join - TEAR) / FPS - t <= 2);
+      return next ? { k: 0, cover: next.cover, early: true } : null;
+    };
+    // рваная бумага (render._tears): в щели (маска slit-NN) — первый кадр перебивки в ч/б с растром, поверх — края бумаги
+    const drawTear = (tear: { k: number; cover: Cover; early?: true } | null) => {
+      const box = tearBox.current;
+      const edge = tearEdge.current;
+      if (!box || !edge) return;
+      const shown = tear ? clipOf(tear.cover) : null;
+      if (!tear || !shown?.url) {
+        box.hidden = true;
+        edge.hidden = true;
+        return;
+      }
+      if (tear.early) { // только подготовить: ниже — src и кадр клипа, а слой разрыва остаётся скрытым
+        box.hidden = true;
+        edge.hidden = true;
+      }
+      const nn = String(tear.k).padStart(2, '0');
+      const mask = `url(${TEAR_DIR}/slit-${nn}.png)`;
+      if (box.style.maskImage !== mask) {
+        box.style.maskImage = mask;
+        box.style.setProperty('-webkit-mask-image', mask);
+      }
+      if (edge.getAttribute('src') !== `${TEAR_DIR}/edge-${nn}.png`) edge.src = `${TEAR_DIR}/edge-${nn}.png`;
+      box.dataset.k = String(tear.k); // для проверок e2e
+      box.hidden = Boolean(tear.early);
+      edge.hidden = Boolean(tear.early);
+      const still = tearImg.current;
+      const moving = tearClip.current;
+      if (still) {
+        still.hidden = shown.video;
+        if (!shown.video && still.getAttribute('src') !== shown.url) still.src = shown.url;
+      }
+      if (moving) {
+        moving.hidden = !shown.video;
+        if (shown.video) {
+          if (moving.getAttribute('src') !== shown.url) moving.src = shown.url;
+          // кадр клипа, с которого пойдёт перебивка (render._tear_still)
+          const want = clipStart(tear.cover.from, moving.duration, tear.cover.t1 - tear.cover.t0);
+          if (moving.readyState > 0 && Math.abs(moving.currentTime - want) > 0.02) moving.currentTime = want;
+        }
+      }
+    };
+    // глитч (transitions.picture_chains): полосы видимой картинки — копией со сдвигом; холст только копирует кадр
+    // (drawImage), пикселей не читает — клип перебивки с другого адреса его не портит
+    const drawGlitch = (p: { glitch: [number, number, number][]; zoom: number; face: { x: number; y: number }; look: string | null; cover: Cover | null } | null) => {
+      const canvas = glitch.current;
+      const ctx = canvas?.getContext('2d');
+      if (!canvas || !ctx) return;
+      if (!p) {
+        canvas.hidden = true;
+        return;
+      }
+      ctx.clearRect(0, 0, GLITCH_DRAW.w, GLITCH_DRAW.h);
+      const kx = GLITCH_DRAW.w / 1080;
+      const ky = GLITCH_DRAW.h / 1920;
+      // откуда копировать: перебивка — её картинка (object-fit: cover), иначе — прокси с зумом к лицу и фильтром куска
+      const coverEl = p.cover ? (img.current && !img.current.hidden ? img.current : clip.current && !clip.current.hidden ? clip.current : null) : null;
+      let source: CanvasImageSource | null = null;
+      let sx = 0, sy = 0, scale = 1; // кадр 1080×1920 → источник: x = sx + X · scale
+      if (coverEl) {
+        const w = coverEl instanceof HTMLVideoElement ? coverEl.videoWidth : coverEl.naturalWidth;
+        const h = coverEl instanceof HTMLVideoElement ? coverEl.videoHeight : coverEl.naturalHeight;
+        if (!w || !h) return;
+        scale = Math.min(w / 1080, h / 1920);
+        sx = (w - 1080 * scale) / 2;
+        sy = (h - 1920 * scale) / 2;
+        source = coverEl;
+        canvas.style.filter = '';
+      } else if (v && v.readyState >= 2 && v.videoWidth) {
+        const k = v.videoWidth / 1080;
+        scale = k / p.zoom;
+        sx = p.face.x * v.videoWidth * (1 - 1 / p.zoom);
+        sy = p.face.y * v.videoHeight * (1 - 1 / p.zoom);
+        source = v;
+        canvas.style.filter = lookFilter(p.look);
+      }
+      if (!source) return;
+      // окошко лица (pip) — часть картинки, которую режут полосы: собрать кадр с ним на запасном холсте
+      const face = p.cover?.layout === 'pip' && pip.current && !pip.current.hidden ? pip.current : null;
+      if (face) {
+        const whole = (composed.current ??= document.createElement('canvas'));
+        whole.width = GLITCH_DRAW.w;
+        whole.height = GLITCH_DRAW.h;
+        const w = whole.getContext('2d');
+        if (!w) return;
+        w.drawImage(source, sx, sy, 1080 * scale, 1920 * scale, 0, 0, GLITCH_DRAW.w, GLITCH_DRAW.h);
+        w.drawImage(face, PIP.x * kx, PIP.y * ky, PIP.w * kx, PIP.h * ky);
+        source = whole;
+        sx = 0;
+        sy = 0;
+        scale = GLITCH_DRAW.w / 1080;
+      }
+      for (const [y0, y1, dx] of p.glitch) {
+        ctx.drawImage(source, sx, sy + y0 * scale, 1080 * scale, (y1 - y0) * scale, dx * kx, y0 * ky, GLITCH_DRAW.w, (y1 - y0) * ky);
+      }
+      canvas.hidden = false;
     };
     // окошко лица: тот же кадр говорящего, что под перебивкой, — с зумом (движок вырезает окошко из зумленного кадра),
     // с фильтром куска; смаз и вспышка — у всей картинки
@@ -131,6 +245,13 @@ export function Picture({ clock, model, video, src, duration, width, playing, cl
     };
   }, [clock, model, video, src, duration, width, clipOf]);
 
+  useEffect(() => { // кадры рваной бумаги — заранее: при игре они сменяются каждый кадр, и пустой кадр мигнул бы
+    if (!model?.tears?.length) return;
+    for (let k = 0; k < TEAR; k++) {
+      for (const kind of ['slit', 'edge']) new Image().src = `${TEAR_DIR}/${kind}-${String(k).padStart(2, '0')}.png`;
+    }
+  }, [model]);
+
   useEffect(() => { // пуск и пауза — и у перебивки-видео
     const m = clip.current;
     if (!m || m.hidden) return;
@@ -146,6 +267,13 @@ export function Picture({ clock, model, video, src, duration, width, playing, cl
         <video ref={clip} className="ed-cover" muted playsInline preload="auto" hidden />
         <div ref={label} className="ed-cover ed-cover-note" hidden>{note}</div>
         <canvas ref={pip} className="ed-pip" width={PIP_DRAW.w} height={PIP_DRAW.h} style={PIP_STYLE} hidden aria-hidden="true" />
+        <div ref={tearBox} className="ed-tear" hidden aria-hidden="true">
+          <img ref={tearImg} className="ed-fill ed-gray" alt="" hidden />
+          <video ref={tearClip} className="ed-fill ed-gray" muted playsInline preload="auto" hidden />
+          <img className="ed-fill" src={`${TEAR_DIR}/dots.png`} alt="" />
+        </div>
+        <img ref={tearEdge} className="ed-fill ed-tear-edge" alt="" hidden aria-hidden="true" />
+        <canvas ref={glitch} className="ed-fill ed-glitch" width={GLITCH_DRAW.w} height={GLITCH_DRAW.h} hidden aria-hidden="true" />
       </div>
       <div className="ed-flash" ref={flash} aria-hidden="true" />
     </>

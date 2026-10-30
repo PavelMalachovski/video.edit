@@ -1,14 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { buildOverlayEvents, eventIndexAt, frameOf, insertSpans, layerBlocks, pyRound, renderTimeline, stateAt, type OverlayEdit } from '../lib/overlay.ts';
+import { buildOverlayEvents, eventIndexAt, frameOf, insertSpans, layerBlocks, pyRound, renderTimeline, stateAt, type InsertSpec, type OverlayEdit } from '../lib/overlay.ts';
 import { buildSubEvents, subBlocks, type Word } from '../lib/subs.ts';
 import { Timeline } from '../lib/timeline.ts';
 import { beatTimes, musicBeats, played, snapEdit } from '../lib/beats.ts';
 import { BW_FILTER, LOOK_CSS } from '../lib/picture.ts';
 import { draftTracks, parseDraft, timelineOf, withHandEdits, type LayerStyle } from '../lib/tracks.ts';
 import { applyPicture, LOOK_KINDS, type Edit, type LookFix, type MusicAdjust, type TextEdits, type TransitionFix, type WordFix } from '../lib/edits.ts';
-import { blurSigma, flashAlpha, lookSpans, lookWindows, transitionMarks, zoomAt, zoomLevels, type TransitionSpec, type Zoom } from '../lib/zoom.ts';
+import { blurSigma, flashAlpha, glitchBands, lookSpans, lookWindows, tearFrame, tearsOf, transitionMarks, zoomAt, zoomLevels, type TransitionSpec, type Zoom } from '../lib/zoom.ts';
 
 // Общая с движком фикстура (engine/tests/shared_events.py): события субтитров и слоя — ровно как у движка, число в число.
 type Base = { name: string; keep: [number, number][]; speed: number; teaser: [number, number] | null };
@@ -23,6 +23,8 @@ const FIXTURE = JSON.parse(fs.readFileSync(new URL('../../engine/tests/fixtures/
     edit: { zooms: Zoom[]; transitions: TransitionSpec[]; looks: { t0: number; t1: number; look: string; off?: boolean }[] };
     zoom: [number, number][]; marks: { t: number; kind: string; source: number }[]; looks: [number, number][];
     spans: [number, number, string][]; flash: ByFrame[]; blur: ByFrame[];
+    tears: { t: number; insert: number; join: number; frames: [number, number | null][] }[];
+    glitch: { t: number; frames: [number, [number, number, number][]][] }[];
   })[];
   bwFilter: { brightness: number; contrast: number };
   lookFilters: Record<string, string>;
@@ -155,6 +157,18 @@ test('flash and blur on every frame at the joins match the engine number for num
     for (const b of c.blur) for (const [n, want] of b.frames) assert.equal(blurSigma(b.t, n), want, `${c.name}: смаз ${b.t}, кадр ${n}`);
   }
   assert.ok(FIXTURE.look.filter((c) => c.flash.length).length >= 2 && FIXTURE.look.filter((c) => c.blur.length).length >= 2);
+});
+
+test('torn paper opens onto its b-roll and the glitch shifts its bands on the engine\'s frames', () => {
+  for (const c of FIXTURE.look) {
+    const tl = tlOf(c);
+    const edit = c.edit as typeof c.edit & { inserts?: InsertSpec[] };
+    const found = tearsOf(edit.transitions, edit as unknown as OverlayEdit, tl);
+    assert.deepStrictEqual(found.map((x) => [x.mark.t, x.insert, x.join]), c.tears.map((x) => [x.t, x.insert, x.join]), `${c.name}: разрывы`);
+    for (const x of c.tears) for (const [n, k] of x.frames) assert.equal(tearFrame(x.join, n), k, `${c.name}: разрыв ${x.t}, кадр ${n}`);
+    for (const g of c.glitch) for (const [n, bands] of g.frames) assert.deepStrictEqual(glitchBands(Math.round(g.t * 30), n), bands, `${c.name}: глитч, кадр ${n}`);
+  }
+  assert.ok(FIXTURE.look.some((c) => c.tears.length) && FIXTURE.look.some((c) => c.glitch.length), 'в фикстуре есть разрыв и глитч');
 });
 
 test('a black-and-white frame in the preview is the engine’s CSS filter', () => {

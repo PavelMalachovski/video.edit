@@ -11,7 +11,7 @@ import { roundHalfEven } from './pyround.ts';
 import { DEFAULT_MUSIC_DB } from './sound.ts';
 import { subBlocks } from './subs.ts';
 import type { Timeline } from './timeline.ts';
-import { HALF, lookWindows, transitionMarks } from './zoom.ts';
+import { lookWindows, tearsOf, transitionMarks, transitionSoundStarts, transitionWindow } from './zoom.ts';
 
 type Span = { t0: number; t1: number };
 export type DraftWord = Span & { text: string };
@@ -88,7 +88,7 @@ export type Layer = { edit: OverlayEdit & { zooms: Draft['zooms']; looks?: Draft
 export type LookMark = Span & { ref: LookRef; at?: At; look: string; was: string; src: [number, number]; off: boolean; teaser: boolean };
 /** Переход на дорожке «Картинка»: стык в ролике `t`, вид сейчас и у сессии (`was`), `at` — его t в edit.transitions (по
  *  нему правка), `off` — Павел его убрал. */
-export type TransitionItem = { t: number; kind: string; was: string; at: number; off: boolean };
+export type TransitionItem = { t: number; kind: string; was: string; at: number; off: boolean; t0: number; t1: number }; // t0–t1 — где он идёт
 export type Tracks = {
   duration: number; // длина ролика без хвоста (кусков), с
   tail: number; // после кусков — стоп-кадр (hold) и финальная карточка, с
@@ -392,9 +392,12 @@ export function draftTracks(d: Draft, { style = PLAIN, sourceDuration, splits = 
     }));
   }).sort((a, b) => a.t0 - b.t0);
   // переходы — на стыке, у самого начала и конца ролика их нет (transitions.marks); убранные — тенью там же
-  const marks = transitionMarks(pic.transitions ?? [], tl);
+  const torn = tearsOf((pic.transitions ?? []).map((x) => ({ ...x, off: false })), layer, tl); // окно разрыва — от его перебивки
   const transitions: TransitionItem[] = (pic.transitions ?? []).flatMap((x, n) => transitionMarks([{ ...x, off: false }], tl)
-    .map((m) => ({ t: m.t, kind: x.kind, was: (d.transitions ?? [])[n]?.kind ?? x.kind, at: Number(x.t), off: Boolean(x.off) }))).sort((a, b) => a.t - b.t);
+    .map((m) => {
+      const [t0, t1] = transitionWindow(m, torn.filter((y) => y.mark.source === m.source).map((y) => ({ ...y, mark: m })));
+      return { t: m.t, kind: x.kind, was: (d.transitions ?? [])[n]?.kind ?? x.kind, at: Number(x.t), off: Boolean(x.off), t0, t1 };
+    })).sort((a, b) => a.t - b.t);
 
   // звуки — где их ставит движок (render._sounds): вставка — с её появлением, тизер — на стыке, переход — с его началом,
   // карточка — после стоп-кадра
@@ -406,9 +409,9 @@ export function draftTracks(d: Draft, { style = PLAIN, sourceDuration, splits = 
   }
   if (d.teaser?.sfx) sound('teaser', tl.teaserDuration, d.teaser.sfx);
   const sources = (d.transitions ?? []).map((x) => Number(x.t));
-  for (const m of marks) {
+  for (const [m, start] of transitionSoundStarts(pic.transitions ?? [], layer, tl)) { // с началом перехода (разрыв — его окна)
     const sfx = (d.transitions ?? [])[sources.indexOf(m.source)]?.sfx;
-    if (sfx) sound(`transition:${sources.indexOf(m.source)}`, Math.max(0, m.t - HALF), sfx);
+    if (sfx) sound(`transition:${sources.indexOf(m.source)}`, start, sfx);
   }
   if (shown.end?.sfx) sound('end', tl.duration + (d.hold ?? 0), shown.end.sfx); // карточку Павел мог убрать
   sounds.sort((a, b) => a.t0 - b.t0);

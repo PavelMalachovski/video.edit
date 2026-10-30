@@ -32,10 +32,11 @@ export type Abilities = {
   edits: boolean; move: boolean; text: boolean; picture: boolean; track: boolean; card: boolean; video: boolean; place: boolean;
   looks: boolean; // свои куски ч/б и фильтров, края и фильтр кусков сессии
   broll: boolean; // перебивка руками: клип, момент клипа, вид, звук клипа
+  tear: boolean; // переходы «рваная бумага» и «глитч»
 };
 export const ENGINE_SCHEMA = 'engine/vm/schemas/timeline.json';
-const ALL: Abilities = { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: true, broll: true };
-const NONE: Abilities = { edits: false, move: false, text: false, picture: false, track: false, card: false, video: false, place: false, looks: false, broll: false };
+const ALL: Abilities = { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: true, broll: true, tear: true };
+const NONE: Abilities = { edits: false, move: false, text: false, picture: false, track: false, card: false, video: false, place: false, looks: false, broll: false, tear: false };
 
 /**
  * Что Павел правит в редакторе. `editable` — правки сохраняются (у задачи есть черновик, сессия не работает, её движок
@@ -71,6 +72,7 @@ export function abilitiesOf(schema: string | null): Abilities {
       place: 'x' in (text.inserts?.items?.properties ?? {}),
       looks: 't0' in ((props.looks as { items?: { properties?: object } } | undefined)?.items?.properties ?? {}),
       broll: 'layout' in (text.inserts?.items?.properties ?? {}),
+      tear: ((props.transitions as { items?: { properties?: { kind?: { enum?: string[] } } } } | undefined)?.items?.properties?.kind?.enum ?? []).includes('tear'),
     };
   } catch {
     return ALL;
@@ -96,6 +98,9 @@ export function refusedBy(a: Abilities, hand: HandEdits): string | null {
   const placed = [...(hand.text?.accents ?? []), ...(hand.text?.inserts ?? [])].some((f) => f.x !== undefined || f.y !== undefined || ('w' in f && f.w !== undefined));
   if (!a.place && placed) {
     return 'Эта задача создана до перетаскивания вставок и акцентов в редакторе: её движок их места не примет — место здесь меняется через «Поправить»';
+  }
+  if (!a.tear && hand.transitions?.some((f) => f.kind === 'tear' || f.kind === 'glitch')) {
+    return 'Эта задача создана до рваной бумаги и глитча: её движок этих переходов не примет — выбери вспышку, зум или смаз';
   }
   if (!a.broll && hand.text?.inserts?.some((f) => f.src !== undefined || f.from !== undefined || f.layout !== undefined || f.audio !== undefined)) {
     return 'Эта задача создана до перебивок в редакторе: её движок не примет другой клип, момент, вид или звук перебивки — они здесь меняются через «Поправить»';

@@ -28,6 +28,8 @@ IMG = "https://image.tmdb.org/t/p"
 STILLS = 12  # кадров из фильма
 PHOTOS = 6  # фото актёра
 SIZES = {"still": "w780", "photo": "h632"}
+EPISODE = "original"  # кадры серий у TMDB — только w92, w185, w300 и original; w300 для кадра 1080 мал
+SEASONS = 2  # кадры серий — из первых сезонов
 TIMEOUT = 20
 
 
@@ -149,24 +151,39 @@ def _person(get: Get, token: str, title: dict, character: dict) -> dict | None:
     return best
 
 
-def _stills(get: Get, token: str, title: dict, person: dict | None) -> list[str]:
-    """Кадры: сначала с актёром из этого фильма, потом кадры фильма без надписей, потом с надписями — лучшие по оценке."""
+def _episodes(get: Get, token: str, title: dict) -> list[str]:
+    """Кадры серий сериала (`still_path` — настоящие кадры, а не рекламный арт): первые сезоны, по порядку серий."""
+    if title["kind"] != "tv":
+        return []
+    seasons = [x.get("season_number") for x in _api(get, token, f"/tv/{title['id']}").get("seasons") or []]
     picked: list[str] = []
+    for n in [n for n in seasons if isinstance(n, int) and n >= 1][:SEASONS]:  # 0 — спецвыпуски
+        picked += [e["still_path"] for e in _api(get, token, f"/tv/{title['id']}/season/{n}").get("episodes") or []
+                   if e.get("still_path")]
+    return picked
+
+
+def _stills(get: Get, token: str, title: dict, person: dict | None) -> list[tuple[str, str]]:
+    """Кадры (путь, размер): сначала с актёром из этого фильма, потом кадры серий (у сериала), потом картинки фильма без
+    надписей, потом с надписями — лучшие по оценке."""
+    picked: list[tuple[str, str]] = []
     if person:
         tagged = _api(get, token, f"/person/{person['id']}/tagged_images").get("results") or []
-        picked += [x["file_path"] for x in tagged if x.get("image_type") == "backdrop" and x.get("media_type") == title["kind"]
-                   and (x.get("media") or {}).get("id") == title["id"]]
+        picked += [(x["file_path"], SIZES["still"]) for x in tagged if x.get("image_type") == "backdrop"
+                   and x.get("media_type") == title["kind"] and (x.get("media") or {}).get("id") == title["id"]]
+    picked += [(path, EPISODE) for path in _episodes(get, token, title)]
     images = _api(get, token, f"/{title['kind']}/{title['id']}/images", include_image_language="null,en,ru")
     backdrops = sorted(images.get("backdrops") or [], key=lambda b: (b.get("iso_639_1") is not None, -(b.get("vote_average") or 0)))
-    picked += [b["file_path"] for b in backdrops if b["file_path"] not in picked]
+    seen = {p for p, _ in picked}
+    picked += [(b["file_path"], SIZES["still"]) for b in backdrops if b["file_path"] not in seen]
     return picked  # все по порядку: повторы отсеет find
 
 
-def _photos(get: Get, token: str, person: dict | None) -> list[str]:
+def _photos(get: Get, token: str, person: dict | None) -> list[tuple[str, str]]:
     if not person:
         return []
     profiles = _api(get, token, f"/person/{person['id']}/images").get("profiles") or []
-    return [p["file_path"] for p in sorted(profiles, key=lambda p: -(p.get("vote_average") or 0))]
+    return [(p["file_path"], SIZES["photo"]) for p in sorted(profiles, key=lambda p: -(p.get("vote_average") or 0))]
 
 
 def find(job: Job, token: str | None = None, get: Get = _get) -> dict:
@@ -196,11 +213,11 @@ def _find(job: Job, token: str, get: Get, character: dict) -> dict:
     seen: list[int] = []  # отпечатки скачанного: та же картинка в другом размере или с другим языком — повтор
     for kind, candidates, limit in (("still", _stills(get, token, title, person), STILLS), ("photo", _photos(get, token, person), PHOTOS)):
         taken = 0
-        for source in candidates[: 3 * limit]:  # повторы отсеиваются — кандидатов с запасом
+        for source, size in candidates[: 3 * limit]:  # повторы отсеиваются — кандидатов с запасом
             if taken == limit:
                 break
             try:
-                data = get(f"{IMG}/{SIZES[kind]}{source}", None)  # картинки — с CDN, без токена
+                data = get(f"{IMG}/{size}{source}", None)  # картинки — с CDN, без токена
                 mark = _print(data)
             except (TmdbError, OSError, ValueError):  # не скачалась или не картинка — без неё
                 continue
@@ -210,8 +227,7 @@ def _find(job: Job, token: str, get: Get, character: dict) -> dict:
             taken += 1
             n = len(files) + 1
             path = out / f"tmdb-{n}.jpg"
-            path.write_bytes(data)
-            width, height = _size(path)
+            width, height = _save(data, path)
             files.append({"file": f"found/tmdb-{n}.jpg", "kind": kind, "source": source, "width": width, "height": height})
     found = {"title": {k: title[k] for k in ("kind", "id", "name")}, "person": person, "files": files,
              "sheet": _sheet(job, files)}
@@ -234,11 +250,23 @@ def _print(data: bytes) -> int:
     return sum(1 << i for i, v in enumerate(px) if v > mean)
 
 
-def _size(path: Path) -> tuple[int, int]:
+LONGEST = 1280  # px — длинная сторона найденной картинки в ветке задачи (кадр серии в original бывает 4K)
+
+
+def _save(data: bytes, path: Path) -> tuple[int, int]:
+    """Картинка в `path` как есть или уменьшенная до LONGEST (JPEG) → её размер."""
+    import io
+
     from PIL import Image
 
-    with Image.open(path) as im:
-        return im.size
+    with Image.open(io.BytesIO(data)) as im:
+        if max(im.size) <= LONGEST:
+            path.write_bytes(data)
+            return im.size
+        small = im.convert("RGB")
+        small.thumbnail((LONGEST, LONGEST))
+        small.save(path, "JPEG", quality=88)
+        return small.size
 
 
 def _sheet(job: Job, files: list[dict]) -> str | None:

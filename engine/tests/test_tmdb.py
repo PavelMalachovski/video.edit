@@ -58,6 +58,8 @@ LOKI = {
         {"file_path": "/b2.jpg", "iso_639_1": "en", "vote_average": 5.9, "width": 3840, "height": 2160},  # с надписью — ниже
         {"file_path": "/b3.jpg", "iso_639_1": None, "vote_average": 5.7, "width": 1920, "height": 1080},
     ]},
+    "/tv/84958": {"seasons": [{"season_number": 0}, {"season_number": 1}]},  # 0 — спецвыпуски
+    "/tv/84958/season/1": {"episodes": [{"still_path": "/e1.jpg"}, {"still_path": None}, {"still_path": "/e2.jpg"}]},
     "/tv/84958/aggregate_credits": {"cast": [
         {"id": 1, "name": "Owen Wilson", "roles": [{"character": "Mobius"}]},
         {"id": 91606, "name": "Tom Hiddleston", "roles": [{"character": "Loki Laufeyson"}]},
@@ -85,8 +87,9 @@ def test_tmdb_finds_the_series_its_stills_the_character_and_his_photos(tmp_path)
     assert found["title"] == {"kind": "tv", "id": 84958, "name": "Локи"}, "точное название, из одноимённых — самое популярное"
     assert found["person"] == {"id": 91606, "name": "Tom Hiddleston"}, "актёр — по имени персонажа в ролях"
     kinds = [(f["kind"], f["source"]) for f in found["files"]]
-    assert kinds == [("still", "/t1.jpg"), ("still", "/b3.jpg"), ("still", "/b1.jpg"), ("still", "/b2.jpg"),
-                     ("photo", "/p2.jpg"), ("photo", "/p1.jpg")], "кадры с актёром из этого сериала, потом кадры без надписей, потом фото"
+    assert kinds == [("still", "/t1.jpg"), ("still", "/e1.jpg"), ("still", "/e2.jpg"), ("still", "/b3.jpg"), ("still", "/b1.jpg"),
+                     ("still", "/b2.jpg"), ("photo", "/p2.jpg"), ("photo", "/p1.jpg")], \
+        "кадры с актёром из этого сериала, кадры серий (настоящие кадры, а не арт), потом картинки сериала, потом фото"
     for n, f in enumerate(found["files"], 1):
         assert f["file"] == f"found/tmdb-{n}.jpg" and job.path(f["file"]).is_file()
     assert json.loads(job.path("found/tmdb.json").read_text(encoding="utf-8")) == found
@@ -191,3 +194,11 @@ def test_a_broken_answer_or_picture_does_not_crash_the_step_or_leave_stale_files
 def test_the_token_is_not_carried_over_a_redirect():
     req = tmdb._request("https://api.themoviedb.org/3/configuration", "secret")
     assert "Authorization" not in req.headers and req.unredirected_hdrs.get("Authorization") == "Bearer secret"
+
+
+def test_a_huge_episode_still_is_kept_at_most_1280_px(tmp_path):
+    api = FakeApi(LOKI, images={"/e1.jpg": jpeg("/e1", size=(3840, 2160))})
+    found = tmdb.find(job_with(tmp_path, {"film": "Локи", "name": "Локи"}), token="secret", get=api)
+    big = next(f for f in found["files"] if f["source"] == "/e1.jpg")
+    assert (big["width"], big["height"]) == (1280, 720)
+    assert any("/original/e1.jpg" in u for u in api.asked), "кадры серий — в original: других больших размеров у них нет"

@@ -1,5 +1,5 @@
 {
-  "speed": 1.1,
+  "speed": 1.2,
   "keep": [
     [
       0.58,
@@ -1897,8 +1897,8 @@
     }
   ],
   "hook": {
-    "text": "почему я бросила любимое дело",
-    "until": 3.44
+    "text": "проблема может быть не в вас",
+    "until": 3.88
   },
   "cta": null,
   "inserts": [],
@@ -2272,20 +2272,19 @@
     "x": 0.54,
     "y": 0.38
   },
-  "music": null,
+  "music": {
+    "file": "assets/music/mysterious-and-sad.m4a",
+    "gainDb": -14
+  },
   "hold": 0.0,
   "transitions": [],
-  "teaser": {
-    "t0": 143.34,
-    "t1": 145.3,
-    "sfx": null
-  },
+  "teaser": null,
   "style": {
     "font": "forum",
     "hand": "caveat",
     "colors": {
       "text": "#FFFFFF",
-      "accent": "#EDE4C1",
+      "accent": "#FECB3E",
       "bar": "#EDE4C1",
       "plate": "#111111",
       "outline": "#000000"
@@ -2294,7 +2293,8 @@
       "mode": "soft",
       "words": 3,
       "size": 64,
-      "y": 1440
+      "y": 1440,
+      "shade": 0.2
     },
     "hook": {
       "mode": "accent",
@@ -2305,5 +2305,12 @@
       "pos": "bottom",
       "height": 6
     }
+  },
+  "dim": 0.3,
+  "end": null,
+  "ab": null,
+  "cover": {
+    "t": 25.2,
+    "text": "проблема может быть не в вас"
   }
 }

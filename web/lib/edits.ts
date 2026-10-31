@@ -26,11 +26,17 @@ export type AccentFix = { at: At; t0?: number; t1?: number; lines?: string[]; x?
 export type InsertFix = {
   at: At; t0?: number; t1?: number; text?: string; x?: number; y?: number; w?: number; off?: true;
   src?: string; from?: number; layout?: BrollLayout; audio?: boolean; // перебивка (fullscreen): клип, момент, вид, звук клипа
+  caption?: string; // перебивка: подпись ('' — без неё)
+  enter?: StickerEnter; tilt?: number; glow?: boolean; // картинка: влёт (none — без влёта), наклон, свечение
 };
+/** Откуда влетает картинка (params.enter); none — обычное появление. */
+export const STICKER_ENTERS = ['left', 'right', 'top', 'bottom', 'none'] as const;
+export type StickerEnter = (typeof STICKER_ENTERS)[number];
+const STICKER_FIELDS = ['enter', 'tilt', 'glow'] as const; // edits.STICKER_FIELDS движка
 /** Вид перебивки: клип на весь кадр или клип с лицом окошком. */
 export type BrollLayout = 'full' | 'pip' | 'window'; // window — клип окошком поверх говорящего (формат разбора)
 /** Клип перебивки руками — из перебивок Павла (как образец src вставки в схеме timeline.json). */
-export const BROLL_SRC = /^in\/uploads\/upload-b\d{1,2}\.[a-z0-9]{1,5}$/;
+export const BROLL_SRC = /^(in\/uploads\/upload-b\d{1,2}\.[a-z0-9]{1,5}|found\/tmdb-\d{1,2}\.jpg)$/; // и кадр из TMDB
 const BROLL_FIELDS = ['src', 'from', 'layout', 'audio'] as const; // edits.BROLL_FIELDS движка
 /** Место блока на кадре руками, px кадра: у акцента — центр блока, у вставки — левый верхний угол и ширина. */
 export type Place = { x: number; y: number; w?: number };
@@ -53,11 +59,15 @@ export type LookRef = { at: At } | { own: number };
 /** Виды переходов (edit.json, transitions.kind): вспышка, толчок зумом, смаз. */
 export const TRANSITION_KINDS = ['flash', 'zoom', 'blur', 'tear', 'glitch'] as const;
 export type TransitionKind = (typeof TRANSITION_KINDS)[number];
-export type TransitionFix = { at: number; kind?: TransitionKind; off?: true };
+/** Переход руками: переход сессии по своему `t` (`at`) — другого вида, убран или сдвинут (`t`); без `at` — свой (`t`, `kind`). */
+export type TransitionFix = { at?: number; t?: number; kind?: TransitionKind; off?: true };
+/** Поднятые субтитры руками: место сессии по `at` — убрано, с другими краями или высотой (`y`); без `at` — своё. */
+export type PlaceFix = { at?: At; off?: true; t0?: number; t1?: number; y?: number };
 /** Что правит Павел: куски, голос, музыка, звуки, текст и вставки, слова субтитров, картинка. */
 export type HandEdits = {
   edits: Edit[]; voice?: Level; music?: MusicAdjust; sounds?: Record<string, Level>; text?: TextEdits; words?: WordFix[];
   zoom?: number; looks?: LookFix[]; transitions?: TransitionFix[]; // картинка: сила зума (доля от зума монтажа), ч/б, переходы
+  subPlaces?: PlaceFix[]; // поднятые субтитры (формат разбора)
   dim?: number; // затемнение фона (доля, как edit.json dim; 0 — без него)
   teaser?: false; speed?: number; // ролик: тизер убран; скорость (как edit.json speed)
 };
@@ -84,6 +94,9 @@ export const LIMITS = {
   accentAt: { x: { min: 60, max: 890 }, y: { min: 120, max: 1530 } }, // центр акцента на кадре — в безопасной зоне
   insertBox: { x: { min: 60, max: 810 }, y: { min: 120, max: 1490 }, w: { min: 80, max: 830 } }, // рамка вставки — как answers.insertBoxes
   brollFrom: { min: 0, max: 36000 }, // с — с какой секунды клипа перебивка
+  caption: 40, // знаков в подписи перебивки
+  tilt: { min: -15, max: 15 }, // градусов — наклон картинки
+  subY: { min: 240, max: 1760 }, // px — высота поднятых субтитров (как edit.json subPlaces.y)
 } as const;
 /** Трек музыки из библиотеки (как Music.file в схеме timeline.json). */
 export const MUSIC_FILE = /^assets\/music\/[^/]+\.(mp3|wav|m4a|aac|ogg|flac)$/;
@@ -277,7 +290,19 @@ export function applyText<T extends TextBase>(edit: T, text?: TextEdits, words?:
       const changed = { ...item, ...pick(c, ['t0', 't1'] as const) };
       if ('text' in c && 'text' in item) changed.text = c.text; // текст — только у текстовых вставок
       if ('x' in item && 'w' in item) Object.assign(changed, pick(c, ['x', 'y', 'w'] as const)); // рамка — у вставок на кадре (не fullscreen)
-      if (item.kind === 'fullscreen') Object.assign(changed, pick(c, BROLL_FIELDS)); // перебивка: клип, момент, вид, звук
+      if (item.kind === 'fullscreen') { // перебивка: клип, момент, вид, звук, подпись ('' — без неё)
+        Object.assign(changed, pick(c, BROLL_FIELDS));
+        if (c.caption !== undefined) {
+          delete (changed as { caption?: string }).caption;
+          if (c.caption.trim()) (changed as { caption?: string }).caption = c.caption.trim();
+        }
+      }
+      if (item.kind === 'image' && STICKER_FIELDS.some((k) => k in c)) { // картинка: влёт, наклон, свечение
+        const params: Record<string, unknown> = { ...((item as { params?: Record<string, unknown> }).params ?? {}), ...pick(c, STICKER_FIELDS) };
+        if (params.enter === 'none') delete params.enter;
+        if (params.glow === false) delete params.glow;
+        (changed as { params?: Record<string, unknown> }).params = params;
+      }
       return timed(name, changed);
     }) as T['inserts'];
   }
@@ -319,14 +344,27 @@ export function applyPicture<T extends PictureBase>(edit: T, zoom?: number, look
   if (transitions?.length) {
     const list = [...(edit.transitions ?? [])];
     const used = new Set<number>();
-    for (const c of transitions) {
+    for (const c of transitions.filter((x) => x.at !== undefined)) {
       const k = list.findIndex((x, j) => !used.has(j) && Number(x.t) === Number(c.at));
       if (k < 0) continue;
       used.add(k);
-      list[k] = { ...list[k], ...(c.kind ? { kind: c.kind } : {}), ...(c.off ? { off: true } : {}) };
+      list[k] = { ...list[k], ...(c.kind ? { kind: c.kind } : {}), ...(c.t !== undefined ? { t: Number(c.t) } : {}), ...(c.off ? { off: true } : {}) };
     }
+    // свои переходы Павла — в конце списка, без звука: номера звуков переходов сессии те же
+    for (const c of transitions.filter((x) => x.at === undefined)) list.push({ t: Number(c.t), kind: c.kind as string, sfx: null });
     out.transitions = list;
   }
+  return out;
+}
+
+/** Поднятые субтитры руками — как edits._hand_places движка: место сессии по `at` убрано, с другими краями или высотой;
+ *  свои места Павла — после мест сессии. Правок нет — те же места. */
+export function applyPlaces<T extends { t0: number; t1: number; y: number }>(places: readonly T[] | null | undefined, changes?: readonly PlaceFix[]): T[] {
+  const list = [...(places ?? [])];
+  if (!changes?.length) return list;
+  const out = anchored(list, changes.filter((c): c is PlaceFix & { at: At } => c.at !== undefined), 'subPlaces', (item, c, name) =>
+    (c.off ? null : timed(name, { ...item, ...pick(c, ['t0', 't1', 'y'] as const) }))).filter((p) => p !== null) as T[];
+  changes.filter((c) => c.at === undefined).forEach((c, i) => out.push(timed(`subPlaces[own ${i}]`, { t0: Number(c.t0), t1: Number(c.t1), y: Number(c.y) }) as T));
   return out;
 }
 
@@ -659,14 +697,97 @@ export function removeLook(h: HandEdits, own: number): HandEdits {
   return withLooks(h, (h.looks ?? []).filter((f) => f.at !== undefined || ++k !== own));
 }
 
-/** Переход edit.transitions с моментом `at` (его t): другого вида (`kind`) и/или убран (`off`); ни того ни другого или
- *  null — как у сессии (правки нет). Вид, как у сессии, страница не пишет (панель передаёт только другой). */
+/** Переход edit.transitions с моментом `at` (его t): другого вида (`kind`) и/или убран (`off`); ни того ни другого (и
+ *  сдвига) или null — как у сессии (правки нет). Вид, как у сессии, страница не пишет (панель передаёт только другой). */
 export function setTransition(h: HandEdits, at: number, fix: { kind?: TransitionKind; off?: boolean } | null): HandEdits {
+  const old = (h.transitions ?? []).find((f) => f.at === at);
   const rest = (h.transitions ?? []).filter((f) => f.at !== at);
-  const next: TransitionFix = { at, ...(fix?.kind ? { kind: fix.kind } : {}), ...(fix?.off ? { off: true as const } : {}) };
+  // сдвиг Павла остаётся, пока переход не вернули «как у монтажа» (null)
+  const next: TransitionFix = { at, ...(fix?.kind ? { kind: fix.kind } : {}), ...(fix && old?.t !== undefined ? { t: old.t } : {}), ...(fix?.off ? { off: true as const } : {}) };
   const transitions = Object.keys(next).length > 1 ? [...rest, next] : rest;
   const { transitions: _old, ...base } = h;
   return transitions.length ? { ...base, transitions } : base;
+}
+
+/** Переход: сессии — по своему t (`at`), свой Павла — по номеру среди своих. */
+export type TransitionRef = { at: number } | { own: number };
+
+/** Сдвинуть переход сессии `at` на момент `t` исходника (тот же, что у сессии, — сдвига нет); его вид Павла и «убран»
+ *  остаются. */
+export function moveTransition(h: HandEdits, at: number, t: number): HandEdits {
+  const old = (h.transitions ?? []).find((f) => f.at === at);
+  const to = round3(t);
+  return withTransitions(h, [...(h.transitions ?? []).filter((f) => f.at !== at),
+    { at, ...(old?.kind ? { kind: old.kind } : {}), ...(to !== at ? { t: to } : {}), ...(old?.off ? { off: true as const } : {}) }]);
+}
+
+/** Свой переход Павла на моменте `t` исходника — в конце списка: его номер среди своих — последний. */
+export function addTransition(h: HandEdits, t: number, kind: TransitionKind): HandEdits {
+  return withTransitions(h, [...(h.transitions ?? []), { t: round3(t), kind }]);
+}
+
+/** Свой переход Павла (номер среди своих): другой момент или вид. */
+export function setOwnTransition(h: HandEdits, own: number, fix: { t?: number; kind?: TransitionKind }): HandEdits {
+  let k = -1;
+  return withTransitions(h, (h.transitions ?? []).map((f) => (f.at !== undefined || ++k !== own ? f
+    : { ...f, ...(fix.t !== undefined ? { t: round3(fix.t) } : {}), ...(fix.kind ? { kind: fix.kind } : {}) })));
+}
+
+/** Убрать свой переход Павла (номер среди своих). */
+export function removeTransition(h: HandEdits, own: number): HandEdits {
+  let k = -1;
+  return withTransitions(h, (h.transitions ?? []).filter((f) => f.at !== undefined || ++k !== own));
+}
+
+function withTransitions(h: HandEdits, list: TransitionFix[]): HandEdits {
+  // у перехода сессии без вида, сдвига и «убран» правки нет
+  const transitions = list.filter((f) => f.at === undefined || Object.keys(f).length > 1);
+  const { transitions: _old, ...base } = h;
+  return transitions.length ? { ...base, transitions } : base;
+}
+
+/** Поднятые субтитры: место сессии — по месту `at` в edit.subPlaces, своё Павла — по номеру среди своих. */
+export type PlaceRef = { at: At } | { own: number };
+type Raised = { t0: number; t1: number; y: number };
+
+/** Место сессии `was` (его t0, t1 — `at` правки): новые края и высота; как у сессии — правки нет. */
+export function setPlace(h: HandEdits, was: Raised, now: Raised): HandEdits {
+  const at: At = [was.t0, was.t1];
+  const a = round3(now.t0);
+  const b = round3(now.t1);
+  const y = Math.round(clamp(now.y, LIMITS.subY));
+  const fix: PlaceFix = { at, ...(a !== was.t0 ? { t0: a } : {}), ...(b !== was.t1 ? { t1: b } : {}), ...(y !== was.y ? { y } : {}) };
+  return withPlaces(h, [...(h.subPlaces ?? []).filter((f) => !(f.at && sameAt(f.at, at))), fix]);
+}
+
+/** Убрать место сессии (субтитры там — на своём месте) или вернуть его, каким его поставила сессия. */
+export function setPlaceOff(h: HandEdits, at: At, off: boolean): HandEdits {
+  const rest = (h.subPlaces ?? []).filter((f) => !(f.at && sameAt(f.at, at)));
+  return withPlaces(h, off ? [...rest, { at: [at[0], at[1]], off: true }] : rest);
+}
+
+/** Своё место Павла: фраза t0–t1 исходника, высота y — в конце списка. */
+export function addPlace(h: HandEdits, t0: number, t1: number, y: number): HandEdits {
+  return withPlaces(h, [...(h.subPlaces ?? []), { t0: round3(t0), t1: round3(t1), y: Math.round(clamp(y, LIMITS.subY)) }]);
+}
+
+/** Своё место Павла (номер среди своих): новые края и высота. */
+export function setOwnPlace(h: HandEdits, own: number, now: Raised): HandEdits {
+  let k = -1;
+  return withPlaces(h, (h.subPlaces ?? []).map((f) => (f.at !== undefined || ++k !== own ? f
+    : { t0: round3(now.t0), t1: round3(now.t1), y: Math.round(clamp(now.y, LIMITS.subY)) })));
+}
+
+/** Убрать своё место Павла (номер среди своих). */
+export function removePlace(h: HandEdits, own: number): HandEdits {
+  let k = -1;
+  return withPlaces(h, (h.subPlaces ?? []).filter((f) => f.at !== undefined || ++k !== own));
+}
+
+function withPlaces(h: HandEdits, list: PlaceFix[]): HandEdits {
+  const subPlaces = list.filter((f) => f.at === undefined || Object.keys(f).length > 1);
+  const { subPlaces: _old, ...base } = h;
+  return subPlaces.length ? { ...base, subPlaces } : base;
 }
 
 /** Слово субтитров (t0, t1 — как в edit.json): текст Павла; '' — слова нет в субтитрах; null — как у сессии. */
@@ -747,7 +868,10 @@ function parseText(x: unknown): TextEdits | null {
   const { accentAt: ac, insertBox: ib } = LIMITS;
   if (!list(accents, ['at', 't0', 't1', 'lines', 'x', 'y', 'off'], (o) => okLines(o.lines) && whole(o, ['x', 'y'])
     && inRange(o.x, ac.x) && inRange(o.y, ac.y))) return null;
-  if (!list(inserts, ['at', 't0', 't1', 'text', 'x', 'y', 'w', 'off', ...BROLL_FIELDS], (o) => (o.text === undefined || isLine(o.text)) && whole(o, ['x', 'y', 'w'])
+  if (!list(inserts, ['at', 't0', 't1', 'text', 'x', 'y', 'w', 'off', ...BROLL_FIELDS, 'caption', ...STICKER_FIELDS], (o) => (o.text === undefined || isLine(o.text)) && whole(o, ['x', 'y', 'w'])
+    && (o.caption === undefined || (typeof o.caption === 'string' && chars(o.caption) <= LIMITS.caption))
+    && (o.enter === undefined || (STICKER_ENTERS as readonly unknown[]).includes(o.enter)) && inRange(o.tilt, LIMITS.tilt)
+    && (o.glow === undefined || typeof o.glow === 'boolean')
     && inRange(o.x, ib.x) && inRange(o.y, ib.y) && inRange(o.w, ib.w)
     && (o.src === undefined || (typeof o.src === 'string' && BROLL_SRC.test(o.src))) && inRange(o.from, LIMITS.brollFrom)
     && (o.layout === undefined || o.layout === 'full' || o.layout === 'pip' || o.layout === 'window') && (o.audio === undefined || typeof o.audio === 'boolean'))) return null;
@@ -755,7 +879,7 @@ function parseText(x: unknown): TextEdits | null {
 }
 
 /** Картинка руками (zoom, looks, transitions, dim), как по схеме. */
-function parsePicture({ zoom, looks, transitions, dim }: Record<string, unknown>): boolean {
+function parsePicture({ zoom, looks, transitions, dim, subPlaces }: Record<string, unknown>): boolean {
   if (zoom !== undefined && !(isNum(zoom) && zoom >= LIMITS.zoom.min && zoom <= LIMITS.zoom.max)) return false;
   if (dim !== undefined && !(isNum(dim) && dim >= LIMITS.dim.min && dim <= LIMITS.dim.max)) return false;
   const list = (v: unknown, ok: (o: Record<string, unknown>) => boolean) => v === undefined
@@ -766,8 +890,14 @@ function parsePicture({ zoom, looks, transitions, dim }: Record<string, unknown>
     && (o.look === undefined || (LOOK_KINDS as readonly unknown[]).includes(o.look))
     && (o.at !== undefined ? o.off === true || o.t0 !== undefined || o.look !== undefined
       : o.t0 !== undefined && o.look !== undefined && o.off === undefined))) return false;
-  return list(transitions, (o) => onlyKeys(o, ['at', 'kind', 'off']) && isNum(o.at) && o.at >= 0
-    && (o.kind === undefined || (TRANSITION_KINDS as readonly unknown[]).includes(o.kind)) && (o.off === undefined || o.off === true));
+  return list(transitions, (o) => onlyKeys(o, ['at', 't', 'kind', 'off']) && (o.at === undefined || (isNum(o.at) && o.at >= 0))
+    && (o.t === undefined || (isNum(o.t) && o.t >= 0))
+    && (o.kind === undefined || (TRANSITION_KINDS as readonly unknown[]).includes(o.kind)) && (o.off === undefined || o.off === true)
+    && (o.at !== undefined || (o.t !== undefined && o.kind !== undefined && o.off === undefined))) // свой — время и вид, без «убрать»
+    && list(subPlaces, (o) => onlyKeys(o, ['at', 'off', 't0', 't1', 'y']) && (o.at === undefined || isAt(o.at))
+      && (o.off === undefined || o.off === true) && okTime(o) && (o.y === undefined || (isNum(o.y) && o.y >= LIMITS.subY.min && o.y <= LIMITS.subY.max))
+      && (o.at !== undefined ? o.off === true || o.t0 !== undefined || o.t1 !== undefined || o.y !== undefined
+        : o.t0 !== undefined && o.t1 !== undefined && o.y !== undefined && o.off === undefined));
 }
 
 const parseWords = (x: unknown): boolean => Array.isArray(x) && x.length <= LIMITS.words && x.every((w) => isObj(w)
@@ -775,7 +905,7 @@ const parseWords = (x: unknown): boolean => Array.isArray(x) && x.length <= LIMI
 
 /** timeline.json → правки; не та форма (как по схеме) — null. */
 export function parseTimeline(raw: unknown): TimelineFile | null {
-  const keys = ['rev', 'at', 'edits', 'voice', 'music', 'sounds', 'text', 'words', 'zoom', 'looks', 'transitions', 'dim', 'teaser', 'speed'];
+  const keys = ['rev', 'at', 'edits', 'voice', 'music', 'sounds', 'text', 'words', 'zoom', 'looks', 'transitions', 'subPlaces', 'dim', 'teaser', 'speed'];
   if (!isObj(raw) || Object.keys(raw).some((k) => !keys.includes(k))) return null;
   if (raw.text !== undefined && !parseText(raw.text)) return null;
   if (raw.words !== undefined && !parseWords(raw.words)) return null;

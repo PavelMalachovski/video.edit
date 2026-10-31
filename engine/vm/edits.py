@@ -171,6 +171,8 @@ def apply(edit: dict, timeline: dict | None, duration: float | None = None) -> d
     if timeline.get("speed") is not None:  # скорость ролика — ползунком в редакторе
         out["speed"] = float(timeline["speed"])
     out = apply_text(out, timeline.get("text"), timeline.get("words"))
+    if timeline.get("subPlaces"):  # поднятые субтитры руками
+        out["subPlaces"] = _hand_places(edit.get("subPlaces"), timeline["subPlaces"])
     return apply_picture(out, timeline.get("zoom"), timeline.get("looks"), timeline.get("transitions"), timeline.get("dim"))
 
 
@@ -256,15 +258,33 @@ def _shot_edges(zooms: list[dict], t0: float, t1: float) -> list[dict]:
 
 def _moments(items: list | None, changes: list) -> list:
     """Переходы по своему `t`: каждой правке — первый ещё не занятый переход с t == `at` (другого вида — `kind`, убран —
-    `off`); нет такого — правка не применяется."""
+    `off`, сдвинут — `t`); нет такого — правка не применяется. Свои переходы Павла (`t`, `kind` без `at`) — в конце
+    списка, без звука: номера звуков `transition:<n>` у переходов сессии те же."""
     out = list(items or [])
     used: set[int] = set()
-    for c in changes:
+    for c in (c for c in changes if "at" in c):
         k = next((j for j, item in enumerate(out) if j not in used and float(item["t"]) == float(c["at"])), None)
         if k is None:
             continue
         used.add(k)
-        out[k] = {**out[k], **({"kind": c["kind"]} if "kind" in c else {}), **({"off": True} if c.get("off") else {})}
+        out[k] = {**out[k], **({"kind": c["kind"]} if "kind" in c else {}), **({"t": float(c["t"])} if "t" in c else {}),
+                  **({"off": True} if c.get("off") else {})}
+    out += [{"t": float(c["t"]), "kind": c["kind"], "sfx": None} for c in changes if "at" not in c]
+    return out
+
+
+def _hand_places(items: list | None, changes: list) -> list:
+    """Поднятые субтитры руками: место сессии по `at` — убрано (`off`), с другими краями (`t0`, `t1`) или высотой
+    (`y`); свои места Павла (`t0`, `t1`, `y` без `at`) — после мест сессии."""
+
+    def change(item: dict, c: dict, name: str) -> dict | None:
+        if c.get("off"):
+            return None
+        return _timed(name, {**item, **{k: float(c[k]) for k in ("t0", "t1", "y") if k in c}})
+
+    out = [p for p in _anchored(items, [c for c in changes if "at" in c], "subPlaces", change) if p is not None]
+    out += [_timed(f"subPlaces[own {i}]", {"t0": float(c["t0"]), "t1": float(c["t1"]), "y": float(c["y"])})
+            for i, c in enumerate(c for c in changes if "at" not in c)]
     return out
 
 
@@ -302,6 +322,7 @@ def _lines(lines: list[dict], texts: list[str] | None) -> list[dict]:
 
 
 BROLL_FIELDS = ("src", "from", "layout", "audio")  # что Павел меняет у перебивки (вставки fullscreen)
+STICKER_FIELDS = ("enter", "tilt", "glow")  # как появляется и стоит картинка (params): влёт, наклон, свечение
 
 
 def apply_text(edit: dict, text: dict | None, words: list | None = None) -> dict:
@@ -332,8 +353,19 @@ def apply_text(edit: dict, text: dict | None, words: list | None = None) -> dict
             changed["text"] = c["text"]
         if "x" in item and "w" in item:  # место и ширина — у вставок с рамкой на кадре (у fullscreen их нет)
             changed.update({k: c[k] for k in ("x", "y", "w") if k in c})
-        if item.get("kind") == "fullscreen":  # перебивка: клип, момент клипа, вид, звук клипа
+        if item.get("kind") == "fullscreen":  # перебивка: клип, момент клипа, вид, звук клипа, подпись ("" — без неё)
             changed.update({k: c[k] for k in BROLL_FIELDS if k in c})
+            if "caption" in c:
+                changed.pop("caption", None)
+                if c["caption"].strip():
+                    changed["caption"] = c["caption"].strip()
+        if item.get("kind") == "image" and any(k in c for k in STICKER_FIELDS):  # картинка: влёт, наклон, свечение
+            params = {**(item.get("params") or {}), **{k: c[k] for k in STICKER_FIELDS if k in c}}
+            if params.get("enter") == "none":
+                params.pop("enter")
+            if params.get("glow") is False:
+                params.pop("glow")
+            changed["params"] = params
         return _timed(name, changed)
 
     if text.get("accents") and edit.get("accents"):

@@ -3,8 +3,8 @@
 // выбранные на дорожке «Картинка», — убрать или вернуть, у куска — другой фильтр, у перехода — другой вид; свой кусок ч/б
 // — на фразу под бегунком. Монтаж кладёт это поверх edit.json сессии (edits.apply_picture), кадр редактора показывает сразу.
 import {
-  LOOK_KINDS, removeLook, setDim, setLook, setLookKind, setSpeed, setTeaser, setTransition, setZoom, TRANSITION_KINDS, LIMITS,
-  type At, type HandEdits, type LookKind, type LookRef, type TransitionKind,
+  LOOK_KINDS, removeLook, removeTransition, setDim, setLook, setLookKind, setOwnTransition, setSpeed, setTeaser, setTransition, setZoom, TRANSITION_KINDS, LIMITS,
+  type At, type HandEdits, type LookKind, type LookRef, type TransitionKind, type TransitionRef,
 } from '@/lib/edits.ts';
 import { tenths } from '@/lib/format.ts';
 import type { Key } from '@/lib/i18n.ts';
@@ -13,14 +13,16 @@ import type { Tracks } from '@/lib/tracks.ts';
 type TFn = (k: Key, v?: Record<string, string | number>) => string;
 
 /** Выбранное на дорожке «Картинка»: кусок с фильтром (кусок сессии — по месту в edit.looks, свой — по номеру), переход
- *  по своему t. */
-export type PictureSel = { kind: 'look'; ref: LookRef } | { kind: 'transition'; at: number };
+ *  (сессии — по своему t, свой — по номеру; у разбора он на дорожке «Эффекты»). */
+export type PictureSel = { kind: 'look'; ref: LookRef } | { kind: 'transition'; ref: TransitionRef };
 
 export const KIND_NAMES: Record<TransitionKind, Key> = { flash: 'trFlash', zoom: 'trZoom', blur: 'trBlur', tear: 'trTear', glitch: 'trGlitch' };
 export const LOOK_NAMES: Record<LookKind, Key> = { bw: 'bw', sepia: 'lookSepia', warm: 'lookWarm', cold: 'lookCold', film: 'lookFilm' };
 const sameAt = (a: At, b: At) => a[0] === b[0] && a[1] === b[1];
 /** Тот же кусок: кусок сессии — по месту, свой — по номеру. */
 export const sameLook = (a: LookRef, b: LookRef): boolean => ('own' in a ? 'own' in b && a.own === b.own : 'at' in b && sameAt(a.at, b.at));
+/** Тот же переход: сессии — по его t, свой — по номеру. */
+export const sameTransition = (a: TransitionRef, b: TransitionRef): boolean => ('own' in a ? 'own' in b && a.own === b.own : 'at' in b && a.at === b.at);
 const refKey = (r: LookRef) => ('own' in r ? `own${r.own}` : `${r.at[0]}|${r.at[1]}`);
 const percent = (z: number) => `${Math.round(z * 100)} %`;
 
@@ -71,9 +73,10 @@ export function PictureSection({ T, tracks, hand, dim, canZoom, canDim, note, on
 
 /** Выбранный кусок с фильтром или переход: убрать, вернуть, другой фильтр или вид перехода, «как у монтажа»; свой кусок —
  *  удалить. `editable` — убрать и вернуть кусок, переход; `shape` — фильтр куска и свои куски (старый движок их не знает). */
-export function PicturePick({ T, sel, tracks, hand, editable, shape, tear = true, note, onEdit, sec }: {
+export function PicturePick({ T, sel, tracks, hand, editable, shape, tear = true, effects = false, note, onEdit, sec }: {
   T: TFn; sel: PictureSel; tracks: Tracks; hand: HandEdits; editable: boolean; shape: boolean; note: string | null;
   tear?: boolean; // движок задачи знает рваную бумагу и глитч (старый — нет: их и не предлагаем)
+  effects?: boolean; // переходы — на дорожке «Эффекты» (разбор): их тянут по дорожке
   onEdit: (next: HandEdits, key?: string) => void; sec: (s: number) => string;
 }) {
   if (sel.kind === 'look') {
@@ -108,33 +111,41 @@ export function PicturePick({ T, sel, tracks, hand, editable, shape, tear = true
       </section>
     );
   }
-  const x = tracks.transitions.find((m) => m.at === sel.at);
+  const ref = sel.ref;
+  const x = tracks.transitions.find((m) => sameTransition(m.ref, ref));
   if (!x) return <p className="ed-note faint">{T('selectHint')}</p>;
   const was = x.was as TransitionKind;
-  const fix = (hand.transitions ?? []).find((f) => f.at === sel.at);
-  const set = (kind: TransitionKind, off: boolean) => onEdit(setTransition(hand, sel.at, { ...(kind !== was ? { kind } : {}), off }));
-  const kind = (fix?.kind ?? was) as TransitionKind;
+  const kind = x.kind as TransitionKind;
+  const fix = 'at' in ref ? (hand.transitions ?? []).find((f) => f.at === ref.at) : undefined;
+  // свой переход Павла — только другой вид или удалить; переход сессии — вид, убрать, «как у монтажа»
+  const set = (k: TransitionKind, off: boolean) => onEdit('own' in ref ? setOwnTransition(hand, ref.own, { kind: k })
+    : setTransition(hand, ref.at, { ...(k !== was ? { kind: k } : {}), off }));
+  const moved = 'at' in ref && x.src !== ref.at;
   return (
-    <section className="ed-insp" aria-label={T('transition')}>
-      <h2>{T('transition')}{x.off ? ` · ${T('removed')}` : ''}</h2>
-      <p className="ed-note mono">{tenths(x.t)}</p>
+    <section className="ed-insp" aria-label={T('transition')} data-transition={'own' in ref ? `own${ref.own}` : ref.at}>
+      <h2>{'own' in ref ? T('trOwn') : T('transition')}{x.off ? ` · ${T('removed')}` : ''}</h2>
+      <p className="ed-note mono">{tenths(x.t)}{moved ? ` · ${T('trMoved')}` : ''}</p>
       <div className="ed-modes" role="group" aria-label={T('trKind')}>
         {TRANSITION_KINDS.filter((k) => tear || (k !== 'tear' && k !== 'glitch') || k === kind).map((k) => (
-          <button key={k} type="button" className="ed-mode" aria-pressed={!x.off && kind === k} disabled={!editable} onClick={() => set(k, false)}>
+          <button key={k} type="button" className="ed-mode" aria-pressed={!x.off && kind === k} disabled={!editable || x.off} onClick={() => set(k, false)}>
             {T(KIND_NAMES[k])}
           </button>
         ))}
       </div>
       <div className="ed-btns">
-        <button type="button" className={`ed-btn${x.off ? '' : ' bad'}`} disabled={!editable} onClick={() => set(kind, !x.off)}>
-          {x.off ? T('trOn') : T('trOff')}
-        </button>
-        {fix ? (
+        {'own' in ref ? (
+          <button type="button" className="ed-btn bad" disabled={!editable} onClick={() => onEdit(removeTransition(hand, ref.own))}>{T('trDelete')}</button>
+        ) : (
+          <button type="button" className={`ed-btn${x.off ? '' : ' bad'}`} disabled={!editable} onClick={() => set(kind, !x.off)}>
+            {x.off ? T('trOn') : T('trOff')}
+          </button>
+        )}
+        {fix && 'at' in ref ? (
           <button type="button" className="ed-btn" disabled={!editable} title={T('trAsMontageT', { k: T(KIND_NAMES[was]) })}
-            onClick={() => onEdit(setTransition(hand, sel.at, null))}>{T('asSession')}</button>
+            onClick={() => onEdit(setTransition(hand, ref.at, null))}>{T('asSession')}</button>
         ) : null}
       </div>
-      <p className="ed-note faint">{note ?? T('trHint')}</p>
+      <p className="ed-note faint">{note ?? T(effects ? 'trHintEffects' : 'trHint')}</p>
     </section>
   );
 }

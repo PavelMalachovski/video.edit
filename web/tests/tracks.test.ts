@@ -396,12 +396,12 @@ test('the picture by hand on the tracks: zoom strength in the layer, a b/w piece
   };
   const plain = draftTracks(d);
   assert.deepEqual(plain.looks.map((l) => [l.at, l.off]), [[[0.5, 1.0], false], [[3.0, 3.6], false]], 'у каждого ч/б-куска — его место в edit.looks');
-  assert.deepEqual(plain.transitions.map((x) => [x.at, x.kind, x.was, x.off]), [[2, 'flash', 'flash', false], [4, 'zoom', 'zoom', false]]);
+  assert.deepEqual(plain.transitions.map((x) => [x.ref, x.kind, x.was, x.off]), [[{ at: 2 }, 'flash', 'flash', false], [{ at: 4 }, 'zoom', 'zoom', false]]);
   const t = draftTracks(d, { fixes: { zoom: 0.5, looks: [{ at: [3.0, 3.6], off: true }], transitions: [{ at: 2, off: true }, { at: 4, kind: 'blur' }] } });
   assert.deepEqual(t.layer.edit.zooms, [{ t: 1.0, level: 1.15, over: 0 }], 'зум — вполовину');
   assert.deepEqual(t.looks.map((l) => [l.at, l.off]), [[[0.5, 1.0], false], [[3.0, 3.6], true]], 'убранный — тенью на своём месте');
   assert.ok(near(t.looks[1].t0, plain.looks[1].t0) && near(t.looks[1].t1, plain.looks[1].t1));
-  assert.deepEqual(t.transitions.map((x) => [x.at, x.kind, x.was, x.off]), [[2, 'flash', 'flash', true], [4, 'blur', 'zoom', false]]);
+  assert.deepEqual(t.transitions.map((x) => [x.ref, x.kind, x.was, x.off]), [[{ at: 2 }, 'flash', 'flash', true], [{ at: 4 }, 'blur', 'zoom', false]]);
   assert.deepEqual(t.sounds.filter((s) => s.key?.startsWith('transition')).map((s) => s.key), ['transition:1'], 'у убранного перехода свуша нет, номер второго — тот же');
   assert.deepEqual(t.layer.edit.looks?.map((l) => l.off ?? false), [false, true], 'картинка плеера читает правки из слоя');
   assert.deepEqual(t.layer.edit.transitions?.map((x) => [x.kind, x.off ?? false]), [['flash', true], ['blur', false]]);
@@ -455,4 +455,24 @@ test('torn paper on the picture track stands over its window before its b-roll a
   assert.deepEqual([glitch.t0, glitch.t1], [209 / 30, 212 / 30], 'глитч — кадр до стыка, стык и кадр после');
   const rips = t.sounds.filter((s) => s.key?.startsWith('transition'));
   assert.deepEqual(rips.map((s) => s.t0), [(93 - 9) / 30], 'звук — с начала окна; разрыв без перебивки не звучит');
+});
+
+test('effects of a breakdown on the tracks: a moved transition keeps its swoosh, own ones come after without one; raised subtitles off, moved and own', () => {
+  const d: Draft = {
+    ...DRAFT, keep: [[0.5, 9]], subPlaces: [{ t0: 1, t1: 2, y: 380 }, { t0: 4, t1: 5, y: 400 }],
+    transitions: [{ t: 2.0, kind: 'flash', sfx: 'assets/sfx/swoosh.mp3' }, { t: 4.0, kind: 'glitch', sfx: 'assets/sfx/glitch.mp3' }],
+  };
+  const t = draftTracks(d, { fixes: {
+    transitions: [{ at: 4, t: 6 }, { t: 3, kind: 'glitch' }],
+    subPlaces: [{ at: [1, 2], off: true }, { at: [4, 5], t0: 3.8, y: 300 }, { t0: 6, t1: 7, y: 360 }],
+  } });
+  assert.deepEqual(t.transitions.map((x) => [x.ref, x.kind, x.src]), [[{ at: 2 }, 'flash', 2], [{ own: 0 }, 'glitch', 3], [{ at: 4 }, 'glitch', 6]]);
+  assert.ok(near(t.transitions[2].t, 4.4), 'сдвинутый — на новом месте ролика (×1,25)');
+  assert.deepEqual(t.sounds.filter((s) => s.key?.startsWith('transition')).map((s) => [s.key, s.file]),
+    [['transition:0', 'assets/sfx/swoosh.mp3'], ['transition:1', 'assets/sfx/glitch.mp3']], 'свой — без звука, номер сдвинутого — тот же');
+  assert.deepEqual(t.places.map((p) => [p.ref, p.src, p.y, p.off]), [
+    [{ at: [1, 2] }, [1, 2], 380, true], [{ at: [4, 5] }, [3.8, 5], 300, false], [{ own: 0 }, [6, 7], 360, false],
+  ]);
+  assert.deepEqual(t.layer.edit.subPlaces, [{ t0: 3.8, t1: 5, y: 300 }, { t0: 6, t1: 7, y: 360 }], 'слой — с правками Павла');
+  assert.deepEqual(draftTracks(d).places.map((p) => [p.ref, p.off]), [[{ at: [1, 2] }, false], [{ at: [4, 5] }, false]]);
 });

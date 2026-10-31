@@ -21,8 +21,9 @@ import { createClock } from '@/lib/clock.ts';
 import { coverUrl, editorGates, layerUrl, type EditorData } from '@/lib/editordata.ts';
 import { sameJson } from '@/lib/equal.ts';
 import {
-  addLook, commit, cutSpan, EMPTY, initHistory, moveSpan, placeBlock, redo, removeLook, restoreSpan, setBlock, setCta, setHook, setLook, setLookEdges, setMusic,
-  setTransition, setVoice, splitAt, trimEnd, trimStart, undo, type HandEdits, type History, type Place, type TransitionKind,
+  addLook, addPlace, addTransition, commit, cutSpan, EMPTY, initHistory, moveSpan, moveTransition, placeBlock, redo, removeLook, removePlace, removeTransition,
+  restoreSpan, setBlock, setCta, setHook, setLook, setLookEdges, setMusic, setOwnPlace, setOwnTransition, setPlace, setPlaceOff, setTransition, setVoice, splitAt,
+  trimEnd, trimStart, undo, type HandEdits, type History, type Place, type TransitionKind,
 } from '@/lib/edits.ts';
 import { tenths } from '@/lib/format.ts';
 import { loadLang, saveLang, tr, type Key, type Lang } from '@/lib/i18n.ts';
@@ -34,7 +35,7 @@ import { advance, afterEnded, locate, stillSource, tailAt } from '@/lib/player.t
 import {
   allowedFonts, finalStyle, loadChoice, loadInsertBoxes, mergeStyle, placedInserts, placeText, sampleState, saveChoice, textPlace, type TextPart,
 } from '@/lib/style.ts';
-import { clickGuard, dragTo, type Drag, type DragView } from '@/lib/drag.ts';
+import { clickGuard, dragTo, type Drag, type DragView, type EffectRef } from '@/lib/drag.ts';
 import { phraseAt } from '@/lib/subs.ts';
 import { Saver, type PutResult } from '@/lib/saver.ts';
 import { audioUrl, levelsOf, musicMix } from '@/lib/sound.ts';
@@ -51,7 +52,8 @@ import { Bar, Layer, Picture, pickKey, type FramePick, type FrameTarget, type Ha
 import { InlineText } from './inline';
 import { Mixer, type MixPlan } from './mixer';
 import { Inspector, StylePanel, type Selection } from './panels';
-import { KIND_NAMES, LOOK_NAMES, PicturePick, PictureSection, sameLook, VideoSection } from './picturepanel';
+import { EffectsSection, PlacePick, RAISED_Y, samePlace } from './effectspanel';
+import { KIND_NAMES, LOOK_NAMES, PicturePick, PictureSection, sameLook, sameTransition, VideoSection } from './picturepanel';
 
 const HEAD = 112; // px — колонка с именами дорожек
 const MAX_WIDTH = 30_000; // px — ширина дорожек
@@ -70,6 +72,8 @@ const NOTE_MS = 4000; // подпись на кадре (почему текст
 type SaveState = { state: 'idle' | 'saving' | 'saved' | 'error' | 'conflict'; error?: string };
 type BlockDrag = Extract<Drag, { kind: 'block' }>;
 type LookDrag = Extract<Drag, { kind: 'look' }>;
+type EffectDrag = Extract<Drag, { kind: 'effect' }>;
+const FX = ['tear', 'glitch']; // переходы разбора — у задачи разбора они на дорожке «Эффекты»
 /** Правки из timeline.json — без ревизии и времени. */
 const handOf = (data: EditorData | null): HandEdits => {
   if (!data?.timeline) return EMPTY;
@@ -165,6 +169,8 @@ export default function Editor({ id }: { id: string }) {
   const canMarks = gates.marks; // переходы и затемнение фона
   const canLook = gates.looks; // убрать и вернуть кусок с фильтром (и до монтажа)
   const canShape = gates.lookHand; // свои куски, края и фильтр кусков (старый движок их не знает)
+  const canFx = gates.effects; // эффекты разбора руками: сдвиг и свои переходы, поднятые субтитры (старый движок их не знает)
+  const fxNote = !data?.draft || !editable ? null : !mounted ? T('pictureAfterMount') : !data.abilities.effects ? T('pictureOld') : null;
   const pictureNote = !data?.draft ? null : !data.abilities.picture ? T('pictureOld') : !mounted ? T('pictureAfterMount') : null;
   const canTrack = gates.track;
   const trackNote = !editable || !data?.draft ? null : !data.abilities.track ? T('trackOld') : !mounted ? T('trackAfterMount') : null;
@@ -339,7 +345,7 @@ export default function Editor({ id }: { id: string }) {
     if (!edited) return null;
     const base = { ...(layerStyle ? { style: layerStyle } : {}), sourceDuration, splits: edited.splits, videos: data?.media?.videos, beats };
     try {
-      const fixes = { text: view.text, words: view.words, zoom: hand.zoom, looks: hand.looks, transitions: hand.transitions };
+      const fixes = { text: view.text, words: view.words, zoom: hand.zoom, looks: hand.looks, transitions: hand.transitions, subPlaces: hand.subPlaces };
       return draftTracks(edited.draft, { ...base, fixes });
     } catch {
       try {
@@ -348,8 +354,10 @@ export default function Editor({ id }: { id: string }) {
         return null;
       }
     }
-  }, [edited, layerStyle, sourceDuration, data?.media?.videos, view.text, view.words, hand.zoom, hand.looks, hand.transitions, beats]);
+  }, [edited, layerStyle, sourceDuration, data?.media?.videos, view.text, view.words, hand.zoom, hand.looks, hand.transitions, hand.subPlaces, beats]);
   const videos = (data?.media?.videos?.length ?? 0) > 1 ? data?.media?.videos ?? null : null; // несколько видео задачи — где какое
+  // дорожка «Эффекты» — у разбора персонажа (и у ролика, где уже есть его эффекты): разрывы, глитчи, поднятые субтитры
+  const fxRow = Boolean(data?.character) || Boolean(tracks && (tracks.places.length || tracks.transitions.some((x) => FX.includes(x.kind))));
   const mix = useMemo(() => musicMix(data?.draft?.music ?? null, hand.music), [data, hand.music]);
   const edges = useMemo(() => (data?.draft ? wordEdges(data.draft) : []), [data]);
   const peaks = useMemo(() => (data?.media ? decodePeaks(data.media.peaks.data) : null), [data]);
@@ -747,7 +755,8 @@ export default function Editor({ id }: { id: string }) {
   // кусок с фильтром или переход, выбранный на дорожке «Картинка»: Delete — убрать (свой кусок — удалить; вид перехода,
   // если Павел его менял, остаётся)
   const selLook = sel?.kind === 'look' ? tracks?.looks.find((l) => sameLook(l.ref, sel.ref)) ?? null : null;
-  const selTransition = sel?.kind === 'transition' ? tracks?.transitions.find((x) => x.at === sel.at) ?? null : null;
+  const selTransition = sel?.kind === 'transition' ? tracks?.transitions.find((x) => sameTransition(x.ref, sel.ref)) ?? null : null;
+  const selPlace = sel?.kind === 'place' ? tracks?.places.find((p) => samePlace(p.ref, sel.ref)) ?? null : null;
   const doRemovePicture = useCallback(() => {
     if (selLook && !selLook.off) {
       if ('own' in selLook.ref) {
@@ -759,10 +768,22 @@ export default function Editor({ id }: { id: string }) {
     }
     if (!canMarks) return;
     if (selTransition && !selTransition.off) {
-      const kind = selTransition.kind !== selTransition.was ? selTransition.kind as TransitionKind : undefined;
-      edit(setTransition(hand, selTransition.at, { kind, off: true }));
+      const r = selTransition.ref;
+      if ('own' in r) {
+        if (canFx) {
+          edit(removeTransition(hand, r.own));
+          setSel(null);
+        }
+      } else edit(setTransition(hand, r.at, { kind: selTransition.kind !== selTransition.was ? selTransition.kind as TransitionKind : undefined, off: true }));
     }
-  }, [canMarks, canLook, canShape, selLook, selTransition, edit, hand]);
+    if (selPlace && !selPlace.off && canFx) {
+      const r = selPlace.ref;
+      if ('own' in r) {
+        edit(removePlace(hand, r.own));
+        setSel(null);
+      } else edit(setPlaceOff(hand, r.at, true));
+    }
+  }, [canMarks, canLook, canShape, canFx, selLook, selTransition, selPlace, edit, hand]);
   const doRestore = (c: { src0: number; src1: number }) => edit(restoreSpan(hand, c.src0, c.src1));
   // переставить кусок перед куском `slot`; выбранным остаётся он — на новом месте, плейхед — в его начало
   const follow = useRef<number | null>(null); // момент исходника внутри переставленного куска
@@ -808,7 +829,7 @@ export default function Editor({ id }: { id: string }) {
       } else if (e.code === 'KeyS' && editable) {
         e.preventDefault();
         doSplit();
-      } else if ((e.code === 'Delete' || e.code === 'Backspace') && editable && (selPiece || selBlock || selLook || selTransition)) {
+      } else if ((e.code === 'Delete' || e.code === 'Backspace') && editable && (selPiece || selBlock || selLook || selTransition || selPlace)) {
         e.preventDefault();
         if (selPiece) doDelete();
         else if (selBlock) doRemoveBlock();
@@ -817,7 +838,7 @@ export default function Editor({ id }: { id: string }) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [playing, play, pause, editable, doSplit, doDelete, doRemoveBlock, doRemovePicture, doUndo, doRedo, selPiece, selBlock, selLook, selTransition]);
+  }, [playing, play, pause, editable, doSplit, doDelete, doRemoveBlock, doRemovePicture, doUndo, doRedo, selPiece, selBlock, selLook, selTransition, selPlace]);
 
   // ---------- кадр ----------
   const stage = useRef<HTMLDivElement>(null);
@@ -927,6 +948,34 @@ export default function Editor({ id }: { id: string }) {
     }
     edit(setLookEdges(hand, d.ref, span.t0, span.t1));
   };
+  /** Эффект разбора передвинули (поднятые субтитры — и растянули): где он теперь в исходнике — в правку. */
+  const commitEffect = (d: EffectDrag) => {
+    if (!tracks) return;
+    const line = tracks.layer.tl;
+    if (d.ref.kind === 'transition') {
+      const at = sourceSpan(line, d.a, d.a);
+      if (!at) {
+        setHint(T('inTeaser'));
+        return;
+      }
+      const r = d.ref.ref;
+      edit('own' in r ? setOwnTransition(hand, r.own, { t: at.t0 }) : moveTransition(hand, r.at, at.t0));
+      return;
+    }
+    const span = sourceSpan(line, d.a, d.b);
+    if (!span) {
+      setHint(T('inTeaser'));
+      return;
+    }
+    if (span.t1 <= span.t0) {
+      setHint(T('noRoom'));
+      return;
+    }
+    const r = d.ref.ref;
+    const p = tracks.places.find((x) => samePlace(x.ref, r));
+    if (!p) return;
+    edit('own' in r ? setOwnPlace(hand, r.own, { ...span, y: p.y }) : p.was ? setPlace(hand, p.was, { ...span, y: p.y }) : hand);
+  };
   const onDragEnd = (e: React.PointerEvent) => {
     if (!drag || !tracks) return;
     e.stopPropagation();
@@ -953,6 +1002,10 @@ export default function Editor({ id }: { id: string }) {
       if (!released.moved) return; // щелчок — выбор (onClick куска)
       clicks.dragged();
       commitLook(released);
+    } else if (released.kind === 'effect') {
+      if (!released.moved) return; // щелчок — выбор (onClick эффекта)
+      clicks.dragged();
+      commitEffect(released);
     } else if (!released.moved) { // щелчок по музыке — выбрать и встать туда
       setSel({ kind: 'music' });
       const box = lanes.current?.querySelector('.ed-row.music .ed-lane')?.getBoundingClientRect();
@@ -986,6 +1039,55 @@ export default function Editor({ id }: { id: string }) {
     if (!canShape || l.off || l.teaser || e.button !== 0 || !picked) return;
     grab(e, { kind: 'look', ref: l.ref, mode, x0: e.clientX, t0: l.t0, t1: l.t1, a: l.t0, b: l.t1, moved: false, floor: lookFloor, max: duration });
   };
+  // переход на дорожке «Картинка» или «Эффекты»: щелчок — выбрать и встать на его начало; выбранный разрыв или глитч на
+  // дорожке «Эффекты» тянут целиком (за его стык)
+  const trBlock = (x: Tracks['transitions'][number], i: number) => {
+    const picked = sel?.kind === 'transition' && sameTransition(sel.ref, x.ref);
+    const name = T(KIND_NAMES[x.kind as TransitionKind] ?? 'transition');
+    const ref: EffectRef = { kind: 'transition', ref: x.ref };
+    const dragging = drag?.kind === 'effect' && drag.ref.kind === 'transition' && sameTransition(drag.ref.ref, x.ref) && drag.moved ? drag : null;
+    const shift = dragging ? dragging.a - x.t : 0;
+    const movable = fxRow && FX.includes(x.kind) && !x.off;
+    return (
+      <div key={`t${i}`} data-kind="transition" data-at={'at' in x.ref ? x.ref.at : undefined} data-own={'own' in x.ref ? x.ref.own : undefined}
+        className={`ed-clip tr ${x.kind}${x.off ? ' ghost' : ''}${picked ? ' sel' : ''}${picked && movable && canFx ? ' grab' : ''}`}
+        style={{ left: X(x.t0 + shift), width: Math.max(18, X(x.t1 - x.t0)) }}
+        title={`${'own' in x.ref ? T('trOwn') : T('transition')} · ${name} · ${tenths(x.t)}${x.off ? ` · ${T('removed')}` : ''}`}
+        {...(movable ? { onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => grabEffect(e, ref, x.t, x.t, 'move', picked), ...dragProps } : {})}
+        onClick={() => { if (clicks.click()) { setSel({ kind: 'transition', ref: x.ref }); seek(Math.max(0, x.t0)); } }}>
+        <span>{name.slice(0, 1)}</span>
+      </div>
+    );
+  };
+  // эффект разбора тянут так же, выбранный: переход — целиком (его стык), поднятые субтитры — и за край; не в тизере
+  const grabEffect = (e: React.PointerEvent<HTMLElement>, ref: EffectRef, t0: number, t1: number, mode: EffectDrag['mode'], picked: boolean) => {
+    if (!canFx || e.button !== 0 || !picked) return;
+    grab(e, { kind: 'effect', ref, mode, x0: e.clientX, t0, t1, a: t0, b: t1, moved: false, floor: lookFloor, max: duration });
+  };
+  // свой разрыв или глитч — на бегунке, свои поднятые субтитры — на фразу под бегунком; выбран сразу
+  const doAddEffect = useCallback((what: 'tear' | 'glitch' | 'place') => {
+    if (!tracks || !canFx) return;
+    const line = tracks.layer.tl;
+    if (what === 'place') {
+      const p = phraseAt(tracks.layer.edit.words ?? [], line, now.current);
+      if (!p) {
+        setHint(T('noPhrase'));
+        return;
+      }
+      const own = (hand.subPlaces ?? []).filter((f) => f.at === undefined).length;
+      edit(addPlace(hand, p.t0, p.t1, tracks.places.find((x) => !x.off)?.y ?? RAISED_Y));
+      setSel({ kind: 'place', ref: { own } });
+      return;
+    }
+    const at = sourceSpan(line, now.current, now.current);
+    if (!at) {
+      setHint(T('inTeaser'));
+      return;
+    }
+    const own = (hand.transitions ?? []).filter((f) => f.at === undefined).length;
+    edit(addTransition(hand, at.t0, what));
+    setSel({ kind: 'transition', ref: { own } });
+  }, [tracks, canFx, hand, edit, T]);
   // свой кусок ч/б на фразу под бегунком (как её делят субтитры): выбран сразу — фильтр и края правятся тут же
   const doAddLook = useCallback(() => {
     if (!tracks || !canShape) return;
@@ -1243,7 +1345,7 @@ export default function Editor({ id }: { id: string }) {
           {tracks && draft && sel?.kind === 'block' ? (
             <BlockPanel T={T} sel={sel} tracks={tracks} draft={draft} hand={hand} editable={canText} note={editable ? textNote : null} onEdit={edit} sec={sec}
               letters={letters} placing={placing} brolls={gates.broll ? data?.brolls ?? [] : undefined}
-              windowed={data?.abilities.tear ?? true} />
+              windowed={data?.abilities.tear ?? true} effects={canFx} />
           ) : null}
           {tracks && draft && sel?.kind === 'sub' ? (
             <WordsPanel T={T} sel={sel} tracks={tracks} draft={draft} hand={hand} editable={canText} note={editable ? textNote : null} onEdit={edit} sec={sec}
@@ -1252,9 +1354,13 @@ export default function Editor({ id }: { id: string }) {
           {tracks && draft && sel?.kind === 'end' ? (
             <EndPanel T={T} draft={draft} hand={hand} editable={canCard} note={editable ? cardNote : null} onEdit={edit} letters={letters} />
           ) : null}
+          {tracks && sel?.kind === 'place' ? (
+            <PlacePick T={T} sel={sel} tracks={tracks} hand={hand} editable={canFx} note={fxNote} onEdit={edit} sec={sec} />
+          ) : null}
           {tracks && (sel?.kind === 'look' || sel?.kind === 'transition') ? (
-            <PicturePick T={T} sel={sel} tracks={tracks} hand={hand} editable={sel.kind === 'look' ? canLook : canMarks} shape={canShape}
-              tear={data?.abilities.tear ?? true}
+            <PicturePick T={T} sel={sel} tracks={tracks} hand={hand}
+              editable={sel.kind === 'look' ? canLook : 'own' in sel.ref ? canFx : canMarks} shape={canShape}
+              tear={data?.abilities.tear ?? true} effects={fxRow}
               note={editable ? (sel.kind === 'look' && canLook ? null : pictureNote) : null} onEdit={edit} sec={sec} />
           ) : null}
           {tracks ? (
@@ -1269,6 +1375,7 @@ export default function Editor({ id }: { id: string }) {
           {styles && choice ? (
             <StylePanel T={T} styles={styles} choice={choice} spec={spec} offered={offered} locked={!styleOpen} note={styleNote} onPick={pick} />
           ) : null}
+          {tracks && fxRow ? <EffectsSection T={T} tracks={tracks} onAdd={canFx ? doAddEffect : null} note={fxNote} /> : null}
           {tracks ? (
             <PictureSection T={T} tracks={tracks} hand={hand} dim={draft?.dim ?? 0} canZoom={canZoom} canDim={canMarks} note={editable ? pictureNote : null}
               onEdit={edit} onAddLook={canShape ? doAddLook : null} />
@@ -1425,20 +1532,35 @@ export default function Editor({ id }: { id: string }) {
                     </div>
                   );
                 })}
-                {tracks.transitions.map((x, i) => {
-                  const picked = sel?.kind === 'transition' && sel.at === x.at;
-                  const name = T(KIND_NAMES[x.kind as TransitionKind] ?? 'transition');
-                  return (
-                    <div key={`t${i}`} data-kind="transition" data-at={x.at}
-                      className={`ed-clip tr ${x.kind}${x.off ? ' ghost' : ''}${picked ? ' sel' : ''}`} style={{ left: X(x.t0), width: Math.max(18, X(x.t1 - x.t0)) }}
-                      title={`${T('transition')} · ${name} · ${tenths(x.t)}${x.off ? ` · ${T('removed')}` : ''}`}
-                      onClick={() => { if (clicks.click()) { setSel({ kind: 'transition', at: x.at }); seek(Math.max(0, x.t0)); } }}>
-                      <span>{name.slice(0, 1)}</span>
-                    </div>
-                  );
-                })}
-                {!tracks.looks.length && !tracks.transitions.length ? <span className="ed-empty">{T('noPicture')}</span> : null}
+                {tracks.transitions.filter((x) => !fxRow || !FX.includes(x.kind)).map(trBlock)}
+                {!tracks.looks.length && !tracks.transitions.some((x) => !fxRow || !FX.includes(x.kind)) ? <span className="ed-empty">{T('noPicture')}</span> : null}
               </Row>
+              {fxRow ? (
+                <Row name={T('effects')} cls="fx" width={width} onSeek={onLanes}>
+                  {tracks.places.map((p, i) => {
+                    const picked = sel?.kind === 'place' && samePlace(sel.ref, p.ref);
+                    const dragging = drag?.kind === 'effect' && drag.ref.kind === 'place' && samePlace(drag.ref.ref, p.ref) && drag.moved ? drag : null;
+                    const [a, b] = dragging ? [dragging.a, dragging.b] : [p.t0, p.t1];
+                    const handles = picked && canFx && !p.off;
+                    const ref: EffectRef = { kind: 'place', ref: p.ref };
+                    return (
+                      <div key={`p${i}`} data-kind="place" data-own={'own' in p.ref ? p.ref.own : undefined}
+                        data-at={'at' in p.ref ? `${p.ref.at[0]}-${p.ref.at[1]}` : undefined}
+                        className={`ed-clip place${p.off ? ' ghost' : ''}${picked ? ' sel' : ''}${handles ? ' grab' : ''}`}
+                        style={{ left: X(a), width: Math.max(8, X(b - a)) }}
+                        title={`${'own' in p.ref ? T('fxPlaceOwn') : T('fxPlaceName')} · ${tenths(p.src[0])}–${tenths(p.src[1])} · y ${p.y}${p.off ? ` · ${T('removed')}` : ''}`}
+                        onPointerDown={(e) => grabEffect(e, ref, p.t0, p.t1, 'move', picked)} {...dragProps}
+                        onClick={() => { if (clicks.click()) { setSel({ kind: 'place', ref: p.ref }); seek(p.t0); } }}>
+                        {handles ? <span className="ed-handle start" aria-hidden="true" onPointerDown={(e) => grabEffect(e, ref, p.t0, p.t1, 'start', picked)} {...dragProps} /> : null}
+                        <span>↑ {p.y}</span>
+                        {handles ? <span className="ed-handle end" aria-hidden="true" onPointerDown={(e) => grabEffect(e, ref, p.t0, p.t1, 'end', picked)} {...dragProps} /> : null}
+                      </div>
+                    );
+                  })}
+                  {tracks.transitions.filter((x) => FX.includes(x.kind)).map(trBlock)}
+                  {!tracks.places.length && !tracks.transitions.some((x) => FX.includes(x.kind)) ? <span className="ed-empty">{T('fxNone')}</span> : null}
+                </Row>
+              ) : null}
               <Row name={T('voice')} cls={`voice${voiceMuted ? ' muted' : ''}${sel?.kind === 'voice' ? ' sel' : ''}`} width={width}
                 onSeek={(e) => { setSel({ kind: 'voice' }); onLanes(e); }}
                 tool={<MuteButton T={T} what={T('voice')} on={voiceMuted} disabled={!editable} onToggle={() => edit(setVoice(hand, { muted: !voiceMuted }))} />}>

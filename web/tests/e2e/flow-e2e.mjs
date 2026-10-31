@@ -1965,6 +1965,109 @@ const segments = [
       'd = json.load(sys.stdin)', 'print(json.dumps(apply(d["edit"], d["timeline"], d["duration"])["inserts"][-1]))',
     ].join('\n')], { input: JSON.stringify({ edit: withClip, timeline: tl, duration: source }), env: { ...process.env, PYTHONPATH: path.resolve('../engine') } }).toString());
     check(engine.layout === 'pip' && engine.audio === true && engine.from === 1.5 && engine.src === clip.file, `движок: ${JSON.stringify(engine)}`);
+    ctx.brollEdit = withClip;
+    await page.setViewportSize({ width: 390, height: 844 });
+  }],
+
+  ['editor-effects', async (ctx) => {
+    // дорожка «Эффекты» разбора: рваная бумага сессии и поднятые субтитры — на ней; свой глитч на бегунке (и сдвинуть),
+    // своя поднятая фраза, высота места сессии; подпись перебивки и кадр TMDB клипом; стикер влетает справа и светится.
+    // Движок по сохранённому timeline.json собирает то же
+    const { page } = ctx;
+    const { source, full } = ctx.editorEdit;
+    const base = ctx.brollEdit;
+    const fx = {
+      ...base, subPlaces: [{ t0: 1.7, t1: 2.6, y: 380 }],
+      transitions: [...base.transitions, { t: 2.1, kind: 'tear', sfx: null }],
+    };
+    engineValidate('edit.json', fx);
+    let still = crypto.randomBytes(512);
+    try {
+      const jpg = path.join(ctx.tmp, 'tmdb.jpg');
+      execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=s=320x180', '-frames:v', '1', jpg]);
+      still = fs.readFileSync(jpg);
+    } catch { /* без ffmpeg — кадр не нарисуется, правка та же */ }
+    await session(ctx, {
+      'edit.json': fx, 'timeline.json': null, 'found/tmdb-1.jpg': still,
+      'found/tmdb.json': { title: 'Локи', person: 'Том Хиддлстоун', files: [{ file: 'found/tmdb-1.jpg', kind: 'still', source: 'tv', width: 320, height: 180 }] },
+    });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(`${APP}/jobs/${ctx.jobId}/editor`);
+    const row = page.locator('.ed-row.fx');
+    const place = row.locator('.ed-clip[data-kind=place]');
+    const tear = row.locator('.ed-clip[data-kind=transition]');
+    await until(async () => (await place.count()) === 1 && (await tear.count()) === 1, 10_000, 'на дорожке «Эффекты» — поднятые субтитры и разрыв');
+    check(await page.locator('.ed-row.pic .ed-clip[data-kind=transition]').count() === 1, 'вспышка — на дорожке «Картинка»');
+    const { seekTo } = editorKit(page, full);
+    // свой глитч на бегунке — выбран сразу; тянут его правее
+    await seekTo(0.5);
+    await page.locator('.ed-fx-panel').getByRole('button', { name: '＋ Глитч' }).click();
+    const glitch = row.locator('.ed-clip[data-kind=transition][data-own="0"]');
+    await glitch.waitFor({ timeout: 3000 });
+    await page.locator('.ed-insp[aria-label="Переход"]').getByRole('heading', { name: 'Свой переход' }).waitFor({ timeout: 3000 });
+    const g0 = await glitch.boundingBox();
+    await page.mouse.move(g0.x + g0.width / 2, g0.y + g0.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(g0.x + g0.width / 2 + 40, g0.y + g0.height / 2, { steps: 5 });
+    await page.mouse.up();
+    await until(async () => (await glitch.boundingBox()).x > g0.x + 20, 3000, 'свой глитч — правее');
+    // своя поднятая фраза — на фразе под бегунком
+    await seekTo(0.5);
+    await page.locator('.ed-fx-panel').getByRole('button', { name: '＋ Поднять фразу' }).click();
+    await row.locator('.ed-clip[data-kind=place][data-own="0"]').waitFor({ timeout: 3000 });
+    // место сессии — на 10 px выше (своё — раньше по времени, оно на дорожке первым)
+    await row.locator('.ed-clip[data-kind=place][data-at]').click();
+    const placePanel = page.locator('.ed-insp[aria-label="Поднятые субтитры"]');
+    const height = placePanel.getByRole('slider', { name: 'Высота, px от верха' });
+    await height.focus();
+    await page.keyboard.press('ArrowLeft');
+    await until(async () => (await height.inputValue()) === '370', 3000, async () => `высота: ${await height.inputValue()}`);
+    await shot(page, 'editor-effects');
+    // перебивка: подпись и кадр TMDB вместо клипа
+    const insBlocks = page.locator('.ed-row.ins .ed-clip');
+    await insBlocks.nth(2).click();
+    const insPanel = page.locator('.ed-insp[data-block=insert]');
+    await insPanel.getByLabel('Подпись').fill('Локи — бог обмана');
+    await insPanel.getByRole('combobox', { name: 'Клип' }).selectOption('found/tmdb-1.jpg');
+    await until(async () => (await page.locator('.ed-pic img.ed-cover').getAttribute('src'))?.includes('tmdb-1.jpg'), 3000,
+      'на кадре — кадр TMDB');
+    // стикер: влетает справа, светится
+    await insBlocks.nth(1).click();
+    const sticker = page.locator('.ed-insp[data-block=insert] [data-sticker]');
+    await sticker.getByRole('button', { name: 'справа' }).click();
+    await sticker.getByRole('button', { name: 'Свечение' }).click();
+    check(await sticker.getByRole('button', { name: 'Свечение' }).getAttribute('aria-pressed') === 'true', 'свечение включено');
+    await page.locator('.ed-save').getByText('Сохранено').waitFor({ timeout: 8000 });
+    const tl = JSON.parse((await branchFile(ctx, 'timeline.json')) ?? '{}');
+    engineValidate('timeline.json', tl);
+    const engine = JSON.parse(execFileSync('python3', ['-c', [
+      'import json, sys', 'from vm.edits import apply',
+      'd = json.load(sys.stdin)', 'e = apply(d["edit"], d["timeline"], d["duration"])',
+      'print(json.dumps({"transitions": e["transitions"], "places": e["subPlaces"], "image": e["inserts"][1], "broll": e["inserts"][-1]}))',
+    ].join('\n')], { input: JSON.stringify({ edit: fx, timeline: tl, duration: source }), env: { ...process.env, PYTHONPATH: path.resolve('../engine') } }).toString());
+    const own = engine.transitions.at(-1);
+    check(engine.transitions.length === 3 && own.kind === 'glitch' && own.t > 0.75 && own.sfx === null,
+      `движок: свой глитч после переходов сессии, правее и без звука: ${JSON.stringify(engine.transitions)}`);
+    check(isDeepStrictEqual(engine.places.map((p) => [p.t0, p.t1, p.y]), [[1.7, 2.6, 370], [0.3, 1.15, 380]]),
+      `движок: поднятые субтитры: ${JSON.stringify(engine.places)}`);
+    check(engine.broll.caption === 'Локи — бог обмана' && engine.broll.src === 'found/tmdb-1.jpg', `движок: перебивка ${JSON.stringify(engine.broll)}`);
+    check(engine.image.params?.enter === 'right' && engine.image.params?.glow === true, `движок: стикер ${JSON.stringify(engine.image)}`);
+    // задача движка до дорожки «Эффекты»: добавить нечего, сервер такие правки не сохранит
+    const schema = JSON.parse(fs.readFileSync(path.resolve('../engine/vm/schemas/timeline.json'), 'utf8'));
+    const { subPlaces: _p, ...props } = schema.properties;
+    await fakeJson('/__commit', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ branch: `claude/job-${ctx.jobId}`, files: { 'engine/vm/schemas/timeline.json': JSON.stringify({ ...schema, properties: props }) }, message: 'engine before effects' }) });
+    await page.reload();
+    await row.locator('.ed-clip').first().waitFor({ timeout: 10_000 });
+    check(await page.locator('.ed-fx-panel').getByRole('button', { name: '＋ Глитч' }).isDisabled(), 'у старой задачи своих эффектов нет');
+    const refusedFx = await page.evaluate(async ([url, b]) => {
+      const r = await fetch(url, { method: 'PUT', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ base: b, edits: [], transitions: [{ t: 1, kind: 'glitch' }] }) });
+      return { status: r.status, error: (await r.json()).error };
+    }, [`${APP}/api/jobs/${ctx.jobId}/timeline`, tl.rev]);
+    check(refusedFx.status === 409 && refusedFx.error?.includes('до дорожки «Эффекты»'), `старый движок: свой глитч не сохраняется (${JSON.stringify(refusedFx)})`);
+    await fakeJson('/__commit', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ branch: `claude/job-${ctx.jobId}`, files: { 'engine/vm/schemas/timeline.json': JSON.stringify(schema) }, message: 'engine back' }) });
     await page.setViewportSize({ width: 390, height: 844 });
   }],
 

@@ -5,7 +5,8 @@ import {
   applyKeep, applyText, blockPlace, BROLL_SRC, commit, cutSpan, EMPTY, initHistory, LIMITS, moveSpan, parseTimeline, pieces, placeBlock, redo, restoreSpan, setBlock, setCta, setHook,
   setMusic, setSound, setVoice, setWord, snapTo, splitAt, trimEnd, trimStart, undo, type Edit, type TextEdits, type WordFix, badSymbols, blockFix, hasEmoji,
   setLook, setTransition, setZoom, TRANSITION_KINDS, setDim, setTrack, setEnd, MUSIC_FILE, setTeaser, setSpeed,
-  LOOK_KINDS, addLook, setLookEdges, setLookKind, removeLook,
+  LOOK_KINDS, addLook, setLookEdges, setLookKind, removeLook, moveTransition, addTransition, setOwnTransition, removeTransition,
+  setPlace, setPlaceOff, addPlace, setOwnPlace, removePlace, applyPlaces, STICKER_ENTERS,
 } from '../lib/edits.ts';
 import { INSERT_W, INSERT_ZONE } from '../lib/jobfiles.ts';
 
@@ -394,4 +395,53 @@ test('the teaser off and the speed: parsed as the schema does, set within the li
   assert.equal(setSpeed(EMPTY, 3).speed, LIMITS.speed.max);
   assert.ok(!('speed' in setSpeed(setSpeed(EMPTY, 1.2), null)));
   assert.ok(parseTimeline({ rev: 1, ...setSpeed(setTeaser(EMPTY, false), 0.9) }), 'сеттеры пишут то, что примет схема');
+});
+
+test('effects of a breakdown by hand: a session transition moved, own tears and glitches; raised subtitles moved, off and own', () => {
+  let h = moveTransition(EMPTY, 4.5, 5.2004);
+  assert.deepEqual(h.transitions, [{ at: 4.5, t: 5.2 }]);
+  h = setTransition(h, 4.5, { kind: 'glitch' });
+  assert.deepEqual(h.transitions, [{ at: 4.5, kind: 'glitch', t: 5.2 }], 'другой вид — сдвиг остаётся');
+  assert.deepEqual(moveTransition(h, 4.5, 4.5).transitions, [{ at: 4.5, kind: 'glitch' }], 'на место сессии — сдвига нет');
+  assert.ok(!('transitions' in moveTransition(EMPTY, 4.5, 4.5)), 'ничего не изменилось — правки нет');
+  assert.ok(!('transitions' in setTransition(h, 4.5, null)), 'как у монтажа — и без сдвига');
+  h = addTransition(h, 6.4, 'tear');
+  h = addTransition(h, 1.1, 'glitch');
+  h = setOwnTransition(h, 0, { t: 6.5 });
+  h = setOwnTransition(h, 1, { kind: 'tear' });
+  assert.deepEqual(h.transitions, [{ at: 4.5, kind: 'glitch', t: 5.2 }, { t: 6.5, kind: 'tear' }, { t: 1.1, kind: 'tear' }]);
+  assert.deepEqual(removeTransition(h, 0).transitions, [{ at: 4.5, kind: 'glitch', t: 5.2 }, { t: 1.1, kind: 'tear' }]);
+  assert.ok(parseTimeline({ rev: 1, ...h }), 'что пишут правки — принимает схема');
+
+  const was = { t0: 4, t1: 5, y: 400 };
+  let p = setPlace(EMPTY, was, { t0: 3.8, t1: 5, y: 300.4 });
+  assert.deepEqual(p.subPlaces, [{ at: [4, 5], t0: 3.8, y: 300 }]);
+  assert.ok(!('subPlaces' in setPlace(p, was, was)), 'как у сессии — правки нет');
+  p = setPlaceOff(p, [1, 2], true);
+  p = addPlace(p, 6, 7, 9999);
+  assert.deepEqual(p.subPlaces?.at(-1), { t0: 6, t1: 7, y: LIMITS.subY.max }, 'высота — в пределах схемы');
+  p = setOwnPlace(p, 0, { t0: 6, t1: 7.5, y: 360 });
+  assert.ok(parseTimeline({ rev: 1, ...p }), 'что пишут правки — принимает схема');
+  assert.deepEqual(applyPlaces([{ t0: 1, t1: 2, y: 380 }, was], p.subPlaces), [{ t0: 3.8, t1: 5, y: 300 }, { t0: 6, t1: 7.5, y: 360 }]);
+  assert.deepEqual(removePlace(setPlaceOff(p, [1, 2], false), 0).subPlaces, [{ at: [4, 5], t0: 3.8, y: 300 }]);
+  for (const bad of [[{ t0: 1, t1: 2 }], [{ at: [1, 2] }], [{ at: [1, 2], off: false }], [{ t0: 1, t1: 2, y: 100 }], [{ t0: 1, t1: 2, y: 400, off: true }]]) {
+    assert.equal(parseTimeline({ rev: 1, edits: [], subPlaces: bad }), null, JSON.stringify(bad));
+  }
+  const sp = SCHEMA.properties.subPlaces.items.properties;
+  assert.deepEqual({ min: sp.y.minimum, max: sp.y.maximum }, LIMITS.subY);
+});
+
+test('a caption of a B-roll and the motion of a sticker by hand, as the schema takes them', () => {
+  const ok = { rev: 1, edits: [], text: { inserts: [
+    { at: [7, 8.5], caption: 'Локи — бог обмана', src: 'found/tmdb-3.jpg' }, { at: [9, 10], caption: '' },
+    { at: [2, 3], enter: 'right', tilt: -6, glow: true }, { at: [4, 5], enter: 'none', glow: false },
+  ] } };
+  assert.deepEqual(parseTimeline(ok), ok);
+  for (const bad of [{ caption: 'x'.repeat(41) }, { enter: 'up' }, { tilt: 30 }, { glow: 1 }, { src: 'found/../job.json' }, { src: 'found/tmdb-3.png' }]) {
+    assert.equal(parseTimeline({ ...ok, text: { inserts: [{ at: [7, 8.5], ...bad }] } }), null, JSON.stringify(bad));
+  }
+  const ins = SCHEMA.properties.text.properties.inserts.items.properties;
+  assert.equal(ins.caption.maxLength, LIMITS.caption);
+  assert.deepEqual(ins.enter.enum, [...STICKER_ENTERS]);
+  assert.deepEqual({ min: ins.tilt.minimum, max: ins.tilt.maximum }, LIMITS.tilt);
 });

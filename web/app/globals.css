@@ -474,6 +474,10 @@ ul.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:
 .ed-clip.tr.blur { background: color-mix(in srgb, var(--e-music) 22%, white); }
 .ed-clip.tr.tear { background: #F4F2EE; border-style: dashed; }
 .ed-clip.tr.glitch { background: color-mix(in srgb, #FF2D55 18%, white); }
+/* дорожка «Эффекты» (разбор): поднятые субтитры — блок фразы; выбранный разрыв или глитч тянут за стык */
+.ed-clip.place { cursor: pointer; color: var(--e-ink); background: color-mix(in srgb, var(--e-select) 14%, white); border: 1px solid var(--e-select); }
+.ed-clip.place.grab, .ed-clip.tr.grab { cursor: grab; touch-action: none; }
+.ed-clip.place .ed-handle::after { background: var(--e-select); }
 .ed-empty { font-size: 12px; color: var(--e-faint); padding: 0 8px; line-height: 30px; white-space: nowrap; }
 .ed-empty.pad { padding: 24px 16px; line-height: 1.45; white-space: normal; }
 .ed-playhead { position: absolute; top: 0; bottom: 0; left: 0; width: 2px; margin-left: -1px; background: var(--e-select); pointer-events: none; z-index: 3; }

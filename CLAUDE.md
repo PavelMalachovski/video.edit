@@ -224,5 +224,12 @@
   (`tears` ↔ `tearsOf`); старая задача — `abilitiesOf.tear`. Стикеры влетают (`params.enter`: `FLY` кадров) —
   `_inserts` в `overlay.py` ↔ `insertPieces` в `web/lib/overlay.ts`; рисует `drawInserts` в `template/inserts.js` (и наклон
   `params.tilt`, свечение `params.glow` — рамка вставки с ними).
+- Эффекты разбора руками (дорожка «Эффекты», `timeline.json` → `transitions[].t` и свои без `at`, `subPlaces`,
+  `text.inserts[].caption, enter, tilt, glow`, `src` — и `found/tmdb-<n>.jpg`): `edits.apply` (`_moments`,
+  `_hand_places`, `STICKER_FIELDS`) и схема ↔ `applyPicture`, `applyPlaces`, `applyText`, `moveTransition`,
+  `addTransition`, `setOwnTransition`, `setPlace`, `addPlace`, `STICKER_ENTERS`, `LIMITS.subY`, `parseTimeline` в
+  `web/lib/edits.ts`; на дорожках — `draftTracks` (`transitions[].ref`, `places`, номер звука — по списку с правками, как
+  `render._sounds`); разделы `picture`, `text`, `pipeline` общей фикстуры; кадры TMDB в списке клипов — `found/tmdb.json`
+  (`vm tmdb`) ↔ `parseStills`, `brollClips`; старая задача — `abilitiesOf` (`effects`).
 - Озвучка: ассет `upload-voice.*` и `kind: "audio"` в `job.json.uploads` — `web/lib/jobs.ts` (`voiceAssetName`,
   `isVoiceFile`) и `web/lib/jobfiles.ts` (`buildJobFile`); их читает `engine/vm/prepare.py` (`_voice`).

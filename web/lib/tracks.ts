@@ -4,7 +4,10 @@
 // transitions.marks): блок на дорожке — ровно там, где его нарисует ролик. Правки Павла руками (timeline.json) —
 // поверх черновика, как их положит движок. И файлы редактора от vm prepare (editor.json): прокси, лента кадров, волна.
 import { snapEdit } from './beats.ts';
-import { applyKeep, applyPicture, applyText, SLIVER, type At, type HandEdits, type LookFix, type LookRef, type TextEdits, type TransitionFix, type WordFix } from './edits.ts';
+import {
+  applyKeep, applyPicture, applyPlaces, applyText, SLIVER, type At, type HandEdits, type LookFix, type LookRef, type PlaceFix, type PlaceRef, type TextEdits,
+  type TransitionFix, type TransitionRef, type WordFix,
+} from './edits.ts';
 import type { StyleSpec } from './jobfiles.ts';
 import { FPS, frameOf, hookEnd, insertSpans, layerBlocks, renderTimeline, type AccentSpec, type InsertSpec, type OverlayEdit } from './overlay.ts';
 import { roundHalfEven } from './pyround.ts';
@@ -19,6 +22,7 @@ export type DraftInsert = Span & {
   kind: string; src?: string; question?: string; id?: string; text?: string; title?: string; x?: number; y?: number; w?: number; sfx?: string | null;
   params?: Record<string, unknown>; off?: boolean;
   from?: number; layout?: 'full' | 'pip' | 'window'; audio?: boolean; // перебивка (fullscreen): с какой секунды клипа, вид, звук клипа
+  caption?: string; // перебивка: подпись (пока видна — субтитров нет)
 };
 /** Финальная карточка: сколько длится, звук появления, призыв, ник и логотип (путь от папки задачи). */
 export type DraftEnd = { seconds: number; sfx?: string | null; lines: string[]; handle?: string | null; logo?: string | null };
@@ -86,9 +90,14 @@ export type Layer = { edit: OverlayEdit & { zooms: Draft['zooms']; looks?: Draft
  *  (у своего — тот же); `src` — где он в исходнике сейчас (с краями Павла); `off` — Павел его убрал (тень на своём месте);
  *  `teaser` — окно его копии в тизере (у куска с копией — два окна с тем же `ref`). */
 export type LookMark = Span & { ref: LookRef; at?: At; look: string; was: string; src: [number, number]; off: boolean; teaser: boolean };
-/** Переход на дорожке «Картинка»: стык в ролике `t`, вид сейчас и у сессии (`was`), `at` — его t в edit.transitions (по
- *  нему правка), `off` — Павел его убрал. */
-export type TransitionItem = { t: number; kind: string; was: string; at: number; off: boolean; t0: number; t1: number }; // t0–t1 — где он идёт
+/** Переход на дорожке «Картинка» (у разбора — «Эффекты»): стык в ролике `t`, вид сейчас и у сессии (`was`; у своего —
+ *  тот же), `ref` — какой переход правят (сессии — по его t в edit.transitions, свой Павла — по номеру среди своих),
+ *  `src` — его момент в исходнике сейчас, `off` — Павел его убрал. */
+export type TransitionItem = { t: number; kind: string; was: string; ref: TransitionRef; src: number; off: boolean; t0: number; t1: number }; // t0–t1 — где он идёт
+/** Поднятые субтитры на дорожке «Эффекты» (время ролика): `ref` — какое место правят (сессии — по месту в edit.subPlaces,
+ *  своё Павла — по номеру среди своих), `was` — место сессии (у своего — null), `src` и `y` — где оно сейчас, `off` —
+ *  Павел его убрал (тень на месте сессии). */
+export type PlaceItem = Span & { ref: PlaceRef; was: { t0: number; t1: number; y: number } | null; src: [number, number]; y: number; off: boolean };
 export type Tracks = {
   duration: number; // длина ролика без хвоста (кусков), с
   tail: number; // после кусков — стоп-кадр (hold) и финальная карточка, с
@@ -102,6 +111,7 @@ export type Tracks = {
   looks: LookMark[]; // ч/б-куски, и убранные Павлом
   music: { label: string; gainDb: number; at?: number; from?: number; fadeIn?: number; fadeOut?: number } | null;
   transitions: TransitionItem[]; // переходы, и убранные Павлом
+  places: PlaceItem[]; // поднятые субтитры (формат разбора), и убранные Павлом
   sounds: Clip[]; // звуки: появления вставок, стык тизера, переходы, карточка
   layer: Layer;
 };
@@ -241,7 +251,7 @@ export function layerEdit(d: Draft, style: LayerStyle, tl: Timeline, beats: read
  *  показывают блоки с ними, убранное — тенью; `beats` — доли музыки во времени ролика (вставки и зум встают на них). */
 export function draftTracks(d: Draft, { style = PLAIN, sourceDuration, splits = [], videos, fixes, beats = null }: {
   style?: LayerStyle; sourceDuration?: number; splits?: number[]; videos?: EditorMedia['videos'];
-  fixes?: { text?: TextEdits; words?: WordFix[]; zoom?: number; looks?: LookFix[]; transitions?: TransitionFix[] }; beats?: readonly number[] | null;
+  fixes?: { text?: TextEdits; words?: WordFix[]; zoom?: number; looks?: LookFix[]; transitions?: TransitionFix[]; subPlaces?: PlaceFix[] }; beats?: readonly number[] | null;
 } = {}): Tracks {
   const tl = timelineOf(d, sourceDuration);
   const last = sourceDuration === undefined ? null : Math.floor(sourceDuration * FPS + 0.01);
@@ -298,7 +308,8 @@ export function draftTracks(d: Draft, { style = PLAIN, sourceDuration, splits = 
   // убранными ч/б-кусками и переходами (applyPicture — apply_picture движка)
   const pic = applyPicture({ zooms: d.zooms, looks: d.looks ?? [], transitions: d.transitions ?? [] }, fixes?.zoom, fixes?.looks, fixes?.transitions);
   const base: Draft = { ...d, accents: tagged(d.accents ?? []), inserts: tagged(d.inserts), ...pic };
-  const shown = applyText(base, fixes?.text, fixes?.words);
+  // поднятые субтитры — с правками Павла (edits._hand_places движка)
+  const shown = { ...applyText(base, fixes?.text, fixes?.words), subPlaces: applyPlaces(d.subPlaces, fixes?.subPlaces) };
   const layer = layerEdit(shown, style, tl, beats);
   const blocks = layerBlocks(layer, tl);
   const video0 = frameOf(tl.duration);
@@ -393,11 +404,32 @@ export function draftTracks(d: Draft, { style = PLAIN, sourceDuration, splits = 
   }).sort((a, b) => a.t0 - b.t0);
   // переходы — на стыке, у самого начала и конца ролика их нет (transitions.marks); убранные — тенью там же
   const torn = tearsOf((pic.transitions ?? []).map((x) => ({ ...x, off: false })), layer, tl); // окно разрыва — от его перебивки
+  const ours = d.transitions ?? [];
   const transitions: TransitionItem[] = (pic.transitions ?? []).flatMap((x, n) => transitionMarks([{ ...x, off: false }], tl)
     .map((m) => {
       const [t0, t1] = transitionWindow(m, torn.filter((y) => y.mark.source === m.source).map((y) => ({ ...y, mark: m })));
-      return { t: m.t, kind: x.kind, was: (d.transitions ?? [])[n]?.kind ?? x.kind, at: Number(x.t), off: Boolean(x.off), t0, t1 };
+      const ref: TransitionRef = n < ours.length ? { at: Number(ours[n].t) } : { own: n - ours.length };
+      return { t: m.t, kind: x.kind, was: ours[n]?.kind ?? x.kind, ref, src: Number(x.t), off: Boolean(x.off), t0, t1 };
     })).sort((a, b) => a.t - b.t);
+
+  // поднятые субтитры: места сессии (убранные — тенью там же), потом свои места Павла — как их сложит applyPlaces
+  const sessionPlaces = d.subPlaces ?? [];
+  const placeFixes = fixes?.subPlaces ?? [];
+  const placeAt = (p: { t0: number; t1: number }): Span => {
+    const [t0, t1] = tl.span(p.t0, p.t1);
+    return { t0, t1: Math.max(t1, t0 + 0.3) };
+  };
+  const places: PlaceItem[] = [
+    ...sessionPlaces.map((p): PlaceItem => {
+      const f = placeFixes.find((x) => x.at && x.at[0] === p.t0 && x.at[1] === p.t1);
+      const now = { t0: f?.t0 ?? p.t0, t1: f?.t1 ?? p.t1, y: f?.y ?? p.y };
+      return { ...placeAt(f?.off ? p : now), ref: { at: [p.t0, p.t1] }, was: p, src: [now.t0, now.t1], y: now.y, off: Boolean(f?.off) };
+    }),
+    ...placeFixes.filter((x) => x.at === undefined).map((x, own): PlaceItem => {
+      const now = { t0: Number(x.t0), t1: Number(x.t1), y: Number(x.y) };
+      return { ...placeAt(now), ref: { own }, was: null, src: [now.t0, now.t1], y: now.y, off: false };
+    }),
+  ].sort((a, b) => a.t0 - b.t0);
 
   // звуки — где их ставит движок (render._sounds): вставка — с её появлением, тизер — на стыке, переход — с его началом,
   // карточка — после стоп-кадра
@@ -408,16 +440,18 @@ export function draftTracks(d: Draft, { style = PLAIN, sourceDuration, splits = 
     if (sfx) sound(`insert:${n}`, start / FPS, sfx);
   }
   if (d.teaser?.sfx) sound('teaser', tl.teaserDuration, d.teaser.sfx);
-  const sources = (d.transitions ?? []).map((x) => Number(x.t));
-  for (const [m, start] of transitionSoundStarts(pic.transitions ?? [], layer, tl)) { // с началом перехода (разрыв — его окна)
-    const sfx = (d.transitions ?? [])[sources.indexOf(m.source)]?.sfx;
+  // номер звука — в списке с правками Павла (render._sounds): сдвинутый переход сессии звучит на новом месте, свои — без звука
+  const moments = pic.transitions ?? [];
+  const sources = moments.map((x) => Number(x.t));
+  for (const [m, start] of transitionSoundStarts(moments, layer, tl)) { // с началом перехода (разрыв — его окна)
+    const sfx = moments[sources.indexOf(m.source)]?.sfx;
     if (sfx) sound(`transition:${sources.indexOf(m.source)}`, start, sfx);
   }
   if (shown.end?.sfx) sound('end', tl.duration + (d.hold ?? 0), shown.end.sfx); // карточку Павел мог убрать
   sounds.sort((a, b) => a.t0 - b.t0);
 
   return {
-    duration: tl.duration, tail: (d.hold ?? 0) + (shown.end?.seconds ?? 0), video, cuts, subtitles, text, inserts, looks, transitions, sounds,
+    duration: tl.duration, tail: (d.hold ?? 0) + (shown.end?.seconds ?? 0), video, cuts, subtitles, text, inserts, looks, transitions, places, sounds,
     music: d.music ? { label: stem(d.music.file), gainDb: d.music.gainDb, ...Object.fromEntries(MUSIC_PLACE.filter((m) => d.music?.[m] !== undefined).map((m) => [m, d.music?.[m]])) } : null,
     layer: { edit: layer, tl },
   };

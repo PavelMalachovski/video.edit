@@ -511,10 +511,10 @@ export function tearAt(t: Tracks, at: number, reach = TEAR_REACH): number | null
 }
 export const TEAR_REACH = 1.5; // с — так далеко от перебивки разрыв ещё прилипает к её началу
 
-/** Куда встанет глитч у момента `t` ролика: на ближайшую склейку кусков (стык сцен) не дальше `reach` с; рядом склейки
- *  нет — туда, куда поставили. */
+/** Куда встанет глитч у момента `t` ролика: на ближайшую склейку кусков (стык сцен — начало куска монтажа, не разрез
+ *  Павла: там картинка не меняется) не дальше `reach` с; рядом склейки нет — туда, куда поставили. */
 export function glitchAt(t: Tracks, at: number, reach = GLITCH_REACH): number {
-  const joins = t.video.filter((c, i) => i > 0 && c.kind === 'piece').map((c) => c.t0);
+  const joins = t.video.filter((c, i) => i > 0 && c.kind === 'piece' && c.edgeStart).map((c) => c.t0);
   const near = joins.filter((j) => Math.abs(j - at) <= reach).sort((a, b) => Math.abs(a - at) - Math.abs(b - at));
   return near[0] ?? at;
 }

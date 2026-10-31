@@ -8,6 +8,8 @@ import { fireRoutine, type Routine } from './routine.ts';
 
 export const STILLS_SCHEMA = 'engine/vm/schemas/stills.json';
 export const STILLS_MAX = 80; // знаков в поле запроса (схема stills.json)
+// мс — столько ждём ответа сессии; дольше — она не ответила (рутина отказала, сорвалась): поиск можно попросить снова
+export const STILLS_WAIT = 20 * 60_000;
 export type StillsAsk = { film: string; name?: string; actor?: string };
 export type StillsRequest = StillsAsk & { at: string };
 /** Поиск в редакторе: можно ли (`can` — движок задачи знает шаг), идёт ли (`pending`), почему не нашлось (`error`) и что
@@ -34,24 +36,35 @@ export function parseStillsBody(body: unknown): StillsAsk | { error: string } {
   return out as StillsAsk;
 }
 
-/** Что показать в редакторе: идёт ли поиск — по stills.json и отметке в found/tmdb.json. */
-export function stillsState(can: boolean, request: unknown, found: unknown, character: { film?: string; name?: string; actor?: string } | null | undefined): StillsState {
+/** Что показать в редакторе: идёт ли поиск — по stills.json и отметке в found/tmdb.json; без отметки дольше STILLS_WAIT —
+ *  сессия не ответила (поиск можно попросить снова). */
+export function stillsState(can: boolean, request: unknown, found: unknown, character: { film?: string; name?: string; actor?: string } | null | undefined,
+  now: Date = new Date()): StillsState {
   const r = request && typeof request === 'object' ? request as Partial<StillsRequest> : null;
   const f = found && typeof found === 'object' ? found as { request?: unknown; error?: unknown } : null;
   const asked = typeof r?.at === 'string' ? r.at : null;
-  const pending = asked !== null && f?.request !== asked;
-  const error = asked !== null && f?.request === asked && typeof f.error === 'string' ? f.error : null;
+  const waiting = asked !== null && f?.request !== asked;
+  const stale = waiting && !(now.getTime() - Date.parse(asked as string) < STILLS_WAIT);
+  const pending = waiting && !stale;
+  const error = stale ? 'Claude не ответил — попробуй ещё раз' : asked !== null && f?.request === asked && typeof f.error === 'string' ? f.error : null;
   const from = r && typeof r.film === 'string' ? r : character ?? {};
   const ask = Object.fromEntries(FIELDS.flatMap((k) => (typeof from[k] === 'string' && from[k] ? [[k, from[k]]] : []))) as StillsAsk;
   return { can, pending, error, ask: { ...ask, film: ask.film ?? '' } };
 }
 
-/** Запрос в ветку задачи и запуск рутины `stills` (попытка 1: шагом задачи он не считается). */
+/** Запрос в ветку задачи и запуск рутины `stills` (попытка 1: шагом задачи он не считается). Не запустилась — запрос
+ *  убирается (редактор не ждёт сессию, которой нет) и ошибка — дальше. */
 export async function askStills(d: { gh: GH; routine: Routine }, id: string, ask: StillsAsk, now: Date): Promise<{ sessionUrl: string }> {
   const request: StillsRequest = { ...ask, at: now.toISOString().replace(/\.\d{3}Z$/, 'Z') };
-  await commitFiles(d.gh, jobBranch(id), { [`${jobDir(id)}/stills.json`]: `${JSON.stringify(request, null, 2)}\n` }, `web(${id}): ещё кадры`);
-  const { sessionUrl } = await fireRoutine(d.routine, id, 'stills', 1);
-  return { sessionUrl };
+  const path = `${jobDir(id)}/stills.json`;
+  await commitFiles(d.gh, jobBranch(id), { [path]: `${JSON.stringify(request, null, 2)}\n` }, `web(${id}): ещё кадры`);
+  try {
+    const { sessionUrl } = await fireRoutine(d.routine, id, 'stills', 1);
+    return { sessionUrl };
+  } catch (e) {
+    await commitFiles(d.gh, jobBranch(id), { [path]: null }, `web(${id}): ещё кадры — не запустилось`).catch(() => undefined);
+    throw e;
+  }
 }
 
 /** Знает ли движок задачи «Найти ещё кадры» (схема stills.json в её ветке). */

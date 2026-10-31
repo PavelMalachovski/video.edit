@@ -76,6 +76,7 @@ type BlockDrag = Extract<Drag, { kind: 'block' }>;
 type LookDrag = Extract<Drag, { kind: 'look' }>;
 type EffectDrag = Extract<Drag, { kind: 'effect' }>;
 const FX = ['tear', 'glitch']; // разрыв и глитч — на дорожке «Эффекты»
+const RAISED_TAIL = 0.6; // с — после конца поднятой фразы её блок ещё на кадре (субтитры держатся после слов)
 /** Правки из timeline.json — без ревизии и времени. */
 const handOf = (data: EditorData | null): HandEdits => {
   if (!data?.timeline) return EMPTY;
@@ -668,8 +669,10 @@ export default function Editor({ id }: { id: string }) {
   const raised = !tracks || !sel ? null
     : sel.kind === 'place' ? tracks.places.find((p) => samePlace(p.ref, sel.ref) && !p.off) ?? null
       : sel.kind === 'sub' ? tracks.places.find((p) => !p.off && sel.from >= p.src[0] - 1e-6 && sel.from < p.src[1] + 1e-6) ?? null : null;
-  const placeMove: StyleMove | null = raised && canFx && spec ? {
-    label: T('fxPlaceName'), title: T('fxPlaceFrameT'), y: raised.y, size: textPlace(spec, 'sub').size, range: LIMITS.subY,
+  // ручка места — пока его фраза на кадре (на другой группе она тянула бы чужие субтитры)
+  const raisedHere = raised !== null && t >= raised.core[0] - 1e-6 && t < raised.core[1] + RAISED_TAIL;
+  const placeMove: StyleMove | null = raised && raisedHere && canFx && spec ? {
+    label: T('fxPlaceName'), title: T(styleOpen ? 'fxPlaceFrameT' : 'fxPlaceFrameNoSizeT'), y: raised.y, size: textPlace(spec, 'sub').size, range: LIMITS.subY,
     onMove: (y: number) => {
       const r = raised.ref;
       const now = { t0: raised.src[0], t1: raised.src[1], y };
@@ -677,7 +680,8 @@ export default function Editor({ id }: { id: string }) {
     },
     onSize: (size: number) => { if (styleOpen && choice) pick(placeText(choice, 'sub', { size })); },
   } : null;
-  const styleMove: StyleMove | null = placeMove ?? (movePart && styleOpen && spec && choice ? (() => {
+  // выбрано поднятое место — только его ручка (или никакой): стиль субтитров отсюда не тянется
+  const styleMove: StyleMove | null = placeMove ?? (sel?.kind !== 'place' && !raised && movePart && styleOpen && spec && choice ? (() => {
     const p = textPlace(spec, movePart);
     return {
       label: T(movePart === 'hook' ? 'onFrameHook' : 'onFrameSub'), title: T('onFrameT'), y: p.y, size: p.size, range: p.range,
@@ -974,7 +978,8 @@ export default function Editor({ id }: { id: string }) {
       const r0 = d.ref.ref;
       const x = tracks.transitions.find((m) => sameTransition(m.ref, r0));
       // разрыв открывает перебивку: встаёт на начало ближайшей, без неё его нет — тогда правки нет; глитч — на склейку рядом
-      const to = x?.kind === 'tear' ? tearAt(tracks, d.a) : x?.kind === 'glitch' ? glitchAt(tracks, d.a) : d.a;
+      // глитч после прилипания — там, где ролик его покажет (transitions._fits)
+      const to = x?.kind === 'tear' ? tearAt(tracks, d.a) : x?.kind === 'glitch' ? Math.min(Math.max(glitchAt(tracks, d.a), d.floor), d.max - MIN_BLOCK) : d.a;
       if (to === null) {
         setHint(T('noBroll'));
         return;
@@ -1121,7 +1126,8 @@ export default function Editor({ id }: { id: string }) {
       return;
     }
     // разрыв — на начало ближайшей перебивки, глитч — на склейку рядом
-    const to = what === 'tear' ? tearAt(tracks, now.current) : glitchAt(tracks, now.current);
+    const to = what === 'tear' ? tearAt(tracks, now.current)
+      : Math.min(Math.max(glitchAt(tracks, now.current), transitionLead('glitch')), duration - transitionTail('glitch'));
     if (to === null) {
       setHint(T('noBroll'));
       return;
@@ -1422,7 +1428,10 @@ export default function Editor({ id }: { id: string }) {
           {styles && choice ? (
             <StylePanel T={T} styles={styles} choice={choice} spec={spec} offered={offered} locked={!styleOpen} note={styleNote} onPick={pick} />
           ) : null}
-          {tracks && fxRow ? <EffectsSection T={T} tracks={tracks} onAdd={canFx ? doAddEffect : null} note={fxNote} /> : null}
+          {tracks && fxRow ? (
+            <EffectsSection T={T} tracks={tracks} onAdd={canFx ? doAddEffect : null} note={fxNote}
+              stills={canFx && data?.stills ? { state: data.stills, onAsk: askStills } : undefined} />
+          ) : null}
           {tracks ? (
             <PictureSection T={T} tracks={tracks} hand={hand} dim={draft?.dim ?? 0} canZoom={canZoom} canDim={canMarks} note={editable ? pictureNote : null}
               onEdit={edit} onAddLook={canShape ? doAddLook : null} />

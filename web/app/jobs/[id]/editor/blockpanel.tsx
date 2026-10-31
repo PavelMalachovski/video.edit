@@ -152,7 +152,7 @@ function PlaceControls({ T, kind, now, moved, placing }: { T: TFn; kind: 'insert
 /** «Найти ещё кадры» в TMDB: фильм, персонаж, актёр (как у разбора задачи или прошлого запроса) → поиск сессией; пока
  *  идёт — «Ищу кадры», новые встанут в список клипов сами. */
 export type Stills = { state: StillsState; onAsk: (ask: StillsAsk) => Promise<string | null> };
-function StillsSearch({ T, stills }: { T: TFn; stills: Stills }) {
+export function StillsSearch({ T, stills }: { T: TFn; stills: Stills }) {
   const id = useId();
   const [open, setOpen] = useState(false);
   const [ask, setAsk] = useState<StillsAsk>(stills.state.ask);

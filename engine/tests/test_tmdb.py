@@ -257,3 +257,37 @@ def test_a_failed_more_search_still_marks_the_request_with_why(tmp_path):
     marked = json.loads(job.path("found/tmdb.json").read_text())
     assert marked["request"] == "2026-10-31T09:00:00Z" and marked["error"]
     assert marked["files"] == before
+
+
+def test_more_stills_skip_known_pictures_unseen_and_never_reuse_a_number(tmp_path):
+    # уже найденные картинки (по пути в TMDB) не качаются снова — окно кандидатов идёт дальше; номер пропавшего файла
+    # не достаётся новому (перебивка на него показала бы чужой кадр); на листе — номера файлов, а не места на листе
+    job = job_with(tmp_path, {"film": "Локи", "name": "Локи"})
+    tmdb.find(job, "secret", FakeApi(LOKI))
+    listed = json.loads(job.path("found/tmdb.json").read_text())["files"]
+    last = listed[-1]["file"]
+    job.path(last).unlink()  # пропал последний — его номер занят
+    job.write("stills.json", {"film": "Локи", "name": "Локи", "at": "2026-10-31T08:00:00Z"})
+    api = FakeApi(LOKI)
+    found = tmdb.find_more(job, "secret", api)
+    known = {f["source"] for f in listed}
+    asked = [u for u in api.asked if u.startswith(tmdb.IMG)]
+    assert not any(u.endswith(src) for u in asked for src in known if src != listed[-1]["source"]), asked
+    new = [f["file"] for f in found["files"]][len(listed) - 1:]
+    assert all(int(f.rsplit("-", 1)[1].split(".")[0]) > len(listed) for f in new), new
+    assert last not in [f["file"] for f in found["files"]] or job.path(last).exists()
+
+
+def test_a_broken_request_or_list_still_marks_the_request(tmp_path):
+    job = job_with(tmp_path, {"film": "Локи"})
+    job.path("found").mkdir()
+    job.path("found/tmdb.json").write_text("{не json", encoding="utf-8")
+    job.write("stills.json", {"film": "Локи", "at": "2026-10-31T08:00:00Z"})
+    with pytest.raises(tmdb.TmdbError):
+        tmdb.find_more(job, "secret", _boom)
+    marked = json.loads(job.path("found/tmdb.json").read_text())
+    assert marked["request"] == "2026-10-31T08:00:00Z" and marked["error"]
+
+
+def _boom(url, token):
+    raise RuntimeError("сеть упала необычно")

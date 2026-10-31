@@ -209,13 +209,23 @@ def find_more(job: Job, token: str | None = None, get: Get = _get) -> dict:
     """«Найти ещё кадры» из редактора: запрос Павла `stills.json` (`film`, `name?`, `actor?`, `at`) — тот же поиск, новые
     картинки — после найденных раньше (их номера не меняются: на них уже стоят перебивки), повторы прежних не
     скачиваются; `found/tmdb.json.request` — `at` запроса (по нему редактор видит, что поиск сделан). Любой задачи."""
-    request = job.read("stills.json") if job.path("stills.json").exists() else None
+    try:
+        request = json.loads(job.path("stills.json").read_text(encoding="utf-8")) if job.path("stills.json").exists() else None
+    except (OSError, ValueError):
+        request = None
     if not isinstance(request, dict) or not str(request.get("film") or "").strip():
         raise TmdbError("нет запроса stills.json с фильмом: искать нечего")
     character = {k: str(request[k]).strip() for k in ("film", "name", "actor") if str(request.get(k) or "").strip()}
-    old = json.loads(job.path("found/tmdb.json").read_text(encoding="utf-8")) if job.path("found/tmdb.json").exists() else {}
+    try:
+        old = json.loads(job.path("found/tmdb.json").read_text(encoding="utf-8")) if job.path("found/tmdb.json").exists() else {}
+    except (OSError, ValueError):  # битый список — как не было; файлы found/ на месте, номера — дальше них
+        old = {}
+    old = old if isinstance(old, dict) else {}
     old.pop("error", None)
-    files = [f for f in old.get("files") or [] if job.path(f.get("file", "")).is_file()]
+    listed = [f for f in old.get("files") or [] if isinstance(f, dict) and isinstance(f.get("file"), str)]
+    files = [f for f in listed if job.path(f["file"]).is_file()]
+    # номер — после всех, что были (и пропавших, и лежащих в found/ без списка): перебивка на старый номер не покажет чужой кадр
+    used = [_number(f["file"]) for f in listed] + [_number(p.name) for p in job.path("found").glob("tmdb-*.jpg")]
     token = token or os.environ.get("TMDB_TOKEN")
     if not token:
         _mark(job, old, files, request.get("at"), "нет TMDB_TOKEN в окружении рутины")
@@ -227,13 +237,19 @@ def find_more(job: Job, token: str | None = None, get: Get = _get) -> dict:
         except (OSError, ValueError):
             continue
     try:
-        return _find(job, token, get, character, files=files, seen=seen, request=request.get("at"))
-    except (KeyError, TypeError, IndexError) as e:  # ответ не той формы
-        _mark(job, old, files, request.get("at"), f"TMDB ответил не тем, что ждали ({e!r})")
-        raise TmdbError(f"TMDB ответил не тем, что ждали ({e!r})") from e
+        return _find(job, token, get, character, files=files, seen=seen, request=request.get("at"),
+                     known={f.get("source") for f in listed}, floor=max([0, *used]))
     except TmdbError as e:
         _mark(job, old, files, request.get("at"), str(e))
         raise
+    except Exception as e:  # что угодно ещё (ответ не той формы, картинка, диск): отметка — редактор не ждёт вечно
+        _mark(job, old, files, request.get("at"), f"поиск сорвался ({e!r})")
+        raise TmdbError(f"поиск сорвался ({e!r})") from e
+
+
+def _number(name: str) -> int:
+    m = re.search(r"tmdb-(\d+)\.jpg$", name)
+    return int(m.group(1)) if m else 0
 
 
 def _mark(job: Job, old: dict, files: list[dict], at: str | None, why: str) -> None:
@@ -244,7 +260,7 @@ def _mark(job: Job, old: dict, files: list[dict], at: str | None, why: str) -> N
 
 
 def _find(job: Job, token: str, get: Get, character: dict, files: list[dict] | None = None, seen: list[int] | None = None,
-          request: str | None = None) -> dict:
+          request: str | None = None, known: set | None = None, floor: int = 0) -> dict:
     title = _title(get, token, character["film"])
     person = _person(get, token, title, character)
     out = job.path("found")
@@ -253,7 +269,8 @@ def _find(job: Job, token: str, get: Get, character: dict, files: list[dict] | N
     seen = list(seen or [])  # отпечатки скачанного: та же картинка в другом размере или с другим языком — повтор
     for kind, candidates, limit in (("still", _stills(get, token, title, person), STILLS), ("photo", _photos(get, token, person), PHOTOS)):
         taken = 0
-        for source, size in candidates[: 3 * limit]:  # повторы отсеиваются — кандидатов с запасом
+        fresh = [c for c in candidates if c[0] not in (known or set())]  # найденные раньше — не качать снова
+        for source, size in fresh[: 3 * limit]:  # повторы отсеиваются — кандидатов с запасом
             if taken == limit or len(files) >= MAX_FILES:
                 break
             try:
@@ -265,7 +282,7 @@ def _find(job: Job, token: str, get: Get, character: dict, files: list[dict] | N
                 continue
             seen.append(mark)
             taken += 1
-            n = max([0, *(int(re.sub(r"\D", "", Path(f["file"]).stem) or 0) for f in files)]) + 1
+            n = max([floor, *(_number(f["file"]) for f in files)]) + 1
             path = out / f"tmdb-{n}.jpg"
             width, height = _save(data, path)
             files.append({"file": f"found/tmdb-{n}.jpg", "kind": kind, "source": source, "width": width, "height": height})
@@ -326,7 +343,7 @@ def _sheet(job: Job, files: list[dict]) -> str | None:
             x, y = (i % cols) * cell, (i // cols) * cell
             sheet.paste(im, (x + (cell - im.width) // 2, y + (cell - im.height) // 2))
         draw.rectangle((x + 4, y + 4, x + 44, y + 26), fill=(0, 0, 0))
-        draw.text((x + 10, y + 8), str(i + 1), fill=(255, 220, 60))
+        draw.text((x + 10, y + 8), str(_number(f["file"]) or i + 1), fill=(255, 220, 60))  # номер файла: src — по нему
     path = job.path("look/found.png")
     path.parent.mkdir(parents=True, exist_ok=True)
     sheet.save(path)

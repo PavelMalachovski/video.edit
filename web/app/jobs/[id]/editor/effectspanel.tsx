@@ -6,6 +6,7 @@ import { LIMITS, removePlace, setOwnPlace, setPlace, setPlaceOff, type At, type 
 import { tenths } from '@/lib/format.ts';
 import type { Key } from '@/lib/i18n.ts';
 import type { Tracks } from '@/lib/tracks.ts';
+import { StillsSearch, type Stills } from './blockpanel';
 
 type TFn = (k: Key, v?: Record<string, string | number>) => string;
 
@@ -19,8 +20,9 @@ export const RAISED_Y = 380;
 
 /** Раздел «Эффекты» справа: свой разрыв или глитч на бегунке, поднять субтитры фразы под бегунком; сколько их в ролике.
  *  `onAdd` — нельзя править — null; `note` — почему. */
-export function EffectsSection({ T, tracks, onAdd, note }: {
+export function EffectsSection({ T, tracks, onAdd, note, stills }: {
   T: TFn; tracks: Tracks; onAdd: ((what: 'tear' | 'glitch' | 'place') => void) | null; note: string | null;
+  stills?: Stills; // «Найти ещё кадры» — и здесь: перебивки в ролике может ещё не быть
 }) {
   const fx = tracks.transitions.filter((x) => x.kind === 'tear' || x.kind === 'glitch');
   return (
@@ -35,6 +37,7 @@ export function EffectsSection({ T, tracks, onAdd, note }: {
         <dt>{T('fxTransitions')}</dt><dd className="mono">{T('ofTotal', { n: fx.filter((x) => !x.off).length, m: fx.length })}</dd>
         <dt>{T('fxPlaces')}</dt><dd className="mono">{T('ofTotal', { n: tracks.places.filter((p) => !p.off).length, m: tracks.places.length })}</dd>
       </dl>
+      {stills ? <StillsSearch T={T} stills={stills} /> : null}
       <p className="ed-note faint">{note ?? T('fxHint')}</p>
     </section>
   );

@@ -507,4 +507,7 @@ test('a glitch sticks to the nearest join of pieces (a scene change), otherwise 
   assert.equal(glitchAt(t, 3.8), joins[1]);
   assert.equal(glitchAt(t, 3.0), 3.0, 'далеко от склеек — где поставили');
   assert.equal(glitchAt(t, 0.2), 0.2, 'начало ролика — не склейка');
+  const split = draftTracks({ ...DRAFT, speed: 1, keep: [[0, 2], [3, 5]] }, { splits: [4] }); // разрез Павла на 4 с исходника
+  assert.equal(split.video.length, 3);
+  assert.equal(glitchAt(split, split.video[2].t0 + 0.1), split.video[2].t0 + 0.1, 'разрез Павла — не склейка');
 });

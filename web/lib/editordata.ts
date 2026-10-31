@@ -166,7 +166,6 @@ export type EditorData = {
   library: string[]; // треки библиотеки в ветке задачи (assets/music/…): другой трек — из них
   rev: number; // ревизия timeline.json в ветке (нет — 0): от неё сохраняется следующая
   brolls: BrollClip[]; // перебивки задачи (job.json.uploads, kind broll) и кадры TMDB: клип на замену и его видео для плеера
-  character: boolean; // формат «Разбор персонажа» (job.json.format): у редактора — дорожка «Эффекты»
   brandLook: BrandLook | null; // «Мой стиль» из копии бренда задачи: до монтажа стиль начинается с него, как на «Превью»
   // пока Claude монтирует новый стиль из редактора (или этот монтаж сорвался) — прошлый выбор (fix.json, styleFrom): ролик
   // ещё в нём, и новый ляжет поверх него (vm style --onto); иначе — null
@@ -267,7 +266,6 @@ export async function loadEditor(gh: GH, id: string): Promise<EditorData | null>
     library,
     ...timelineOf(timeline),
     brolls: brollClips(id, f, parseStills(json(found)), head),
-    character: f?.job?.format === 'character',
     brandLook: parseLook(f?.job?.brand?.look),
     // монтирует правку или она сорвалась — ролик ещё в прошлом стиле; вышла новая версия (result) — уже в новом
     styleFrom: loaded.view.screen === 'working' || (loaded.view.screen === 'error' && loaded.view.step === 'fix')

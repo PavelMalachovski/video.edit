@@ -73,7 +73,7 @@ type SaveState = { state: 'idle' | 'saving' | 'saved' | 'error' | 'conflict'; er
 type BlockDrag = Extract<Drag, { kind: 'block' }>;
 type LookDrag = Extract<Drag, { kind: 'look' }>;
 type EffectDrag = Extract<Drag, { kind: 'effect' }>;
-const FX = ['tear', 'glitch']; // переходы разбора — у задачи разбора они на дорожке «Эффекты»
+const FX = ['tear', 'glitch']; // разрыв и глитч — на дорожке «Эффекты»
 /** Правки из timeline.json — без ревизии и времени. */
 const handOf = (data: EditorData | null): HandEdits => {
   if (!data?.timeline) return EMPTY;
@@ -356,8 +356,9 @@ export default function Editor({ id }: { id: string }) {
     }
   }, [edited, layerStyle, sourceDuration, data?.media?.videos, view.text, view.words, hand.zoom, hand.looks, hand.transitions, hand.subPlaces, beats]);
   const videos = (data?.media?.videos?.length ?? 0) > 1 ? data?.media?.videos ?? null : null; // несколько видео задачи — где какое
-  // дорожка «Эффекты» — у разбора персонажа (и у ролика, где уже есть его эффекты): разрывы, глитчи, поднятые субтитры
-  const fxRow = Boolean(data?.character) || Boolean(tracks && (tracks.places.length || tracks.transitions.some((x) => FX.includes(x.kind))));
+  // дорожка «Эффекты» — у любого ролика, чей движок знает эффекты руками (и у старого, где они уже есть): разрывы,
+  // глитчи, поднятые субтитры
+  const fxRow = Boolean(data?.abilities.effects) || Boolean(tracks && (tracks.places.length || tracks.transitions.some((x) => FX.includes(x.kind))));
   const mix = useMemo(() => musicMix(data?.draft?.music ?? null, hand.music), [data, hand.music]);
   const edges = useMemo(() => (data?.draft ? wordEdges(data.draft) : []), [data]);
   const peaks = useMemo(() => (data?.media ? decodePeaks(data.media.peaks.data) : null), [data]);

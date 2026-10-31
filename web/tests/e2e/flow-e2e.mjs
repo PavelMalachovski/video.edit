@@ -1970,7 +1970,7 @@ const segments = [
   }],
 
   ['editor-effects', async (ctx) => {
-    // дорожка «Эффекты» разбора: рваная бумага сессии и поднятые субтитры — на ней; свой глитч на бегунке (и сдвинуть),
+    // дорожка «Эффекты» (у любого ролика): рваная бумага сессии и поднятые субтитры — на ней; свой глитч на бегунке (и сдвинуть),
     // своя поднятая фраза, высота места сессии; подпись перебивки и кадр TMDB клипом; стикер влетает справа и светится.
     // Движок по сохранённому timeline.json собирает то же
     const { page } = ctx;
@@ -1987,8 +1987,10 @@ const segments = [
       execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=s=320x180', '-frames:v', '1', jpg]);
       still = fs.readFileSync(jpg);
     } catch { /* без ffmpeg — кадр не нарисуется, правка та же */ }
+    // обычный ролик (не разбор): дорожка та же
+    const { format: _f, character: _c, ...plainJob } = JSON.parse((await branchFile(ctx, 'job.json')) ?? '{}');
     await session(ctx, {
-      'edit.json': fx, 'timeline.json': null, 'found/tmdb-1.jpg': still,
+      'edit.json': fx, 'timeline.json': null, 'found/tmdb-1.jpg': still, 'job.json': plainJob,
       'found/tmdb.json': { title: 'Локи', person: 'Том Хиддлстоун', files: [{ file: 'found/tmdb-1.jpg', kind: 'still', source: 'tv', width: 320, height: 180 }] },
     });
     await page.setViewportSize({ width: 1280, height: 800 });

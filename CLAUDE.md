@@ -224,7 +224,7 @@
   (`tears` ↔ `tearsOf`); старая задача — `abilitiesOf.tear`. Стикеры влетают (`params.enter`: `FLY` кадров) —
   `_inserts` в `overlay.py` ↔ `insertPieces` в `web/lib/overlay.ts`; рисует `drawInserts` в `template/inserts.js` (и наклон
   `params.tilt`, свечение `params.glow` — рамка вставки с ними).
-- Эффекты разбора руками (дорожка «Эффекты», `timeline.json` → `transitions[].t` и свои без `at`, `subPlaces`,
+- Эффекты руками (дорожка «Эффекты» — у любого ролика, `timeline.json` → `transitions[].t` и свои без `at`, `subPlaces`,
   `text.inserts[].caption, enter, tilt, glow`, `src` — и `found/tmdb-<n>.jpg`): `edits.apply` (`_moments`,
   `_hand_places`, `STICKER_FIELDS`) и схема ↔ `applyPicture`, `applyPlaces`, `applyText`, `moveTransition`,
   `addTransition`, `setOwnTransition`, `setPlace`, `addPlace`, `STICKER_ENTERS`, `LIMITS.subY`, `parseTimeline` в

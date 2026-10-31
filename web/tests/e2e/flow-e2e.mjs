@@ -2060,6 +2060,7 @@ const segments = [
         { file: 'found/tmdb-1.jpg', kind: 'still', source: 'tv', width: 320, height: 180 },
         { file: 'found/tmdb-2.jpg', kind: 'still', source: 'tv', width: 320, height: 180 }] },
     });
+    await page.locator('.ed-save').getByText('Сохранено').waitFor({ timeout: 8000 }); // правки выше — в ветке до перезагрузки
     await page.reload();
     await page.locator('.ed-row.ins .ed-clip').nth(2).click();
     await page.locator('.ed-insp[data-block=insert] .ed-thumb[data-src="found/tmdb-2.jpg"]').waitFor({ timeout: 10_000 });

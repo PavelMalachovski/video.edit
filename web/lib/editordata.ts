@@ -10,6 +10,7 @@ import type { GH } from './github.ts';
 import { appendFix, parseStyle, type AnswersFile, type FixFile, type Released, type StyleChoice, type Styles } from './jobfiles.ts';
 import { jobBranch, jobDir } from './jobs.ts';
 import { loadJob, readJobText, type Screen } from './jobview.ts';
+import { STILLS_SCHEMA, stillsState, type StillsState } from './stills.ts';
 import type { BeatsFile } from './beats.ts';
 import { parseDraft, parseMedia, type Draft, type EditorMedia } from './tracks.ts';
 
@@ -166,6 +167,7 @@ export type EditorData = {
   library: string[]; // треки библиотеки в ветке задачи (assets/music/…): другой трек — из них
   rev: number; // ревизия timeline.json в ветке (нет — 0): от неё сохраняется следующая
   brolls: BrollClip[]; // перебивки задачи (job.json.uploads, kind broll) и кадры TMDB: клип на замену и его видео для плеера
+  stills: StillsState; // «Найти ещё кадры»: можно ли, идёт ли поиск, что спрашивать
   brandLook: BrandLook | null; // «Мой стиль» из копии бренда задачи: до монтажа стиль начинается с него, как на «Превью»
   // пока Claude монтирует новый стиль из редактора (или этот монтаж сорвался) — прошлый выбор (fix.json, styleFrom): ролик
   // ещё в нём, и новый ляжет поверх него (vm style --onto); иначе — null
@@ -243,10 +245,10 @@ export async function loadEditor(gh: GH, id: string): Promise<EditorData | null>
   if (!loaded) return null;
   const f = loaded.files;
   const head = f?.head ?? null;
-  const [edit, editor, timeline, beats, found, schema] = head
-    ? await Promise.all([...['edit.json', 'editor.json', TIMELINE, 'beats.json', 'found/tmdb.json'].map((name) => readJobText(gh, id, head, name)),
-      readText(gh, head, ENGINE_SCHEMA)])
-    : [null, null, null, null, null, null];
+  const [edit, editor, timeline, beats, found, asked, schema, stillsSchema] = head
+    ? await Promise.all([...['edit.json', 'editor.json', TIMELINE, 'beats.json', 'found/tmdb.json', 'stills.json'].map((name) => readJobText(gh, id, head, name)),
+      readText(gh, head, ENGINE_SCHEMA), readText(gh, head, STILLS_SCHEMA)])
+    : [null, null, null, null, null, null, null, null];
   const library = head ? await musicLibrary(gh, head) : [];
   const media = parseMedia(json(editor));
   return {
@@ -266,6 +268,7 @@ export async function loadEditor(gh: GH, id: string): Promise<EditorData | null>
     library,
     ...timelineOf(timeline),
     brolls: brollClips(id, f, parseStills(json(found)), head),
+    stills: stillsState(stillsSchema !== null, json(asked), json(found), f?.job?.character),
     brandLook: parseLook(f?.job?.brand?.look),
     // монтирует правку или она сорвалась — ролик ещё в прошлом стиле; вышла новая версия (result) — уже в новом
     styleFrom: loaded.view.screen === 'working' || (loaded.view.screen === 'error' && loaded.view.step === 'fix')

@@ -144,7 +144,7 @@ OVERLAY = [
      "keep": [[4.6, 7.0], [0.3, 4.6], [7.0, 9.5]], "speed": 1.0, "teaser": None,
      "edit": {"words": SPEECH, "style": _style("accumulate", 3, "outline"),
               "hook": {"text": "Как я снимаю", "until": 1.5},
-              "accents": [{**ACCENT, "anim": "type", "out": "cut"}],
+              "accents": [{**ACCENT, "anim": "type", "out": "cut", "stack": "center"}],
               "cta": {"t0": 5.2, "t1": 6.8, "lines": ["Сохрани"], "word": "ПОТОМ"},
               "inserts": [{"kind": "text", "text": "Шаг 1", "t0": 6.5, "t1": 8.0, "x": 200, "y": 400, "w": 500}]}},
     {"name": "two accents close together: letters and track, lines whose words are not found, zoom out",

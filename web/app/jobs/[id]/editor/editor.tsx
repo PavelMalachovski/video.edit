@@ -19,11 +19,12 @@ import { blockRoom, finalEdges, hookUntil, sourceSpan, stackRows } from '@/lib/b
 import { statusText, storage } from '@/lib/client.ts';
 import { createClock } from '@/lib/clock.ts';
 import { coverUrl, editorGates, layerUrl, type EditorData } from '@/lib/editordata.ts';
+import type { StillsAsk } from '@/lib/stills.ts';
 import { sameJson } from '@/lib/equal.ts';
 import {
   addLook, addPlace, addTransition, commit, cutSpan, EMPTY, initHistory, moveSpan, moveTransition, placeBlock, redo, removeLook, removePlace, removeTransition,
   restoreSpan, setBlock, setCta, setHook, setLook, setLookEdges, setMusic, setOwnPlace, setOwnTransition, setPlace, setPlaceOff, setTransition, setVoice, splitAt,
-  trimEnd, trimStart, undo, type HandEdits, type History, type Place, type TransitionKind,
+  trimEnd, trimStart, undo, LIMITS, type HandEdits, type History, type Place, type TransitionKind,
 } from '@/lib/edits.ts';
 import { tenths } from '@/lib/format.ts';
 import { loadLang, saveLang, tr, type Key, type Lang } from '@/lib/i18n.ts';
@@ -41,7 +42,7 @@ import { phraseAt } from '@/lib/subs.ts';
 import { Saver, type PutResult } from '@/lib/saver.ts';
 import { audioUrl, levelsOf, musicMix } from '@/lib/sound.ts';
 import {
-  clipAt, decodePeaks, draftTracks, findBlock, moveTarget, peakAt, splitTarget, tearAt, timelineOf, videoKey, withHandEdits, wordEdges, type Clip, type LayerStyle,
+  clipAt, decodePeaks, draftTracks, findBlock, moveTarget, peakAt, splitTarget, glitchAt, tearAt, timelineOf, videoKey, withHandEdits, wordEdges, type Clip, type LayerStyle,
   type Tracks,
 } from '@/lib/tracks.ts';
 import type { Box } from '../../../handles';
@@ -75,6 +76,7 @@ type BlockDrag = Extract<Drag, { kind: 'block' }>;
 type LookDrag = Extract<Drag, { kind: 'look' }>;
 type EffectDrag = Extract<Drag, { kind: 'effect' }>;
 const FX = ['tear', 'glitch']; // разрыв и глитч — на дорожке «Эффекты»
+const RAISED_TAIL = 0.6; // с — после конца поднятой фразы её блок ещё на кадре (субтитры держатся после слов)
 /** Правки из timeline.json — без ревизии и времени. */
 const handOf = (data: EditorData | null): HandEdits => {
   if (!data?.timeline) return EMPTY;
@@ -130,7 +132,8 @@ export default function Editor({ id }: { id: string }) {
   useEffect(() => {
     void load();
   }, [load]);
-  const waiting = !data || !data.draft || (data.media?.proxy != null && data.proxyUrl === null) || data.screen === 'working';
+  // ждём и пока Claude ищет кадры в TMDB («Найти ещё кадры»): новые встанут в список клипов сами
+  const waiting = !data || !data.draft || (data.media?.proxy != null && data.proxyUrl === null) || data.screen === 'working' || Boolean(data.stills?.pending);
   useEffect(() => {
     if (!waiting) return;
     const timer = setInterval(() => document.visibilityState === 'visible' && void load(), RELOAD_MS);
@@ -633,7 +636,7 @@ export default function Editor({ id }: { id: string }) {
   // выбранное — на кадре (рамкой, когда шаблон его нарисовал): блок, группа субтитров на кадре, карточка (если она в ролике)
   const cardHere = Boolean(draft?.end && !hand.text?.end?.off);
   const framePick: FramePick | null = !sel ? null
-    : sel.kind === 'sub' ? { kind: 'sub' }
+    : sel.kind === 'sub' || sel.kind === 'place' ? { kind: 'sub' }
       : sel.kind === 'end' ? (cardHere ? { kind: 'end' } : null)
         : sel.kind !== 'block' || !selBlock?.ref || selBlock.ghost ? null
           : selBlock.ref.kind === 'insert' ? (selBlock.drawn === false ? null : { kind: 'insert', n: selBlock.ref.n })
@@ -661,13 +664,30 @@ export default function Editor({ id }: { id: string }) {
   // хук и субтитры на кадре: ручка тянет их место и размер в стиле (как ползунки «Стиля» и ручки «Превью»: до монтажа —
   // общий с «Превью» выбор, после — новый стиль к «Монтировать»); титр стоит, где хук, — его место не тянется
   const movePart: TextPart | null = framePick?.kind === 'hook' || framePick?.kind === 'sub' ? framePick.kind : null;
-  const styleMove: StyleMove | null = movePart && styleOpen && spec && choice ? (() => {
+  // поднятые субтитры (место на дорожке «Эффекты» или группа, первое слово которой в поднятой фразе): ручка тянет высоту
+  // этого места, а не стиля — размер остаётся стилем
+  const raised = !tracks || !sel ? null
+    : sel.kind === 'place' ? tracks.places.find((p) => samePlace(p.ref, sel.ref) && !p.off) ?? null
+      : sel.kind === 'sub' ? tracks.places.find((p) => !p.off && sel.from >= p.src[0] - 1e-6 && sel.from < p.src[1] + 1e-6) ?? null : null;
+  // ручка места — пока его фраза на кадре (на другой группе она тянула бы чужие субтитры)
+  const raisedHere = raised !== null && t >= raised.core[0] - 1e-6 && t < raised.core[1] + RAISED_TAIL;
+  const placeMove: StyleMove | null = raised && raisedHere && canFx && spec ? {
+    label: T('fxPlaceName'), title: T(styleOpen ? 'fxPlaceFrameT' : 'fxPlaceFrameNoSizeT'), y: raised.y, size: textPlace(spec, 'sub').size, range: LIMITS.subY,
+    onMove: (y: number) => {
+      const r = raised.ref;
+      const now = { t0: raised.src[0], t1: raised.src[1], y };
+      edit('own' in r ? setOwnPlace(hand, r.own, now) : raised.was ? setPlace(hand, raised.was, now) : hand, 'place-y');
+    },
+    onSize: (size: number) => { if (styleOpen && choice) pick(placeText(choice, 'sub', { size })); },
+  } : null;
+  // выбрано поднятое место — только его ручка (или никакой): стиль субтитров отсюда не тянется
+  const styleMove: StyleMove | null = placeMove ?? (sel?.kind !== 'place' && !raised && movePart && styleOpen && spec && choice ? (() => {
     const p = textPlace(spec, movePart);
     return {
       label: T(movePart === 'hook' ? 'onFrameHook' : 'onFrameSub'), title: T('onFrameT'), y: p.y, size: p.size, range: p.range,
       onMove: (y: number) => pick(placeText(choice, movePart, { y })), onSize: (size: number) => pick(placeText(choice, movePart, { size })),
     };
-  })() : null;
+  })() : null);
   // текст выбранного на кадре: у какого он есть (у картинки — нет), открыт ли (после монтажа, движок его примет; карточка — свой
   // допуск) и почему нет
   const selTarget: TextTarget | null = sel?.kind === 'end' ? { kind: 'end' } : sel?.kind === 'sub' ? { kind: 'words', from: sel.from, to: sel.to }
@@ -957,8 +977,9 @@ export default function Editor({ id }: { id: string }) {
     if (d.ref.kind === 'transition') {
       const r0 = d.ref.ref;
       const x = tracks.transitions.find((m) => sameTransition(m.ref, r0));
-      // разрыв открывает перебивку: встаёт на начало ближайшей, без неё его нет — тогда правки нет
-      const to = x?.kind === 'tear' ? tearAt(tracks, d.a) : d.a;
+      // разрыв открывает перебивку: встаёт на начало ближайшей, без неё его нет — тогда правки нет; глитч — на склейку рядом
+      // глитч после прилипания — там, где ролик его покажет (transitions._fits)
+      const to = x?.kind === 'tear' ? tearAt(tracks, d.a) : x?.kind === 'glitch' ? Math.min(Math.max(glitchAt(tracks, d.a), d.floor), d.max - MIN_BLOCK) : d.a;
       if (to === null) {
         setHint(T('noBroll'));
         return;
@@ -1069,6 +1090,18 @@ export default function Editor({ id }: { id: string }) {
       </div>
     );
   };
+  // «Найти ещё кадры»: запрос сессии — и сразу свежие данные (в них поиск уже идёт); ошибка — текстом в панель
+  const askStills = async (ask: StillsAsk): Promise<string | null> => {
+    try {
+      const r = await fetch(`/api/jobs/${id}/stills`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(ask) });
+      const body = await r.json().catch(() => null);
+      if (!r.ok) return r.status !== 402 && typeof body?.error === 'string' ? body.error : statusText(r.status, 'HTTP');
+      await load();
+      return null;
+    } catch (e) {
+      return e instanceof Error ? e.message : String(e);
+    }
+  };
   // эффект разбора тянут так же, выбранный: переход — целиком (его стык), поднятые субтитры — и за край; не в тизере
   // переход — не раньше, чем он успеет начаться, и не позже, чем успеет кончиться (иначе ролик его не покажет: transitions.marks)
   const grabEffect = (e: React.PointerEvent<HTMLElement>, ref: EffectRef, t0: number, t1: number, mode: EffectDrag['mode'], picked: boolean, kind?: string) => {
@@ -1092,7 +1125,9 @@ export default function Editor({ id }: { id: string }) {
       setSel({ kind: 'place', ref: { own } });
       return;
     }
-    const to = what === 'tear' ? tearAt(tracks, now.current) : now.current; // разрыв — на начало ближайшей перебивки
+    // разрыв — на начало ближайшей перебивки, глитч — на склейку рядом
+    const to = what === 'tear' ? tearAt(tracks, now.current)
+      : Math.min(Math.max(glitchAt(tracks, now.current), transitionLead('glitch')), duration - transitionTail('glitch'));
     if (to === null) {
       setHint(T('noBroll'));
       return;
@@ -1363,7 +1398,7 @@ export default function Editor({ id }: { id: string }) {
           {tracks && draft && sel?.kind === 'block' ? (
             <BlockPanel T={T} sel={sel} tracks={tracks} draft={draft} hand={hand} editable={canText} note={editable ? textNote : null} onEdit={edit} sec={sec}
               letters={letters} placing={placing} brolls={gates.broll ? data?.brolls ?? [] : undefined}
-              windowed={data?.abilities.tear ?? true} effects={canFx} />
+              windowed={data?.abilities.tear ?? true} effects={canFx} stills={data?.stills ? { state: data.stills, onAsk: askStills } : undefined} />
           ) : null}
           {tracks && draft && sel?.kind === 'sub' ? (
             <WordsPanel T={T} sel={sel} tracks={tracks} draft={draft} hand={hand} editable={canText} note={editable ? textNote : null} onEdit={edit} sec={sec}
@@ -1393,7 +1428,10 @@ export default function Editor({ id }: { id: string }) {
           {styles && choice ? (
             <StylePanel T={T} styles={styles} choice={choice} spec={spec} offered={offered} locked={!styleOpen} note={styleNote} onPick={pick} />
           ) : null}
-          {tracks && fxRow ? <EffectsSection T={T} tracks={tracks} onAdd={canFx ? doAddEffect : null} note={fxNote} /> : null}
+          {tracks && fxRow ? (
+            <EffectsSection T={T} tracks={tracks} onAdd={canFx ? doAddEffect : null} note={fxNote}
+              stills={canFx && data?.stills ? { state: data.stills, onAsk: askStills } : undefined} />
+          ) : null}
           {tracks ? (
             <PictureSection T={T} tracks={tracks} hand={hand} dim={draft?.dim ?? 0} canZoom={canZoom} canDim={canMarks} note={editable ? pictureNote : null}
               onEdit={edit} onAddLook={canShape ? doAddLook : null} />

@@ -64,7 +64,9 @@ export function Picture({ clock, model, video, src, duration, width, playing, cl
   const tearClip = useRef<HTMLVideoElement>(null);
   const tearEdge = useRef<HTMLImageElement>(null);
   const glitch = useRef<HTMLCanvasElement>(null);
-  const composed = useRef<HTMLCanvasElement | null>(null); // кадр с окошком лица — источник полос глитча
+  const composed = useRef<HTMLCanvasElement | null>(null); // кадр с окошком лица и разрывом — источник полос глитча
+  const slit = useRef<HTMLCanvasElement | null>(null); // щель разрыва для кадра глитча: перебивка в ч/б с растром по маске
+  const masks = useRef(new Map<string, HTMLImageElement>()); // маски щели slit-NN — картинками (CSS-маску холст не прочтёт)
   const live = useRef({ playing, cover: '' });
   live.current.playing = playing;
 
@@ -223,10 +225,12 @@ export function Picture({ clock, model, video, src, duration, width, playing, cl
         canvas.style.filter = lookFilter(p.look);
       }
       if (!source) return;
-      // окошко лица (pip) — часть картинки, которую режут полосы: собрать кадр с ним на запасном холсте
+      // окошко лица (pip) и рваная бумага — часть картинки, которую режут полосы (в ролике глитч идёт после разрыва:
+      // render.picture_chains): собрать кадр с ними на запасном холсте
       const face = p.cover?.layout === 'pip' && pip.current && !pip.current.hidden ? pip.current : null;
       const inset = face ? { el: face as CanvasImageSource, box: PIP, crop: null } : windowed ? { el: windowed as CanvasImageSource, box: WINDOW, crop: coverCrop(windowed, WINDOW) } : null;
-      if (inset) {
+      const torn = tearLayer();
+      if (inset || torn) {
         const whole = (composed.current ??= document.createElement('canvas'));
         whole.width = GLITCH_DRAW.w;
         whole.height = GLITCH_DRAW.h;
@@ -238,14 +242,20 @@ export function Picture({ clock, model, video, src, duration, width, playing, cl
         w.drawImage(source, sx, sy, 1080 * scale, 1920 * scale, 0, 0, GLITCH_DRAW.w, GLITCH_DRAW.h);
         if ('filter' in w) w.filter = 'none';
         canvas.style.filter = looked && !('filter' in w) ? lookFilter(p.look) : '';
-        const r = inset.box;
-        w.save();
-        w.beginPath(); // углы окошка скруглены, как маска ролика
-        w.roundRect(r.x * kx, r.y * ky, r.w * kx, r.h * ky, r.r * kx);
-        w.clip();
-        if (inset.crop) w.drawImage(inset.el, ...inset.crop, r.x * kx, r.y * ky, r.w * kx, r.h * ky);
-        else w.drawImage(inset.el, r.x * kx, r.y * ky, r.w * kx, r.h * ky);
-        w.restore();
+        if (inset) {
+          const r = inset.box;
+          w.save();
+          w.beginPath(); // углы окошка скруглены, как маска ролика
+          w.roundRect(r.x * kx, r.y * ky, r.w * kx, r.h * ky, r.r * kx);
+          w.clip();
+          if (inset.crop) w.drawImage(inset.el, ...inset.crop, r.x * kx, r.y * ky, r.w * kx, r.h * ky);
+          else w.drawImage(inset.el, r.x * kx, r.y * ky, r.w * kx, r.h * ky);
+          w.restore();
+        }
+        if (torn) { // щель с перебивкой и края бумаги — поверх, как их кладёт ролик
+          w.drawImage(torn.slit, 0, 0, GLITCH_DRAW.w, GLITCH_DRAW.h);
+          w.drawImage(torn.edge, 0, 0, GLITCH_DRAW.w, GLITCH_DRAW.h);
+        }
         source = whole;
         sx = 0;
         sy = 0;
@@ -255,6 +265,40 @@ export function Picture({ clock, model, video, src, duration, width, playing, cl
         ctx.drawImage(source, sx, sy + y0 * scale, 1080 * scale, (y1 - y0) * scale, dx * kx, y0 * ky, GLITCH_DRAW.w, (y1 - y0) * ky);
       }
       canvas.hidden = false;
+    };
+    // разрыв сейчас на кадре — его щель (перебивка в ч/б и растр по маске slit-NN) холстом и края картинкой; маска ещё не
+    // загрузилась или разрыва нет — null (глитч тогда — без него, до следующего кадра)
+    const tearLayer = (): { slit: HTMLCanvasElement; edge: HTMLImageElement } | null => {
+      const box = tearBox.current;
+      const edge = tearEdge.current;
+      if (!box || box.hidden || !edge || edge.hidden || !edge.complete || !edge.naturalWidth) return null;
+      const nn = String(box.dataset.k ?? '0').padStart(2, '0');
+      let mask = masks.current.get(nn);
+      if (!mask) {
+        mask = new Image();
+        mask.src = `${TEAR_DIR}/slit-${nn}.png`;
+        masks.current.set(nn, mask);
+      }
+      if (!mask.complete || !mask.naturalWidth) return null;
+      const content = tearImg.current && !tearImg.current.hidden ? tearImg.current : tearClip.current && !tearClip.current.hidden ? tearClip.current : null;
+      const dots = box.querySelector<HTMLImageElement>('img[src$="dots.png"]');
+      const c = (slit.current ??= document.createElement('canvas'));
+      c.width = GLITCH_DRAW.w;
+      c.height = GLITCH_DRAW.h;
+      const x = c.getContext('2d');
+      if (!x || !content) return null;
+      const w = content instanceof HTMLVideoElement ? content.videoWidth : content.naturalWidth;
+      const h = content instanceof HTMLVideoElement ? content.videoHeight : content.naturalHeight;
+      if (!w || !h) return null;
+      const k = Math.min(w / 1080, h / 1920); // object-fit: cover, как у .ed-fill
+      if ('filter' in x) x.filter = 'grayscale(1)'; // Safari ctx.filter не умеет — там щель в полосах цветная
+      x.drawImage(content, (w - 1080 * k) / 2, (h - 1920 * k) / 2, 1080 * k, 1920 * k, 0, 0, GLITCH_DRAW.w, GLITCH_DRAW.h);
+      if ('filter' in x) x.filter = 'none';
+      if (dots?.complete && dots.naturalWidth) x.drawImage(dots, 0, 0, GLITCH_DRAW.w, GLITCH_DRAW.h);
+      x.globalCompositeOperation = 'destination-in'; // маска — по прозрачности, как mask-image
+      x.drawImage(mask, 0, 0, GLITCH_DRAW.w, GLITCH_DRAW.h);
+      x.globalCompositeOperation = 'source-over';
+      return { slit: c, edge };
     };
     // окошко лица: тот же кадр говорящего, что под перебивкой, — с зумом (движок вырезает окошко из зумленного кадра),
     // с фильтром куска; смаз и вспышка — у всей картинки

@@ -90,10 +90,11 @@ export async function startFake({ port = 0 } = {}) {
     return false;
   };
 
-  // в master — и схема timeline.json движка: ветки задач из него знают правки руками (как после слияния редактора)
+  // в master — и схемы timeline.json и stills.json движка: ветки задач из него знают правки руками и поиск кадров
   const schema = fs.readFileSync(new URL('../../../engine/vm/schemas/timeline.json', import.meta.url));
+  const stills = fs.readFileSync(new URL('../../../engine/vm/schemas/stills.json', import.meta.url)); // и «Найти ещё кадры»
   refs.set('master', makeCommit(makeTree(null, [['README.md', '# video.edit\n'], ['assets/logos/logo.png', LOGO],
-    ['engine/vm/schemas/timeline.json', schema]]), [], 'init').sha);
+    ['engine/vm/schemas/timeline.json', schema], ['engine/vm/schemas/stills.json', stills]]), [], 'init').sha);
 
   /** @type {Fake} */
   const fake = {

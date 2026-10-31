@@ -2024,15 +2024,47 @@ const segments = [
     await height.focus();
     await page.keyboard.press('ArrowLeft');
     await until(async () => (await height.inputValue()) === '370', 3000, async () => `высота: ${await height.inputValue()}`);
+    // и ручкой на кадре: поднятые субтитры выбраны — ручка двигает их место, а не высоту стиля
+    const frameHandle = page.locator('.ed-layer .sub-handle');
+    await frameHandle.waitFor({ timeout: 3000 });
+    await frameHandle.focus();
+    await page.keyboard.press('ArrowUp');
+    await until(async () => Number(await height.inputValue()) < 370, 3000, async () => `ручкой на кадре: ${await height.inputValue()}`);
+    const raisedY = Number(await height.inputValue());
     await shot(page, 'editor-effects');
     // перебивка: подпись и кадр TMDB вместо клипа
     const insBlocks = page.locator('.ed-row.ins .ed-clip');
     await insBlocks.nth(2).click();
     const insPanel = page.locator('.ed-insp[data-block=insert]');
     await insPanel.getByLabel('Подпись').fill('Локи — бог обмана');
-    await insPanel.getByRole('combobox', { name: 'Клип' }).selectOption('found/tmdb-1.jpg');
+    check(await insPanel.locator('.ed-thumb[data-src="found/tmdb-1.jpg"] img').count() === 1, 'кадр TMDB — миниатюрой');
+    await insPanel.getByRole('button', { name: 'TMDB 1 · кадр' }).click();
+    check(await insPanel.getByRole('button', { name: 'TMDB 1 · кадр' }).getAttribute('aria-pressed') === 'true', 'кадр TMDB выбран');
     await until(async () => (await page.locator('.ed-pic img.ed-cover').getAttribute('src'))?.includes('tmdb-1.jpg'), 3000,
       'на кадре — кадр TMDB');
+    // «Найти ещё кадры»: запрос — в ветку, рутина — шагом stills; пока сессия ищет — подпись; её ответ — новый кадр в списке
+    const firesBefore = (await fires()).length;
+    await insPanel.getByRole('button', { name: 'Найти ещё кадры' }).click();
+    await insPanel.getByLabel('Фильм или сериал').fill('Локи');
+    await insPanel.getByLabel('Актёр').fill('Том Хиддлстоун');
+    await insPanel.getByRole('button', { name: 'Искать в TMDB' }).click();
+    await insPanel.getByText('Claude ищет кадры в TMDB').waitFor({ timeout: 8000 });
+    const fired = (await fires()).slice(firesBefore);
+    check(fired.length === 1 && fired[0].step === 'stills' && fired[0].attempt === 1, `запуск поиска: ${JSON.stringify(fired)}`);
+    const asked = JSON.parse((await branchFile(ctx, 'stills.json')) ?? '{}');
+    check(asked.film === 'Локи' && asked.actor === 'Том Хиддлстоун' && typeof asked.at === 'string', `stills.json: ${JSON.stringify(asked)}`);
+    engineValidate('stills.json', asked);
+    await session(ctx, {
+      'found/tmdb-2.jpg': still,
+      'found/tmdb.json': { title: 'Локи', person: 'Том Хиддлстоун', request: asked.at, files: [
+        { file: 'found/tmdb-1.jpg', kind: 'still', source: 'tv', width: 320, height: 180 },
+        { file: 'found/tmdb-2.jpg', kind: 'still', source: 'tv', width: 320, height: 180 }] },
+    });
+    await page.locator('.ed-save').getByText('Сохранено').waitFor({ timeout: 8000 }); // правки выше — в ветке до перезагрузки
+    await page.reload();
+    await page.locator('.ed-row.ins .ed-clip').nth(2).click();
+    await page.locator('.ed-insp[data-block=insert] .ed-thumb[data-src="found/tmdb-2.jpg"]').waitFor({ timeout: 10_000 });
+    check(await page.getByText('Claude ищет кадры в TMDB').count() === 0, 'поиск сделан — подписи нет');
     // стикер: влетает справа, светится
     await insBlocks.nth(1).click();
     const sticker = page.locator('.ed-insp[data-block=insert] [data-sticker]');
@@ -2050,7 +2082,7 @@ const segments = [
     const own = engine.transitions.at(-1);
     check(engine.transitions.length === 3 && own.kind === 'glitch' && own.t > 0.75 && own.sfx === null,
       `движок: свой глитч после переходов сессии, правее и без звука: ${JSON.stringify(engine.transitions)}`);
-    check(isDeepStrictEqual(engine.places.map((p) => [p.t0, p.t1, p.y]), [[1.7, 2.6, 370], [0.3, 1.15, 380]]),
+    check(isDeepStrictEqual(engine.places.map((p) => [p.t0, p.t1, p.y]), [[1.7, 2.6, raisedY], [0.3, 1.15, 380]]),
       `движок: поднятые субтитры: ${JSON.stringify(engine.places)}`);
     check(engine.broll.caption === 'Локи — бог обмана' && engine.broll.src === 'found/tmdb-1.jpg', `движок: перебивка ${JSON.stringify(engine.broll)}`);
     check(engine.image.params?.enter === 'right' && engine.image.params?.glow === true, `движок: стикер ${JSON.stringify(engine.image)}`);

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  clipAt, decodePeaks, draftTracks, findBlock, moveTarget, parseDraft, parseMedia, peakAt, slotAt, splitTarget, tearAt, videoKey, withHandEdits, wordEdges, type Clip, type Draft,
+  clipAt, decodePeaks, draftTracks, findBlock, moveTarget, parseDraft, parseMedia, peakAt, slotAt, splitTarget, glitchAt, tearAt, videoKey, withHandEdits, wordEdges, type Clip, type Draft,
 } from '../lib/tracks.ts';
 import { setSound, setVoice } from '../lib/edits.ts';
 import { cutSpan, EMPTY, moveSpan, setMusic, splitAt } from '../lib/edits.ts';
@@ -497,4 +497,17 @@ test('torn paper sticks to the start of the nearest full-frame B-roll; without o
   assert.deepEqual(torn.sounds.filter((s) => s.key?.startsWith('transition')), [], 'без звука — его и не было');
   const short = draftTracks({ ...d, subPlaces: [{ t0: 1, t1: 1.1, y: 380 }] }).places[0];
   assert.ok(short.t1 - short.t0 >= 0.3 - 1e-9 && Math.abs(short.core[1] - short.core[0] - 0.1) < 1e-6, 'на дорожке — шире, core — сама фраза');
+});
+
+test('a glitch sticks to the nearest join of pieces (a scene change), otherwise it stays where it was put', () => {
+  const t = draftTracks({ ...DRAFT, speed: 1, keep: [[0, 2], [3, 5], [6, 8]] });
+  const joins = t.video.filter((c, i) => i > 0).map((c) => c.t0);
+  assert.deepEqual(joins.map((j) => Math.round(j * 10) / 10), [2, 4]);
+  assert.equal(glitchAt(t, 2.3), joins[0]);
+  assert.equal(glitchAt(t, 3.8), joins[1]);
+  assert.equal(glitchAt(t, 3.0), 3.0, 'далеко от склеек — где поставили');
+  assert.equal(glitchAt(t, 0.2), 0.2, 'начало ролика — не склейка');
+  const split = draftTracks({ ...DRAFT, speed: 1, keep: [[0, 2], [3, 5]] }, { splits: [4] }); // разрез Павла на 4 с исходника
+  assert.equal(split.video.length, 3);
+  assert.equal(glitchAt(split, split.video[2].t0 + 0.1), split.video[2].t0 + 0.1, 'разрез Павла — не склейка');
 });

@@ -231,5 +231,12 @@
   `web/lib/edits.ts`; на дорожках — `draftTracks` (`transitions[].ref`, `places`, номер звука — по списку с правками, как
   `render._sounds`); разделы `picture`, `text`, `pipeline` общей фикстуры; кадры TMDB в списке клипов — `found/tmdb.json`
   (`vm tmdb`) ↔ `parseStills`, `brollClips`; старая задача — `abilitiesOf` (`effects`).
+- «Найти ещё кадры» (шаг рутины `stills`, не шаг задачи): `stills.json` (схема — она же признак, что движок задачи
+  его знает) — `web/lib/stills.ts` (`parseStillsBody`, `stillsState`, `askStills`), маршрут `/api/jobs/[id]/stills`,
+  `FIRE_STEPS` в `web/lib/routine.ts` ↔ `tmdb.find_more` (`vm tmdb --more`, `found/tmdb.json.request`, `error`),
+  SKILL.md (шаг stills) и `setup/routine-prompt.md` (тот же текст — в самой рутине).
+- Слова без субтитров (акценты и подписи перебивок): `overlay._silenced` ↔ `silencedSpans` в `web/lib/overlay.ts`
+  (и группы на дорожке — `draftTracks`). Строки акцента по центру (`stack: "center"`): схема `edit.json`,
+  `overlay._accents` ↔ `accentPieces` в `web/lib/overlay.ts`, `drawLines` в `template/overlay.js`.
 - Озвучка: ассет `upload-voice.*` и `kind: "audio"` в `job.json.uploads` — `web/lib/jobs.ts` (`voiceAssetName`,
   `isVoiceFile`) и `web/lib/jobfiles.ts` (`buildJobFile`); их читает `engine/vm/prepare.py` (`_voice`).

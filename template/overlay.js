@@ -532,7 +532,7 @@ function graphemes(text) {
 }
 
 /** Строки лесенкой в узле `root`: `lines` — `[{text, size, color, age}]`, центр блока — `at` ({x, y}); `motion` —
-{anim, out, leave}; `area` — где блок держится по ширине (по умолчанию безопасная зона; обложка — почти весь кадр).
+{anim, out, leave, stack} (stack: center — без лесенки); `area` — где блок держится по ширине (по умолчанию безопасная зона; обложка — почти весь кадр).
 → рамка блока для проверок (без анимации). Возраст строки null — её слово ещё не звучит. */
 function drawLines(root, { spec, main }, lines, at, motion = {}, area = { x0: SAFE.x0, x1: SAFE.x1 }) {
   const base = spec.hook.size;
@@ -561,7 +561,8 @@ function drawLines(root, { spec, main }, lines, at, motion = {}, area = { x0: SA
     block.append(node);
     return { ...line, node, chars, mark, factor: ACC.sizes[line.size] ?? 1 };
   });
-  const offsets = items.map((_, k) => (items.length === 1 ? 0 : (k % 2 ? 1 : -1) * ((ACC.stagger * base) / 2)));
+  // лесенка — сдвиг строк влево и вправо; у акцента разбора (stack: center) строки по центру друг под другом
+  const offsets = items.map((_, k) => (items.length === 1 || motion.stack === 'center' ? 0 : (k % 2 ? 1 : -1) * ((ACC.stagger * base) / 2)));
 
   // кегль: все строки (со сдвигом лесенки) влезают в безопасную зону
   const room = area.x1 - area.x0 - 2 * SHADOW_EXT.x;
@@ -668,7 +669,7 @@ function drawAccent(look, accent) {
   const ages = Array.isArray(accent.ages) ? accent.ages : [];
   const items = lines.map((l, k) => accentLine(l, k < ages.length ? ages[k] : Infinity));
   const at = { x: Number.isFinite(accent.x) ? accent.x : CX, y: Number.isFinite(accent.y) ? accent.y : FRAME.h / 2 };
-  return drawLines(root, look, items, at, { anim: accent.anim, out: accent.out, leave: accent.leave });
+  return drawLines(root, look, items, at, { anim: accent.anim, out: accent.out, leave: accent.leave, stack: accent.stack });
 }
 
 /** Хук в режиме accent: ударное последнее слово (с эмодзи после него) — своей строкой, крупно и цветом подсветки, как

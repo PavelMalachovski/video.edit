@@ -231,6 +231,14 @@ test('accent: lines stack as a staggered cascade, sizes and colours by line, cen
   assert.ok(b.y - (a.y + a.h) < 0, `строки ${JSON.stringify([a, b])}`);
 });
 
+test('accent of a breakdown (stack: center): lines are centred under each other, no cascade', async () => {
+  await render(spec(), { accent: { ...ACCENT, lines: [{ text: 'я скажу' }, { text: 'что-то' }, { text: 'важное' }], ages: [1, 1, 1], stack: 'center' } });
+  const [a, b, c] = await blockLines('accent');
+  assert.ok(Math.abs(a.cx - b.cx) <= 2 && Math.abs(b.cx - c.cx) <= 2, `по центру: ${[a.cx, b.cx, c.cx]}`);
+  const box = (await boxes()).accent;
+  assert.ok(Math.abs(box.x + box.w / 2 - 470) < 12, JSON.stringify(box));
+});
+
 test('accent: big lines are larger, three lines zig-zag', async () => {
   await render(spec(), {
     accent: { lines: [{ text: 'я скажу' }, { text: 'что-то' }, { text: 'важное', size: 'big' }], x: 450, y: 900, ages: [1, 1, 1] },

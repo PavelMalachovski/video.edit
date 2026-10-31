@@ -104,7 +104,7 @@ export type TransitionMark = { t: number; kind: string; source: number };
 
 /** Сколько секунд переход идёт до стыка: с этого места — и его звук (transitions.lead). */
 export const transitionLead = (kind: string): number => (kind === 'tear' ? TEAR / FPS : kind === 'glitch' ? 1 / FPS : HALF);
-const transitionTail = (kind: string): number => (kind === 'tear' ? 0 : kind === 'glitch' ? (GLITCH.length - 1) / FPS : HALF);
+export const transitionTail = (kind: string): number => (kind === 'tear' ? 0 : kind === 'glitch' ? (GLITCH.length - 1) / FPS : HALF);
 
 /** Переходы edit.json во времени финала по порядку; у самого начала и конца ролика их нет (transitions.marks). */
 export function transitionMarks(transitions: readonly TransitionSpec[], tl: Timeline): TransitionMark[] {

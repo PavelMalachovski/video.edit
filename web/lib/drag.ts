@@ -1,8 +1,8 @@
 // Перетаскивание на дорожках редактора: край куска, кусок целиком, музыка, блок текста или вставки, кусок с фильтром
-// (целиком или за край). Где окажется перетаскиваемое, считается от
+// (целиком или за край), эффект разбора. Где окажется перетаскиваемое, считается от
 // точки, где сейчас мышь или палец, — и в конце от точки, где отпустили: последний шаг движения мог ещё не попасть на
 // экран (React рисует его чуть позже), и край встал бы на шаг раньше, не прилипнув к слову (ловил e2e в Safari).
-import { snapTo, type LookRef } from './edits.ts';
+import { snapTo, type LookRef, type PlaceRef, type TransitionRef } from './edits.ts';
 import { slotAt, type BlockRef, type Tracks } from './tracks.ts';
 
 /** Сдвиг мыши меньше — это щелчок, а не перетаскивание, px. */
@@ -17,7 +17,11 @@ export type Drag =
   // тизер), max — позже не кончается (конец ролика)
   | { kind: 'block'; ref: BlockRef; mode: 'move' | 'start' | 'end'; x0: number; t0: number; t1: number; a: number; b: number; floor: number; max: number; moved: boolean }
   // кусок с фильтром — так же, как блок: целиком или за край; floor — не раньше конца тизера
-  | { kind: 'look'; ref: LookRef; mode: 'move' | 'start' | 'end'; x0: number; t0: number; t1: number; a: number; b: number; floor: number; max: number; moved: boolean };
+  | { kind: 'look'; ref: LookRef; mode: 'move' | 'start' | 'end'; x0: number; t0: number; t1: number; a: number; b: number; floor: number; max: number; moved: boolean }
+  // эффект разбора на дорожке «Эффекты» — так же: переход — целиком (t0 = t1 — его стык), поднятые субтитры — и за край
+  | { kind: 'effect'; ref: EffectRef; mode: 'move' | 'start' | 'end'; x0: number; t0: number; t1: number; a: number; b: number; floor: number; max: number; moved: boolean };
+/** Эффект на дорожке «Эффекты»: переход (разрыв, глитч) или поднятые субтитры. */
+export type EffectRef = { kind: 'transition'; ref: TransitionRef } | { kind: 'place'; ref: PlaceRef };
 
 /** Щелчок, которым кончилось перетаскивание, — не выбор (кусок уже на другом месте). Но пальцем после перетаскивания
  *  браузер щелчка не шлёт — и запрет съел бы следующий щелчок; поэтому любое новое нажатие (`down`) — новый жест. */
@@ -54,7 +58,7 @@ export function dragTo(d: Drag, clientX: number, v: DragView): Drag {
   }
   const moved = d.moved || Math.abs(dx) >= CLICK_PX;
   if (d.kind === 'piece') return { ...d, dx, moved, slot: moved ? slotAt(v.tracks, d.tf0 + dx / v.px) : null };
-  if (d.kind === 'block' || d.kind === 'look') {
+  if (d.kind === 'block' || d.kind === 'look' || d.kind === 'effect') {
     const dt = dx / v.px;
     const near = (t: number) => snapTo(t, v.finalEdges ?? [], v.snapPx / v.px);
     const len = d.t1 - d.t0 > 1e-6 ? d.t1 - d.t0 : MIN_BLOCK; // места в речи ещё нет (вставка под хуком) — двигаем короткий блок

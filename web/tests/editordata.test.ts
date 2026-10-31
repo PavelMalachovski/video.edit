@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { abilitiesOf, coverUrl, editorFix, editorGates, ENGINE_SCHEMA, isUploadPicture, layerUrl, loadEditor, MEDIA_NAMES, mediaAsset, pictureType, refusedBy, saveTimeline, timelineOf, uploadParts } from '../lib/editordata.ts';
+import { abilitiesOf, brollClips, coverUrl, parseStills, editorFix, editorGates, ENGINE_SCHEMA, isUploadPicture, layerUrl, loadEditor, MEDIA_NAMES, mediaAsset, pictureType, refusedBy, saveTimeline, timelineOf, uploadParts } from '../lib/editordata.ts';
 import type { AnswersFile } from '../lib/jobfiles.ts';
 import { withFake } from './helpers.ts';
 
@@ -145,7 +145,8 @@ test('saving hand edits: a bad body, a job Claude is mounting right now, a job n
   for (const bad of [null, { base: 0 }, { base: -1, edits: [] }, { base: 0, edits: [{ op: 'jump', t: 1 }] }, { base: 0, edits: [], voice: { gainDb: 99 } }, { base: 0, edits: [], rev: 5 },
     { base: 0, edits: [], words: [{ t0: 1, t1: 1.3, text: 'огонь🔥' }] }, // эмодзи в субтитрах не пропустит проверка шрифтов
     { base: 0, edits: [], text: { hook: { text: 'Лучший ★ кофе' } } }, { base: 0, edits: [], words: [{ t0: 1, t1: 1.3, text: '✓' }] }, // и ★, ✓
-    { base: 0, edits: [], text: { end: { lines: ['Подпишись ★'] } } }, { base: 0, edits: [], text: { end: { handle: '@pavel ♪' } } }]) { // и на карточке
+    { base: 0, edits: [], text: { end: { lines: ['Подпишись ★'] } } }, { base: 0, edits: [], text: { end: { handle: '@pavel ♪' } } },
+    { base: 0, edits: [], text: { inserts: [{ at: [1, 2], caption: 'Локи ★' }] } }]) { // и на карточке, и в подписи перебивки
     const r = await saveTimeline(gh, ID, bad, NOW);
     assert.ok(!r.ok && r.status === 400, JSON.stringify(bad));
   }
@@ -188,8 +189,10 @@ test('«Монтировать» from the editor: a fix with the saved revision 
 
 const SCHEMA_NOW = readFileSync(new URL('../../engine/vm/schemas/timeline.json', import.meta.url), 'utf8');
 /** Схема timeline.json, как она была до `what`: перестановки кусков (фаза 4), текста (фаза 5), картинки (фаза 5в). */
-function olderSchema(what: 'move' | 'text' | 'picture' | 'looks' | 'broll' | 'tear'): string {
+function olderSchema(what: 'move' | 'text' | 'picture' | 'looks' | 'broll' | 'tear' | 'effects'): string {
   const s = JSON.parse(SCHEMA_NOW);
+  delete s.properties.subPlaces; // до дорожки «Эффекты»
+  if (what === 'effects') return JSON.stringify(s);
   s.properties.transitions.items.properties.kind.enum = ['flash', 'zoom', 'blur']; // до рваной бумаги и глитча
   if (what === 'tear') return JSON.stringify(s);
   for (const f of ['src', 'from', 'layout', 'audio']) delete s.properties.text.properties.inserts.items.properties[f]; // до перебивок
@@ -218,24 +221,31 @@ test('before the montage the editor edits only what «Превью» and the que
   const all = abilitiesOf(SCHEMA_NOW);
   // до монтажа скорость, затемнение фона и трек выбирают «Превью» и вопросы: правка руками молча перебила бы ответ
   assert.deepEqual(editorGates(true, false, all),
-    { move: true, zoom: true, marks: false, looks: true, lookHand: true, track: false, speed: false, teaser: false, text: false, card: false, place: false, broll: false },
+    { move: true, zoom: true, marks: false, looks: true, lookHand: true, track: false, speed: false, teaser: false, text: false, card: false, place: false, broll: false, effects: false },
     'куски с фильтром — и до монтажа: держатся за своё место');
   assert.deepEqual(editorGates(true, true, all),
-    { move: true, zoom: true, marks: true, looks: true, lookHand: true, track: true, speed: true, teaser: true, text: true, card: true, place: true, broll: true });
+    { move: true, zoom: true, marks: true, looks: true, lookHand: true, track: true, speed: true, teaser: true, text: true, card: true, place: true, broll: true, effects: true });
   assert.ok(Object.values(editorGates(false, true, all)).every((on) => !on), 'идёт сессия — ничего не правится');
   assert.deepEqual(editorGates(true, true, { ...all, video: false, track: false }),
-    { move: true, zoom: true, marks: true, looks: true, lookHand: true, track: false, speed: false, teaser: false, text: true, card: true, place: true, broll: true }, 'старый движок');
+    { move: true, zoom: true, marks: true, looks: true, lookHand: true, track: false, speed: false, teaser: false, text: true, card: true, place: true, broll: true, effects: true }, 'старый движок');
   const older = abilitiesOf(olderSchema('looks'));
   assert.deepEqual([editorGates(true, false, older).looks, editorGates(true, true, older).looks, editorGates(true, true, older).lookHand], [false, true, false],
     'движок до своих кусков: куски сессии убираются и возвращаются после монтажа, своих нет');
 });
 
 test('what the job\'s engine takes is read from its own schema in the job branch', () => {
-  const none5c = { picture: false, track: false, card: false, video: false, place: false, looks: false, broll: false, tear: false };
-  assert.deepEqual(abilitiesOf(SCHEMA_NOW), { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: true, broll: true, tear: true });
-  assert.deepEqual(abilitiesOf(olderSchema('looks')), { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: false, broll: false, tear: false });
-  assert.deepEqual(abilitiesOf(olderSchema('broll')), { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: true, broll: false, tear: false });
-  assert.deepEqual(abilitiesOf(olderSchema('tear')), { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: true, broll: true, tear: false });
+  const none5c = { picture: false, track: false, card: false, video: false, place: false, looks: false, broll: false, tear: false, effects: false };
+  assert.deepEqual(abilitiesOf(SCHEMA_NOW), { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: true, broll: true, tear: true, effects: true });
+  assert.deepEqual(abilitiesOf(olderSchema('looks')), { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: false, broll: false, tear: false, effects: false });
+  assert.deepEqual(abilitiesOf(olderSchema('broll')), { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: true, broll: false, tear: false, effects: false });
+  assert.deepEqual(abilitiesOf(olderSchema('effects')), { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: true, broll: true, tear: true, effects: false });
+  for (const hand of [
+    { transitions: [{ at: 3, t: 3.5 }] }, { transitions: [{ t: 3, kind: 'glitch' as const }] }, { subPlaces: [{ at: [1, 2] as [number, number], off: true as const }] },
+    { text: { inserts: [{ at: [1, 2] as [number, number], caption: 'Локи' }] } }, { text: { inserts: [{ at: [1, 2] as [number, number], src: 'found/tmdb-1.jpg' }] } },
+    { text: { inserts: [{ at: [1, 2] as [number, number], tilt: 5 }] } },
+  ]) assert.match(refusedBy({ ...abilitiesOf(SCHEMA_NOW), effects: false }, { edits: [], ...hand }) ?? '', /до дорожки «Эффекты»/, JSON.stringify(hand));
+  assert.equal(refusedBy({ ...abilitiesOf(SCHEMA_NOW), effects: false }, { edits: [], transitions: [{ at: 3, kind: 'tear' }] }), null, 'другой вид — как раньше');
+  assert.deepEqual(abilitiesOf(olderSchema('tear')), { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: true, broll: true, tear: false, effects: false });
   for (const kind of ['tear', 'glitch'] as const) {
     assert.match(refusedBy({ ...abilitiesOf(SCHEMA_NOW), tear: false }, { edits: [], transitions: [{ at: 3, kind }] }) ?? '', /до рваной бумаги и глитча/, kind);
   }
@@ -247,8 +257,8 @@ test('what the job\'s engine takes is read from its own schema in the job branch
   assert.deepEqual(abilitiesOf(olderSchema('text')), { edits: true, move: true, text: false, ...none5c });
   assert.deepEqual(abilitiesOf(olderSchema('move')), { edits: true, move: false, text: false, ...none5c });
   assert.deepEqual(abilitiesOf(null), { edits: false, move: false, text: false, ...none5c }, 'схемы нет — задача до редактора: её движок правок руками не знает');
-  assert.deepEqual(abilitiesOf('{не json'), { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: true, broll: true, tear: true }, 'схема есть, но не читается — движок нынешний');
-  const all = { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: true, broll: true, tear: true };
+  assert.deepEqual(abilitiesOf('{не json'), { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: true, broll: true, tear: true, effects: true }, 'схема есть, но не читается — движок нынешний');
+  const all = { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: true, broll: true, tear: true, effects: true };
   for (const looks of [[{ t0: 1, t1: 2, look: 'bw' as const }], [{ at: [1, 2] as [number, number], t0: 0.8, t1: 2 }], [{ at: [1, 2] as [number, number], look: 'sepia' as const }]]) {
     assert.match(refusedBy({ ...all, looks: false }, { edits: [], looks }) ?? '', /до своих кусков ч\/б и фильтров/, JSON.stringify(looks));
     assert.equal(refusedBy(all, { edits: [], looks }), null);
@@ -281,7 +291,7 @@ test('what the job\'s engine takes is read from its own schema in the job branch
 test('a job made before text edits: the editor knows it, and the server does not save what its engine would refuse', () => withFake(async ({ fake, gh }) => {
   start(fake);
   fake.commit(`claude/job-${ID}`, { [ENGINE_SCHEMA]: olderSchema('text') }, 'old engine');
-  assert.deepEqual((await loadEditor(gh, ID))?.abilities, { edits: true, move: true, text: false, picture: false, track: false, card: false, video: false, place: false, looks: false, broll: false, tear: false });
+  assert.deepEqual((await loadEditor(gh, ID))?.abilities, { edits: true, move: true, text: false, picture: false, track: false, card: false, video: false, place: false, looks: false, broll: false, tear: false, effects: false });
   const r = await saveTimeline(gh, ID, { base: 0, edits: [], text: { hook: { until: 2 } } }, NOW);
   assert.ok(!r.ok && r.status === 409 && /до правок текста/.test(r.error), JSON.stringify(r));
   assert.equal(timelineFile(fake), null, 'ничего не записано');
@@ -300,7 +310,7 @@ test('the music library of the job\'s branch is offered as tracks; a track that 
 test('a job made before the editor (no timeline.json schema in its branch): its engine reads no hand edits — the server saves none', () => withFake(async ({ fake, gh }) => {
   start(fake);
   fake.commit(`claude/job-${ID}`, { [ENGINE_SCHEMA]: null }, 'before the editor');
-  assert.deepEqual((await loadEditor(gh, ID))?.abilities, { edits: false, move: false, text: false, picture: false, track: false, card: false, video: false, place: false, looks: false, broll: false, tear: false });
+  assert.deepEqual((await loadEditor(gh, ID))?.abilities, { edits: false, move: false, text: false, picture: false, track: false, card: false, video: false, place: false, looks: false, broll: false, tear: false, effects: false });
   const r = await saveTimeline(gh, ID, { base: 0, ...HAND }, NOW);
   assert.ok(!r.ok && r.status === 409 && /до редактора/.test(r.error), JSON.stringify(r));
   assert.equal(timelineFile(fake), null, 'ничего не записано');
@@ -363,4 +373,16 @@ test('what the player shows for a full-frame cut-in: a B-roll clip — its proxy
   assert.equal(coverUrl(ID, 'h1', brolls, 'in/uploads/upload-i1.mp4'), null, 'видео-вставка целиком не отдаётся');
   assert.equal(coverUrl(ID, 'h1', brolls, 'in/uploads/upload-i2.png'), layerUrl(ID, 'h1', 'in/uploads/upload-i2.png'));
   assert.equal(coverUrl(ID, 'h1', brolls, 'assets/library/a.mp4'), layerUrl(ID, 'h1', 'assets/library/a.mp4'));
+});
+
+test('TMDB stills of the job go after Pavel\'s B-roll in the clip list, as pictures from the branch', () => {
+  const stills = parseStills({ files: [{ file: 'found/tmdb-1.jpg', kind: 'still' }, { file: 'found/tmdb-2.jpg', kind: 'photo' }, { file: '../job.json', kind: 'still' }, { kind: 'still' }] });
+  assert.deepEqual(stills, [{ file: 'found/tmdb-1.jpg', kind: 'still' }, { file: 'found/tmdb-2.jpg', kind: 'photo' }], 'только found/tmdb-<n>.jpg');
+  assert.deepEqual(parseStills(null), []);
+  const head = 'a'.repeat(40);
+  const clips = brollClips('j1', { job: { uploads: [{ file: 'in/uploads/upload-b1.png', name: 'зал.png', kind: 'broll' }] }, released: null }, stills, head);
+  assert.deepEqual(clips.map((c) => [c.src, c.name, c.video]), [
+    ['in/uploads/upload-b1.png', 'зал.png', false], ['found/tmdb-1.jpg', 'TMDB 1 · кадр', false], ['found/tmdb-2.jpg', 'TMDB 2 · фото', false],
+  ]);
+  assert.equal(clips[1].url, `/api/jobs/j1/file?path=found%2Ftmdb-1.jpg&v=${head}`);
 });

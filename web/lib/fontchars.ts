@@ -119,13 +119,13 @@ export function handWord(title: string): string {
 }
 
 /** Что Павел набрал в редакторе — каким шрифтом это нарисует ролик (fonts.texts): основной — слова субтитров, хук целиком,
- *  строки титра, акцентов, текст вставок, строки и ник финальной карточки; рукописный — последнее слово хука и кодовое
+ *  строки титра, акцентов, текст и подпись вставок, строки и ник финальной карточки; рукописный — последнее слово хука и кодовое
  *  слово титра (в режиме хука `accent` рукописного нет — всё основным). */
 export function typedText(h: HandEdits, accentMode: boolean): { main: string; hand: string } {
   const t = h.text ?? {};
   const hook = t.hook?.text ?? '';
   const main = [...(h.words ?? []).map((w) => w.text), hook, ...(t.cta?.lines ?? []), ...(t.accents ?? []).flatMap((a) => a.lines ?? []),
-    ...(t.inserts ?? []).map((i) => i.text ?? ''), ...(t.end?.lines ?? []), t.end?.handle ?? ''];
+    ...(t.inserts ?? []).flatMap((i) => [i.text ?? '', i.caption ?? '']), ...(t.end?.lines ?? []), t.end?.handle ?? ''];
   const hand = [handWord(hook), t.cta?.word ?? ''];
   const join = (parts: string[], by: string) => parts.filter(Boolean).join(by);
   return accentMode ? { main: join([...main, ...hand], '\n'), hand: '' } : { main: join(main, '\n'), hand: join(hand, ' ') };

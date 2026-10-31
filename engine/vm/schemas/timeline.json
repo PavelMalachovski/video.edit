@@ -134,10 +134,14 @@
               "x": { "type": "number", "minimum": 60, "maximum": 810 },
               "y": { "type": "number", "minimum": 120, "maximum": 1490 },
               "w": { "type": "number", "minimum": 80, "maximum": 830 },
-              "src": { "description": "Перебивка — другой клип из перебивок Павла.", "type": "string", "pattern": "^in/uploads/upload-b[0-9]{1,2}\\.[a-z0-9]{1,5}$" },
+              "src": { "description": "Перебивка — другой клип из перебивок Павла или кадр из TMDB (vm tmdb).", "type": "string", "pattern": "^(in/uploads/upload-b[0-9]{1,2}\\.[a-z0-9]{1,5}|found/tmdb-[0-9]{1,2}\\.jpg)$" },
               "from": { "description": "Перебивка — с какой секунды клипа.", "type": "number", "minimum": 0, "maximum": 36000 },
               "layout": { "description": "Перебивка: full — клип на весь кадр, pip — лицо окошком поверх клипа, window — клип окошком поверх говорящего.", "enum": ["full", "pip", "window"] },
               "audio": { "description": "Перебивка — звук клипа тихим фоном.", "type": "boolean" },
+              "caption": { "description": "Перебивка: подпись крупно (имя); пустая строка — без подписи.", "type": "string", "maxLength": 40 },
+              "enter": { "description": "Картинка: откуда влетает (none — обычное появление).", "enum": ["left", "right", "top", "bottom", "none"] },
+              "tilt": { "description": "Картинка: наклон, градусов.", "type": "number", "minimum": -15, "maximum": 15 },
+              "glow": { "description": "Картинка: белое свечение вокруг.", "type": "boolean" },
               "off": { "const": true }
             }
           }
@@ -199,18 +203,39 @@
       }
     },
     "transitions": {
-      "description": "Переходы, которые Павел поменял в редакторе: переход edit.transitions с ровно этим t (at) — другого вида (kind) или убран (off; остаётся в списке: номера звуков transition:<n> те же).",
+      "description": "Переходы, которые Павел поменял в редакторе: переход edit.transitions с ровно этим t (at) — другого вида (kind), убран (off; остаётся в списке: номера звуков transition:<n> те же) или сдвинут (t — новое время исходника); без at — свой переход Павла (t, kind): в конце списка, без звука.",
       "type": "array",
       "maxItems": 200,
       "items": {
         "type": "object",
-        "required": ["at"],
         "additionalProperties": false,
         "properties": {
           "at": { "type": "number", "minimum": 0 },
+          "t": { "type": "number", "minimum": 0 },
           "kind": { "enum": ["flash", "zoom", "blur", "tear", "glitch"] },
           "off": { "const": true }
-        }
+        },
+        "dependentRequired": { "off": ["at"] },
+        "anyOf": [{ "required": ["at"] }, { "required": ["t", "kind"], "not": { "required": ["at"] } }]
+      }
+    },
+    "subPlaces": {
+      "description": "Поднятые субтитры руками (формат «Разбор персонажа»): место edit.subPlaces с ровно этим [t0, t1] (at) — убрано (off), с другими краями (t0, t1 — время исходника) или на другой высоте (y, px кадра); без at — своё место Павла (t0, t1, y).",
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "at": { "$ref": "#/$defs/At" },
+          "off": { "const": true },
+          "t0": { "type": "number", "minimum": 0 },
+          "t1": { "type": "number", "minimum": 0 },
+          "y": { "type": "number", "minimum": 240, "maximum": 1760 }
+        },
+        "dependentRequired": { "off": ["at"] },
+        "anyOf": [{ "required": ["at", "off"] }, { "required": ["at", "t0"] }, { "required": ["at", "t1"] }, { "required": ["at", "y"] },
+                  { "required": ["t0", "t1", "y"], "not": { "required": ["at"] } }]
       }
     },
     "dim": {

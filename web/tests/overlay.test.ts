@@ -7,7 +7,7 @@ import { Timeline } from '../lib/timeline.ts';
 import { beatTimes, musicBeats, played, snapEdit } from '../lib/beats.ts';
 import { BW_FILTER, LOOK_CSS } from '../lib/picture.ts';
 import { draftTracks, parseDraft, timelineOf, withHandEdits, type LayerStyle } from '../lib/tracks.ts';
-import { applyPicture, LOOK_KINDS, type Edit, type LookFix, type MusicAdjust, type TextEdits, type TransitionFix, type WordFix } from '../lib/edits.ts';
+import { applyPicture, LOOK_KINDS, type Edit, type LookFix, type MusicAdjust, type PlaceFix, type TextEdits, type TransitionFix, type WordFix } from '../lib/edits.ts';
 import { blurSigma, flashAlpha, glitchBands, lookSpans, lookWindows, tearFrame, tearsOf, transitionMarks, zoomAt, zoomLevels, type TransitionSpec, type Zoom } from '../lib/zoom.ts';
 
 // Общая с движком фикстура (engine/tests/shared_events.py): события субтитров и слоя — ровно как у движка, число в число.
@@ -35,7 +35,7 @@ const FIXTURE = JSON.parse(fs.readFileSync(new URL('../../engine/tests/fixtures/
   })[];
   pipeline: {
     name: string; duration: number; edit: unknown; grid: { length: number; times: number[] } | null;
-    timeline: { edits: Edit[]; music?: MusicAdjust; text?: TextEdits; words?: WordFix[]; teaser?: false; speed?: number };
+    timeline: { edits: Edit[]; music?: MusicAdjust; text?: TextEdits; words?: WordFix[]; teaser?: false; speed?: number; subPlaces?: PlaceFix[] };
     beatsUsed: boolean; events: unknown[]; insertSpans: [number, number, number][];
   }[];
   picture: (Base & {
@@ -239,7 +239,7 @@ test('the whole way of Pavel\'s edits to the layer is the engine\'s: pieces, tex
     assert.equal(beats !== null, c.beatsUsed, `${c.name}: доли`);
     const tracks = draftTracks(edited.draft, {
       style: (c.edit as { style: LayerStyle }).style, sourceDuration: c.duration, splits: edited.splits, beats,
-      fixes: { text: c.timeline.text, words: c.timeline.words },
+      fixes: { text: c.timeline.text, words: c.timeline.words, subPlaces: c.timeline.subPlaces },
     });
     const { edit, tl } = tracks.layer;
     assert.deepStrictEqual(insertSpans(edit, tl), c.insertSpans, `${c.name}: кадры вставок`);

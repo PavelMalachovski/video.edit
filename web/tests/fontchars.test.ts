@@ -35,11 +35,11 @@ test('what Pavel typed goes to the font that draws it: the hook\'s last word and
   const h = {
     edits: [], words: [{ t0: 1, t1: 2, text: 'ёж' }],
     text: { hook: { text: 'Цена 500 ₽' }, cta: { at: [5, 6] as [number, number], lines: ['Пиши «план»'], word: 'ПЛАН→' },
-      accents: [{ at: [3, 4] as [number, number], lines: ['½ цены'] }], inserts: [{ at: [2, 3] as [number, number], text: '×2' }],
+      accents: [{ at: [3, 4] as [number, number], lines: ['½ цены'] }], inserts: [{ at: [2, 3] as [number, number], text: '×2' }, { at: [7, 8] as [number, number], caption: 'Ærø' }],
       end: { lines: ['Жми ♥'], handle: '@pavel→' } },
   };
   const plain = typedText(h, false);
-  for (const part of ['ёж', 'Цена 500 ₽', 'Пиши «план»', '½ цены', '×2', 'Жми ♥', '@pavel→']) assert.ok(plain.main.includes(part), part);
+  for (const part of ['ёж', 'Цена 500 ₽', 'Пиши «план»', '½ цены', '×2', 'Ærø', 'Жми ♥', '@pavel→']) assert.ok(plain.main.includes(part), part);
   assert.equal(plain.hand, '₽ ПЛАН→', 'последнее слово хука и кодовое слово');
   const accent = typedText(h, true);
   assert.equal(accent.hand, '', 'режим accent — рукописного нет');

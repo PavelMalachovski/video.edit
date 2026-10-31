@@ -5,7 +5,9 @@
 import { useEffect, useId, useState } from 'react';
 import { applyFields, blockTarget, fieldFonts, fieldKey, fieldProblem, TEXTUAL, textFields, type BlockField, type FieldCheck, type TextTarget } from '@/lib/blocktext.ts';
 import type { BrollClip } from '@/lib/editordata.ts';
-import { blockFix, blockPlace, LIMITS, setBlock, setCta, setEnd, setHook, setWord, type BrollLayout, type HandEdits, type InsertFix, type Place } from '@/lib/edits.ts';
+import {
+  blockFix, blockPlace, LIMITS, setBlock, setCta, setEnd, setHook, setWord, STICKER_ENTERS, type BrollLayout, type HandEdits, type InsertFix, type Place, type StickerEnter,
+} from '@/lib/edits.ts';
 import { tenths } from '@/lib/format.ts';
 import type { Key } from '@/lib/i18n.ts';
 import { INSERT_W, moveBox, moveCentre, resizeBox, type BoxExt } from '@/lib/style.ts';
@@ -187,9 +189,43 @@ function BrollControls({ T, now, brolls, windowed, onFix }: {
   );
 }
 
-export function BlockPanel({ T, sel, tracks, draft, hand, editable, note, onEdit, sec, letters = NO_LETTERS, placing, brolls, windowed = true }: {
+/** Правка вставки `fix` с полями `next` (undefined — поле как у сессии): setBlock дописывает поля к правке, поэтому правку
+ *  сначала снимают и кладут заново. */
+function refix(h: HandEdits, at: InsertFix['at'], occurrence: number, fix: InsertFix, next: Partial<InsertFix>): HandEdits {
+  const merged = Object.fromEntries(Object.entries({ ...fix, ...next }).filter(([k, v]) => k !== 'at' && v !== undefined));
+  return setBlock(setBlock(h, 'inserts', at, occurrence, null), 'inserts', at, occurrence, Object.keys(merged).length ? merged : null);
+}
+
+const ENTER_NAMES: Record<StickerEnter, Key> = { left: 'enterLeft', right: 'enterRight', top: 'enterTop', bottom: 'enterBottom', none: 'enterNone' };
+
+/** Движение картинки (стикера): откуда влетает, наклон, свечение. Правка — timeline.json → text.inserts (enter, tilt,
+ *  glow; edits.apply_text кладёт их в params). */
+function StickerControls({ T, now, onFix }: {
+  T: TFn; now: { enter: StickerEnter; tilt: number; glow: boolean }; onFix: (fix: { enter?: StickerEnter; tilt?: number; glow?: boolean }, key?: string) => void;
+}) {
+  return (
+    <div className="ed-sticker" role="group" aria-label={T('sticker')} data-sticker="">
+      <span className="ed-range-name">{T('enterFrom')}</span>
+      <div className="ed-btns" role="group" aria-label={T('enterFrom')}>
+        {STICKER_ENTERS.map((k) => (
+          <button key={k} type="button" className="ed-toggle" aria-pressed={now.enter === k} onClick={() => onFix({ enter: k })}>{T(ENTER_NAMES[k])}</button>
+        ))}
+      </div>
+      <div className="ed-shade">
+        <span className="ed-range-name">{T('tilt')}</span>
+        <input type="range" aria-label={T('tilt')} min={LIMITS.tilt.min} max={LIMITS.tilt.max} step={1} value={now.tilt}
+          onChange={(e) => onFix({ tilt: Number(e.target.value) }, 'tilt')} />
+        <span className="mono">{now.tilt}°</span>
+      </div>
+      <button type="button" className="ed-toggle" aria-pressed={now.glow} onClick={() => onFix({ glow: !now.glow })}>{T('glow')}</button>
+    </div>
+  );
+}
+
+export function BlockPanel({ T, sel, tracks, draft, hand, editable, note, onEdit, sec, letters = NO_LETTERS, placing, brolls, windowed = true, effects = false }: {
   T: TFn; sel: BlockSel; tracks: Tracks; draft: Draft; hand: HandEdits; editable: boolean;
   windowed?: boolean; // движок задачи знает клип в окошке (старый — не предлагаем)
+  effects?: boolean; // движок задачи знает эффекты разбора руками: подпись перебивки, кадр TMDB, движение стикера
   note: string | null; // почему править нельзя (старый движок, ещё не смонтирован)
   onEdit: (next: HandEdits, key?: string) => void; sec: (s: number) => string; letters?: Letters;
   placing?: Placing; // место вставки и акцента на кадре (нет — не двигаются)
@@ -215,8 +251,20 @@ export function BlockPanel({ T, sel, tracks, draft, hand, editable, note, onEdit
         if (brolls && editable && ins.src) {
           const f = (fix ?? {}) as InsertFix;
           const now = { src: f.src ?? ins.src, from: f.from ?? ins.from ?? 0, layout: f.layout ?? ins.layout ?? 'full', audio: f.audio ?? ins.audio ?? false };
-          fields.push(<BrollControls key="broll" T={T} now={now} brolls={brolls} windowed={windowed}
+          // кадры TMDB (found/) — клипом, только если движок задачи их знает
+          const clips = effects ? brolls : brolls.filter((b) => !b.src.startsWith('found/'));
+          fields.push(<BrollControls key="broll" T={T} now={now} brolls={clips} windowed={windowed}
             onFix={(next) => onEdit(setBlock(hand, 'inserts', ref.at, ref.occurrence, next))} />);
+        }
+        if (effects && editable) { // подпись перебивки: пусто — без подписи
+          const f = (fix ?? {}) as InsertFix;
+          const session = ins.caption ?? '';
+          fields.push(
+            <TextField key={`caption-${ref.n}`} label={T('brollCaption')} value={f.caption ?? session} disabled={!editable} max={LIMITS.caption}
+              check={(v) => fieldError(T, letters, 'handle', v)}
+              onCommit={(v) => onEdit(refix(hand, ref.at, ref.occurrence, f, { caption: v === session ? undefined : v }), `caption:${ref.n}`)} />,
+            <p key="caption-hint" className="ed-note faint">{T('brollCaptionHint')}</p>,
+          );
         }
       }
       else if (ins?.question && !ins.src && !TEXTUAL.includes(ins.kind)) fields.push(<p key="wait" className="ed-note faint">{T('waitingInsert')}</p>);
@@ -224,6 +272,16 @@ export function BlockPanel({ T, sel, tracks, draft, hand, editable, note, onEdit
       else if (ins && placing && typeof ins.x === 'number' && typeof ins.y === 'number' && typeof ins.w === 'number') { // вставка с рамкой на кадре
         const own = blockPlace(hand, 'insert', ref.at, ref.occurrence);
         fields.push(<PlaceControls key="place" T={T} kind="insert" now={own ?? { x: ins.x, y: ins.y, w: ins.w }} moved={own !== null} placing={placing} />);
+      }
+      if (ins?.kind === 'image' && effects && editable) { // картинка: влёт, наклон, свечение (у сессии — params)
+        const f = (fix ?? {}) as InsertFix;
+        const p = ins.params ?? {};
+        const now = {
+          enter: f.enter ?? ((STICKER_ENTERS as readonly unknown[]).includes(p.enter) ? p.enter as StickerEnter : 'none'),
+          tilt: f.tilt ?? (typeof p.tilt === 'number' ? p.tilt : 0), glow: f.glow ?? p.glow === true,
+        };
+        fields.push(<StickerControls key="sticker" T={T} now={now}
+          onFix={(next, key) => onEdit(refix(hand, ref.at, ref.occurrence, f, next), key ? `${key}:${ref.n}` : undefined)} />);
       }
     }
     if (ref.kind === 'accent' && placing) {

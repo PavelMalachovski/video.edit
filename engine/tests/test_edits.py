@@ -417,3 +417,64 @@ def test_teaser_and_speed_go_through_the_schema(tmp_path, bad):
     job.write("timeline.json", {"rev": 1, "edits": [], "teaser": False, "speed": 1.5})
     with pytest.raises(ValueError):
         job.write("timeline.json", {"rev": 1, "edits": [], **bad})
+
+
+# ---------- эффекты разбора руками (дорожка «Эффекты» редактора) ----------
+
+
+def test_transitions_by_hand_move_and_own_ones_come_after_the_sessions(tmp_path):
+    """Переход сессии сдвинут (`at` → `t`), свой переход Павла (`t`, `kind` без `at`) — в конце списка: номера звуков
+    `transition:<n>` у переходов сессии те же; свой — без звука."""
+    timeline = {"rev": 1, "edits": [], "transitions": [{"at": 4.5, "t": 5.2, "kind": "glitch"}, {"t": 6.4, "kind": "tear"},
+                                                      {"t": 1.1, "kind": "glitch"}]}
+    out = edits.apply(PICTURE_EDIT, timeline)
+    assert out["transitions"] == [{"t": 2.5, "kind": "flash", "sfx": "assets/sfx/swoosh.mp3"}, {"t": 5.2, "kind": "glitch"},
+                                  {"t": 6.4, "kind": "tear", "sfx": None}, {"t": 1.1, "kind": "glitch", "sfx": None}]
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    job.write("timeline.json", timeline)  # схема принимает
+    for bad in ({"t": 1.0}, {"kind": "tear"}, {"at": 1.0, "t": -1}, {"t": 1.0, "kind": "tear", "off": True}):
+        with pytest.raises(ValueError):
+            job.write("timeline.json", {"rev": 2, "edits": [], "transitions": [bad]})
+
+
+def test_raised_subtitles_by_hand_off_moved_higher_and_own(tmp_path):
+    edit = {**PICTURE_EDIT, "subPlaces": [{"t0": 1.0, "t1": 2.0, "y": 380}, {"t0": 4.0, "t1": 5.0, "y": 400}]}
+    timeline = {"rev": 1, "edits": [], "subPlaces": [{"at": [1.0, 2.0], "off": True}, {"at": [4.0, 5.0], "t0": 3.8, "y": 300},
+                                                    {"t0": 6.0, "t1": 7.0, "y": 360}]}
+    out = edits.apply(edit, timeline)
+    assert out["subPlaces"] == [{"t0": 3.8, "t1": 5.0, "y": 300}, {"t0": 6.0, "t1": 7.0, "y": 360}]
+    assert edits.apply(PICTURE_EDIT, {"rev": 1, "edits": [], "subPlaces": [{"t0": 6.0, "t1": 7.0, "y": 360}]})["subPlaces"] == [
+        {"t0": 6.0, "t1": 7.0, "y": 360}], "своё место и в ролике, где сессия их не ставила"
+    with pytest.raises(ValueError, match="subPlaces"):
+        edits.apply(edit, {"rev": 1, "edits": [], "subPlaces": [{"at": [1.0, 2.0], "t1": 0.5}]})
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    job.write("timeline.json", timeline)
+    for bad in ({"t0": 1.0, "t1": 2.0}, {"at": [1.0, 2.0], "y": 100}, {"at": [1.0, 2.0], "y": 1900}, {"t0": 1.0, "y": 300}):
+        with pytest.raises(ValueError):
+            job.write("timeline.json", {"rev": 2, "edits": [], "subPlaces": [bad]})
+
+
+def test_caption_and_sticker_motion_by_hand(tmp_path):
+    """Подпись перебивки — своя или убрана (""); у картинки — сторона влёта (или без влёта — "none"), наклон, свечение;
+    у других видов эти поля ничего не меняют. Кадр из TMDB (found/tmdb-<n>.jpg) — клип перебивки."""
+    broll = {"kind": "fullscreen", "src": "in/uploads/upload-b1.mp4", "t0": 7.0, "t1": 8.5, "caption": "Локи"}
+    sticker = {"kind": "image", "src": "in/uploads/upload-i1.png", "t0": 2.0, "t1": 3.0, "x": 100, "y": 300, "w": 300,
+               "params": {"cutout": True, "enter": "left"}}
+    edit = {**TEXT_EDIT, "inserts": [sticker, broll]}
+    timeline = {"rev": 1, "edits": [], "text": {"inserts": [
+        {"at": [7.0, 8.5], "caption": "Том Хиддлстон", "src": "found/tmdb-3.jpg"},
+        {"at": [2.0, 3.0], "enter": "right", "tilt": -8, "glow": True, "caption": "не сюда"}]}}
+    out = edits.apply(edit, timeline, 9)
+    assert out["inserts"][1] == {**broll, "caption": "Том Хиддлстон", "src": "found/tmdb-3.jpg"}
+    assert out["inserts"][0] == {**sticker, "params": {"cutout": True, "enter": "right", "tilt": -8, "glow": True}}
+    plain = edits.apply(edit, {"rev": 1, "edits": [], "text": {"inserts": [{"at": [7.0, 8.5], "caption": ""},
+                                                                          {"at": [2.0, 3.0], "enter": "none", "glow": False}]}}, 9)
+    assert "caption" not in plain["inserts"][1] and plain["inserts"][0]["params"] == {"cutout": True}
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    job.write("timeline.json", timeline)
+    for bad in ({"caption": "x" * 41}, {"enter": "up"}, {"tilt": 30}, {"glow": 1}, {"src": "found/../job.json"}):
+        with pytest.raises(ValueError):
+            job.write("timeline.json", {"rev": 2, "edits": [], "text": {"inserts": [{"at": [7.0, 8.5], **bad}]}})

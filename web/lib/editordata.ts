@@ -27,16 +27,19 @@ export const isMediaName = (x: string): boolean => (MEDIA_NAMES as readonly stri
  *  кусков (фаза 4), `text` — текст и вставки, слова субтитров (фаза 5), `picture` — сила зума, ч/б-куски, переходы и
  *  затемнение фона, `track` — другой трек музыки, `card` — текст финальной карточки, `video` — скорость ролика и тизер,
  *  `place` — место вставок и акцентов на кадре (фаза 5в), `looks` — свои куски ч/б и фильтров Павла, края и фильтр
- *  кусков сессии, `broll` — клип, момент, вид и звук перебивки. */
+ *  кусков сессии, `broll` — клип, момент, вид и звук перебивки, `effects` — эффекты разбора руками (дорожка «Эффекты»). */
 export type Abilities = {
   edits: boolean; move: boolean; text: boolean; picture: boolean; track: boolean; card: boolean; video: boolean; place: boolean;
   looks: boolean; // свои куски ч/б и фильтров, края и фильтр кусков сессии
   broll: boolean; // перебивка руками: клип, момент клипа, вид, звук клипа
   tear: boolean; // приёмы формата разбора: переходы «рваная бумага» и «глитч», клип в окошке
+  // эффекты разбора руками: сдвиг и свои переходы, поднятые субтитры, подпись перебивки, кадр TMDB клипом, влёт, наклон и
+  // свечение стикера
+  effects: boolean;
 };
 export const ENGINE_SCHEMA = 'engine/vm/schemas/timeline.json';
-const ALL: Abilities = { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: true, broll: true, tear: true };
-const NONE: Abilities = { edits: false, move: false, text: false, picture: false, track: false, card: false, video: false, place: false, looks: false, broll: false, tear: false };
+const ALL: Abilities = { edits: true, move: true, text: true, picture: true, track: true, card: true, video: true, place: true, looks: true, broll: true, tear: true, effects: true };
+const NONE: Abilities = { edits: false, move: false, text: false, picture: false, track: false, card: false, video: false, place: false, looks: false, broll: false, tear: false, effects: false };
 
 /**
  * Что Павел правит в редакторе. `editable` — правки сохраняются (у задачи есть черновик, сессия не работает, её движок
@@ -53,7 +56,7 @@ export function editorGates(editable: boolean, mounted: boolean, a: Abilities = 
     // старый движок кусков руками не знает — только убрать и вернуть кусок сессии, после монтажа
     looks: editable && (a.looks || (mounted && a.picture)), lookHand: editable && a.looks,
     speed: after && a.video, teaser: after && a.video, text: after && a.text, card: after && a.card, place: after && a.text && a.place,
-    broll: after && a.text && a.broll,
+    broll: after && a.text && a.broll, effects: after && a.picture && a.effects,
   };
 }
 
@@ -72,6 +75,7 @@ export function abilitiesOf(schema: string | null): Abilities {
       place: 'x' in (text.inserts?.items?.properties ?? {}),
       looks: 't0' in ((props.looks as { items?: { properties?: object } } | undefined)?.items?.properties ?? {}),
       broll: 'layout' in (text.inserts?.items?.properties ?? {}),
+      effects: 'subPlaces' in props,
       tear: ((props.transitions as { items?: { properties?: { kind?: { enum?: string[] } } } } | undefined)?.items?.properties?.kind?.enum ?? []).includes('tear'),
     };
   } catch {
@@ -105,6 +109,11 @@ export function refusedBy(a: Abilities, hand: HandEdits): string | null {
   if (!a.tear && hand.text?.inserts?.some((f) => f.layout === 'window')) {
     return 'Эта задача создана до клипа в окошке: её движок его не примет — выбери «На весь кадр» или «Лицо в окошке»';
   }
+  const handEffects = (hand.transitions ?? []).some((f) => f.at === undefined || f.t !== undefined) || hand.subPlaces !== undefined
+    || (hand.text?.inserts ?? []).some((f) => f.caption !== undefined || f.enter !== undefined || f.tilt !== undefined || f.glow !== undefined || f.src?.startsWith('found/'));
+  if (!a.effects && handEffects) {
+    return 'Эта задача создана до дорожки «Эффекты»: её движок не примет сдвиг и свои переходы, поднятые субтитры, подпись перебивки, кадр TMDB и движение стикера — они здесь меняются через «Поправить»';
+  }
   if (!a.broll && hand.text?.inserts?.some((f) => f.src !== undefined || f.from !== undefined || f.layout !== undefined || f.audio !== undefined)) {
     return 'Эта задача создана до перебивок в редакторе: её движок не примет другой клип, момент, вид или звук перебивки — они здесь меняются через «Поправить»';
   }
@@ -115,15 +124,28 @@ export function refusedBy(a: Abilities, hand: HandEdits): string | null {
  *  релиза, картинка — /upload; прокси ещё нет — null). */
 export type BrollClip = { src: string; name: string; video: boolean; url: string | null };
 
-/** Перебивки задачи по job.json и ассетам релиза (out/released.json). */
-export function brollClips(id: string, files: { job?: { uploads?: { file: string; name: string; kind?: string }[] } | null; released: Released | null } | null): BrollClip[] {
-  return (files?.job?.uploads ?? []).flatMap((u): BrollClip[] => {
+/** Кадры TMDB задачи (found/tmdb.json от vm tmdb): путь, вид (кадр фильма или фото актёра); не та форма — пусто. */
+export function parseStills(raw: unknown): { file: string; kind: string }[] {
+  const files = (raw as { files?: unknown } | null)?.files;
+  if (!Array.isArray(files)) return [];
+  return files.filter((f): f is { file: string; kind: string } => typeof f?.file === 'string' && /^found\/tmdb-\d{1,2}\.jpg$/.test(f.file)
+    && typeof f.kind === 'string').map((f) => ({ file: f.file, kind: f.kind }));
+}
+
+/** Перебивки задачи по job.json и ассетам релиза (out/released.json); за ними — кадры TMDB (`stills`: картинки из ветки,
+ *  `name` — «TMDB · <n>» и вид). */
+export function brollClips(id: string, files: { job?: { uploads?: { file: string; name: string; kind?: string }[] } | null; released: Released | null } | null,
+  stills: readonly { file: string; kind: string }[] = [], head: string | null = null): BrollClip[] {
+  const found = stills.map((s): BrollClip => ({
+    src: s.file, name: `TMDB ${/(\d+)\.jpg$/.exec(s.file)?.[1] ?? ''} · ${s.kind === 'photo' ? 'фото' : 'кадр'}`, video: false, url: layerUrl(id, head, s.file),
+  }));
+  return [...(files?.job?.uploads ?? []).flatMap((u): BrollClip[] => {
     const name = /^in\/uploads\/([^/]+)$/.exec(u.file)?.[1];
     if (u.kind !== 'broll' || !name) return [];
     if (isUploadPicture(name)) return [{ src: u.file, name: u.name, video: false, url: `/api/jobs/${id}/upload?name=${encodeURIComponent(name)}` }];
     const proxy = brollProxy(u.file);
     return [{ src: u.file, name: u.name, video: true, url: proxy && mediaAsset(files, proxy) ? `/api/jobs/${id}/media?name=${proxy}` : null }];
-  });
+  }), ...found];
 }
 
 export type EditorData = {
@@ -143,7 +165,7 @@ export type EditorData = {
   beats: BeatsFile | null; // доли музыки (beats.json от vm render): вставки и зум встают на них, как в ролике
   library: string[]; // треки библиотеки в ветке задачи (assets/music/…): другой трек — из них
   rev: number; // ревизия timeline.json в ветке (нет — 0): от неё сохраняется следующая
-  brolls: BrollClip[]; // перебивки задачи (job.json.uploads, kind broll): клип на замену и его видео для плеера
+  brolls: BrollClip[]; // перебивки задачи (job.json.uploads, kind broll) и кадры TMDB: клип на замену и его видео для плеера
   brandLook: BrandLook | null; // «Мой стиль» из копии бренда задачи: до монтажа стиль начинается с него, как на «Превью»
   // пока Claude монтирует новый стиль из редактора (или этот монтаж сорвался) — прошлый выбор (fix.json, styleFrom): ролик
   // ещё в нём, и новый ляжет поверх него (vm style --onto); иначе — null
@@ -221,9 +243,10 @@ export async function loadEditor(gh: GH, id: string): Promise<EditorData | null>
   if (!loaded) return null;
   const f = loaded.files;
   const head = f?.head ?? null;
-  const [edit, editor, timeline, beats, schema] = head
-    ? await Promise.all([...['edit.json', 'editor.json', TIMELINE, 'beats.json'].map((name) => readJobText(gh, id, head, name)), readText(gh, head, ENGINE_SCHEMA)])
-    : [null, null, null, null, null];
+  const [edit, editor, timeline, beats, found, schema] = head
+    ? await Promise.all([...['edit.json', 'editor.json', TIMELINE, 'beats.json', 'found/tmdb.json'].map((name) => readJobText(gh, id, head, name)),
+      readText(gh, head, ENGINE_SCHEMA)])
+    : [null, null, null, null, null, null];
   const library = head ? await musicLibrary(gh, head) : [];
   const media = parseMedia(json(editor));
   return {
@@ -242,7 +265,7 @@ export async function loadEditor(gh: GH, id: string): Promise<EditorData | null>
     beats: parseBeats(json(beats)),
     library,
     ...timelineOf(timeline),
-    brolls: brollClips(id, f),
+    brolls: brollClips(id, f, parseStills(json(found)), head),
     brandLook: parseLook(f?.job?.brand?.look),
     // монтирует правку или она сорвалась — ролик ещё в прошлом стиле; вышла новая версия (result) — уже в новом
     styleFrom: loaded.view.screen === 'working' || (loaded.view.screen === 'error' && loaded.view.step === 'fix')

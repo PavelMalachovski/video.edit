@@ -9,7 +9,7 @@ import {
   type TransitionFix, type TransitionRef, type WordFix,
 } from './edits.ts';
 import type { StyleSpec } from './jobfiles.ts';
-import { FPS, frameOf, hookEnd, insertSpans, layerBlocks, renderTimeline, type AccentSpec, type InsertSpec, type OverlayEdit } from './overlay.ts';
+import { FPS, frameOf, hookEnd, insertSpans, layerBlocks, renderTimeline, silencedSpans, type AccentSpec, type InsertSpec, type OverlayEdit } from './overlay.ts';
 import { roundHalfEven } from './pyround.ts';
 import { DEFAULT_MUSIC_DB } from './sound.ts';
 import { subBlocks } from './subs.ts';
@@ -323,7 +323,7 @@ export function draftTracks(d: Draft, { style = PLAIN, sourceDuration, splits = 
 
   // субтитры — группы, как их покажет ролик (слова акцентов — не в них); у слова — время из edit.json и текст сессии
   const sessionText = new Map(d.words.map((w) => [`${w.t0}|${w.t1}`, w.text]));
-  const hidden = (layer.accents ?? []).map((a) => [Number(a.t0), Number(a.t1)]);
+  const hidden = silencedSpans(layer, tl); // и слова под подписью перебивки
   const subtitles: Clip[] = subBlocks(layer.words ?? [], tl, style.subtitles.mode, style.subtitles.words, hidden).map((b) => {
     const words = b.words.map((w) => (layer.words ?? [])[w.i]);
     return {
@@ -510,6 +510,15 @@ export function tearAt(t: Tracks, at: number, reach = TEAR_REACH): number | null
   return near[0] ?? null;
 }
 export const TEAR_REACH = 1.5; // с — так далеко от перебивки разрыв ещё прилипает к её началу
+
+/** Куда встанет глитч у момента `t` ролика: на ближайшую склейку кусков (стык сцен) не дальше `reach` с; рядом склейки
+ *  нет — туда, куда поставили. */
+export function glitchAt(t: Tracks, at: number, reach = GLITCH_REACH): number {
+  const joins = t.video.filter((c, i) => i > 0 && c.kind === 'piece').map((c) => c.t0);
+  const near = joins.filter((j) => Math.abs(j - at) <= reach).sort((a, b) => Math.abs(a - at) - Math.abs(b - at));
+  return near[0] ?? at;
+}
+export const GLITCH_REACH = 0.5; // с — так далеко от склейки глитч ещё прилипает к ней
 
 /** Где разрезать по плейхеду `at` (время ролика): момент исходника внутри куска (не у самого края); в тизере, у края
  *  или мимо кусков — null. */

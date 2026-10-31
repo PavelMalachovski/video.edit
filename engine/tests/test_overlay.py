@@ -234,6 +234,19 @@ def test_a_fullscreen_caption_is_drawn_by_the_template_and_replaces_subtitles():
     assert "caption" not in at(events, 4.5) and "caption" not in at(events, 6.5)
 
 
+def test_subtitles_after_a_caption_start_a_new_phrase_instead_of_its_middle():
+    # слова, сказанные, пока видна подпись перебивки (и после её конца — перебивка держится 1,5 с), в субтитрах не нужны:
+    # после подписи субтитры — с первого слова после неё, новой группой, а не с середины старой
+    words = [{"t0": 1.5, "t1": 1.9, "text": "Это"}, {"t0": 2.0, "t1": 2.5, "text": "Эдриан"}, {"t0": 2.55, "t1": 2.9, "text": "Броуди"},
+             {"t0": 3.0, "t1": 3.2, "text": "и"}, {"t0": 3.25, "t1": 3.4, "text": "он"}, {"t0": 3.6, "t1": 4.2, "text": "гений."}]
+    edit = make_edit(words=words, inserts=[fullscreen(2.0, 2.9, caption="Эдриан Броуди")])
+    events = build_overlay_events(edit, timeline(edit))
+    assert at(events, 2.5) == {"caption": {"text": "Эдриан Броуди"}}
+    after = at(events, 3.7)["sub"]
+    assert after["words"][0] == "гений.", after  # «и он» сказаны под подписью
+    assert "Это" in at(events, 1.7)["sub"]["words"]
+
+
 def test_anim_insert_changes_every_frame():
     edit = make_edit(inserts=[{"kind": "anim", "t0": 4.0, "t1": 5.5, "x": 100, "y": 300, "w": 384, "params": {"name": "bachata"}}])
     events = build_overlay_events(edit, timeline(edit))
@@ -468,6 +481,14 @@ def test_accent_shows_its_words_instead_of_subtitles():
     assert "чтобы" not in shown and "выглядеть" not in shown, "слова акцента в субтитры не идут"
     assert at(events, 2.55)["sub"]["words"] == ["плохо."]
     assert at(events, 1.7)["sub"]["words"] == ["Я", "покупаю", "вещи,"]
+
+
+def test_accent_of_a_breakdown_keeps_its_lines_centred():
+    # разбор: строки ударной фразы по центру (stack: center) — шаблон рисует их без лесенки; у обычного акцента поля нет
+    edit = make_edit(words=SIX, style=SOFT_STYLE, accents=[accent(1.9, 2.4, "чтобы", "выглядеть", stack="center")])
+    assert at(build_overlay_events(edit, timeline(edit)), 2.2)["accent"]["stack"] == "center"
+    plain = make_edit(words=SIX, style=SOFT_STYLE, accents=[accent(1.9, 2.4, "чтобы", "выглядеть")])
+    assert "stack" not in at(build_overlay_events(plain, timeline(plain)), 2.2)["accent"]
 
 
 def test_accent_lines_appear_with_their_words():

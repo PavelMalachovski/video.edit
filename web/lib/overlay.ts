@@ -27,7 +27,10 @@ const DONE = 99.0; // возраст строки, анимация которо
 const WORD_SLACK = 0.05;
 
 export type AccentLine = { text: string; size?: string; color?: string };
-export type AccentSpec = { t0: number; t1: number; x: number; y: number; lines: AccentLine[]; anim?: string | null; out?: string | null };
+export type AccentSpec = {
+  t0: number; t1: number; x: number; y: number; lines: AccentLine[]; anim?: string | null; out?: string | null;
+  stack?: 'ladder' | 'center'; // center — строки по центру (разбор), иначе лесенкой
+};
 export type InsertSpec = {
   kind: string; t0: number; t1: number; src?: string; text?: string; title?: string; x?: number | null; y?: number | null; w?: number | null;
   params?: Record<string, unknown>;
@@ -194,9 +197,21 @@ export function stateAt(events: readonly LayerEvent[], t: number): Record<string
   return i < 0 ? {} : events[i].state;
 }
 
+/** Промежутки исходника, слов которых нет в группах субтитров (overlay._silenced): слова акцентных фраз и слова, сказанные,
+ *  пока видна подпись перебивки, — после них субтитры начинают новую фразу. */
+export function silencedSpans(edit: OverlayEdit, tl: Timeline): [number, number][] {
+  const out: [number, number][] = (edit.accents || []).map((a) => [Number(a.t0), Number(a.t1)]);
+  const inserts = edit.inserts || [];
+  for (const [i, start, stop] of insertSpans(edit, tl)) {
+    const ins = inserts[i] as { kind: string; caption?: string };
+    if (ins.kind === 'fullscreen' && ins.caption) out.push([tl.toSource(start / FPS), tl.toSource((stop - 1) / FPS) + tl.speed / FPS]);
+  }
+  return out;
+}
+
 function subtitlePieces(edit: OverlayEdit, tl: Timeline): Piece[] {
   const style = edit.style.subtitles;
-  const hidden = (edit.accents || []).map((a) => [Number(a.t0), Number(a.t1)]);
+  const hidden = silencedSpans(edit, tl);
   const soft = style.mode === 'soft';
   // свои места субтитров (формат разбора: над головой на своих фразах) — кадры финала фразы и высота
   const places = (edit.subPlaces || []).map((p) => {
@@ -284,7 +299,7 @@ function accentPieces(edit: OverlayEdit, tl: Timeline, subStarts: number[]): Pie
     const leave = out !== 'cut' ? Math.max(stop - ACCENT_LEAVE, start + 1) : stop;
     const ends = moving.slice(0, lines.length).map(([, b]) => b);
     if (leave < stop) moving.push([leave, stop]);
-    const value = { lines, x: accent.x, y: accent.y, anim, out };
+    const value = { lines, x: accent.x, y: accent.y, anim, out, ...(accent.stack === 'center' ? { stack: 'center' } : {}) }; // разбор: без лесенки
     return { start, stop, key: 'accent', value, accent: { frames, ends, leave, moving }, n: (edit.accents || []).indexOf(accent) };
   });
 }

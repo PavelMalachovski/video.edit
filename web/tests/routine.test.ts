@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fireRoutine, fireText, RoutineError, STEPS, type Routine, type Step } from '../lib/routine.ts';
+import { FIRE_STEPS, fireRoutine, fireText, RoutineError, STEPS, type Routine, type Step } from '../lib/routine.ts';
 import { routine } from '../lib/env.ts';
 
 type Call = { url: string; init?: RequestInit };
@@ -76,4 +76,5 @@ test('unknown step is refused before any request', async () => {
   await assert.rejects(fireRoutine(r, '261010-070509-abcd', 'spike' as Step, 1));
   assert.equal(calls.length, 0);
   assert.deepEqual([...STEPS], ['analyze', 'restyle', 'render', 'fix']);
+  assert.deepEqual([...FIRE_STEPS], [...STEPS, 'stills'], 'поиск кадров — свой короткий запуск');
 });

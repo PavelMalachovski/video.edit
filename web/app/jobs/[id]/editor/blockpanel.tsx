@@ -5,6 +5,7 @@
 import { useEffect, useId, useState } from 'react';
 import { applyFields, blockTarget, fieldFonts, fieldKey, fieldProblem, TEXTUAL, textFields, type BlockField, type FieldCheck, type TextTarget } from '@/lib/blocktext.ts';
 import type { BrollClip } from '@/lib/editordata.ts';
+import { STILLS_MAX, type StillsAsk, type StillsState } from '@/lib/stills.ts';
 import {
   blockFix, blockPlace, LIMITS, setBlock, setCta, setEnd, setHook, setWord, STICKER_ENTERS, type BrollLayout, type HandEdits, type InsertFix, type Place, type StickerEnter,
 } from '@/lib/edits.ts';
@@ -148,11 +149,61 @@ function PlaceControls({ T, kind, now, moved, placing }: { T: TFn; kind: 'insert
   );
 }
 
+/** «Найти ещё кадры» в TMDB: фильм, персонаж, актёр (как у разбора задачи или прошлого запроса) → поиск сессией; пока
+ *  идёт — «Ищу кадры», новые встанут в список клипов сами. */
+export type Stills = { state: StillsState; onAsk: (ask: StillsAsk) => Promise<string | null> };
+function StillsSearch({ T, stills }: { T: TFn; stills: Stills }) {
+  const id = useId();
+  const [open, setOpen] = useState(false);
+  const [ask, setAsk] = useState<StillsAsk>(stills.state.ask);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { pending } = stills.state;
+  if (!stills.state.can) return null;
+  const field = (k: keyof StillsAsk, label: string) => (
+    <label className="ed-field" htmlFor={`${id}-${k}`}>
+      <span className="ed-range-name">{label}</span>
+      <input id={`${id}-${k}`} type="text" maxLength={STILLS_MAX} value={ask[k] ?? ''} disabled={busy || pending}
+        onChange={(e) => setAsk({ ...ask, [k]: e.target.value })} />
+    </label>
+  );
+  return (
+    <div className="ed-stills" data-stills="">
+      {pending ? <p className="ed-note ed-flag" role="status">{T('stillsPending')}</p> : null}
+      {!pending && stills.state.error ? <p className="ed-note ed-flag bad">{T('stillsFailed', { e: stills.state.error })}</p> : null}
+      {!open ? (
+        <button type="button" className="ed-btn" disabled={pending} onClick={() => setOpen(true)}>{T('stillsMore')}</button>
+      ) : (
+        <form onSubmit={(e) => {
+          e.preventDefault();
+          setBusy(true);
+          setError(null);
+          void stills.onAsk(ask).then((err) => {
+            setBusy(false);
+            setError(err);
+            if (!err) setOpen(false);
+          });
+        }}>
+          {field('film', T('stillsFilm'))}
+          {field('name', T('stillsName'))}
+          {field('actor', T('stillsActor'))}
+          <div className="ed-btns">
+            <button type="submit" className="ed-btn" disabled={busy || pending || !ask.film.trim()}>{T('stillsGo')}</button>
+            <button type="button" className="ed-btn" onClick={() => setOpen(false)}>{T('stillsCancel')}</button>
+          </div>
+          {error ? <p className="ed-note ed-flag bad" role="alert">{error}</p> : null}
+        </form>
+      )}
+    </div>
+  );
+}
+
 /** Перебивка (вставка fullscreen): какой клип из перебивок Павла, с какой секунды клипа, вид (на весь кадр или лицо
  *  окошком), звук клипа тихим фоном. Правка — timeline.json → text.inserts (edits.apply_text: src, from, layout, audio). */
-function BrollControls({ T, now, brolls, windowed, onFix }: {
+function BrollControls({ T, now, brolls, windowed, onFix, stills }: {
   T: TFn; now: { src: string; from: number; layout: BrollLayout; audio: boolean }; brolls: readonly BrollClip[];
   windowed: boolean; // движок задачи знает клип в окошке (формат разбора)
+  stills?: Stills; // «Найти ещё кадры» (нет — движок задачи этого не знает)
   onFix: (fix: { src?: string; from?: number; layout?: BrollLayout; audio?: boolean }) => void;
 }) {
   const id = useId();
@@ -160,13 +211,18 @@ function BrollControls({ T, now, brolls, windowed, onFix }: {
   const video = brolls.find((b) => b.src === now.src)?.video ?? !/\.(png|jpe?g|webp|gif)$/i.test(now.src); // у картинки нет момента
   return (
     <div className="ed-broll" role="group" aria-label={T('fullscreenInsert')} data-broll="">
-      {brolls.length && own ? (
-        <label className="ed-field" htmlFor={`${id}-clip`}>
+      {brolls.length && own ? ( // клипы — миниатюрами: картинка и кадр TMDB — сама картинка, видео — его имя
+        <div className="ed-clips" role="group" aria-label={T('brollClip')}>
           <span className="ed-range-name">{T('brollClip')}</span>
-          <select id={`${id}-clip`} value={now.src} onChange={(e) => onFix({ src: e.target.value })}>
-            {brolls.map((b) => <option key={b.src} value={b.src}>{b.name}</option>)}
-          </select>
-        </label>
+          <div className="ed-thumbgrid">
+            {brolls.map((b) => (
+              <button key={b.src} type="button" className="ed-thumb" aria-pressed={b.src === now.src} aria-label={b.name} title={b.name}
+                data-src={b.src} onClick={() => { if (b.src !== now.src) onFix({ src: b.src }); }}>
+                {!b.video && b.url ? <img src={b.url} alt="" loading="lazy" /> : <span>{b.name}</span>}
+              </button>
+            ))}
+          </div>
+        </div>
       ) : null}
       {video ? <label className="ed-field" htmlFor={`${id}-from`}>
         <span className="ed-range-name">{T('brollFrom')}</span>
@@ -184,6 +240,7 @@ function BrollControls({ T, now, brolls, windowed, onFix }: {
         ))}
         {video ? <button type="button" className="ed-toggle" aria-pressed={now.audio} onClick={() => onFix({ audio: !now.audio })}>{T('brollAudio')}</button> : null}
       </div>
+      {stills ? <StillsSearch T={T} stills={stills} /> : null}
       <p className="ed-note faint">{T('brollHint')}</p>
     </div>
   );
@@ -222,10 +279,11 @@ function StickerControls({ T, now, onFix }: {
   );
 }
 
-export function BlockPanel({ T, sel, tracks, draft, hand, editable, note, onEdit, sec, letters = NO_LETTERS, placing, brolls, windowed = true, effects = false }: {
+export function BlockPanel({ T, sel, tracks, draft, hand, editable, note, onEdit, sec, letters = NO_LETTERS, placing, brolls, windowed = true, effects = false, stills }: {
   T: TFn; sel: BlockSel; tracks: Tracks; draft: Draft; hand: HandEdits; editable: boolean;
   windowed?: boolean; // движок задачи знает клип в окошке (старый — не предлагаем)
   effects?: boolean; // движок задачи знает эффекты разбора руками: подпись перебивки, кадр TMDB, движение стикера
+  stills?: Stills; // «Найти ещё кадры» в панели перебивки
   note: string | null; // почему править нельзя (старый движок, ещё не смонтирован)
   onEdit: (next: HandEdits, key?: string) => void; sec: (s: number) => string; letters?: Letters;
   placing?: Placing; // место вставки и акцента на кадре (нет — не двигаются)
@@ -253,7 +311,7 @@ export function BlockPanel({ T, sel, tracks, draft, hand, editable, note, onEdit
           const now = { src: f.src ?? ins.src, from: f.from ?? ins.from ?? 0, layout: f.layout ?? ins.layout ?? 'full', audio: f.audio ?? ins.audio ?? false };
           // кадры TMDB (found/) — клипом, только если движок задачи их знает
           const clips = effects ? brolls : brolls.filter((b) => !b.src.startsWith('found/'));
-          fields.push(<BrollControls key="broll" T={T} now={now} brolls={clips} windowed={windowed}
+          fields.push(<BrollControls key="broll" T={T} now={now} brolls={clips} windowed={windowed} stills={effects ? stills : undefined}
             onFix={(next) => onEdit(setBlock(hand, 'inserts', ref.at, ref.occurrence, next))} />);
         }
         if (effects && editable) { // подпись перебивки: пусто — без подписи

@@ -28,6 +28,7 @@ IMG = "https://image.tmdb.org/t/p"
 STILLS = 12  # кадров из фильма
 PHOTOS = 6  # фото актёра
 SIZES = {"still": "w780", "photo": "h632"}
+MAX_FILES = 99  # found/tmdb-<n>.jpg — n в одну-две цифры (схема timeline.json, страница)
 EPISODE = "original"  # кадры серий у TMDB — только w92, w185, w300 и original; w300 для кадра 1080 мал
 SEASONS = 2  # кадры серий — из первых сезонов
 TIMEOUT = 20
@@ -204,17 +205,56 @@ def find(job: Job, token: str | None = None, get: Get = _get) -> dict:
         raise TmdbError(f"TMDB ответил не тем, что ждали ({e!r})") from e
 
 
-def _find(job: Job, token: str, get: Get, character: dict) -> dict:
+def find_more(job: Job, token: str | None = None, get: Get = _get) -> dict:
+    """«Найти ещё кадры» из редактора: запрос Павла `stills.json` (`film`, `name?`, `actor?`, `at`) — тот же поиск, новые
+    картинки — после найденных раньше (их номера не меняются: на них уже стоят перебивки), повторы прежних не
+    скачиваются; `found/tmdb.json.request` — `at` запроса (по нему редактор видит, что поиск сделан). Любой задачи."""
+    request = job.read("stills.json") if job.path("stills.json").exists() else None
+    if not isinstance(request, dict) or not str(request.get("film") or "").strip():
+        raise TmdbError("нет запроса stills.json с фильмом: искать нечего")
+    character = {k: str(request[k]).strip() for k in ("film", "name", "actor") if str(request.get(k) or "").strip()}
+    old = json.loads(job.path("found/tmdb.json").read_text(encoding="utf-8")) if job.path("found/tmdb.json").exists() else {}
+    old.pop("error", None)
+    files = [f for f in old.get("files") or [] if job.path(f.get("file", "")).is_file()]
+    token = token or os.environ.get("TMDB_TOKEN")
+    if not token:
+        _mark(job, old, files, request.get("at"), "нет TMDB_TOKEN в окружении рутины")
+        raise TmdbError("нет TMDB_TOKEN в окружении рутины — кадры из фильма загрузите сами")
+    seen = []
+    for f in files:
+        try:
+            seen.append(_print(job.path(f["file"]).read_bytes()))
+        except (OSError, ValueError):
+            continue
+    try:
+        return _find(job, token, get, character, files=files, seen=seen, request=request.get("at"))
+    except (KeyError, TypeError, IndexError) as e:  # ответ не той формы
+        _mark(job, old, files, request.get("at"), f"TMDB ответил не тем, что ждали ({e!r})")
+        raise TmdbError(f"TMDB ответил не тем, что ждали ({e!r})") from e
+    except TmdbError as e:
+        _mark(job, old, files, request.get("at"), str(e))
+        raise
+
+
+def _mark(job: Job, old: dict, files: list[dict], at: str | None, why: str) -> None:
+    """Поиск «ещё» сорвался: отметка запроса и почему — редактор перестаёт ждать; прежние кадры — те же."""
+    job.path("found").mkdir(parents=True, exist_ok=True)
+    marked = {**old, "files": files, "request": at, "error": why}
+    job.path("found/tmdb.json").write_text(json.dumps(marked, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+
+
+def _find(job: Job, token: str, get: Get, character: dict, files: list[dict] | None = None, seen: list[int] | None = None,
+          request: str | None = None) -> dict:
     title = _title(get, token, character["film"])
     person = _person(get, token, title, character)
     out = job.path("found")
     out.mkdir(parents=True, exist_ok=True)
-    files: list[dict] = []
-    seen: list[int] = []  # отпечатки скачанного: та же картинка в другом размере или с другим языком — повтор
+    files = list(files or [])  # найденные раньше («Найти ещё») — первыми, их номера те же
+    seen = list(seen or [])  # отпечатки скачанного: та же картинка в другом размере или с другим языком — повтор
     for kind, candidates, limit in (("still", _stills(get, token, title, person), STILLS), ("photo", _photos(get, token, person), PHOTOS)):
         taken = 0
         for source, size in candidates[: 3 * limit]:  # повторы отсеиваются — кандидатов с запасом
-            if taken == limit:
+            if taken == limit or len(files) >= MAX_FILES:
                 break
             try:
                 data = get(f"{IMG}/{size}{source}", None)  # картинки — с CDN, без токена
@@ -225,12 +265,12 @@ def _find(job: Job, token: str, get: Get, character: dict) -> dict:
                 continue
             seen.append(mark)
             taken += 1
-            n = len(files) + 1
+            n = max([0, *(int(re.sub(r"\D", "", Path(f["file"]).stem) or 0) for f in files)]) + 1
             path = out / f"tmdb-{n}.jpg"
             width, height = _save(data, path)
             files.append({"file": f"found/tmdb-{n}.jpg", "kind": kind, "source": source, "width": width, "height": height})
     found = {"title": {k: title[k] for k in ("kind", "id", "name")}, "person": person, "files": files,
-             "sheet": _sheet(job, files)}
+             "sheet": _sheet(job, files), **({"request": request} if request else {})}
     job.path("found/tmdb.json").write_text(json.dumps(found, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     return found
 

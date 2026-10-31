@@ -126,12 +126,24 @@ def _frame(t: float) -> int:
     return round(t * FPS)
 
 
+def _silenced(edit: dict, tl: Timeline) -> list[tuple[float, float]]:
+    """Промежутки исходника, слов которых нет в группах субтитров: слова акцентных фраз (их показывает акцент) и слова,
+    сказанные, пока видна подпись перебивки (от её первого кадра до последнего, — она вместо субтитров): после них
+    субтитры начинают новую фразу, а не продолжают старую с середины."""
+    out = [(float(a["t0"]), float(a["t1"])) for a in edit.get("accents") or []]
+    inserts = edit.get("inserts") or []
+    for i, start, stop in insert_spans(edit, tl):
+        if inserts[i]["kind"] == "fullscreen" and inserts[i].get("caption"):
+            out.append((tl.to_source(start / FPS), tl.to_source((stop - 1) / FPS) + tl.speed / FPS))
+    return out
+
+
 def _subtitles(edit: dict, tl: Timeline) -> list[_Piece]:
-    """Субтитры без слов акцентных фраз (их показывает акцент); у soft — строки блока и появление новой строки; блок,
+    """Субтитры без слов акцентных фраз и подписей перебивок (`_silenced`); у soft — строки блока и появление новой строки; блок,
     который начинается внутри фразы `edit.subPlaces`, — на её высоте `y` (`sub.y`; нет — высота стиля)."""
     spoken = [Word(w["t0"], w["t1"], w["text"]) for w in edit.get("words") or []]
     style = edit["style"]["subtitles"]
-    hidden = [(float(a["t0"]), float(a["t1"])) for a in edit.get("accents") or []]
+    hidden = _silenced(edit, tl)
     soft = style["mode"] == "soft"
     # свои места субтитров (формат разбора: над головой на своих фразах) — кадры финала фразы и высота
     places = [(*(_frame(t) for t in tl.span(float(p["t0"]), float(p["t1"]))), p["y"]) for p in edit.get("subPlaces") or []]
@@ -209,6 +221,8 @@ def _accents(edit: dict, tl: Timeline, sub_starts: list[int]) -> list[_Piece]:
         if leave < stop:
             moving.append((leave, stop))
         value = {"lines": lines, "x": accent["x"], "y": accent["y"], "anim": anim, "out": out}
+        if accent.get("stack") == "center":  # разбор: строки по центру, без лесенки
+            value["stack"] = "center"
         info = {"frames": frames, "ends": [b for _, b in moving[: len(lines)]], "leave": leave, "moving": moving}
         pieces.append(_Piece(start, stop, "accent", value, accent=info))
     return pieces

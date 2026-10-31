@@ -202,3 +202,58 @@ def test_a_huge_episode_still_is_kept_at_most_1280_px(tmp_path):
     big = next(f for f in found["files"] if f["source"] == "/e1.jpg")
     assert (big["width"], big["height"]) == (1280, 720)
     assert any("/original/e1.jpg" in u for u in api.asked), "кадры серий — в original: других больших размеров у них нет"
+
+
+def test_more_stills_by_pavels_request_are_added_after_the_found_ones(tmp_path):
+    # «Найти ещё кадры» из редактора (stills.json): тот же поиск по запросу Павла, новые картинки — после прежних (их
+    # номера не меняются: перебивки уже стоят на них), повторы прежних не скачиваются; отметка запроса — в tmdb.json
+    job = job_with(tmp_path, {"film": "Локи", "name": "Локи"})
+    api = FakeApi(LOKI)
+    first = tmdb.find(job, "secret", api)
+    before = [f["file"] for f in first["files"]]
+    job.write("stills.json", {"film": "Локи", "actor": "Tom Hiddleston", "at": "2026-10-31T08:00:00Z"})
+    more = FakeApi({**LOKI, "/search/person": {"results": [{"id": 91606, "name": "Tom Hiddleston", "popularity": 30}]},
+                    "/person/91606/tagged_images": {"results": [
+                        {"file_path": "/t1.jpg", "image_type": "backdrop", "media_type": "tv", "media": {"id": 84958}},  # уже есть
+                        {"file_path": "/t9.jpg", "image_type": "backdrop", "media_type": "tv", "media": {"id": 84958}}]}})
+    found = tmdb.find_more(job, "secret", more)
+    files = [f["file"] for f in found["files"]]
+    assert files[: len(before)] == before, "прежние — на своих местах"
+    assert files[len(before)] == f"found/tmdb-{len(before) + 1}.jpg"
+    assert sum(f["source"] == "/t1.jpg" for f in found["files"]) == 1, "повтор не скачан"
+    assert any(f["source"] == "/t9.jpg" for f in found["files"])
+    assert found["request"] == "2026-10-31T08:00:00Z"
+    assert json.loads(job.path("found/tmdb.json").read_text())["request"] == "2026-10-31T08:00:00Z"
+    assert all(job.path(f).exists() for f in files)
+    assert len(found["files"]) <= tmdb.MAX_FILES
+
+
+def test_more_stills_need_a_request_and_any_job_can_ask(tmp_path):
+    job = Job(tmp_path / "jobs" / "abc")
+    job.root.mkdir(parents=True)
+    job.write("job.json", {"id": "abc", "brief": "", "runs": [], "uploads": []})  # обычный ролик, не разбор
+    with pytest.raises(tmdb.TmdbError, match="stills.json"):
+        tmdb.find_more(job, "secret", FakeApi(LOKI))
+    job.write("stills.json", {"film": "Локи", "at": "2026-10-31T08:00:00Z"})
+    found = tmdb.find_more(job, "secret", FakeApi(LOKI))
+    assert found["files"] and found["files"][0]["file"] == "found/tmdb-1.jpg"
+
+
+def test_vm_tmdb_more_without_a_request_says_so_and_does_not_fail(tmp_path, capsys):
+    from vm.__main__ import main
+
+    job = job_with(tmp_path, {"film": "Локи"})
+    main(["tmdb", str(job.root), "--more"])
+    assert "stills.json" in capsys.readouterr().out
+
+
+def test_a_failed_more_search_still_marks_the_request_with_why(tmp_path):
+    # без отметки запроса редактор ждал бы кадров вечно: сорвался поиск — отметка и почему, прежние кадры на месте
+    job = job_with(tmp_path, {"film": "Локи", "name": "Локи"})
+    before = tmdb.find(job, "secret", FakeApi(LOKI))["files"]
+    job.write("stills.json", {"film": "Несуществующий фильм", "at": "2026-10-31T09:00:00Z"})
+    with pytest.raises(tmdb.TmdbError):
+        tmdb.find_more(job, "secret", FakeApi({"/search/movie": {"results": []}, "/search/tv": {"results": []}}))
+    marked = json.loads(job.path("found/tmdb.json").read_text())
+    assert marked["request"] == "2026-10-31T09:00:00Z" and marked["error"]
+    assert marked["files"] == before

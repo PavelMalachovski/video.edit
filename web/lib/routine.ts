@@ -4,6 +4,10 @@
 
 export type Step = 'analyze' | 'restyle' | 'render' | 'fix';
 export const STEPS: readonly Step[] = ['analyze', 'restyle', 'render', 'fix'];
+/** Что запускает рутина: шаги задачи и короткий поиск кадров `stills` («Найти ещё кадры» из редактора: его нет в
+ *  job.json.runs, статус задачи он не трогает). */
+export type FireStep = Step | 'stills';
+export const FIRE_STEPS: readonly FireStep[] = [...STEPS, 'stills'];
 
 export type Routine = { id: string; token: string; api?: string; fetch?: typeof fetch };
 
@@ -17,7 +21,7 @@ export class RoutineError extends Error {
   }
 }
 
-export function fireText(job: string, step: Step, attempt: number): string {
+export function fireText(job: string, step: FireStep, attempt: number): string {
   return JSON.stringify({ job, step, attempt });
 }
 
@@ -32,8 +36,8 @@ function hide(text: string, token: string): string {
   return token ? text.split(token).join('***') : text;
 }
 
-export async function fireRoutine(r: Routine, job: string, step: Step, attempt: number): Promise<{ sessionId: string; sessionUrl: string }> {
-  if (!STEPS.includes(step)) throw new RoutineError(0, `Неизвестный шаг: ${String(step)}`);
+export async function fireRoutine(r: Routine, job: string, step: FireStep, attempt: number): Promise<{ sessionId: string; sessionUrl: string }> {
+  if (!FIRE_STEPS.includes(step)) throw new RoutineError(0, `Неизвестный шаг: ${String(step)}`);
   const api = r.api ?? 'https://api.anthropic.com';
   let response: Response;
   try {

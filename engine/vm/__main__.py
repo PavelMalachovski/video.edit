@@ -138,7 +138,8 @@ def _tmdb(args: argparse.Namespace) -> None:
     from . import tmdb
 
     try:
-        print(tmdb.summary(tmdb.find(_job(args))))
+        job = _job(args)
+        print(tmdb.summary(tmdb.find_more(job) if args.more else tmdb.find(job)))
     except tmdb.TmdbError as e:  # не беда для монтажа: перебивки Павла и лицо — без кадров TMDB
         print(f"TMDB: {e}")
 
@@ -584,7 +585,8 @@ def _parser() -> argparse.ArgumentParser:
     preview.add_argument("--dim", type=_dim, default=0.0, help="фон темнее на долю 0–0.8 (картинка к вопросу «Фон»)")
 
     command("broll", _broll, "перебивки (job.json uploads kind broll): лист кадров каждого клипа → look/, длина, звук и речь — сводка")
-    command("tmdb", _tmdb, "разбор персонажа: кадры фильма и фото актёра из TMDB → found/tmdb-<n>.jpg, found/tmdb.json, лист look/found.png")
+    tmdb_ = command("tmdb", _tmdb, "разбор персонажа: кадры фильма и фото актёра из TMDB → found/tmdb-<n>.jpg, found/tmdb.json, лист look/found.png")
+    tmdb_.add_argument("--more", action="store_true", help="«Найти ещё кадры» (шаг stills): по запросу stills.json, после найденных раньше")
 
     command("validate", _validate, "файлы задачи по схемам и файлы, на которые они ссылаются")
 

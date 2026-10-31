@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://video.edit/schemas/stills.json",
+  "title": "stills.json — «Найти ещё кадры» из редактора (пишет страница; шаг stills: vm tmdb --more)",
+  "type": "object",
+  "required": ["film", "at"],
+  "additionalProperties": false,
+  "properties": {
+    "film": { "description": "Фильм или сериал — как его назвал Павел.", "type": "string", "minLength": 1, "maxLength": 80 },
+    "name": { "description": "Персонаж (по нему ищется актёр в ролях); нет — без него.", "type": "string", "minLength": 1, "maxLength": 80 },
+    "actor": { "description": "Актёр; нет — по персонажу.", "type": "string", "minLength": 1, "maxLength": 80 },
+    "at": { "description": "Когда Павел попросил (ISO 8601): vm tmdb --more пишет его в found/tmdb.json.request — так редактор видит, что поиск сделан.", "type": "string", "format": "date-time" }
+  }
+}

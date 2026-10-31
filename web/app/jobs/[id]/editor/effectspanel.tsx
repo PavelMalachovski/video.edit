@@ -42,9 +42,10 @@ export function EffectsSection({ T, tracks, onAdd, note }: {
 
 /** Выбранные поднятые субтитры: высота на кадре, убрать или вернуть, «как у монтажа»; своё место — удалить. Края — тянут
  *  на дорожке. */
-export function PlacePick({ T, sel, tracks, hand, editable, note, onEdit, sec }: {
+export function PlacePick({ T, sel, tracks, hand, editable, note, onEdit, sec, onRemoved }: {
   T: TFn; sel: PlaceSel; tracks: Tracks; hand: HandEdits; editable: boolean; note: string | null;
   onEdit: (next: HandEdits, key?: string) => void; sec: (s: number) => string;
+  onRemoved?: () => void; // своё место удалено: номера своих сдвинулись — выбор снять
 }) {
   const ref = sel.ref;
   const p = tracks.places.find((x) => samePlace(x.ref, ref));
@@ -64,7 +65,7 @@ export function PlacePick({ T, sel, tracks, hand, editable, note, onEdit, sec }:
       </div>
       <div className="ed-btns">
         {'own' in ref ? (
-          <button type="button" className="ed-btn bad" disabled={!editable} onClick={() => onEdit(removePlace(hand, ref.own))}>{T('fxPlaceDelete')}</button>
+          <button type="button" className="ed-btn bad" disabled={!editable} onClick={() => { onEdit(removePlace(hand, ref.own)); onRemoved?.(); }}>{T('fxPlaceDelete')}</button>
         ) : (
           <button type="button" className={`ed-btn${p.off ? '' : ' bad'}`} disabled={!editable} onClick={() => onEdit(setPlaceOff(hand, ref.at, !p.off))}>
             {p.off ? T('fxPlaceOn') : T('fxPlaceOff')}

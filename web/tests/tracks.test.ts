@@ -1,11 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  clipAt, decodePeaks, draftTracks, findBlock, moveTarget, parseDraft, parseMedia, peakAt, slotAt, splitTarget, videoKey, withHandEdits, wordEdges, type Clip, type Draft,
+  clipAt, decodePeaks, draftTracks, findBlock, moveTarget, parseDraft, parseMedia, peakAt, slotAt, splitTarget, tearAt, videoKey, withHandEdits, wordEdges, type Clip, type Draft,
 } from '../lib/tracks.ts';
 import { setSound, setVoice } from '../lib/edits.ts';
 import { cutSpan, EMPTY, moveSpan, setMusic, splitAt } from '../lib/edits.ts';
 import { buildOverlayEvents, stateAt } from '../lib/overlay.ts';
+import { sourceSpan } from '../lib/blocks.ts';
 
 const near = (a: number, b: number) => Math.abs(a - b) < 1e-6;
 
@@ -475,4 +476,25 @@ test('effects of a breakdown on the tracks: a moved transition keeps its swoosh,
   ]);
   assert.deepEqual(t.layer.edit.subPlaces, [{ t0: 3.8, t1: 5, y: 300 }, { t0: 6, t1: 7, y: 360 }], 'слой — с правками Павла');
   assert.deepEqual(draftTracks(d).places.map((p) => [p.ref, p.off]), [[{ at: [1, 2] }, false], [{ at: [4, 5] }, false]]);
+});
+
+test('torn paper sticks to the start of the nearest full-frame B-roll; without one nearby there is no tear (transitions.tears)', () => {
+  const d: Draft = {
+    ...DRAFT, speed: 1, keep: [[0, 9]],
+    inserts: [{ kind: 'fullscreen', src: 'in/uploads/upload-b1.mov', t0: 3, t1: 4 }, { kind: 'fullscreen', src: 'in/uploads/upload-b2.mov', t0: 6, t1: 7, layout: 'window' }],
+  };
+  const t = draftTracks(d);
+  assert.equal(t.brollStarts.length, 1, 'клип в окошке разрыв не открывает');
+  const start = t.brollStarts[0];
+  assert.ok(start >= 3 && start <= 3.25, `начало перебивки (не под хуком): ${start}`);
+  assert.equal(tearAt(t, 2.2), start);
+  assert.equal(tearAt(t, 3.9), start);
+  assert.equal(tearAt(t, 5.5), null, 'дальше — перебивки рядом нет');
+  assert.equal(tearAt(t, 6.0), null, 'окошко — не перебивка для разрыва');
+  // разрыв, поставленный на её начало, ролик рисует (tearsOf), а у места — тот же блок без растяжки
+  const torn = draftTracks({ ...d, transitions: [{ t: sourceSpan(t.layer.tl, start, start)?.t0 ?? 0, kind: 'tear' }] });
+  assert.equal(torn.transitions.length, 1);
+  assert.deepEqual(torn.sounds.filter((s) => s.key?.startsWith('transition')), [], 'без звука — его и не было');
+  const short = draftTracks({ ...d, subPlaces: [{ t0: 1, t1: 1.1, y: 380 }] }).places[0];
+  assert.ok(short.t1 - short.t0 >= 0.3 - 1e-9 && Math.abs(short.core[1] - short.core[0] - 0.1) < 1e-6, 'на дорожке — шире, core — сама фраза');
 });

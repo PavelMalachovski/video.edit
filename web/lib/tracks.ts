@@ -14,7 +14,7 @@ import { roundHalfEven } from './pyround.ts';
 import { DEFAULT_MUSIC_DB } from './sound.ts';
 import { subBlocks } from './subs.ts';
 import type { Timeline } from './timeline.ts';
-import { lookWindows, tearsOf, transitionMarks, transitionSoundStarts, transitionWindow } from './zoom.ts';
+import { lookWindows, TEAR, tearsOf, transitionMarks, transitionSoundStarts, transitionWindow } from './zoom.ts';
 
 type Span = { t0: number; t1: number };
 export type DraftWord = Span & { text: string };
@@ -97,7 +97,8 @@ export type TransitionItem = { t: number; kind: string; was: string; ref: Transi
 /** Поднятые субтитры на дорожке «Эффекты» (время ролика): `ref` — какое место правят (сессии — по месту в edit.subPlaces,
  *  своё Павла — по номеру среди своих), `was` — место сессии (у своего — null), `src` и `y` — где оно сейчас, `off` —
  *  Павел его убрал (тень на месте сессии). */
-export type PlaceItem = Span & { ref: PlaceRef; was: { t0: number; t1: number; y: number } | null; src: [number, number]; y: number; off: boolean };
+export type PlaceItem = Span & { ref: PlaceRef; was: { t0: number; t1: number; y: number } | null; src: [number, number]; y: number; off: boolean;
+  core: [number, number] }; // core — где фраза в ролике (блок на дорожке — не короче 0,3 с, чтобы его было видно)
 export type Tracks = {
   duration: number; // длина ролика без хвоста (кусков), с
   tail: number; // после кусков — стоп-кадр (hold) и финальная карточка, с
@@ -113,6 +114,7 @@ export type Tracks = {
   transitions: TransitionItem[]; // переходы, и убранные Павлом
   places: PlaceItem[]; // поднятые субтитры (формат разбора), и убранные Павлом
   sounds: Clip[]; // звуки: появления вставок, стык тизера, переходы, карточка
+  brollStarts: number[]; // начала перебивок на весь кадр (не в окошке), с ролика: разрыв ведёт только в них (tearsOf)
   layer: Layer;
 };
 
@@ -415,9 +417,9 @@ export function draftTracks(d: Draft, { style = PLAIN, sourceDuration, splits = 
   // поднятые субтитры: места сессии (убранные — тенью там же), потом свои места Павла — как их сложит applyPlaces
   const sessionPlaces = d.subPlaces ?? [];
   const placeFixes = fixes?.subPlaces ?? [];
-  const placeAt = (p: { t0: number; t1: number }): Span => {
+  const placeAt = (p: { t0: number; t1: number }): Span & { core: [number, number] } => {
     const [t0, t1] = tl.span(p.t0, p.t1);
-    return { t0, t1: Math.max(t1, t0 + 0.3) };
+    return { t0, t1: Math.max(t1, t0 + 0.3), core: [t0, t1] };
   };
   const places: PlaceItem[] = [
     ...sessionPlaces.map((p): PlaceItem => {
@@ -452,6 +454,8 @@ export function draftTracks(d: Draft, { style = PLAIN, sourceDuration, splits = 
 
   return {
     duration: tl.duration, tail: (d.hold ?? 0) + (shown.end?.seconds ?? 0), video, cuts, subtitles, text, inserts, looks, transitions, places, sounds,
+    brollStarts: spans.filter(([i]) => (layer.inserts ?? [])[i]?.kind === 'fullscreen' && ((layer.inserts ?? [])[i] as DraftInsert).layout !== 'window')
+      .map(([, start]) => start / FPS).sort((a, b) => a - b),
     music: d.music ? { label: stem(d.music.file), gainDb: d.music.gainDb, ...Object.fromEntries(MUSIC_PLACE.filter((m) => d.music?.[m] !== undefined).map((m) => [m, d.music?.[m]])) } : null,
     layer: { edit: layer, tl },
   };
@@ -498,6 +502,14 @@ export function withHandEdits(d: Draft, h: HandEdits, sourceDuration?: number): 
   const same = keep === d.keep && music === d.music && teaser === d.teaser && speed === d.speed;
   return { draft: same ? d : { ...d, keep, music, teaser, speed }, splits };
 }
+
+/** Куда встанет разрыв у момента `t` ролика: на начало ближайшей перебивки на весь кадр не дальше `reach` с (разрыв
+ *  открывает перебивку — без неё его нет, transitions.tears); рядом перебивки нет — null. */
+export function tearAt(t: Tracks, at: number, reach = TEAR_REACH): number | null {
+  const near = t.brollStarts.filter((s) => Math.abs(s - at) <= reach && s >= TEAR / FPS).sort((a, b) => Math.abs(a - at) - Math.abs(b - at));
+  return near[0] ?? null;
+}
+export const TEAR_REACH = 1.5; // с — так далеко от перебивки разрыв ещё прилипает к её началу
 
 /** Где разрезать по плейхеду `at` (время ролика): момент исходника внутри куска (не у самого края); в тизере, у края
  *  или мимо кусков — null. */

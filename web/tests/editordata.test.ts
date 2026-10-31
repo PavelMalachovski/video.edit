@@ -145,7 +145,8 @@ test('saving hand edits: a bad body, a job Claude is mounting right now, a job n
   for (const bad of [null, { base: 0 }, { base: -1, edits: [] }, { base: 0, edits: [{ op: 'jump', t: 1 }] }, { base: 0, edits: [], voice: { gainDb: 99 } }, { base: 0, edits: [], rev: 5 },
     { base: 0, edits: [], words: [{ t0: 1, t1: 1.3, text: 'огонь🔥' }] }, // эмодзи в субтитрах не пропустит проверка шрифтов
     { base: 0, edits: [], text: { hook: { text: 'Лучший ★ кофе' } } }, { base: 0, edits: [], words: [{ t0: 1, t1: 1.3, text: '✓' }] }, // и ★, ✓
-    { base: 0, edits: [], text: { end: { lines: ['Подпишись ★'] } } }, { base: 0, edits: [], text: { end: { handle: '@pavel ♪' } } }]) { // и на карточке
+    { base: 0, edits: [], text: { end: { lines: ['Подпишись ★'] } } }, { base: 0, edits: [], text: { end: { handle: '@pavel ♪' } } },
+    { base: 0, edits: [], text: { inserts: [{ at: [1, 2], caption: 'Локи ★' }] } }]) { // и на карточке, и в подписи перебивки
     const r = await saveTimeline(gh, ID, bad, NOW);
     assert.ok(!r.ok && r.status === 400, JSON.stringify(bad));
   }

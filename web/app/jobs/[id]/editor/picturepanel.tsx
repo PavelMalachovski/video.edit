@@ -73,10 +73,11 @@ export function PictureSection({ T, tracks, hand, dim, canZoom, canDim, note, on
 
 /** Выбранный кусок с фильтром или переход: убрать, вернуть, другой фильтр или вид перехода, «как у монтажа»; свой кусок —
  *  удалить. `editable` — убрать и вернуть кусок, переход; `shape` — фильтр куска и свои куски (старый движок их не знает). */
-export function PicturePick({ T, sel, tracks, hand, editable, shape, tear = true, effects = false, note, onEdit, sec }: {
+export function PicturePick({ T, sel, tracks, hand, editable, shape, tear = true, effects = false, note, onEdit, sec, onRemoved }: {
   T: TFn; sel: PictureSel; tracks: Tracks; hand: HandEdits; editable: boolean; shape: boolean; note: string | null;
   tear?: boolean; // движок задачи знает рваную бумагу и глитч (старый — нет: их и не предлагаем)
-  effects?: boolean; // переходы — на дорожке «Эффекты» (разбор): их тянут по дорожке
+  effects?: boolean; // разрыв и глитч — на дорожке «Эффекты»: их тянут по дорожке
+  onRemoved?: () => void; // свой кусок или переход удалён: номера своих сдвинулись — выбор снять
   onEdit: (next: HandEdits, key?: string) => void; sec: (s: number) => string;
 }) {
   if (sel.kind === 'look') {
@@ -97,7 +98,7 @@ export function PicturePick({ T, sel, tracks, hand, editable, shape, tear = true
         </div>
         <div className="ed-btns">
           {'own' in ref ? (
-            <button type="button" className="ed-btn bad" disabled={!shape} onClick={() => onEdit(removeLook(hand, ref.own))}>{T('lookDelete')}</button>
+            <button type="button" className="ed-btn bad" disabled={!shape} onClick={() => { onEdit(removeLook(hand, ref.own)); onRemoved?.(); }}>{T('lookDelete')}</button>
           ) : (
             <button type="button" className={`ed-btn${m.off ? '' : ' bad'}`} disabled={!editable} onClick={() => onEdit(setLook(hand, ref.at, !m.off))}>
               {m.off ? T('lookOn') : T('lookOff')}
@@ -134,7 +135,7 @@ export function PicturePick({ T, sel, tracks, hand, editable, shape, tear = true
       </div>
       <div className="ed-btns">
         {'own' in ref ? (
-          <button type="button" className="ed-btn bad" disabled={!editable} onClick={() => onEdit(removeTransition(hand, ref.own))}>{T('trDelete')}</button>
+          <button type="button" className="ed-btn bad" disabled={!editable} onClick={() => { onEdit(removeTransition(hand, ref.own)); onRemoved?.(); }}>{T('trDelete')}</button>
         ) : (
           <button type="button" className={`ed-btn${x.off ? '' : ' bad'}`} disabled={!editable} onClick={() => set(kind, !x.off)}>
             {x.off ? T('trOn') : T('trOff')}

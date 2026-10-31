@@ -35,12 +35,13 @@ import { advance, afterEnded, locate, stillSource, tailAt } from '@/lib/player.t
 import {
   allowedFonts, finalStyle, loadChoice, loadInsertBoxes, mergeStyle, placedInserts, placeText, sampleState, saveChoice, textPlace, type TextPart,
 } from '@/lib/style.ts';
-import { clickGuard, dragTo, type Drag, type DragView, type EffectRef } from '@/lib/drag.ts';
+import { clickGuard, dragTo, MIN_BLOCK, type Drag, type DragView, type EffectRef } from '@/lib/drag.ts';
+import { transitionLead, transitionTail } from '@/lib/zoom.ts';
 import { phraseAt } from '@/lib/subs.ts';
 import { Saver, type PutResult } from '@/lib/saver.ts';
 import { audioUrl, levelsOf, musicMix } from '@/lib/sound.ts';
 import {
-  clipAt, decodePeaks, draftTracks, findBlock, moveTarget, peakAt, splitTarget, timelineOf, videoKey, withHandEdits, wordEdges, type Clip, type LayerStyle,
+  clipAt, decodePeaks, draftTracks, findBlock, moveTarget, peakAt, splitTarget, tearAt, timelineOf, videoKey, withHandEdits, wordEdges, type Clip, type LayerStyle,
   type Tracks,
 } from '@/lib/tracks.ts';
 import type { Box } from '../../../handles';
@@ -954,7 +955,15 @@ export default function Editor({ id }: { id: string }) {
     if (!tracks) return;
     const line = tracks.layer.tl;
     if (d.ref.kind === 'transition') {
-      const at = sourceSpan(line, d.a, d.a);
+      const r0 = d.ref.ref;
+      const x = tracks.transitions.find((m) => sameTransition(m.ref, r0));
+      // разрыв открывает перебивку: встаёт на начало ближайшей, без неё его нет — тогда правки нет
+      const to = x?.kind === 'tear' ? tearAt(tracks, d.a) : d.a;
+      if (to === null) {
+        setHint(T('noBroll'));
+        return;
+      }
+      const at = sourceSpan(line, to, to);
       if (!at) {
         setHint(T('inTeaser'));
         return;
@@ -1054,16 +1063,19 @@ export default function Editor({ id }: { id: string }) {
         className={`ed-clip tr ${x.kind}${x.off ? ' ghost' : ''}${picked ? ' sel' : ''}${picked && movable && canFx ? ' grab' : ''}`}
         style={{ left: X(x.t0 + shift), width: Math.max(18, X(x.t1 - x.t0)) }}
         title={`${'own' in x.ref ? T('trOwn') : T('transition')} · ${name} · ${tenths(x.t)}${x.off ? ` · ${T('removed')}` : ''}`}
-        {...(movable ? { onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => grabEffect(e, ref, x.t, x.t, 'move', picked), ...dragProps } : {})}
+        {...(movable ? { onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => grabEffect(e, ref, x.t, x.t, 'move', picked, x.kind), ...dragProps } : {})}
         onClick={() => { if (clicks.click()) { setSel({ kind: 'transition', ref: x.ref }); seek(Math.max(0, x.t0)); } }}>
         <span>{name.slice(0, 1)}</span>
       </div>
     );
   };
   // эффект разбора тянут так же, выбранный: переход — целиком (его стык), поднятые субтитры — и за край; не в тизере
-  const grabEffect = (e: React.PointerEvent<HTMLElement>, ref: EffectRef, t0: number, t1: number, mode: EffectDrag['mode'], picked: boolean) => {
+  // переход — не раньше, чем он успеет начаться, и не позже, чем успеет кончиться (иначе ролик его не покажет: transitions.marks)
+  const grabEffect = (e: React.PointerEvent<HTMLElement>, ref: EffectRef, t0: number, t1: number, mode: EffectDrag['mode'], picked: boolean, kind?: string) => {
     if (!canFx || e.button !== 0 || !picked) return;
-    grab(e, { kind: 'effect', ref, mode, x0: e.clientX, t0, t1, a: t0, b: t1, moved: false, floor: lookFloor, max: duration });
+    const floor = kind ? Math.max(lookFloor, transitionLead(kind)) : lookFloor;
+    const max = kind ? duration - transitionTail(kind) + MIN_BLOCK : duration;
+    grab(e, { kind: 'effect', ref, mode, x0: e.clientX, t0, t1, a: t0, b: t1, moved: false, floor, max });
   };
   // свой разрыв или глитч — на бегунке, свои поднятые субтитры — на фразу под бегунком; выбран сразу
   const doAddEffect = useCallback((what: 'tear' | 'glitch' | 'place') => {
@@ -1080,7 +1092,12 @@ export default function Editor({ id }: { id: string }) {
       setSel({ kind: 'place', ref: { own } });
       return;
     }
-    const at = sourceSpan(line, now.current, now.current);
+    const to = what === 'tear' ? tearAt(tracks, now.current) : now.current; // разрыв — на начало ближайшей перебивки
+    if (to === null) {
+      setHint(T('noBroll'));
+      return;
+    }
+    const at = sourceSpan(line, to, to);
     if (!at) {
       setHint(T('inTeaser'));
       return;
@@ -1356,12 +1373,12 @@ export default function Editor({ id }: { id: string }) {
             <EndPanel T={T} draft={draft} hand={hand} editable={canCard} note={editable ? cardNote : null} onEdit={edit} letters={letters} />
           ) : null}
           {tracks && sel?.kind === 'place' ? (
-            <PlacePick T={T} sel={sel} tracks={tracks} hand={hand} editable={canFx} note={fxNote} onEdit={edit} sec={sec} />
+            <PlacePick T={T} sel={sel} tracks={tracks} hand={hand} editable={canFx} note={fxNote} onEdit={edit} sec={sec} onRemoved={() => setSel(null)} />
           ) : null}
           {tracks && (sel?.kind === 'look' || sel?.kind === 'transition') ? (
             <PicturePick T={T} sel={sel} tracks={tracks} hand={hand}
               editable={sel.kind === 'look' ? canLook : 'own' in sel.ref ? canFx : canMarks} shape={canShape}
-              tear={data?.abilities.tear ?? true} effects={fxRow}
+              tear={data?.abilities.tear ?? true} effects={fxRow} onRemoved={() => setSel(null)}
               note={editable ? (sel.kind === 'look' && canLook ? null : pictureNote) : null} onEdit={edit} sec={sec} />
           ) : null}
           {tracks ? (
@@ -1541,8 +1558,9 @@ export default function Editor({ id }: { id: string }) {
                   {tracks.places.map((p, i) => {
                     const picked = sel?.kind === 'place' && samePlace(sel.ref, p.ref);
                     const dragging = drag?.kind === 'effect' && drag.ref.kind === 'place' && samePlace(drag.ref.ref, p.ref) && drag.moved ? drag : null;
-                    const [a, b] = dragging ? [dragging.a, dragging.b] : [p.t0, p.t1];
+                    const [a, b] = dragging ? [dragging.a, Math.max(dragging.b, dragging.a + 0.3)] : [p.t0, p.t1];
                     const handles = picked && canFx && !p.off;
+                    const [c0, c1] = p.core; // тянут саму фразу, а не блок, растянутый для глаза
                     const ref: EffectRef = { kind: 'place', ref: p.ref };
                     return (
                       <div key={`p${i}`} data-kind="place" data-own={'own' in p.ref ? p.ref.own : undefined}
@@ -1550,11 +1568,11 @@ export default function Editor({ id }: { id: string }) {
                         className={`ed-clip place${p.off ? ' ghost' : ''}${picked ? ' sel' : ''}${handles ? ' grab' : ''}`}
                         style={{ left: X(a), width: Math.max(8, X(b - a)) }}
                         title={`${'own' in p.ref ? T('fxPlaceOwn') : T('fxPlaceName')} · ${tenths(p.src[0])}–${tenths(p.src[1])} · y ${p.y}${p.off ? ` · ${T('removed')}` : ''}`}
-                        onPointerDown={(e) => grabEffect(e, ref, p.t0, p.t1, 'move', picked)} {...dragProps}
+                        onPointerDown={(e) => { if (!p.off) grabEffect(e, ref, c0, c1, 'move', picked); }} {...dragProps}
                         onClick={() => { if (clicks.click()) { setSel({ kind: 'place', ref: p.ref }); seek(p.t0); } }}>
-                        {handles ? <span className="ed-handle start" aria-hidden="true" onPointerDown={(e) => grabEffect(e, ref, p.t0, p.t1, 'start', picked)} {...dragProps} /> : null}
+                        {handles ? <span className="ed-handle start" aria-hidden="true" onPointerDown={(e) => grabEffect(e, ref, c0, c1, 'start', picked)} {...dragProps} /> : null}
                         <span>↑ {p.y}</span>
-                        {handles ? <span className="ed-handle end" aria-hidden="true" onPointerDown={(e) => grabEffect(e, ref, p.t0, p.t1, 'end', picked)} {...dragProps} /> : null}
+                        {handles ? <span className="ed-handle end" aria-hidden="true" onPointerDown={(e) => grabEffect(e, ref, c0, c1, 'end', picked)} {...dragProps} /> : null}
                       </div>
                     );
                   })}

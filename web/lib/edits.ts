@@ -597,11 +597,11 @@ export function badSymbols(text: string): string {
   return [...out].join('');
 }
 
-/** Весь текст, что Павел набрал в правках блоков: хук, строки и слово титра, строки акцентов, текст вставок, строки и ник
+/** Весь текст, что Павел набрал в правках блоков: хук, строки и слово титра, строки акцентов, текст и подпись вставок, строки и ник
  *  финальной карточки (её движок рисует основным шрифтом — fonts.texts). */
 export function typedTexts(h: HandEdits): string[] {
   const t = h.text ?? {};
-  return [t.hook?.text, ...(t.cta?.lines ?? []), t.cta?.word, ...(t.accents ?? []).flatMap((a) => a.lines ?? []), ...(t.inserts ?? []).map((i) => i.text),
+  return [t.hook?.text, ...(t.cta?.lines ?? []), t.cta?.word, ...(t.accents ?? []).flatMap((a) => a.lines ?? []), ...(t.inserts ?? []).flatMap((i) => [i.text, i.caption]),
     ...(t.end?.lines ?? []), t.end?.handle].filter((x): x is string => typeof x === 'string');
 }
 

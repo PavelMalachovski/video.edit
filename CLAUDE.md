@@ -39,8 +39,9 @@
 - CI на GitHub (`.github/workflows/ci.yml`) гоняет всё это сам, но минуты Actions считаны (тариф Free — 2 000 в месяц,
   полный прогон — ~33 мин; за 12–13.10 ушло 1 900): на пуш в рабочую ветку — только быстрое (тесты и типы страницы,
   shellcheck и actionlint, gitleaks), движок и e2e перед пушем — локально; на PR в `master` — тяжёлое по затронутому
-  (`.github/scripts/ci-changes.sh`: движок, шаблон, e2e), CodeQL и realclip — тоже по путям; master после слияния не
-  перепроверяется; раз в неделю и вручную (workflow_dispatch) — всё. Пушить готовыми кусками: отменённый следующим
+  (`.github/scripts/ci-changes.sh`: движок, его медленные тесты — `slow`, шаблон, e2e — только Chromium), быстрое на PR
+  не повторяется (тот же коммит прошёл его на пуше), CodeQL и realclip — тоже по путям; master после слияния не
+  перепроверяется; раз в неделю и вручную (workflow_dispatch) — всё, и e2e в Safari. Пушить готовыми кусками: отменённый следующим
   пушем прогон всё равно оплачен. e2e — в Chromium и в Safari (WebKit, iPhone 13: `E2E_BROWSER=webkit`); шаблон — ещё «Safari рисует как
   рендер» (`template/tests/safari.test.mjs`, без WebKit локально пропускается); shellcheck и actionlint; поиск
   уязвимостей — CodeQL (`.github/workflows/codeql.yml`; проверенные ложные срабатывания — `.github/codeql/accepted.json`

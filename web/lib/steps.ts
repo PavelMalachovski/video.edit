@@ -72,6 +72,20 @@ export async function startJob(d: Deps, id: string): Promise<{ attempt: number; 
 }
 
 /**
+ * Запуск анализа сразу после загрузки — сервером, тем же запросом, что проверяет куски (маршрут /complete): от телефона
+ * после последнего куска ничего не зависит (закрыли вкладку, заблокировали экран — задача не останется «Не запущено»).
+ * Не запустилось — не ошибка загрузки: причина в ответе, страница запускает сама (и есть «Запустить анализ»).
+ */
+export async function startAfterUpload(d: Deps, id: string): Promise<{ started: true; sessionUrl: string } | { started: false; error: string }> {
+  try {
+    const { sessionUrl } = await startJob(d, id);
+    return { started: true, sessionUrl };
+  } catch (e) {
+    return { started: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/**
  * Сценарий до съёмки: черновик job-<id> без видео (по нему задачу видит «Мои видео» и удаляет «Удалить»), job.json с
  * запросом и копией бренда (логотип сценарию не нужен) и запуск анализа — его сессия пишет script.json.
  */

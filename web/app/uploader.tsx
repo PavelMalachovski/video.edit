@@ -322,7 +322,8 @@ export default function Uploader() {
     return send;
   }
 
-  /** Куски (`known` — уже готовые; null — спросить черновик), проверка → manifest.json, запуск анализа. */
+  /** Куски (`known` — уже готовые; null — спросить черновик), проверка → manifest.json и запуск анализа сервером (не
+   *  запустился — запуск со страницы). */
   async function upload(a: Active, known: Set<number> | null) {
     active.current = a;
     savePending(storage(), a.p);
@@ -332,6 +333,7 @@ export default function Uploader() {
     const release = keepScreenOn(navigator as Parameters<typeof keepScreenOn>[0], document); // экран не гаснет до конца загрузки
     const { p, files, send } = a;
     const out = (asset: string) => send.get(asset) ?? files.get(asset)!; // что уходит в черновик: уменьшенное или выбранное
+    let started = false; // анализ запустил сервер вместе с проверкой загрузки
     try {
       const videos = sentVideos(p); // видео по порядку (уменьшенные — своим размером), потом вставки и озвучка
       const extra = [...p.inserts, ...(p.voice ? [p.voice] : [])];
@@ -380,6 +382,7 @@ export default function Uploader() {
         ...(characterOf(breakdownRef.current) ? { character: characterOf(breakdownRef.current) } : {}),
       });
       if (!c.ok) throw new Error(await errorText(c, 'Проверка загрузки не прошла'));
+      started = Boolean(((await c.json().catch(() => null)) as { started?: boolean } | null)?.started); // анализ запустил сервер
       clearPending(storage()); // всё в черновике — продолжать больше нечего, запуск повторяется и со страницы задачи
       setPending(null);
       void dropShrunk([...send.keys()].map((asset) => files.get(asset)!)); // копии в хранилище браузера больше не нужны
@@ -389,6 +392,12 @@ export default function Uploader() {
       return;
     } finally {
       release();
+    }
+    if (started) { // сервер уже запустил анализ — сразу на страницу задачи
+      launched.current = p.jobId;
+      active.current = null;
+      router.push(`/jobs/${p.jobId}`);
+      return;
     }
     await launch(p.jobId);
   }

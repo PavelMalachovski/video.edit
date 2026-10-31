@@ -4,7 +4,7 @@ import { getHead } from '../lib/branch.ts';
 import { findReleaseByTag } from '../lib/github.ts';
 import { appendFix } from '../lib/jobfiles.ts';
 import { fireText } from '../lib/routine.ts';
-import { backStep, deleteJob, retryStep, retryWithoutVoice, runStep, startJob, startScript, type Deps } from '../lib/steps.ts';
+import { backStep, deleteJob, retryStep, retryWithoutVoice, runStep, startAfterUpload, startJob, startScript, type Deps } from '../lib/steps.ts';
 import { withFake } from './helpers.ts';
 
 const ID = '261010-070509-abcd';
@@ -203,4 +203,18 @@ test('startScript makes a draft without video and a script job with the brand bu
   assert.deepEqual(job.runs.map((x: { step: string; attempt: number }) => [x.step, x.attempt]), [['analyze', 1]]);
   assert.equal(JSON.parse(fake.read(branch, `jobs/${r.jobId}/status.json`) ?? 'null').state, 'queued');
   assert.deepEqual([fake.fires.at(-1)?.step, fake.fires.at(-1)?.attempt], ['analyze', 1]);
+}));
+
+test('the upload starts the analysis itself: closing the tab right after the last part does not leave the job unstarted', () => withFake(async ({ fake, gh, routine }) => {
+  fake.addAsset(`job-${ID}`, 'manifest.json', JSON.stringify(MANIFEST));
+  const d: Deps = { gh, routine, now: () => NOW };
+  assert.deepEqual(await startAfterUpload(d, ID), { started: true, sessionUrl: 'https://claude.ai/code/session_fake_1' });
+  assert.deepEqual(await startAfterUpload(d, ID), { started: false, error: 'Анализ уже запущен' }, 'второй раз — не запускает, не падает');
+  assert.equal(fake.fires.length, 1);
+}));
+
+test('a failed start after the upload is not an upload error: the page retries the start itself', () => withFake(async ({ gh, routine }) => {
+  const r = await startAfterUpload({ gh, routine: { ...routine, id: '' }, now: () => NOW }, '261010-070509-zzzz');
+  assert.equal(r.started, false);
+  assert.ok('error' in r && r.error.length > 0);
 }));

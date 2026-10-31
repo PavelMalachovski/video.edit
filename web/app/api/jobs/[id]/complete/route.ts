@@ -5,7 +5,8 @@ import type { UploadClaim } from '@/lib/jobfiles.ts';
 import {
   CHUNK_SIZE, checkCharacter, checkTotal, checkUploadClaims, checkVideos, isJobId, MAX_BRIEF, verifyParts,
 } from '@/lib/jobs.ts';
-import { gh } from '@/lib/env.ts';
+import { startAfterUpload } from '@/lib/steps.ts';
+import { gh, routine } from '@/lib/env.ts';
 
 export const maxDuration = 60;
 
@@ -15,7 +16,8 @@ type Done = { releaseId: number; name: string; size: number; type: string; lastM
   videos?: unknown; character?: unknown }; // character — разбор персонажа (фильм, персонаж, актёр); нет — обычный ролик // несколько видео — все по порядку (первое — то же, что name, size, parts); одно — нет поля
 
 // Проверка: все куски видео, вставок и озвучки на месте и размеры совпадают → manifest.json в черновик
-// (с ТЗ, длительностью, списком видео, вставок и озвучки — из него страница соберёт job.json при запуске анализа).
+// (с ТЗ, длительностью, списком видео, вставок и озвучки — из него страница соберёт job.json при запуске анализа) — и
+// сразу запуск анализа (startAfterUpload): не запустился — `started: false` и причина, страница повторит сама.
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
@@ -55,7 +57,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       ...(listed.videos ? { videos: listed.videos } : {}),
       ...(breakdown.character ? { format: 'character', character: breakdown.character } : {}) };
     await uploadAsset(g, releaseId, 'manifest.json', new TextEncoder().encode(JSON.stringify(manifest, null, 1)), 'application/json');
-    return NextResponse.json({ ok: true, total: source.total });
+    let launch: Awaited<ReturnType<typeof startAfterUpload>>;
+    try {
+      launch = await startAfterUpload({ gh: g, routine: routine() }, id);
+    } catch (e) { // рутина не настроена — загрузка всё равно цела
+      launch = { started: false, error: e instanceof Error ? e.message : String(e) };
+    }
+    return NextResponse.json({ ok: true, total: source.total, ...launch });
   } catch (e) {
     return errorResponse(e);
   }

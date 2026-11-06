@@ -1,0 +1,9 @@
+{
+  "state": "queued",
+  "phase": "Запускаю сессию",
+  "message": "Claude скачает видео, расшифрует речь и подготовит вопросы",
+  "at": "2026-11-06T11:40:06.419Z",
+  "needs": null,
+  "progress": null,
+  "error": null
+}

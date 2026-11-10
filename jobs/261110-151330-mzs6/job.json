@@ -1,0 +1,17 @@
+{
+  "id": "261110-151330-mzs6",
+  "name": "IMG_9338.mov",
+  "size": 474093508,
+  "type": "video/quicktime",
+  "duration": 150.43333333333334,
+  "createdAt": "2026-11-10T15:16:27.541Z",
+  "brief": "",
+  "uploads": [],
+  "runs": [
+    {
+      "step": "analyze",
+      "attempt": 1,
+      "at": "2026-11-10T15:16:27.628Z"
+    }
+  ]
+}

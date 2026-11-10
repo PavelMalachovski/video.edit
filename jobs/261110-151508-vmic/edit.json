@@ -1,5 +1,5 @@
 {
-  "speed": 1.1,
+  "speed": 1.2,
   "keep": [
     [
       3.3,
@@ -1348,8 +1348,8 @@
     }
   ],
   "hook": {
-    "text": "почему вы ничего не чувствуете",
-    "until": 5.96
+    "text": "эмоциональный диапазон как у зубочистки",
+    "until": 7.04
   },
   "cta": {
     "lines": [
@@ -1359,11 +1359,7 @@
     "t0": 114.7,
     "t1": 117.2
   },
-  "teaser": {
-    "t0": 20.98,
-    "t1": 24.55,
-    "sfx": null
-  },
+  "teaser": null,
   "inserts": [],
   "accents": [
     {
@@ -1724,7 +1720,7 @@
     "hand": "caveat",
     "colors": {
       "text": "#FFFFFF",
-      "accent": "#EDE4C1",
+      "accent": "#FECB3E",
       "bar": "#EDE4C1",
       "plate": "#111111",
       "outline": "#000000"
@@ -1733,16 +1729,24 @@
       "mode": "soft",
       "words": 3,
       "size": 64,
-      "y": 1440
+      "y": 1440,
+      "shade": 0.1
     },
     "hook": {
       "mode": "accent",
-      "size": 108,
-      "y": 1080
+      "size": 120,
+      "y": 220
     },
     "bar": {
       "pos": "bottom",
       "height": 6
     }
+  },
+  "end": null,
+  "dim": 0.1,
+  "ab": null,
+  "cover": {
+    "t": 23.9,
+    "text": "Эмоциональный диапазон как у зубочистки"
   }
 }

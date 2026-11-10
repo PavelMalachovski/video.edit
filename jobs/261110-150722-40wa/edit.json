@@ -1,5 +1,5 @@
 {
-  "speed": 1.1,
+  "speed": 1.2,
   "keep": [
     [
       0.834,
@@ -1035,10 +1035,7 @@
       "text": "думаете?"
     }
   ],
-  "hook": {
-    "text": "сначала закрой то что болит",
-    "until": 3.96
-  },
+  "hook": null,
   "cta": null,
   "inserts": [],
   "accents": [
@@ -1357,21 +1354,20 @@
     "x": 0.46,
     "y": 0.29
   },
-  "music": null,
+  "music": {
+    "file": "assets/music/mysterious-and-sad.m4a",
+    "gainDb": -14
+  },
   "hold": 0.0,
   "transitions": [],
-  "teaser": {
-    "t0": 76.69,
-    "t1": 79.67,
-    "sfx": null
-  },
+  "teaser": null,
   "style": {
     "font": "forum",
     "hand": "caveat",
     "colors": {
       "text": "#FFFFFF",
-      "accent": "#EDE4C1",
-      "bar": "#EDE4C1",
+      "accent": "#FFD977",
+      "bar": "#FFB5AF",
       "plate": "#111111",
       "outline": "#000000"
     },
@@ -1379,7 +1375,8 @@
       "mode": "soft",
       "words": 3,
       "size": 64,
-      "y": 1440
+      "y": 1440,
+      "shade": 0.15
     },
     "hook": {
       "mode": "accent",
@@ -1387,8 +1384,15 @@
       "y": 1000
     },
     "bar": {
-      "pos": "bottom",
+      "pos": "top",
       "height": 6
     }
+  },
+  "dim": 0.3,
+  "end": null,
+  "ab": null,
+  "cover": {
+    "t": 5.0,
+    "text": "сначала закрой то что болит"
   }
 }

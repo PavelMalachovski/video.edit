@@ -1,0 +1,210 @@
+{
+  "questions": [
+    {
+      "id": "cut",
+      "type": "choice",
+      "title": "Резать паузы и дубли?",
+      "body": "В записи много повторов: каждую фразу ты говорила 2–3 раза. Оставил последние полные дубли и убрал паузы — ролик ~0:41 (из 2:30). Мягко — паузы до 0,45 с остаются, ~0:42. Только края — без резки пауз и дублей.",
+      "options": [
+        {
+          "id": "all",
+          "label": "Плотно, как в эталоне (~0:41)"
+        },
+        {
+          "id": "soft",
+          "label": "Мягче (~0:42)"
+        },
+        {
+          "id": "edges",
+          "label": "Только края"
+        }
+      ],
+      "default": "all"
+    },
+    {
+      "id": "hook",
+      "type": "choice",
+      "title": "Хук в начале",
+      "body": "Первые ~2,5 с — крупный текст. Первый вариант — твоя фраза из начала ролика.",
+      "options": [
+        {
+          "id": "h1",
+          "label": "переводчик с абьюзерского на человеческий"
+        },
+        {
+          "id": "h2",
+          "label": "что он говорит и что имеет в виду"
+        },
+        {
+          "id": "h3",
+          "label": "что на самом деле значат его слова"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без хука"
+        }
+      ],
+      "default": "h1"
+    },
+    {
+      "id": "stars",
+      "type": "multi",
+      "title": "Звёздочки в мате?",
+      "body": "Мат в субтитрах алгоритмы Instagram могут резать в охвате. Отмеченные слова в субтитрах будут со звёздочкой (в голосе — без изменений).",
+      "options": [
+        {
+          "id": "dolboeb",
+          "label": "д*лбоёб"
+        },
+        {
+          "id": "her",
+          "label": "х*р"
+        }
+      ],
+      "default": [
+        "dolboeb",
+        "her"
+      ]
+    },
+    {
+      "id": "bw",
+      "type": "multi",
+      "title": "Ч/б-куски",
+      "body": "Реплики «абьюзера» — в ч/б, «перевод» — в цвете: так видно, кто говорит. Сними галочку — кусок останется цветным.",
+      "options": [
+        {
+          "id": "bw-1",
+          "label": "0:18 — „если бы ты сама не начала этот разговор“"
+        },
+        {
+          "id": "bw-2",
+          "label": "0:55 — „да не выноси же ты мне мозг“"
+        },
+        {
+          "id": "bw-3",
+          "label": "1:23 — „насмотрелась там своего инстаграма“"
+        },
+        {
+          "id": "bw-4",
+          "label": "2:05 — „нормальные женщины так себя не ведут“"
+        }
+      ],
+      "default": [
+        "bw-1",
+        "bw-2",
+        "bw-3",
+        "bw-4"
+      ]
+    },
+    {
+      "id": "dim",
+      "type": "choice",
+      "title": "Затемнить фон?",
+      "layout": "frames",
+      "options": [
+        {
+          "id": "none",
+          "label": "Как есть",
+          "image": "q-dim-none.jpg"
+        },
+        {
+          "id": "30",
+          "label": "Темнее на 30 %",
+          "image": "q-dim-30.jpg"
+        },
+        {
+          "id": "50",
+          "label": "Темнее на 50 %",
+          "image": "q-dim-50.jpg"
+        }
+      ],
+      "default": "30"
+    },
+    {
+      "id": "music",
+      "type": "choice",
+      "title": "Музыка",
+      "body": "Тихо под голосом, на 14 дБ тише речи.",
+      "options": [
+        {
+          "id": "mysterious-and-sad",
+          "label": "Mysterious and Sad"
+        },
+        {
+          "id": "sleepwalker-slowed",
+          "label": "Sleepwalker (slowed)"
+        },
+        {
+          "id": "did-i-drive-you-away",
+          "label": "Did I Drive You Away"
+        },
+        {
+          "id": "diedlonely-in-the-bleak",
+          "label": "diedlonely — In the Bleak"
+        },
+        {
+          "id": "etern-brodyaga",
+          "label": "Etern — Бродяга"
+        },
+        {
+          "id": "atlxs-passo",
+          "label": "ATLXS — Passo"
+        },
+        {
+          "id": "sayfalse-esse",
+          "label": "SayFalse — Esse"
+        },
+        {
+          "id": "banana-cake",
+          "label": "Banana Cake"
+        },
+        {
+          "id": "playboi-carti-made-it",
+          "label": "Playboi Carti — Made It"
+        },
+        {
+          "id": "tory-lanez-broke",
+          "label": "Tory Lanez — Broke"
+        },
+        {
+          "id": "none",
+          "label": "Без музыки"
+        }
+      ],
+      "default": "none"
+    },
+    {
+      "id": "end",
+      "type": "choice",
+      "title": "Финальная карточка",
+      "body": "2 секунды в конце: затемнённый последний кадр и призыв.",
+      "options": [
+        {
+          "id": "e1",
+          "label": "Перешли той, кому это нужно 👇"
+        },
+        {
+          "id": "e2",
+          "label": "Подпишись — переведу ещё 👇"
+        },
+        {
+          "id": "e3",
+          "label": "Узнала его? Пиши в комментариях 👇"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без карточки"
+        }
+      ],
+      "default": "e1"
+    }
+  ]
+}

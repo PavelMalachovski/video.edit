@@ -1,0 +1,481 @@
+{
+ "release_id": 440525726,
+ "assets": [
+  {
+   "name": "manifest.json",
+   "id": 731883379,
+   "size": 451
+  },
+  {
+   "name": "matte-012e015ec19b.json",
+   "id": 731925258,
+   "size": 349
+  },
+  {
+   "name": "source-ec3d848b4871.json",
+   "id": 731896547,
+   "size": 126
+  },
+  {
+   "name": "source-ec3d848b4871.mp4.part-00000",
+   "id": 731894809,
+   "size": 268435456
+  },
+  {
+   "name": "source-ec3d848b4871.mp4.part-00001",
+   "id": 731895918,
+   "size": 201097641
+  },
+  {
+   "name": "source.part-00000",
+   "id": 731877722,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00001",
+   "id": 731877912,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00002",
+   "id": 731878004,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00003",
+   "id": 731878187,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00004",
+   "id": 731878204,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00005",
+   "id": 731878377,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00006",
+   "id": 731878589,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00007",
+   "id": 731878744,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00008",
+   "id": 731878820,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00009",
+   "id": 731878827,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00010",
+   "id": 731878881,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00011",
+   "id": 731878986,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00012",
+   "id": 731879049,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00013",
+   "id": 731879128,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00014",
+   "id": 731879191,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00015",
+   "id": 731879233,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00016",
+   "id": 731879299,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00017",
+   "id": 731879368,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00018",
+   "id": 731879427,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00019",
+   "id": 731879507,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00020",
+   "id": 731879566,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00021",
+   "id": 731879665,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00022",
+   "id": 731879793,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00023",
+   "id": 731879850,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00024",
+   "id": 731879900,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00025",
+   "id": 731879958,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00026",
+   "id": 731880045,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00027",
+   "id": 731880067,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00028",
+   "id": 731880120,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00029",
+   "id": 731880157,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00030",
+   "id": 731880204,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00031",
+   "id": 731880298,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00032",
+   "id": 731880359,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00033",
+   "id": 731880415,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00034",
+   "id": 731880463,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00035",
+   "id": 731880568,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00036",
+   "id": 731880603,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00037",
+   "id": 731880708,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00038",
+   "id": 731880777,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00039",
+   "id": 731880888,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00040",
+   "id": 731880928,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00041",
+   "id": 731880962,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00042",
+   "id": 731881012,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00043",
+   "id": 731881094,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00044",
+   "id": 731881146,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00045",
+   "id": 731881203,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00046",
+   "id": 731881251,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00047",
+   "id": 731881304,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00048",
+   "id": 731881382,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00049",
+   "id": 731881431,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00050",
+   "id": 731881476,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00051",
+   "id": 731881539,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00052",
+   "id": 731881568,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00053",
+   "id": 731881617,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00054",
+   "id": 731881665,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00055",
+   "id": 731881746,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00056",
+   "id": 731881796,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00057",
+   "id": 731881835,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00058",
+   "id": 731881876,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00059",
+   "id": 731881905,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00060",
+   "id": 731881928,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00061",
+   "id": 731881982,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00062",
+   "id": 731882041,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00063",
+   "id": 731882095,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00064",
+   "id": 731882140,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00065",
+   "id": 731882182,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00066",
+   "id": 731882214,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00067",
+   "id": 731882249,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00068",
+   "id": 731882292,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00069",
+   "id": 731882389,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00070",
+   "id": 731882400,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00071",
+   "id": 731882441,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00072",
+   "id": 731882489,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00073",
+   "id": 731882583,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00074",
+   "id": 731882634,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00075",
+   "id": 731882668,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00076",
+   "id": 731882720,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00077",
+   "id": 731882778,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00078",
+   "id": 731882799,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00079",
+   "id": 731882862,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00080",
+   "id": 731882902,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00081",
+   "id": 731882971,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00082",
+   "id": 731883016,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00083",
+   "id": 731883068,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00084",
+   "id": 731883105,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00085",
+   "id": 731883132,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00086",
+   "id": 731883179,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00087",
+   "id": 731883219,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00088",
+   "id": 731883285,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00089",
+   "id": 731883303,
+   "size": 1861693
+  }
+ ],
+ "at": "2026-11-10T15:30:15Z"
+}

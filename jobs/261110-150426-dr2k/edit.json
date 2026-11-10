@@ -1,5 +1,5 @@
 {
-  "speed": 1.1,
+  "speed": 1.2,
   "keep": [
     [
       1.3,
@@ -1041,7 +1041,7 @@
     {
       "t0": 96.203,
       "t1": 96.723,
-      "text": "ценник"
+      "text": "ц*нник"
     },
     {
       "t0": 96.843,
@@ -1590,22 +1590,11 @@
     }
   ],
   "hook": {
-    "text": "я психолог без клиентов",
+    "text": "мне стыдно это признавать",
     "until": 4.2
   },
   "cta": null,
-  "inserts": [
-    {
-      "kind": "image",
-      "question": "insert-1",
-      "t0": 133.301,
-      "t1": 135.901,
-      "x": 390,
-      "y": 960,
-      "w": 300,
-      "sfx": null
-    }
-  ],
+  "inserts": [],
   "accents": [
     {
       "t0": 4.2,
@@ -2088,7 +2077,10 @@
     "x": 0.5,
     "y": 0.32
   },
-  "music": null,
+  "music": {
+    "file": "assets/music/mysterious-and-sad.m4a",
+    "gainDb": -14
+  },
   "hold": 0.0,
   "transitions": [],
   "teaser": null,
@@ -2097,7 +2089,7 @@
     "hand": "caveat",
     "colors": {
       "text": "#FFFFFF",
-      "accent": "#EDE4C1",
+      "accent": "#FFD977",
       "bar": "#EDE4C1",
       "plate": "#111111",
       "outline": "#000000"
@@ -2111,11 +2103,18 @@
     "hook": {
       "mode": "accent",
       "size": 108,
-      "y": 230
+      "y": 200
     },
     "bar": {
       "pos": "bottom",
       "height": 6
     }
+  },
+  "dim": 0.15,
+  "end": null,
+  "ab": null,
+  "cover": {
+    "t": 24.6,
+    "text": "мне стыдно это признавать"
   }
 }

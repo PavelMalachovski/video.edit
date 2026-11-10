@@ -1,5 +1,5 @@
 {
-  "speed": 1.1,
+  "speed": 1.2,
   "keep": [
     [
       0.994,
@@ -650,8 +650,8 @@
     }
   ],
   "hook": {
-    "text": "вечный спасатель всегда на последнем месте",
-    "until": 3.82
+    "text": "спасать других это эмоциональная проституция",
+    "until": 4.48
   },
   "cta": null,
   "inserts": [],
@@ -881,7 +881,10 @@
     "x": 0.47,
     "y": 0.3
   },
-  "music": null,
+  "music": {
+    "file": "assets/music/diedlonely-in-the-bleak.m4a",
+    "gainDb": -14
+  },
   "hold": 0.0,
   "transitions": [],
   "style": {
@@ -889,7 +892,7 @@
     "hand": "caveat",
     "colors": {
       "text": "#FFFFFF",
-      "accent": "#EDE4C1",
+      "accent": "#FFC777",
       "bar": "#EDE4C1",
       "plate": "#111111",
       "outline": "#000000"
@@ -898,16 +901,25 @@
       "mode": "soft",
       "words": 3,
       "size": 64,
-      "y": 1440
+      "y": 1440,
+      "shade": 0.1
     },
     "hook": {
       "mode": "accent",
-      "size": 108,
-      "y": 1080
+      "size": 88,
+      "y": 230
     },
     "bar": {
       "pos": "bottom",
       "height": 6
     }
+  },
+  "dim": 0.1,
+  "end": null,
+  "teaser": null,
+  "ab": null,
+  "cover": {
+    "t": 2.3,
+    "text": "спасать других это эмоциональная проституция"
   }
 }

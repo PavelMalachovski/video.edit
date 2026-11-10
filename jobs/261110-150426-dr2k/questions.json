@@ -1,0 +1,227 @@
+{
+  "questions": [
+    {
+      "id": "cut",
+      "type": "choice",
+      "title": "Резать паузы и оговорки?",
+      "body": "Плотно — 32 паузы и 3 оговорки («хоть какая-то возможность», «просто», «и может всё»), будет ~1:40; мягко (паузы до 0,45 с остаются) — ~1:47; только края — ~2:15.",
+      "options": [
+        {
+          "id": "all",
+          "label": "Плотно, как в эталоне"
+        },
+        {
+          "id": "soft",
+          "label": "Мягче"
+        },
+        {
+          "id": "edges",
+          "label": "Только края"
+        }
+      ],
+      "default": "all"
+    },
+    {
+      "id": "hook",
+      "type": "choice",
+      "title": "Хук на первые 2,5 секунды",
+      "body": "Ролик и так начинается сильно: «Я психолог, у меня нет клиентов».",
+      "options": [
+        {
+          "id": "h1",
+          "label": "я психолог без клиентов"
+        },
+        {
+          "id": "h2",
+          "label": "психолог и ноль клиентов"
+        },
+        {
+          "id": "h3",
+          "label": "мне стыдно это признавать"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без хука"
+        }
+      ],
+      "default": "h1"
+    },
+    {
+      "id": "bw",
+      "type": "multi",
+      "title": "Ч/б-куски",
+      "body": "Самые эмоциональные фразы — в ч/б и крупнее, как второй камерой.",
+      "options": [
+        {
+          "id": "bw-1",
+          "label": "0:14 — «в этот момент я осознаю, что я неудачница»"
+        },
+        {
+          "id": "bw-2",
+          "label": "1:06 — «я не знаю, что я делаю не так, если честно»"
+        },
+        {
+          "id": "bw-3",
+          "label": "1:32 — «но на данный момент мне просто очень тяжело»"
+        },
+        {
+          "id": "bw-4",
+          "label": "1:38 — «но к этому я не была готова»"
+        }
+      ],
+      "default": [
+        "bw-1",
+        "bw-2",
+        "bw-3",
+        "bw-4"
+      ]
+    },
+    {
+      "id": "insert-1",
+      "type": "insert",
+      "title": "Показать отзывы?",
+      "body": "1:29 — «я действительно получаю вот такие отзывы» (2,6 с). Загрузи скрин отзыва — встанет в рамку на кадре.",
+      "image": "q-insert-1.jpg",
+      "options": [
+        {
+          "id": "upload",
+          "label": "Загрузить скрин отзыва"
+        },
+        {
+          "id": "sticker",
+          "label": "Стикер «Отзывы»"
+        },
+        {
+          "id": "none",
+          "label": "Не надо"
+        }
+      ],
+      "default": "none"
+    },
+    {
+      "id": "stars",
+      "type": "multi",
+      "title": "Звёздочки в «денежных» словах",
+      "body": "Чтобы алгоритмы не резали охват.",
+      "options": [
+        {
+          "id": "ценник",
+          "label": "ц*нник"
+        }
+      ],
+      "default": [
+        "ценник"
+      ]
+    },
+    {
+      "id": "music",
+      "type": "choice",
+      "title": "Музыка",
+      "body": "Тихо под голосом (на 14 дБ тише), с первого кадра до последнего.",
+      "options": [
+        {
+          "id": "mysterious-and-sad.m4a",
+          "label": "Mysterious and Sad — тихая, грустная"
+        },
+        {
+          "id": "did-i-drive-you-away.m4a",
+          "label": "Did I Drive You Away"
+        },
+        {
+          "id": "sleepwalker-slowed.m4a",
+          "label": "Sleepwalker (slowed)"
+        },
+        {
+          "id": "diedlonely-in-the-bleak.m4a",
+          "label": "diedlonely — In the Bleak"
+        },
+        {
+          "id": "etern-brodyaga.mp3",
+          "label": "Etern — Бродяга"
+        },
+        {
+          "id": "sayfalse-esse.mp3",
+          "label": "sayfalse — Esse"
+        },
+        {
+          "id": "atlxs-passo.mp3",
+          "label": "ATLXS — Passo"
+        },
+        {
+          "id": "banana-cake.m4a",
+          "label": "Banana Cake"
+        },
+        {
+          "id": "playboi-carti-made-it.m4a",
+          "label": "Playboi Carti — Made It"
+        },
+        {
+          "id": "tory-lanez-broke.m4a",
+          "label": "Tory Lanez — Broke"
+        },
+        {
+          "id": "none",
+          "label": "Без музыки"
+        }
+      ],
+      "default": "none"
+    },
+    {
+      "id": "dim",
+      "type": "choice",
+      "title": "Затемнить фон?",
+      "body": "Светлая стена за тобой станет темнее — лицо и текст ярче.",
+      "layout": "frames",
+      "options": [
+        {
+          "id": "none",
+          "label": "Как есть",
+          "image": "q-dim-none.jpg"
+        },
+        {
+          "id": "30",
+          "label": "Темнее на 30 %",
+          "image": "q-dim-30.jpg"
+        },
+        {
+          "id": "50",
+          "label": "Темнее на 50 %",
+          "image": "q-dim-50.jpg"
+        }
+      ],
+      "default": "30"
+    },
+    {
+      "id": "end",
+      "type": "choice",
+      "title": "Финальная карточка (2 с в конце)",
+      "options": [
+        {
+          "id": "e1",
+          "label": "Было у тебя так? Напиши в комментариях 👇"
+        },
+        {
+          "id": "e2",
+          "label": "Подпишись, если тебе это знакомо"
+        },
+        {
+          "id": "e3",
+          "label": "Сохрани, если тебе сейчас тоже тяжело"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без карточки"
+        }
+      ],
+      "default": "e1"
+    }
+  ]
+}

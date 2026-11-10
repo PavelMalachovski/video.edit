@@ -1,0 +1,17 @@
+{
+  "id": "261110-150426-dr2k",
+  "name": "IMG_9333.mov",
+  "size": 483066785,
+  "type": "video/quicktime",
+  "duration": 152.9,
+  "createdAt": "2026-11-10T15:06:18.415Z",
+  "brief": "",
+  "uploads": [],
+  "runs": [
+    {
+      "step": "analyze",
+      "attempt": 1,
+      "at": "2026-11-10T15:06:18.559Z"
+    }
+  ]
+}

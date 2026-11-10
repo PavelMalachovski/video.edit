@@ -1,9 +1,6 @@
 {
-  "state": "queued",
-  "phase": "Запускаю сессию",
-  "message": "Claude переделает ролик по правке",
-  "at": "2026-11-10T15:47:09.848Z",
-  "needs": null,
-  "progress": null,
-  "error": null
+  "state": "rendering",
+  "phase": "Скачиваю видео",
+  "message": "Забираю загруженные файлы",
+  "at": "2026-11-10T15:47:47Z"
 }

@@ -1,0 +1,37 @@
+{
+  "answers": {
+    "cut": "all",
+    "hook": "own",
+    "hook.own": "Эмоциональный диапазон как у зубочистки",
+    "teaser": "no",
+    "bw": [
+      "bw-1",
+      "bw-2",
+      "bw-3"
+    ],
+    "dim": "10",
+    "music": "none",
+    "hold": "0",
+    "end": "none"
+  },
+  "style": {
+    "variant": "A",
+    "font": "forum",
+    "hand": "caveat",
+    "colors": {
+      "text": "#FFFFFF",
+      "accent": "#FECB3E",
+      "bar": "#EDE4C1"
+    },
+    "hookY": 220,
+    "hookSize": 120,
+    "subShade": 0.1
+  },
+  "speed": 1.2,
+  "cover": {
+    "frame": 0,
+    "text": "Эмоциональный диапазон как у зубочистки"
+  },
+  "uploads": {},
+  "brief": ""
+}

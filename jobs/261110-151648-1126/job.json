@@ -1,0 +1,17 @@
+{
+  "id": "261110-151648-1126",
+  "name": "IMG_9348.mov",
+  "size": 375154749,
+  "type": "video/quicktime",
+  "duration": 119.16666666666667,
+  "createdAt": "2026-11-10T15:18:20.799Z",
+  "brief": "",
+  "uploads": [],
+  "runs": [
+    {
+      "step": "analyze",
+      "attempt": 1,
+      "at": "2026-11-10T15:18:20.948Z"
+    }
+  ]
+}

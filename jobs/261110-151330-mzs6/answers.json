@@ -1,0 +1,38 @@
+{
+  "answers": {
+    "cut": "all",
+    "hook": "h1",
+    "stars": [
+      "dolboeb",
+      "her"
+    ],
+    "bw": [
+      "bw-1",
+      "bw-2",
+      "bw-3",
+      "bw-4"
+    ],
+    "dim": "30",
+    "music": "none",
+    "end": "none"
+  },
+  "style": {
+    "variant": "A",
+    "font": "forum",
+    "hand": "caveat",
+    "colors": {
+      "text": "#FFFFFF",
+      "accent": "#FFC777",
+      "bar": "#EDE4C1"
+    },
+    "hookY": 200,
+    "subShade": 0.15
+  },
+  "speed": 1.2,
+  "cover": {
+    "frame": 0,
+    "text": "переводчик с абьюзерского на человеческий"
+  },
+  "uploads": {},
+  "brief": ""
+}

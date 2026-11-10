@@ -1,0 +1,17 @@
+{
+  "id": "261110-151144-c1jf",
+  "name": "IMG_9337.mov",
+  "size": 808390173,
+  "type": "video/quicktime",
+  "duration": 256.1,
+  "createdAt": "2026-11-10T15:15:36.846Z",
+  "brief": "",
+  "uploads": [],
+  "runs": [
+    {
+      "step": "analyze",
+      "attempt": 1,
+      "at": "2026-11-10T15:15:36.941Z"
+    }
+  ]
+}

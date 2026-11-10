@@ -1,0 +1,183 @@
+{
+  "questions": [
+    {
+      "id": "cut",
+      "type": "choice",
+      "title": "Резать паузы и оговорки?",
+      "body": "Плотно — 10 пауз (−18,7 с), будет ~0:45; мягко — 8 пауз, ~0:47. Оговорок и дублей в записи нет. Тишина в конце (0:57–1:08) уходит в любом случае.",
+      "options": [
+        {
+          "id": "all",
+          "label": "Плотно, как в эталоне"
+        },
+        {
+          "id": "soft",
+          "label": "Мягче: короткие паузы остаются"
+        },
+        {
+          "id": "edges",
+          "label": "Только начало и конец"
+        }
+      ],
+      "default": "all"
+    },
+    {
+      "id": "hook",
+      "type": "choice",
+      "title": "Хук — текст на первые 2,5 секунды",
+      "options": [
+        {
+          "id": "h1",
+          "label": "вечный спасатель всегда на последнем месте"
+        },
+        {
+          "id": "h2",
+          "label": "спасать других это эмоциональная проституция"
+        },
+        {
+          "id": "h3",
+          "label": "почему вы отдаёте всё и ничего не получаете"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без хука"
+        }
+      ],
+      "default": "h1"
+    },
+    {
+      "id": "music",
+      "type": "choice",
+      "title": "Музыка под голос",
+      "body": "Тихо под речью, с первого кадра до последнего.",
+      "options": [
+        {
+          "id": "atlxs-passo.mp3",
+          "label": "ATLXS — Passo"
+        },
+        {
+          "id": "banana-cake.m4a",
+          "label": "Banana Cake"
+        },
+        {
+          "id": "did-i-drive-you-away.m4a",
+          "label": "Did I Drive You Away"
+        },
+        {
+          "id": "diedlonely-in-the-bleak.m4a",
+          "label": "diedlonely — In the Bleak"
+        },
+        {
+          "id": "etern-brodyaga.mp3",
+          "label": "Etern — Бродяга"
+        },
+        {
+          "id": "mysterious-and-sad.m4a",
+          "label": "Mysterious and Sad"
+        },
+        {
+          "id": "playboi-carti-made-it.m4a",
+          "label": "Playboi Carti — Made It"
+        },
+        {
+          "id": "sayfalse-esse.mp3",
+          "label": "SayFalse — Esse"
+        },
+        {
+          "id": "sleepwalker-slowed.m4a",
+          "label": "Sleepwalker (slowed)"
+        },
+        {
+          "id": "tory-lanez-broke.m4a",
+          "label": "Tory Lanez — Broke"
+        },
+        {
+          "id": "none",
+          "label": "Без музыки"
+        }
+      ],
+      "default": "none"
+    },
+    {
+      "id": "bw",
+      "type": "multi",
+      "title": "Ч/б-куски",
+      "body": "Кадр без цвета и темнее на эмоциональных фразах — как вторая камера.",
+      "options": [
+        {
+          "id": "bw-1",
+          "label": "0:06 — „недавно я дошла до этой мысли“"
+        },
+        {
+          "id": "bw-2",
+          "label": "0:28 — „себя я ставлю на самое последнее место“"
+        },
+        {
+          "id": "bw-3",
+          "label": "0:39 — „вам не кажется, что это парадокс системы?“"
+        }
+      ],
+      "default": [
+        "bw-1",
+        "bw-2",
+        "bw-3"
+      ]
+    },
+    {
+      "id": "dim",
+      "type": "choice",
+      "title": "Затемнить фон?",
+      "layout": "frames",
+      "options": [
+        {
+          "id": "none",
+          "label": "Как есть",
+          "image": "q-dim-none.jpg"
+        },
+        {
+          "id": "30",
+          "label": "Темнее на 30 %",
+          "image": "q-dim-30.jpg"
+        },
+        {
+          "id": "50",
+          "label": "Темнее на 50 %",
+          "image": "q-dim-50.jpg"
+        }
+      ],
+      "default": "30"
+    },
+    {
+      "id": "end",
+      "type": "choice",
+      "title": "Финальная карточка (2 с после ролика)",
+      "options": [
+        {
+          "id": "e1",
+          "label": "А ты тоже всех спасаешь? Пиши 👇"
+        },
+        {
+          "id": "e2",
+          "label": "Сохрани, чтобы не забыть о себе"
+        },
+        {
+          "id": "e3",
+          "label": "Подпишись — больше о границах"
+        },
+        {
+          "id": "own",
+          "label": "Свой призыв"
+        },
+        {
+          "id": "none",
+          "label": "Без карточки"
+        }
+      ],
+      "default": "e1"
+    }
+  ]
+}

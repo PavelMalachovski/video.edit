@@ -1,5 +1,5 @@
 {
-  "speed": 1.1,
+  "speed": 1.2,
   "keep": [
     [
       6.7,
@@ -742,7 +742,7 @@
     {
       "t0": 65.657,
       "t1": 66.097,
-      "text": "деньги,"
+      "text": "д*ньги,"
     },
     {
       "t0": 66.217,
@@ -912,7 +912,7 @@
     {
       "t0": 79.051,
       "t1": 79.451,
-      "text": "рублях."
+      "text": "р*блях."
     },
     {
       "t0": 79.851,
@@ -1032,7 +1032,7 @@
     {
       "t0": 92.171,
       "t1": 92.531,
-      "text": "деньги,"
+      "text": "д*ньги,"
     },
     {
       "t0": 92.611,
@@ -1281,7 +1281,7 @@
     }
   ],
   "hook": {
-    "text": "я та у кого не получилось",
+    "text": "мне стыдно это признать",
     "until": 9.44
   },
   "cta": null,
@@ -1676,7 +1676,10 @@
     "x": 0.45,
     "y": 0.31
   },
-  "music": null,
+  "music": {
+    "file": "assets/music/diedlonely-in-the-bleak.m4a",
+    "gainDb": -14
+  },
   "hold": 0.0,
   "transitions": [],
   "teaser": {
@@ -1685,13 +1688,13 @@
     "sfx": null
   },
   "end": null,
-  "dim": 0.3,
+  "dim": 0.15,
   "style": {
     "font": "forum",
     "hand": "caveat",
     "colors": {
       "text": "#FFFFFF",
-      "accent": "#EDE4C1",
+      "accent": "#FFC777",
       "bar": "#EDE4C1",
       "plate": "#111111",
       "outline": "#000000"
@@ -1700,16 +1703,22 @@
       "mode": "soft",
       "words": 3,
       "size": 64,
-      "y": 1440
+      "y": 1440,
+      "shade": 0.1
     },
     "hook": {
       "mode": "accent",
       "size": 108,
-      "y": 1080
+      "y": 270
     },
     "bar": {
       "pos": "bottom",
       "height": 6
     }
-  }
+  },
+  "cover": {
+    "t": 29.0,
+    "text": "мне стыдно это признать"
+  },
+  "ab": null
 }

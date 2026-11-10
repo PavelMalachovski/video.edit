@@ -1,0 +1,17 @@
+{
+  "id": "261110-150843-aatc",
+  "name": "IMG_9336.mov",
+  "size": 215823137,
+  "type": "video/quicktime",
+  "duration": 68.33333333333333,
+  "createdAt": "2026-11-10T15:09:36.646Z",
+  "brief": "",
+  "uploads": [],
+  "runs": [
+    {
+      "step": "analyze",
+      "attempt": 1,
+      "at": "2026-11-10T15:09:36.789Z"
+    }
+  ]
+}

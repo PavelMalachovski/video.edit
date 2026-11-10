@@ -1,0 +1,34 @@
+{
+  "answers": {
+    "cut": "all",
+    "hook": "h2",
+    "music": "diedlonely-in-the-bleak.m4a",
+    "bw": [
+      "bw-1",
+      "bw-2",
+      "bw-3"
+    ],
+    "dim": "10",
+    "end": "none"
+  },
+  "style": {
+    "variant": "A",
+    "font": "forum",
+    "hand": "caveat",
+    "colors": {
+      "text": "#FFFFFF",
+      "accent": "#FFC777",
+      "bar": "#EDE4C1"
+    },
+    "hookY": 230,
+    "hookSize": 88,
+    "subShade": 0.1
+  },
+  "speed": 1.2,
+  "cover": {
+    "frame": 0,
+    "text": "спасать других это эмоциональная проституция"
+  },
+  "uploads": {},
+  "brief": ""
+}

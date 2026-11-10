@@ -1,0 +1,17 @@
+{
+  "id": "261110-151508-vmic",
+  "name": "IMG_9343.mov",
+  "size": 380831027,
+  "type": "video/quicktime",
+  "duration": 120.7,
+  "createdAt": "2026-11-10T15:17:14.708Z",
+  "brief": "",
+  "uploads": [],
+  "runs": [
+    {
+      "step": "analyze",
+      "attempt": 1,
+      "at": "2026-11-10T15:17:14.814Z"
+    }
+  ]
+}

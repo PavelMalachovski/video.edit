@@ -1,0 +1,17 @@
+{
+  "id": "261110-150722-40wa",
+  "name": "IMG_9335.mov",
+  "size": 283240950,
+  "type": "video/quicktime",
+  "duration": 89.7,
+  "createdAt": "2026-11-10T15:08:32.283Z",
+  "brief": "",
+  "uploads": [],
+  "runs": [
+    {
+      "step": "analyze",
+      "attempt": 1,
+      "at": "2026-11-10T15:08:32.442Z"
+    }
+  ]
+}

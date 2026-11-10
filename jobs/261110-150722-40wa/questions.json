@@ -1,0 +1,201 @@
+{
+  "questions": [
+    {
+      "id": "cut",
+      "type": "choice",
+      "title": "Резать паузы и оговорки?",
+      "body": "Плотно — 14 пауз (−12,9 с), будет ~1:10; мягко — 9 пауз, ~1:13 (с ускорением ×1.1). Повторов и оговорок не нашёл.",
+      "options": [
+        {
+          "id": "all",
+          "label": "Плотно, как в эталоне"
+        },
+        {
+          "id": "soft",
+          "label": "Мягче: короткие паузы остаются"
+        },
+        {
+          "id": "edges",
+          "label": "Только начало и конец"
+        }
+      ],
+      "default": "all"
+    },
+    {
+      "id": "hook",
+      "type": "choice",
+      "title": "Хук на первые 2,5 секунды",
+      "options": [
+        {
+          "id": "h1",
+          "label": "сначала закрой то что болит"
+        },
+        {
+          "id": "h2",
+          "label": "почему успешные думают о себе"
+        },
+        {
+          "id": "h3",
+          "label": "парадокс тех кто достигает целей"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без хука"
+        }
+      ],
+      "default": "h1"
+    },
+    {
+      "id": "teaser",
+      "type": "choice",
+      "title": "Начать с самой сильной фразы?",
+      "body": "Главная мысль звучит только на 1:16 (по исходнику): «сначала ты закрываешь то, что болит у тебя». Предлагаю начать ролик с неё, а потом пойти с начала.",
+      "options": [
+        {
+          "id": "yes",
+          "label": "Да: «сначала ты закрываешь то, что болит у тебя»"
+        },
+        {
+          "id": "no",
+          "label": "Нет, с начала"
+        }
+      ],
+      "default": "yes"
+    },
+    {
+      "id": "bw",
+      "type": "multi",
+      "title": "Ч/б-куски",
+      "body": "Кадр без цвета и темнее — как вторая камера, на эмоциональных фразах.",
+      "options": [
+        {
+          "id": "bw-1",
+          "label": "0:21 — «когда я много вкладываю и мало что получаю»"
+        },
+        {
+          "id": "bw-2",
+          "label": "1:06 — «как бы странно и эгоистично это ни звучало»"
+        },
+        {
+          "id": "bw-3",
+          "label": "1:17 — «сначала ты закрываешь то, что болит у тебя»"
+        }
+      ],
+      "default": [
+        "bw-1",
+        "bw-2",
+        "bw-3"
+      ]
+    },
+    {
+      "id": "dim",
+      "type": "choice",
+      "title": "Затемнить фон?",
+      "layout": "frames",
+      "options": [
+        {
+          "id": "none",
+          "label": "Как есть",
+          "image": "q-dim-none.jpg"
+        },
+        {
+          "id": "30",
+          "label": "Темнее на 30 %",
+          "image": "q-dim-30.jpg"
+        },
+        {
+          "id": "50",
+          "label": "Темнее на 50 %",
+          "image": "q-dim-50.jpg"
+        }
+      ],
+      "default": "30"
+    },
+    {
+      "id": "music",
+      "type": "choice",
+      "title": "Музыка",
+      "body": "Тихо под голосом (на 14 дБ тише), с первого кадра до последнего.",
+      "options": [
+        {
+          "id": "atlxs-passo.mp3",
+          "label": "ATLXS — Passo"
+        },
+        {
+          "id": "banana-cake.m4a",
+          "label": "Banana Cake"
+        },
+        {
+          "id": "did-i-drive-you-away.m4a",
+          "label": "Did I Drive You Away"
+        },
+        {
+          "id": "diedlonely-in-the-bleak.m4a",
+          "label": "diedlonely — In the Bleak"
+        },
+        {
+          "id": "etern-brodyaga.mp3",
+          "label": "Etern — Бродяга"
+        },
+        {
+          "id": "mysterious-and-sad.m4a",
+          "label": "Mysterious and Sad"
+        },
+        {
+          "id": "playboi-carti-made-it.m4a",
+          "label": "Playboi Carti — Made It"
+        },
+        {
+          "id": "sayfalse-esse.mp3",
+          "label": "SayFalse — Esse"
+        },
+        {
+          "id": "sleepwalker-slowed.m4a",
+          "label": "Sleepwalker (slowed)"
+        },
+        {
+          "id": "tory-lanez-broke.m4a",
+          "label": "Tory Lanez — Broke"
+        },
+        {
+          "id": "none",
+          "label": "Без музыки"
+        }
+      ],
+      "default": "none"
+    },
+    {
+      "id": "end",
+      "type": "choice",
+      "title": "Финальная карточка",
+      "body": "2 секунды в конце: затемнённый последний кадр и призыв.",
+      "options": [
+        {
+          "id": "e1",
+          "label": "Подпишись, чтобы не пропустить 👇"
+        },
+        {
+          "id": "e2",
+          "label": "А вы что думаете? Пишите в комментариях 👇"
+        },
+        {
+          "id": "e3",
+          "label": "Сохрани, чтобы вернуться"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без карточки"
+        }
+      ],
+      "default": "e1"
+    }
+  ]
+}

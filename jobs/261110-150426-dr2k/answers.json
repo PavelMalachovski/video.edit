@@ -1,0 +1,43 @@
+{
+  "answers": {
+    "cut": "all",
+    "hook": "h3",
+    "bw": [
+      "bw-1",
+      "bw-2",
+      "bw-3",
+      "bw-4"
+    ],
+    "insert-1": "none",
+    "stars": [
+      "ценник"
+    ],
+    "music": "mysterious-and-sad.m4a",
+    "dim": "15",
+    "end": "none"
+  },
+  "style": {
+    "variant": "A",
+    "font": "forum",
+    "hand": "caveat",
+    "colors": {
+      "text": "#FFFFFF",
+      "accent": "#FFD977",
+      "bar": "#EDE4C1"
+    }
+  },
+  "speed": 1.2,
+  "insertBoxes": {
+    "insert-1": {
+      "x": 590,
+      "y": 1054,
+      "w": 300
+    }
+  },
+  "cover": {
+    "frame": 1,
+    "text": "мне стыдно это признавать"
+  },
+  "uploads": {},
+  "brief": ""
+}

@@ -1,0 +1,150 @@
+{
+  "frame": "frame.png",
+  "frameTime": 50.6,
+  "sample": {
+    "hook": "5 вещей которые я убрала",
+    "words": [
+      "Вот",
+      "просто",
+      "если",
+      "мне",
+      "эта"
+    ],
+    "spoken": 1,
+    "end": {
+      "lines": [
+        "Сохрани, чтобы не забыть 👇"
+      ]
+    }
+  },
+  "fonts": {
+    "main": [
+      "forum",
+      "montserrat",
+      "unbounded",
+      "rubik",
+      "oswald",
+      "russo-one",
+      "comfortaa",
+      "Arial Narrow",
+      "Cormorant",
+      "Gilroy",
+      "Helvetica",
+      "Playfair Display"
+    ],
+    "hand": [
+      "caveat",
+      "marck-script",
+      "bad-script"
+    ]
+  },
+  "cover": {
+    "frames": [
+      {
+        "t": 50.6,
+        "image": "cover-1.jpg"
+      },
+      {
+        "t": 145.9,
+        "image": "cover-2.jpg"
+      },
+      {
+        "t": 241.4,
+        "image": "cover-3.jpg"
+      }
+    ],
+    "text": "5 вещей которые я убрала"
+  },
+  "variants": [
+    {
+      "id": "A",
+      "label": "Стиль эталона: тонкая антиква, шампань",
+      "spec": {
+        "font": "forum",
+        "hand": "caveat",
+        "colors": {
+          "text": "#FFFFFF",
+          "accent": "#EDE4C1",
+          "bar": "#EDE4C1",
+          "plate": "#111111",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "soft",
+          "words": 3,
+          "size": 64,
+          "y": 1440
+        },
+        "hook": {
+          "mode": "accent",
+          "size": 108,
+          "y": 1020
+        },
+        "bar": {
+          "pos": "bottom",
+          "height": 6
+        }
+      }
+    },
+    {
+      "id": "B",
+      "label": "Эталон с Cormorant, пудровый акцент, шкала сверху",
+      "spec": {
+        "font": "Cormorant",
+        "hand": "caveat",
+        "colors": {
+          "text": "#FFFFFF",
+          "accent": "#F2C9C9",
+          "bar": "#F2C9C9",
+          "plate": "#111111",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "soft",
+          "words": 3,
+          "size": 64,
+          "y": 1440
+        },
+        "hook": {
+          "mode": "accent",
+          "size": 108,
+          "y": 1020
+        },
+        "bar": {
+          "pos": "top",
+          "height": 6
+        }
+      }
+    },
+    {
+      "id": "C",
+      "label": "Прежний жёлтый стиль",
+      "spec": {
+        "font": "montserrat",
+        "hand": "caveat",
+        "colors": {
+          "text": "#FFFFFF",
+          "accent": "#FFD23F",
+          "bar": "#FFD23F",
+          "plate": "#111111",
+          "outline": "#000000"
+        },
+        "subtitles": {
+          "mode": "karaoke",
+          "words": 3,
+          "size": 64,
+          "y": 1440
+        },
+        "hook": {
+          "mode": "plate",
+          "size": 72,
+          "y": 950
+        },
+        "bar": {
+          "pos": "bottom",
+          "height": 14
+        }
+      }
+    }
+  ]
+}

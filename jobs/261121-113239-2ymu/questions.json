@@ -1,0 +1,224 @@
+{
+  "questions": [
+    {
+      "id": "cut",
+      "type": "choice",
+      "title": "Резать паузы и оговорки?",
+      "body": "Плотно — 35 пауз и 7 повторов/оговорок, будет ~2:45; мягко — ~2:56; только края — ~4:05. Ролик длинный: Reels лучше до 90 с — если хочешь короче, напиши в «Поправить», какие пункты убрать.",
+      "options": [
+        {
+          "id": "all",
+          "label": "Плотно, как в эталоне"
+        },
+        {
+          "id": "soft",
+          "label": "Мягче: короткие паузы остаются"
+        },
+        {
+          "id": "edges",
+          "label": "Только начало и конец"
+        }
+      ],
+      "default": "all"
+    },
+    {
+      "id": "hook",
+      "type": "choice",
+      "title": "Хук в начале",
+      "options": [
+        {
+          "id": "h1",
+          "label": "5 вещей которые я убрала"
+        },
+        {
+          "id": "h2",
+          "label": "чтобы полюбить себя не добавляй а убери"
+        },
+        {
+          "id": "h3",
+          "label": "что я убрала из жизни ради себя"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без хука"
+        }
+      ],
+      "default": "h1"
+    },
+    {
+      "id": "teaser",
+      "type": "choice",
+      "title": "Начать с самой сильной фразы?",
+      "body": "0:25 — «нужно не добавить что-то в жизнь, а убрать». Ролик начнётся с неё, потом пойдёт с начала.",
+      "options": [
+        {
+          "id": "yes",
+          "label": "Да: «нужно не добавить что-то в жизнь, а убрать»"
+        },
+        {
+          "id": "no",
+          "label": "Нет, с начала"
+        }
+      ],
+      "default": "yes"
+    },
+    {
+      "id": "word",
+      "type": "word",
+      "title": "Как писать «фомо» в субтитрах (1:33)?",
+      "body": "«…навязывает мне вот это внутреннее фомо» — страх упустить.",
+      "options": [
+        {
+          "id": "fomo-ru",
+          "label": "фомо"
+        },
+        {
+          "id": "fomo-en",
+          "label": "FOMO"
+        },
+        {
+          "id": "own",
+          "label": "Свой вариант"
+        }
+      ],
+      "default": "fomo-ru"
+    },
+    {
+      "id": "bw",
+      "type": "multi",
+      "title": "Ч/б-куски",
+      "options": [
+        {
+          "id": "bw-1",
+          "label": "2:34 — «продуктивность загнала меня в такую жопу…»"
+        },
+        {
+          "id": "bw-2",
+          "label": "3:01 — «и нет, я не чувствую себя плохим человеком»"
+        },
+        {
+          "id": "bw-3",
+          "label": "3:39 — «я точно больше не хочу… заполнять полезностями»"
+        },
+        {
+          "id": "bw-4",
+          "label": "4:27 — «вкус того, что я живу. Я просто существую»"
+        }
+      ],
+      "default": [
+        "bw-1",
+        "bw-2",
+        "bw-3",
+        "bw-4"
+      ]
+    },
+    {
+      "id": "dim",
+      "type": "choice",
+      "title": "Затемнить фон?",
+      "layout": "frames",
+      "options": [
+        {
+          "id": "none",
+          "label": "Как есть",
+          "image": "q-dim-none.jpg"
+        },
+        {
+          "id": "30",
+          "label": "Темнее на 30 %",
+          "image": "q-dim-30.jpg"
+        },
+        {
+          "id": "50",
+          "label": "Темнее на 50 %",
+          "image": "q-dim-50.jpg"
+        }
+      ],
+      "default": "30"
+    },
+    {
+      "id": "music",
+      "type": "choice",
+      "title": "Музыка",
+      "options": [
+        {
+          "id": "mysterious-and-sad",
+          "label": "Mysterious and Sad"
+        },
+        {
+          "id": "sleepwalker-slowed",
+          "label": "Sleepwalker (slowed)"
+        },
+        {
+          "id": "did-i-drive-you-away",
+          "label": "Did I Drive You Away"
+        },
+        {
+          "id": "diedlonely-in-the-bleak",
+          "label": "diedlonely — In the Bleak"
+        },
+        {
+          "id": "etern-brodyaga",
+          "label": "Etern — Бродяга"
+        },
+        {
+          "id": "atlxs-passo",
+          "label": "ATLXS — Passo"
+        },
+        {
+          "id": "sayfalse-esse",
+          "label": "SayFalse — Esse"
+        },
+        {
+          "id": "banana-cake",
+          "label": "Banana Cake"
+        },
+        {
+          "id": "playboi-carti-made-it",
+          "label": "Playboi Carti — Made It"
+        },
+        {
+          "id": "tory-lanez-broke",
+          "label": "Tory Lanez — Broke"
+        },
+        {
+          "id": "none",
+          "label": "Без музыки"
+        }
+      ],
+      "default": "none"
+    },
+    {
+      "id": "end",
+      "type": "choice",
+      "title": "Финальная карточка",
+      "options": [
+        {
+          "id": "e1",
+          "label": "Сохрани, чтобы не забыть 👇"
+        },
+        {
+          "id": "e2",
+          "label": "А что убрала бы ты? Пиши в комментариях"
+        },
+        {
+          "id": "e3",
+          "label": "Подпишись, если откликнулось"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без карточки"
+        }
+      ],
+      "default": "e1"
+    }
+  ]
+}

@@ -2613,14 +2613,10 @@
     }
   ],
   "hook": {
-    "text": "5 вещей которые я убрала",
-    "until": 3.5
+    "text": "Хочу вспомнить как это любить себя",
+    "until": 3.48
   },
-  "teaser": {
-    "t0": 25.06,
-    "t1": 27.55,
-    "sfx": null
-  },
+  "teaser": null,
   "cta": null,
   "inserts": [],
   "accents": [
@@ -3290,7 +3286,10 @@
     "x": 0.53,
     "y": 0.27
   },
-  "music": null,
+  "music": {
+    "file": "assets/music/mysterious-and-sad.m4a",
+    "gainDb": -14
+  },
   "hold": 0.0,
   "transitions": [],
   "dim": 0.3,
@@ -3313,11 +3312,17 @@
     "hook": {
       "mode": "accent",
       "size": 108,
-      "y": 1020
+      "y": 1200
     },
     "bar": {
       "pos": "bottom",
       "height": 6
     }
-  }
+  },
+  "end": null,
+  "cover": {
+    "t": 50.6,
+    "text": "Хочу вспомнить как это любить себя"
+  },
+  "ab": null
 }

@@ -1,0 +1,36 @@
+{
+  "answers": {
+    "cut": "all",
+    "hook": "own",
+    "hook.own": "Хочу вспомнить как это любить себя",
+    "teaser": "no",
+    "word": "fomo-ru",
+    "bw": [
+      "bw-1",
+      "bw-2",
+      "bw-3",
+      "bw-4"
+    ],
+    "dim": "30",
+    "music": "mysterious-and-sad",
+    "end": "none"
+  },
+  "style": {
+    "variant": "A",
+    "font": "forum",
+    "hand": "caveat",
+    "colors": {
+      "text": "#FFFFFF",
+      "accent": "#EDE4C1",
+      "bar": "#EDE4C1"
+    },
+    "hookY": 1200
+  },
+  "speed": 1.1,
+  "cover": {
+    "frame": 0,
+    "text": "Хочу вспомнить как это любить себя"
+  },
+  "uploads": {},
+  "brief": ""
+}

@@ -1,0 +1,17 @@
+{
+  "id": "261121-113239-2ymu",
+  "name": "IMG_9719.mov",
+  "size": 860335357,
+  "type": "video/quicktime",
+  "duration": 273.3,
+  "createdAt": "2026-11-21T11:36:23.059Z",
+  "brief": "",
+  "uploads": [],
+  "runs": [
+    {
+      "step": "analyze",
+      "attempt": 1,
+      "at": "2026-11-21T11:36:23.137Z"
+    }
+  ]
+}

@@ -1,0 +1,156 @@
+{
+  "questions": [
+    {
+      "id": "cut",
+      "type": "choice",
+      "title": "Резать паузы и оговорки?",
+      "body": "Плотно — 7 пауз и случайное «и» на 0:28, будет ~0:38; мягко — ~0:40; только края — ~0:42 (со скоростью ×1.1).",
+      "options": [
+        {
+          "id": "all",
+          "label": "Плотно, как в эталоне"
+        },
+        {
+          "id": "soft",
+          "label": "Мягче: короткие паузы остаются"
+        },
+        {
+          "id": "edges",
+          "label": "Только тишина в начале и в конце"
+        }
+      ],
+      "default": "all"
+    },
+    {
+      "id": "hook",
+      "type": "choice",
+      "title": "Хук в первые 2–3 секунды",
+      "body": "Ролик сразу начинается с сильной мысли «мы даже не понимаем, насколько мы странные» — хук её подчёркивает.",
+      "options": [
+        {
+          "id": "h1",
+          "label": "мы с вами очень странные"
+        },
+        {
+          "id": "h2",
+          "label": "соцсети — это просто маски"
+        },
+        {
+          "id": "h3",
+          "label": "почему мы боимся быть настоящими"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без хука"
+        }
+      ],
+      "default": "h1"
+    },
+    {
+      "id": "music",
+      "type": "choice",
+      "title": "Музыка под голос",
+      "body": "Тихо под речью (на 14 дБ тише голоса), с первого кадра до последнего. Под эту задумчивую мысль подойдёт спокойный трек.",
+      "options": [
+        {
+          "id": "atlxs-passo",
+          "label": "Atlxs — Passo"
+        },
+        {
+          "id": "banana-cake",
+          "label": "Banana Cake"
+        },
+        {
+          "id": "did-i-drive-you-away",
+          "label": "Did I Drive You Away"
+        },
+        {
+          "id": "diedlonely-in-the-bleak",
+          "label": "Diedlonely — In the Bleak"
+        },
+        {
+          "id": "etern-brodyaga",
+          "label": "Etern — Бродяга"
+        },
+        {
+          "id": "mysterious-and-sad",
+          "label": "Mysterious and Sad"
+        },
+        {
+          "id": "playboi-carti-made-it",
+          "label": "Playboi Carti — Made It"
+        },
+        {
+          "id": "sayfalse-esse",
+          "label": "Sayfalse — Esse"
+        },
+        {
+          "id": "sleepwalker-slowed",
+          "label": "Sleepwalker (slowed)"
+        },
+        {
+          "id": "tory-lanez-broke",
+          "label": "Tory Lanez — Broke"
+        },
+        {
+          "id": "none",
+          "label": "Без музыки"
+        }
+      ],
+      "default": "mysterious-and-sad"
+    },
+    {
+      "id": "bw",
+      "type": "multi",
+      "title": "Ч/б-куски",
+      "body": "Кадр без цвета и темнее — как вторая камера на эмоциональных фразах.",
+      "options": [
+        {
+          "id": "bw-1",
+          "label": "0:13 — „если нас узнают настоящими, то нас будут хейтить“"
+        },
+        {
+          "id": "bw-2",
+          "label": "0:28 — „если вот это не странность современного мира“"
+        }
+      ],
+      "default": [
+        "bw-1",
+        "bw-2"
+      ]
+    },
+    {
+      "id": "end",
+      "type": "choice",
+      "title": "Финальная карточка с призывом",
+      "body": "2 секунды в конце: затемнённый последний кадр и призыв.",
+      "options": [
+        {
+          "id": "e1",
+          "label": "А ты носишь маски? Пиши 👇"
+        },
+        {
+          "id": "e2",
+          "label": "Подпишись, если ты за настоящих"
+        },
+        {
+          "id": "e3",
+          "label": "Сохрани и отправь другу"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без карточки"
+        }
+      ],
+      "default": "e1"
+    }
+  ]
+}

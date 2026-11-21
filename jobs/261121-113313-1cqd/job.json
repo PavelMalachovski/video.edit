@@ -1,0 +1,17 @@
+{
+  "id": "261121-113313-1cqd",
+  "name": "BABD9CC7-CEB0-49B4-9752-3B07EDA5ADC7.mov",
+  "size": 1839768384,
+  "type": "video/quicktime",
+  "duration": 262.71666666666664,
+  "createdAt": "2026-11-21T11:39:59.984Z",
+  "brief": "",
+  "uploads": [],
+  "runs": [
+    {
+      "step": "analyze",
+      "attempt": 1,
+      "at": "2026-11-21T11:40:00.082Z"
+    }
+  ]
+}

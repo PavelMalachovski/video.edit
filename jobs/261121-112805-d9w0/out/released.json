@@ -1,0 +1,156 @@
+{
+ "release_id": 453642257,
+ "assets": [
+  {
+   "name": "manifest.json",
+   "id": 775356269,
+   "size": 450
+  },
+  {
+   "name": "matte-8ba457e32e0a.json",
+   "id": 775401470,
+   "size": 104
+  },
+  {
+   "name": "source-4b55ae33d243.json",
+   "id": 775360053,
+   "size": 125
+  },
+  {
+   "name": "source-4b55ae33d243.mp4.part-00000",
+   "id": 775359871,
+   "size": 90951527
+  },
+  {
+   "name": "source.part-00000",
+   "id": 775355392,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00001",
+   "id": 775355428,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00002",
+   "id": 775355450,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00003",
+   "id": 775355470,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00004",
+   "id": 775355502,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00005",
+   "id": 775355522,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00006",
+   "id": 775355552,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00007",
+   "id": 775355575,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00008",
+   "id": 775355599,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00009",
+   "id": 775355672,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00010",
+   "id": 775355699,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00011",
+   "id": 775355741,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00012",
+   "id": 775355779,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00013",
+   "id": 775355851,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00014",
+   "id": 775355887,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00015",
+   "id": 775355918,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00016",
+   "id": 775355943,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00017",
+   "id": 775355968,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00018",
+   "id": 775356005,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00019",
+   "id": 775356035,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00020",
+   "id": 775356082,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00021",
+   "id": 775356110,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00022",
+   "id": 775356153,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00023",
+   "id": 775356181,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00024",
+   "id": 775356215,
+   "size": 4194304
+  },
+  {
+   "name": "source.part-00025",
+   "id": 775356242,
+   "size": 3519399
+  }
+ ],
+ "at": "2026-11-21T11:45:43Z"
+}

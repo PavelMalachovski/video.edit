@@ -1648,7 +1648,7 @@
     }
   ],
   "hook": {
-    "text": "лечит только другой человек",
+    "text": "нас лечат не термины из психологии",
     "until": 5.2
   },
   "cta": null,
@@ -2070,7 +2070,10 @@
     "x": 0.48,
     "y": 0.3
   },
-  "music": null,
+  "music": {
+    "file": "assets/music/diedlonely-in-the-bleak.m4a",
+    "gainDb": -14
+  },
   "hold": 0.0,
   "transitions": [
     {
@@ -2079,11 +2082,7 @@
       "sfx": null
     }
   ],
-  "teaser": {
-    "t0": 60.86,
-    "t1": 63.62,
-    "sfx": null
-  },
+  "teaser": null,
   "style": {
     "font": "forum",
     "hand": "caveat",
@@ -2103,11 +2102,18 @@
     "hook": {
       "mode": "accent",
       "size": 108,
-      "y": 1060
+      "y": 1190
     },
     "bar": {
       "pos": "bottom",
       "height": 6
     }
+  },
+  "dim": 0.3,
+  "end": null,
+  "ab": null,
+  "cover": {
+    "t": 61.5,
+    "text": "нас лечат не термины из психологии"
   }
 }

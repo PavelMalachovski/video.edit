@@ -1,0 +1,205 @@
+{
+  "questions": [
+    {
+      "id": "cut",
+      "type": "choice",
+      "title": "Резать паузы и оговорки?",
+      "body": "Плотно — 34 паузы и 3 оговорки/повтора, будет ~3:36 (с ×1.1); мягко — ~3:49; только края — ~3:59.",
+      "options": [
+        {
+          "id": "all",
+          "label": "Плотно, как в эталоне"
+        },
+        {
+          "id": "soft",
+          "label": "Мягче: паузы до 0,45 с остаются"
+        },
+        {
+          "id": "edges",
+          "label": "Только края"
+        }
+      ],
+      "default": "all"
+    },
+    {
+      "id": "hook",
+      "type": "choice",
+      "title": "Хук — текст первых секунд",
+      "options": [
+        {
+          "id": "h1",
+          "label": "броня сильной девочки"
+        },
+        {
+          "id": "h2",
+          "label": "почему сильные девочки ломаются"
+        },
+        {
+          "id": "h3",
+          "label": "расхламление субличности: я беспомощная"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без хука"
+        }
+      ],
+      "default": "h1"
+    },
+    {
+      "id": "teaser",
+      "type": "choice",
+      "title": "Начать с самой сильной фразы?",
+      "body": "Фраза на 2:46: «я уже несколько недель на успокоительных» — ролик начнётся с неё, потом пойдёт с начала.",
+      "options": [
+        {
+          "id": "yes",
+          "label": "Да: „я уже несколько недель на успокоительных“"
+        },
+        {
+          "id": "no",
+          "label": "Нет, с начала"
+        }
+      ],
+      "default": "yes"
+    },
+    {
+      "id": "bw",
+      "type": "multi",
+      "title": "Ч/б-куски",
+      "body": "Эмоциональные фразы — без цвета и темнее, как вторая камера.",
+      "options": [
+        {
+          "id": "bw-1",
+          "label": "0:38 — „до того момента, когда летом у меня не умерла собака“"
+        },
+        {
+          "id": "bw-2",
+          "label": "2:40 — „но проблема в том, что прошло пару месяцев, и меня накрыло“"
+        },
+        {
+          "id": "bw-3",
+          "label": "3:15 — „часто я довольно большая сволочь, я сука“"
+        },
+        {
+          "id": "bw-4",
+          "label": "3:56 — „гораздо больше мне бы пригодилось просто научиться проживать эти эмоции“"
+        }
+      ],
+      "default": [
+        "bw-1",
+        "bw-2",
+        "bw-3",
+        "bw-4"
+      ]
+    },
+    {
+      "id": "dim",
+      "type": "choice",
+      "title": "Затемнить фон?",
+      "layout": "frames",
+      "options": [
+        {
+          "id": "none",
+          "label": "Как есть",
+          "image": "q-dim-none.jpg"
+        },
+        {
+          "id": "30",
+          "label": "Темнее на 30 %",
+          "image": "q-dim-30.jpg"
+        },
+        {
+          "id": "50",
+          "label": "Темнее на 50 %",
+          "image": "q-dim-50.jpg"
+        }
+      ],
+      "default": "30"
+    },
+    {
+      "id": "music",
+      "type": "choice",
+      "title": "Музыка",
+      "body": "Тихо под голосом (на 14 дБ тише). Треки — чужие песни: обычный Reels могут заглушить.",
+      "options": [
+        {
+          "id": "none",
+          "label": "Без музыки"
+        },
+        {
+          "id": "mysterious-and-sad.m4a",
+          "label": "Mysterious and Sad — тихая, грустная"
+        },
+        {
+          "id": "did-i-drive-you-away.m4a",
+          "label": "Did I Drive You Away — лиричная"
+        },
+        {
+          "id": "diedlonely-in-the-bleak.m4a",
+          "label": "diedlonely — In the Bleak"
+        },
+        {
+          "id": "sleepwalker-slowed.m4a",
+          "label": "Sleepwalker (slowed)"
+        },
+        {
+          "id": "etern-brodyaga.mp3",
+          "label": "Etern — Бродяга"
+        },
+        {
+          "id": "atlxs-passo.mp3",
+          "label": "ATLXS — Passo"
+        },
+        {
+          "id": "sayfalse-esse.mp3",
+          "label": "SAYFALSE — Esse"
+        },
+        {
+          "id": "banana-cake.m4a",
+          "label": "Banana Cake"
+        },
+        {
+          "id": "playboi-carti-made-it.m4a",
+          "label": "Playboi Carti — Made It"
+        },
+        {
+          "id": "tory-lanez-broke.m4a",
+          "label": "Tory Lanez — Broke"
+        }
+      ],
+      "default": "mysterious-and-sad.m4a"
+    },
+    {
+      "id": "end",
+      "type": "choice",
+      "title": "Финальная карточка (2 с в конце)",
+      "options": [
+        {
+          "id": "e1",
+          "label": "Подпишись — дальше разберём другие субличности 👇"
+        },
+        {
+          "id": "e2",
+          "label": "Узнала себя? Напиши в комментариях"
+        },
+        {
+          "id": "e3",
+          "label": "Сохрани, чтобы не забыть"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без карточки"
+        }
+      ],
+      "default": "e1"
+    }
+  ]
+}

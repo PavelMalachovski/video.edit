@@ -1,0 +1,39 @@
+{
+  "answers": {
+    "cut": "all",
+    "hook": "own",
+    "hook.own": "Женщина, которой я не стала",
+    "teaser": "no",
+    "music": "diedlonely-in-the-bleak",
+    "bw": [
+      "bw-1",
+      "bw-2",
+      "bw-3",
+      "bw-4"
+    ],
+    "stars": [
+      "zarabotok",
+      "zarabotat"
+    ],
+    "dim": "30",
+    "end": "e1"
+  },
+  "style": {
+    "variant": "A",
+    "font": "forum",
+    "hand": "caveat",
+    "colors": {
+      "text": "#FFFFFF",
+      "accent": "#EDE4C1",
+      "bar": "#EDE4C1"
+    },
+    "hookY": 1200
+  },
+  "speed": 1.1,
+  "cover": {
+    "frame": 0,
+    "text": "Женщина, которой я не стала"
+  },
+  "uploads": {},
+  "brief": ""
+}

@@ -1,0 +1,17 @@
+{
+  "id": "261121-112937-lpg1",
+  "name": "IMG_9718.mov",
+  "size": 389992541,
+  "type": "video/quicktime",
+  "duration": 123.96666666666667,
+  "createdAt": "2026-11-21T11:30:57.995Z",
+  "brief": "",
+  "uploads": [],
+  "runs": [
+    {
+      "step": "analyze",
+      "attempt": 1,
+      "at": "2026-11-21T11:30:58.121Z"
+    }
+  ]
+}

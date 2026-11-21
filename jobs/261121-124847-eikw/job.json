@@ -1,0 +1,17 @@
+{
+  "id": "261121-124847-eikw",
+  "name": "IMG_9709.mov",
+  "size": 150399714,
+  "type": "video/quicktime",
+  "duration": 47.86666666666667,
+  "createdAt": "2026-11-21T12:49:25.109Z",
+  "brief": "",
+  "uploads": [],
+  "runs": [
+    {
+      "step": "analyze",
+      "attempt": 1,
+      "at": "2026-11-21T12:49:25.175Z"
+    }
+  ]
+}

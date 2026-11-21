@@ -1,0 +1,17 @@
+{
+  "id": "261121-112805-d9w0",
+  "name": "IMG_9710.mov",
+  "size": 108376999,
+  "type": "video/quicktime",
+  "duration": 34.46666666666667,
+  "createdAt": "2026-11-21T11:28:33.523Z",
+  "brief": "",
+  "uploads": [],
+  "runs": [
+    {
+      "step": "analyze",
+      "attempt": 1,
+      "at": "2026-11-21T11:28:33.644Z"
+    }
+  ]
+}

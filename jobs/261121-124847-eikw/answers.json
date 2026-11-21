@@ -1,0 +1,31 @@
+{
+  "answers": {
+    "cut": "all",
+    "hook": "own",
+    "hook.own": "Боюсь быть собой",
+    "music": "mysterious-and-sad",
+    "bw": [
+      "bw-1",
+      "bw-2"
+    ],
+    "end": "none"
+  },
+  "style": {
+    "variant": "A",
+    "font": "forum",
+    "hand": "caveat",
+    "colors": {
+      "text": "#FFFFFF",
+      "accent": "#EDE4C1",
+      "bar": "#EDE4C1"
+    },
+    "hookY": 1180
+  },
+  "speed": 1.1,
+  "cover": {
+    "frame": 0,
+    "text": "Боюсь быть собой"
+  },
+  "uploads": {},
+  "brief": ""
+}

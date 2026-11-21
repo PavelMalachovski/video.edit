@@ -1,0 +1,34 @@
+{
+  "answers": {
+    "cut": "all",
+    "hook": "own",
+    "hook.own": "Нас лечат не термины из психологии",
+    "teaser": "no",
+    "bw": [
+      "bw-1",
+      "bw-2",
+      "bw-3"
+    ],
+    "dim": "30",
+    "music": "diedlonely-in-the-bleak.m4a",
+    "end": "none"
+  },
+  "style": {
+    "variant": "A",
+    "font": "forum",
+    "hand": "caveat",
+    "colors": {
+      "text": "#FFFFFF",
+      "accent": "#EDE4C1",
+      "bar": "#EDE4C1"
+    },
+    "hookY": 1190
+  },
+  "speed": 1.1,
+  "cover": {
+    "frame": 0,
+    "text": "Нас лечат не термины из психологии"
+  },
+  "uploads": {},
+  "brief": ""
+}

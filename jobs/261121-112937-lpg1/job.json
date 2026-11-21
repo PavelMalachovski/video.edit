@@ -11,7 +11,8 @@
     {
       "step": "analyze",
       "attempt": 1,
-      "at": "2026-11-21T11:30:58.121Z"
+      "at": "2026-11-21T11:30:58.121Z",
+      "sessionUrl": "https://claude.ai/code/cse_01Dch2jK4p5NFgPzt49TZeBb"
     }
   ]
 }

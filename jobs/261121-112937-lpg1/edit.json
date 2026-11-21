@@ -1854,7 +1854,10 @@
     "x": 0.55,
     "y": 0.27
   },
-  "music": null,
+  "music": {
+    "file": "assets/music/mysterious-and-sad.m4a",
+    "gainDb": -14
+  },
   "hold": 0.0,
   "transitions": [],
   "teaser": {
@@ -1881,11 +1884,18 @@
     "hook": {
       "mode": "accent",
       "size": 108,
-      "y": 1000
+      "y": 1140
     },
     "bar": {
       "pos": "bottom",
       "height": 6
     }
-  }
+  },
+  "dim": 0.3,
+  "cover": {
+    "t": 5.0,
+    "text": "если пропал вкус к жизни"
+  },
+  "end": null,
+  "ab": null
 }

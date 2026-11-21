@@ -23,7 +23,8 @@
     {
       "step": "fix",
       "attempt": 1,
-      "at": "2026-11-21T13:09:14.850Z"
+      "at": "2026-11-21T13:09:14.850Z",
+      "sessionUrl": "https://claude.ai/code/cse_01Dch2jH2GUpR3uzg6Cb5z1r"
     }
   ]
 }

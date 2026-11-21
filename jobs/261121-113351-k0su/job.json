@@ -1,0 +1,17 @@
+{
+  "id": "261121-113351-k0su",
+  "name": "B531C6A1-F9C6-4B6D-8FDF-919EA12BDCB2.mov",
+  "size": 1376430831,
+  "type": "video/quicktime",
+  "duration": 196.61666666666667,
+  "createdAt": "2026-11-21T11:39:06.449Z",
+  "brief": "",
+  "uploads": [],
+  "runs": [
+    {
+      "step": "analyze",
+      "attempt": 1,
+      "at": "2026-11-21T11:39:06.516Z"
+    }
+  ]
+}

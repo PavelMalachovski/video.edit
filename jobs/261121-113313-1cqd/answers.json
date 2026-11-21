@@ -1,0 +1,34 @@
+{
+  "answers": {
+    "cut": "all",
+    "hook": "h3",
+    "teaser": "no",
+    "bw": [
+      "bw-1",
+      "bw-2",
+      "bw-3",
+      "bw-4"
+    ],
+    "dim": "30",
+    "music": "mysterious-and-sad.m4a",
+    "end": "none"
+  },
+  "style": {
+    "variant": "A",
+    "font": "forum",
+    "hand": "caveat",
+    "colors": {
+      "text": "#FFFFFF",
+      "accent": "#EDE4C1",
+      "bar": "#EDE4C1"
+    },
+    "hookY": 1220
+  },
+  "speed": 1.1,
+  "cover": {
+    "frame": 0,
+    "text": "расхламление субличности: я беспомощная"
+  },
+  "uploads": {},
+  "brief": ""
+}

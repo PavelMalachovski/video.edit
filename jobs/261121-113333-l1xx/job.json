@@ -1,0 +1,17 @@
+{
+  "id": "261121-113333-l1xx",
+  "name": "CA45C0B4-CD5B-4E61-A340-EEDCE1105786.mov",
+  "size": 1217409652,
+  "type": "video/quicktime",
+  "duration": 173.68333333333334,
+  "createdAt": "2026-11-21T11:38:22.201Z",
+  "brief": "",
+  "uploads": [],
+  "runs": [
+    {
+      "step": "analyze",
+      "attempt": 1,
+      "at": "2026-11-21T11:38:22.274Z"
+    }
+  ]
+}

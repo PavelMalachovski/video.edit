@@ -550,7 +550,7 @@
     }
   ],
   "hook": {
-    "text": "мы с вами очень странные",
+    "text": "боюсь быть собой",
     "until": 3.3
   },
   "cta": null,
@@ -734,7 +734,10 @@
     "x": 0.47,
     "y": 0.29
   },
-  "music": null,
+  "music": {
+    "file": "assets/music/mysterious-and-sad.m4a",
+    "gainDb": -14
+  },
   "hold": 0.0,
   "transitions": [],
   "style": {
@@ -756,12 +759,18 @@
     "hook": {
       "mode": "accent",
       "size": 108,
-      "y": 1020
+      "y": 1180
     },
     "bar": {
       "pos": "bottom",
       "height": 6
     }
   },
-  "teaser": null
+  "teaser": null,
+  "end": null,
+  "ab": null,
+  "cover": {
+    "t": 1.0,
+    "text": "Боюсь быть собой"
+  }
 }

@@ -3069,14 +3069,10 @@
     }
   ],
   "hook": {
-    "text": "броня сильной девочки",
-    "until": 2.72
+    "text": "расхламление субличности: я беспомощная",
+    "until": 3.04
   },
-  "teaser": {
-    "t0": 166.03,
-    "t1": 169.251,
-    "sfx": null
-  },
+  "teaser": null,
   "cta": null,
   "inserts": [],
   "accents": [
@@ -3837,7 +3833,10 @@
     "x": 0.56,
     "y": 0.29
   },
-  "music": null,
+  "music": {
+    "file": "assets/music/mysterious-and-sad.m4a",
+    "gainDb": -14
+  },
   "hold": 0.0,
   "transitions": [],
   "style": {
@@ -3859,11 +3858,18 @@
     "hook": {
       "mode": "accent",
       "size": 108,
-      "y": 1020
+      "y": 1220
     },
     "bar": {
       "pos": "bottom",
       "height": 6
     }
-  }
+  },
+  "dim": 0.3,
+  "end": null,
+  "cover": {
+    "t": 8.8,
+    "text": "расхламление субличности: я беспомощная"
+  },
+  "ab": null
 }

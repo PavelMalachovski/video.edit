@@ -1,0 +1,32 @@
+{
+  "answers": {
+    "hook": "h3",
+    "teaser": "no",
+    "cut": "all",
+    "bw": [
+      "bw-1",
+      "bw-2"
+    ],
+    "dim": "30",
+    "music": "diedlonely-in-the-bleak",
+    "end": "none"
+  },
+  "style": {
+    "variant": "A",
+    "font": "forum",
+    "hand": "caveat",
+    "colors": {
+      "text": "#FFFFFF",
+      "accent": "#EDE4C1",
+      "bar": "#EDE4C1"
+    },
+    "hookY": 1130
+  },
+  "speed": 1.1,
+  "cover": {
+    "frame": 0,
+    "text": "вся магия соцсетей это страх"
+  },
+  "uploads": {},
+  "brief": ""
+}

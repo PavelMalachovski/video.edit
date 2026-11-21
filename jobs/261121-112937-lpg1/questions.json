@@ -1,0 +1,193 @@
+{
+  "questions": [
+    {
+      "id": "cut",
+      "type": "choice",
+      "title": "Резать паузы и оговорки?",
+      "body": "Плотно — 22 паузы и дубль «когда я уже поговорила со всеми, со всеми…», ролик ~1:37; мягко — ~1:41; только края — ~1:51 (со скоростью ×1,1).",
+      "options": [
+        {
+          "id": "all",
+          "label": "Плотно, как в эталоне"
+        },
+        {
+          "id": "soft",
+          "label": "Мягче: короткие паузы остаются"
+        },
+        {
+          "id": "edges",
+          "label": "Только тишина в начале и в конце"
+        }
+      ],
+      "default": "all"
+    },
+    {
+      "id": "hook",
+      "type": "choice",
+      "title": "Хук в первые 2 секунды",
+      "options": [
+        {
+          "id": "h1",
+          "label": "если пропал вкус к жизни"
+        },
+        {
+          "id": "h2",
+          "label": "как вернуть вкус к жизни"
+        },
+        {
+          "id": "h3",
+          "label": "практика когда всё померкло"
+        },
+        {
+          "id": "own",
+          "label": "Свой текст"
+        },
+        {
+          "id": "none",
+          "label": "Без хука"
+        }
+      ],
+      "default": "h1"
+    },
+    {
+      "id": "teaser",
+      "type": "choice",
+      "title": "Начать с самой сильной фразы?",
+      "body": "Фраза «какие жизни ты бы хотел прожить» (0:56) — суть практики; ролик начнётся с неё, потом пойдёт с начала.",
+      "options": [
+        {
+          "id": "yes",
+          "label": "Да: «какие жизни ты бы хотел прожить»"
+        },
+        {
+          "id": "no",
+          "label": "Нет, по порядку"
+        }
+      ],
+      "default": "yes"
+    },
+    {
+      "id": "music",
+      "type": "choice",
+      "title": "Музыка под голос",
+      "options": [
+        {
+          "id": "mysterious-and-sad.m4a",
+          "label": "Mysterious and Sad — спокойный, задумчивый"
+        },
+        {
+          "id": "sleepwalker-slowed.m4a",
+          "label": "Sleepwalker (slowed) — медленный"
+        },
+        {
+          "id": "did-i-drive-you-away.m4a",
+          "label": "Did I Drive You Away — лирика"
+        },
+        {
+          "id": "diedlonely-in-the-bleak.m4a",
+          "label": "diedlonely — In the Bleak"
+        },
+        {
+          "id": "etern-brodyaga.mp3",
+          "label": "Etern — Бродяга"
+        },
+        {
+          "id": "banana-cake.m4a",
+          "label": "Banana Cake"
+        },
+        {
+          "id": "atlxs-passo.mp3",
+          "label": "ATLXS — Passo"
+        },
+        {
+          "id": "sayfalse-esse.mp3",
+          "label": "sayfalse — Esse"
+        },
+        {
+          "id": "playboi-carti-made-it.m4a",
+          "label": "Playboi Carti — Made It"
+        },
+        {
+          "id": "tory-lanez-broke.m4a",
+          "label": "Tory Lanez — Broke"
+        },
+        {
+          "id": "none",
+          "label": "Без музыки"
+        }
+      ],
+      "default": "mysterious-and-sad.m4a"
+    },
+    {
+      "id": "bw",
+      "type": "multi",
+      "title": "Ч/б-куски",
+      "options": [
+        {
+          "id": "bw-1",
+          "label": "0:28 — «просто всё в жизни померкло»"
+        },
+        {
+          "id": "bw-2",
+          "label": "1:07 — «и ровно в этот момент поняла: во-первых, я поменялась»"
+        }
+      ],
+      "default": [
+        "bw-1",
+        "bw-2"
+      ]
+    },
+    {
+      "id": "dim",
+      "type": "choice",
+      "title": "Затемнить фон?",
+      "layout": "frames",
+      "options": [
+        {
+          "id": "none",
+          "label": "Как есть",
+          "image": "q-dim-none.jpg"
+        },
+        {
+          "id": "30",
+          "label": "Темнее на 30 %",
+          "image": "q-dim-30.jpg"
+        },
+        {
+          "id": "50",
+          "label": "Темнее на 50 %",
+          "image": "q-dim-50.jpg"
+        }
+      ],
+      "default": "30"
+    },
+    {
+      "id": "end",
+      "type": "choice",
+      "title": "Финальная карточка",
+      "options": [
+        {
+          "id": "e1",
+          "label": "Сохрани, чтобы попробовать 👇"
+        },
+        {
+          "id": "e2",
+          "label": "Напиши, какую жизнь прожила бы ты 👇"
+        },
+        {
+          "id": "e3",
+          "label": "Подпишись, чтобы не потерять"
+        },
+        {
+          "id": "own",
+          "label": "Свой призыв"
+        },
+        {
+          "id": "none",
+          "label": "Без карточки"
+        }
+      ],
+      "default": "e1"
+    }
+  ]
+}
